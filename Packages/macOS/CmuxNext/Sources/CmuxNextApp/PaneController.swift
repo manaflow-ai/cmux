@@ -24,7 +24,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     var pane: PaneModel // set only by adopt(_:): a resync's new record of the same pane
     /// The machine daemon that owns `pane`.
     let daemon: DaemonService
-    let stripModel = TabStripModel()
+    let stripModel: TabStripModel
     let view: PaneContentView
     unowned let services: AppServices
     /// Weak: daemon round trips (`Task`s in the intents) can outlive the
@@ -85,9 +85,21 @@ final class PaneController: SurfacePresenter, PresentablePane {
         var takesNewTabs = true
     }
 
-    /// `workspace` is set before the first apply, so the first frame is the settled one.
+    /// A pane's strip model and views made ahead and parked hidden in the layout (``IdleSpare``: init and window walk were 5.5 ms of a New Column's key turn).
+    struct Spare {
+        let stripModel = TabStripModel()
+        let view: PaneContentView
+        init(services: AppServices) {
+            view = PaneContentView(stripModel: stripModel)
+            (view.stripView.previewProvider, view.stripView.resourceSource) = (services.previews, services.resources)
+            // The + stays a plain default-tab action, with hold/right-click for the type menu; its chevron opens that menu.
+            (view.stripView.opensNewTabMenuOnPress, view.stripView.showsNewTabMenuButton) = (false, true)
+        }
+    }
+
+    /// `workspace` is set before the first apply, so the first frame is the settled one. `spare`: views made ahead, else made now.
     init(pane: PaneModel, daemon: DaemonService, layoutPaneID: LayoutPaneID, services: AppServices, state: WindowState,
-         workspace: WorkspaceContentController? = nil) {
+         workspace: WorkspaceContentController? = nil, spare: Spare? = nil) {
         self.pane = pane
         self.workspace = workspace
         self.daemon = daemon
@@ -96,14 +108,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
         self.services = services
         self.state = state
         isSuspended = workspace?.drawsNothing == true // a pane made in a parked workspace starts suspended
-        view = PaneContentView(stripModel: stripModel)
+        let views = spare ?? Spare(services: services)
+        (stripModel, view) = (views.stripModel, views.view)
         stripModel.intentHandler = { [weak self] intent in self?.handle(intent) }
-        view.stripView.previewProvider = services.previews
-        view.stripView.resourceSource = services.resources
-        // The + stays a plain default-tab action, with hold/right-click for the type menu.
-        // Its adjacent chevron exposes that same menu without changing what a plus click does.
-        view.stripView.opensNewTabMenuOnPress = false
-        view.stripView.showsNewTabMenuButton = true
         view.stripView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
         view.stripView.hoverCards = services.hoverCards
         view.stripView.onHoverTab = { [weak self] id in self?.noteHover(id) }
@@ -350,9 +357,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
                                                 openers: services.cache.pageRequests.openers.closeRelations(among: pane.tabs, last: &closeTabs))
         setStripSelection(selected.map { StripTabID($0) })
         let selectedID = stripModel.selectedID
+        sendTopologyIfChanged() // focus learns the selection before the show: the keyboard leaves the old tab first (showSelected)
         if selectNew {
-            // A tab this window created: show it now (focus is the
-            // coordinator's expectation, not decided here).
+            // A tab this window created: show it now (focus is the coordinator's expectation, not decided here).
             showSelected()
         } else if let selectedID, selectedID.rawValue != currentTabKey {
             presentSelection() // a close selected the neighbor
@@ -360,9 +367,6 @@ final class PaneController: SurfacePresenter, PresentablePane {
             // Model-driven: show on the next frame, coalescing transient selections.
             services.presentation.setNeedsShowSelected(self)
         }
-        // Focus follows selection; the coordinator re-targets the keyboard
-        // (only when this pane's tabs or selection changed).
-        sendTopologyIfChanged()
         view.dropClosedParked { snapshot.items.compactMap { existingContent(for: $0.id.rawValue) } }
         remapViewedTab()
     }
@@ -437,7 +441,10 @@ final class PaneController: SurfacePresenter, PresentablePane {
             // Another tab's last page from the launch must not stay under this one.
             view.clearLaunchImage()
         }
-        if let currentTabKey, currentTabKey != key { BenchSpans.measure("switch.withdraw") { services.cache.withdraw(currentTabKey, by: self) } }
+        if let currentTabKey, currentTabKey != key {
+            view.contentHost.handKeyboardToWindow() // before the old tab hides: no AppKit key view loop walk (5 ms); focus has the new selection
+            BenchSpans.measure("switch.withdraw") { services.cache.withdraw(currentTabKey, by: self) }
+        }
         DebugTabSwitch.mark(self, "withdraw")
         // May replace a stale surface, displacing the view shown here.
         let content = BenchSpans.measure("switch.content") { key.flatMap(content(for:)) }
@@ -489,6 +496,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         launchFrames.showAhead(key, in: view.contentHost)
     }
 
+    /// Shows stand-in `key` again once its key's frame committed (within the frame's surface budget); false: it shows no more.
+    func showsAgain(_ key: String) -> Bool { guard currentTabKey == key else { return false }; services.presentation.showNow(self); return true }
     /// The selected tab is a terminal that will draw a frame (not a dead one).
     var showsLiveTerminal: Bool {
         guard let key = stripModel.selectedID?.rawValue, let tab = pane.tabs.first(where: { $0.id == key }) else { return false }
@@ -560,8 +569,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // Content destroyed while away re-attaches (daemon replay) as soon as
         // the pane nears the viewport, so it is ready before it scrolls in.
         if presence != .hidden, stripModel.selectedID != nil, currentTabKey == nil || !view.hostsContent {
-            // On screen: show now (a split's new pane draws with the layout
-            // change, no blank frame), within the one-surface-per-frame budget.
+            // On screen: show now (a split's new pane shows with the layout change; a stand-in
+            // terminal's surface follows its key's frame), within the one-surface-per-frame budget.
             if presence == .visible {
                 services.presentation.showNow(self)
             } else {

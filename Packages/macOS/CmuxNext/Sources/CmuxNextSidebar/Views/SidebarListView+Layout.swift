@@ -162,6 +162,13 @@ extension SidebarListViewComponents {
         let visible = enclosingScrollView?.contentView.bounds ?? bounds
         return visible.insetBy(dx: 0, dy: -SidebarStyle.overscan)
     }
+    /// Responsive scrolling (`SidebarScrollView`) asks for content past the visible rows before it scrolls there off
+    /// the main thread. The list prepares exactly the rows it realizes, and says so (`realizeVisibleRows` keeps
+    /// `preparedContentRect` the realization rect), so AppKit never counts a row as drawn that has no view.
+    override func prepareContent(in rect: NSRect) {
+        super.prepareContent(in: realizationRect())
+        realizeVisibleRows()
+    }
     /// `newRowsInPlace`: a reveal jumps after this apply. A new row this apply gives no view (outside the rows drawn
     /// now) is not opening: the jump draws it whole in its slot (`RowMotion.place`), since its gap is open by then and
     /// a row growing from nothing there would show an empty slot. A new row this apply draws opens with its gap.
@@ -544,6 +551,8 @@ extension SidebarListViewComponents {
             rowViews[row.key] = view
         }
         pruneOffscreen()
+        // What responsive scrolling may count as drawn: the rows just realized, never more (`prepareContent(in:)`).
+        if !realize.isNull, preparedContentRect != realize { preparedContentRect = realize }
         let followed = hoverFollowsScroll
         hoverFollowsScroll = true
         defer { hoverFollowsScroll = followed }

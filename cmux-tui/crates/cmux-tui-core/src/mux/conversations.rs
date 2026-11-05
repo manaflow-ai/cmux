@@ -371,12 +371,14 @@ impl Mux {
         }
         // Safety: a removal never grants access, so a poisoned peers lock
         // still drops the record.
-        self.conversations
-            .remote
-            .peers
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .remove(&client);
+        {
+            let mut peers =
+                self.conversations.remote.peers.lock().unwrap_or_else(PoisonError::into_inner);
+            // A connection without a record (every local one) changes nothing, so it publishes nothing.
+            if peers.contains_key(&client) {
+                peers.remove(&client);
+            }
+        }
         // Its attachment uploads end with it (never opens the store).
         if let Some(store) =
             self.conversations.store.lock().unwrap_or_else(PoisonError::into_inner).as_mut()

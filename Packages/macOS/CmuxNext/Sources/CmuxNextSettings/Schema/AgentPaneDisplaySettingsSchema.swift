@@ -68,6 +68,31 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 help: SettingsText.keyed("settings.agentPane.display.vscodeMinimap.help",
                                          "A small picture of the whole chat at its right edge, as in VS Code. Click or drag it to scroll."),
                 .toggle, .bool(false), ["minimap", "vscode", "vs code", "code", "map", "overview", "scroll", "scrollbar", "right", "toggle"]),
+            // The running turn's task list pinned under its latest message (webviews conversation/turns.ts).
+            // Off by default: the composer's hat shows it (subagents/SubagentTray.tsx `plan`; Leo, 2026-11-03).
+            row(["pinnedPlan"], SettingsText.keyed("settings.agentPane.display.pinnedPlan", "Pin Task List in Chat"),
+                help: SettingsText.keyed("settings.agentPane.display.pinnedPlan.help",
+                                         "While the agent works, its task list stays under the latest message instead of in the bar over the composer."),
+                .toggle, .bool(false), ["plan", "task", "tasks", "todo", "checklist", "pin", "pinned", "list", "progress"]),
+            // The hat over the composer tucked away to a pull tab at the composer's top middle (webviews
+            // subagents/TrayPullTab.tsx; Leo, 2026-11-04: "what if you wanted to collapse that one line?").
+            // The hat's own chevron and the tab write it too.
+            row(["trayTucked"], SettingsText.keyed("settings.agentPane.display.trayTucked", "Tuck Away Running Tray"),
+                help: SettingsText.keyed("settings.agentPane.display.trayTucked.help",
+                                         "Hides the bar of running work over the composer. Hover the top middle of the composer and click its chevron to bring it back."),
+                .toggle, .bool(false), ["tray", "hat", "tuck", "hide", "collapse", "running", "background", "subagents", "commands", "bar", "composer", "toggle"]),
+            // Where along the composer's top edge the hat's tuck chevron and its pull tab sit (webviews
+            // subagents/TrayPullTab.tsx; Leo, 2026-11-04: "I also wonder if we'd want the
+            // grabber/dogear/whatever design thing on maybe the left… or the right…").
+            row(["trayHandle"], SettingsText.keyed("settings.agentPane.display.trayHandle", "Running Tray Handle"),
+                help: SettingsText.keyed("settings.agentPane.display.trayHandle.help",
+                                         "Where the handle that tucks the running tray away and brings it back sits along the top of the composer."),
+                .choice([
+                    SettingChoice("left", SettingsText.keyed("settings.choice.left", "Left")),
+                    SettingChoice("middle", SettingsText.keyed("settings.choice.middle", "Middle")),
+                    SettingChoice("right", SettingsText.keyed("settings.choice.right", "Right")),
+                ]),
+                .string("middle"), ["tray", "hat", "tuck", "handle", "grabber", "pull", "tab", "side", "left", "middle", "center", "right", "composer"]),
             row(["font", "preset"], SettingsText.keyed("settings.agentPane.display.font", "Chat Font"),
                 .choice([
                     SettingChoice("markdown", SettingsText.keyed("settings.choice.agentChatFontMarkdown", "Same as Markdown Viewer")),
@@ -160,6 +185,14 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                     SettingChoice("right", SettingsText.keyed("settings.choice.right", "Right")),
                 ]),
                 .string("left"), ["rail", "minimap", "prompts", "ticks", "scroll", "side", "left", "right"]),
+            // How the chat's running tray names background commands no built-in rule knows
+            // (``CommandLabelsSetting``; webviews session-info/commandLabelSettings.ts): preset names
+            // and rules of one's own, edited as JSON.
+            row(["commandLabels"], SettingsText.keyed("settings.agentPane.display.commandLabels", "Command Labels"),
+                help: SettingsText.keyed("settings.agentPane.display.commandLabels.help",
+                                         "How the chat names background commands: preset names such as cmux-fleet, and rules with a program or pattern and a label."),
+                .text, .array([]), ["command", "label", "rule", "preset", "background", "tray", "shell"])
+                .hiddenFromSettingsPage("a list of preset names and rule objects, edited in cmux-next.json"),
         ]
     }
 }

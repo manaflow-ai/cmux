@@ -100,8 +100,6 @@ enum HomeMapping {
                 reactions: item.reactions.map { reaction($0, partIndex: projectedIndex($0.partIndex, owners)) }, format: format)
         // ThreadMode.tree: the message a nested reply answers (HomeMapping+Tree.swift).
         message.parent = parent(item, roots: roots)
-        // Chief's first-launch welcome (CmuxNext ChiefWelcome, client ids "chief-welcome-…"): each bubble its own group.
-        if item.key.rawValue.hasPrefix(welcomeKeyPrefix) { message.cmuxStandsAlone = true }
         // The Chief's messages to its agents and their reports: asides under its reply (no avatar, no name).
         if item.agentMessage != nil { message.cmuxAside = true }
         if !item.isRetracted, !item.parts.isEmpty, parts.isEmpty {
@@ -137,7 +135,7 @@ enum HomeMapping {
         // A Feed row in the main Chief's transcript: one muted caption line, not a bubble from the Chief.
         if let row = item.feedRow, let caption = HomeAgentFoldRowProvider.part(feed: row) { return ([caption], [0]) }
         if let row = item.agentMessage {
-            // A fold or notes row: a muted caption line, no bubble (HomeAgentFoldRowProvider).
+            // An agents row or a note: a drawn row, no bubble (HomeAgentFoldRowProvider).
             if let caption = HomeAgentFoldRowProvider.part(row) { return ([caption], [0]) }
             // An agent-message row: its words, as Markdown (the fold's link, the bold "Chief → a917" line).
             let shown = self.parts(.text(agentMessageText(row)), media: media, markdown: true, links: links)
@@ -162,18 +160,14 @@ enum HomeMapping {
         return (parts, owners)
     }
 
-    /// What an agent-message row says, as Markdown. A fold or notes row is one muted (italic) line with
-    /// no link, a click anywhere on the row opens or closes it ("▸ Agent messages (6) · a938, a917";
-    /// "▸ Disconnected (5) · `a1` `a2`", the agents as code chips). A message is its bold
+    /// What an agent-message row says, as Markdown. An agents row is one muted (italic) line with no
+    /// link, a click anywhere on the row opens or closes it ("▸ Agent messages (6) · a938, a917"). A message is its bold
     /// "from → to" line over the whole message; a status note is the agent's chip and its words, muted.
     static func agentMessageText(_ row: HomeAgentMessageRow) -> String {
         switch row.kind {
         case let .fold(count, peers, expanded):
             let label = expanded ? CmuxStrings.hideAgentMessages(count) : CmuxStrings.showAgentMessages(count)
             return expanded ? "*▾ \(label)*" : "*▸ \(label)* · \(HomeAgentMessageRow.peerPreview(peers.map(markdownEscaped), separator: ", "))"
-        case let .notes(count, peers, reason, expanded):
-            let label = CmuxStrings.agentNotes(reason, count)
-            return expanded ? "*▾ \(label)*" : "*▸ \(label)* · \(HomeAgentMessageRow.peerPreview(peers.map(codeChip), separator: " "))"
         case let .note(peer, _, text):
             return "\(codeChip(peer)) *\(markdownEscaped(text))*"
         case let .message(from, to, _, text):

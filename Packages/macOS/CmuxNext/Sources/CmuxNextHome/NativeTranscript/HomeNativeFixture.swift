@@ -230,17 +230,26 @@ public final class HomeNativeFixture {
     /// Home folds into one row under the reply (a click expands it). False before the conversation shows.
     /// With `notes`, the run is instead five agents that stopped with no report (their session
     /// Disconnected, the Chief producer's note) and one real report.
-    /// With `open`, nothing is posted: the fold (or, after a notes run, the notes row) of the last such
-    /// run opens or closes, as a click on it does.
+    /// With `open`, nothing is posted: the agents row of the last such run (its stopped agents are in it
+    /// too) opens or closes, as a click on it does.
     /// With `group`, the run goes to the mock's group with the Chief and two teammates (shown first).
+    /// With `pill`, nothing is posted: agent `pill`'s chat opens in the agent pane, as a click on its pill does;
+    /// with `say` too, the person sends that agent `say` from the pane's composer.
     /// With `step` N, the run brings only its first N messages: step 1 posts the question, the reply and
     /// one message; each next step adds one, as a live run does (0: all at once).
-    public func debugAgentMessages(notes: Bool = false, open: Bool = false, group: Bool = false, step: Int = 0) -> Bool {
+    public func debugAgentMessages(notes: Bool = false, open: Bool = false, group: Bool = false, step: Int = 0, pill: String? = nil,
+                                   say: String? = nil) -> Bool {
         guard let shown else { return false }
+        if let pill {
+            guard let view else { return false }
+            view.debugOpenAgent(pill)
+            if let say { return view.debugSendToAgent(say) }
+            return true
+        }
         if open {
             guard let last = lastAgentRun else { return false }
             let group = HomeAgentMessageRow.groupID(author: shown.chief, anchor: last.turn)
-            store.toggleAgentMessages(last.notes ? HomeAgentMessageRow.notesGroup(group) : group, in: shown.conversation)
+            store.toggleAgentMessages(group, in: shown.conversation)
             return true
         }
         return postAgentRun(notes ? Self.agentNotes : Self.agentMessages, notes: notes, team: group ? true : nil, step: step)
@@ -285,14 +294,14 @@ public final class HomeNativeFixture {
         return true
     }
 
-    /// Opens or closes every agent fold of the last run (its messages and its stopped agents), as a click
-    /// on each does. False before a run.
+    /// Opens or closes the agents row of the last run (its messages and its stopped agents), as a click
+    /// on it does. False before a run.
     @discardableResult
     public func debugAgentFolds(expanded: Bool) -> Bool {
         guard let shown, let last = lastAgentRun else { return false }
         let group = HomeAgentMessageRow.groupID(author: shown.chief, anchor: last.turn)
-        for fold in [group, HomeAgentMessageRow.notesGroup(group)] where store.isAgentMessagesExpanded(fold, in: shown.conversation) != expanded {
-            store.toggleAgentMessages(fold, in: shown.conversation)
+        if store.isAgentMessagesExpanded(group, in: shown.conversation) != expanded {
+            store.toggleAgentMessages(group, in: shown.conversation)
         }
         return true
     }

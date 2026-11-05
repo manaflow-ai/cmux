@@ -332,7 +332,12 @@ export function FolderPopover({
             close();
           } else {
             setOpen(next);
-            if (!next) setQuery("");
+            // Every close ends Add folder…'s mode, an outside click as much as Escape (cmux#34408).
+            if (!next) {
+              setQuery("");
+              setExpanded(new Set());
+              setAddingExtra(false);
+            }
           }
         }}
         anchor={open ? anchor : null}

@@ -42,7 +42,7 @@ type Daemon = {
   throwOn?: string;
 };
 
-async function connectBusyDaemon(daemon: Daemon) {
+async function connectBusyDaemon(daemon: Daemon, onSnapshot: (snapshot: unknown) => void = () => undefined) {
   const { AcpmuxDirectClient } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
   class LimitedHost extends MockAcpmuxSocket {
@@ -75,7 +75,7 @@ async function connectBusyDaemon(daemon: Daemon) {
   const started = performance.now();
   const client = await AcpmuxDirectClient.connect(
     mockHost,
-    () => undefined,
+    onSnapshot,
     undefined,
     () => new LimitedHost() as unknown as WebSocket,
   );
@@ -114,19 +114,21 @@ test("a burst of 200 reads on a slow daemon meets no busy refusal", async () => 
   }
 });
 
-test("reads the page gave up on keep their slot until answered, so the next reads are not refused", async () => {
-  // Each read waits 10 ms; the daemon answers in 150 ms. The first 64 time out and still hold the
-  // daemon's slots; the next burst used to be refused whole.
+test("a slow but alive daemon keeps reads pending and shows progress", async () => {
+  // Each read crosses the old 10 ms cutoff; the daemon answers in 150 ms while the socket stays open.
   const daemon: Daemon = { inFlight: 0, peak: 0, refused: 0, latencyMs: 150 };
-  const { client, request } = await connectBusyDaemon(daemon);
+  const snapshots: unknown[] = [];
+  const { client, request } = await connectBusyDaemon(daemon, (snapshot) => snapshots.push(snapshot));
   try {
     const first = await burst(request, 64, 10);
     const second = await burst(request, 64);
     console.error(`[storm] abandoned: ${JSON.stringify({ first, second, refused: daemon.refused })}`);
-    expect(first.timedOut).toBe(64);
+    expect(first.timedOut).toBe(0);
+    expect(first.ok).toBe(64);
     expect(second.busy).toBe(0);
     expect(second.ok).toBe(64);
     expect(daemon.refused).toBe(0);
+    expect(snapshots.some((snapshot: any) => snapshot.daemonWaitingSince !== undefined)).toBe(true);
   } finally {
     client.close?.();
   }

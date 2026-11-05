@@ -2,9 +2,9 @@ public import AppKit
 
 /// `window.titlebar` in cmux.json.
 public nonisolated enum TitlebarStyle: String, Sendable, CaseIterable, Codable {
-    /// No titlebar strip (the explicit minimal choice, user nxdog9): content
-    /// reaches the window's top edge, the traffic lights sit in the top row,
-    /// and every empty area of that row moves the window.
+    /// No titlebar strip (the default, user nxdog9): content reaches the
+    /// window's top edge, the traffic lights sit in the top row, and every
+    /// empty area of that row moves the window.
     case minimal
     /// A titlebar strip with the workspace name above the content.
     case standard
@@ -85,6 +85,43 @@ public struct WindowTitlebar {
         }
         guard let first = frames.first else { return nil }
         return frames.dropFirst().reduce(first) { $0.union($1) }
+    }
+
+    /// Aligns both edges of a titlebar control to the display's device-pixel grid.
+    ///
+    /// - Parameters:
+    ///   - frame: The control's proposed frame.
+    ///   - scale: The window's current backing scale factor.
+    /// - Returns: A pixel-aligned frame whose center moves by at most half a device pixel.
+    public static func alignedFrame(_ frame: CGRect, scale: CGFloat) -> CGRect {
+        let pixelScale = max(1, scale)
+        let minX = (frame.minX * pixelScale).rounded() / pixelScale
+        let minY = (frame.minY * pixelScale).rounded() / pixelScale
+        let maxX = (frame.maxX * pixelScale).rounded() / pixelScale
+        let maxY = (frame.maxY * pixelScale).rounded() / pixelScale
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+    }
+
+    /// Places titlebar accessories after the toolbar band on the traffic lights' center line.
+    ///
+    /// - Parameters:
+    ///   - band: The toolbar band's frame in the accessories' parent coordinates.
+    ///   - badge: The badge whose width is reserved, including while temporarily hidden.
+    ///   - indicator: The pressure indicator, laid out only while visible.
+    ///   - indicatorWidth: The indicator's width supplied by its owner.
+    ///   - midY: The traffic lights' center in the accessories' parent coordinates.
+    ///   - scale: The window's current backing scale factor.
+    public static func layoutAccessories(after band: CGRect, badge: NSView?, indicator: NSView?,
+                                         indicatorWidth: CGFloat, centeredOn midY: CGFloat, scale: CGFloat) {
+        var x = band.maxX + Metrics.space2
+        if let badge {
+            let size = badge.fittingSize
+            badge.frame = alignedFrame(CGRect(x: x, y: midY - size.height / 2, width: size.width, height: size.height), scale: scale)
+            x = badge.frame.maxX + Metrics.space2
+        }
+        guard let indicator, !indicator.isHidden else { return }
+        let side = TitlebarBandButton.side
+        indicator.frame = alignedFrame(CGRect(x: x, y: midY - side / 2, width: indicatorWidth, height: side), scale: scale)
     }
 
     /// The main pane card's top inset in `root` (the window's root view):

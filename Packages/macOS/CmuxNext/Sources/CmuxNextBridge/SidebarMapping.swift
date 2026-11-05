@@ -57,7 +57,9 @@ public struct SidebarMapping {
     /// (`set_status`), the row's live second line. The cwd stays passive
     /// detail (tooltip, accessibility). `newTabPages` are the ids of tabs
     /// still on the New Tab page, which the tab list draws as new tabs
-    /// titled `newTabTitle` (localized by the App). `pageFace` gives the face
+    /// titled `newTabTitle` (localized by the App); `isNewTabPage`, when given,
+    /// names them per row instead, read by the row's own mapping (so a page
+    /// opened in one workspace maps that row only). `pageFace` gives the face
     /// a workspace's front tab (any kind) lends its row, given the work tab a
     /// browser front tab yields its name to (`workTab`), and the favicon of
     /// each browser tab in the tab list (no work tab). `tabTitle` names each tab in the tab
@@ -76,7 +78,7 @@ public struct SidebarMapping {
                                 muted: Set<String> = [],
                                 statusLine: @escaping (String) -> String? = { _ in nil },
                                 selectedTab: @escaping (PaneModel) -> String? = { _ in nil },
-                                newTabPages: Set<String> = [], newTabTitle: String = "",
+                                newTabPages: Set<String> = [], isNewTabPage: ((WorkspaceModel, TabModel) -> Bool)? = nil, newTabTitle: String = "",
                                 pageFace: @escaping (WorkspaceModel, TabModel, TabModel?) -> PageFace? = { _, _, _ in nil },
                                 tabTitle: ((WorkspaceModel, TabModel) -> String)? = nil, notificationText: @escaping (TabModel) -> String? = { _ in nil },
                                 iconAsset: @escaping (String) -> SidebarFavicon? = { _ in nil },
@@ -94,7 +96,8 @@ public struct SidebarMapping {
             let rows = section.workspaces.filter { (!hidesHomeWorkspace || !$0.isAnyHome) && workspaceFilter($0) }
                 .map { workspace in
                     let make = { row(workspace, machine: machine.id, status: statusLine(workspace.id), showsUnread: showsUnread,
-                                     muted: muted.contains(workspace.id), selectedTab: selectedTab, newTabPages: newTabPages,
+                                     muted: muted.contains(workspace.id), selectedTab: selectedTab,
+                                     newTabPages: isNewTabPage.map { Self.newTabPages(of: workspace, $0) } ?? newTabPages,
                                      newTabTitle: newTabTitle, pageFace: pageFace, tabTitle: tabTitle,
                                      notificationText: notificationText, iconAsset: iconAsset, harnessIcons: harnessIcons()) }
                     return rowSource.map { $0(workspace, machine.id, make) } ?? make()
@@ -121,6 +124,11 @@ public struct SidebarMapping {
             }
         }
         return [SidebarRowSection(kind: .machine(machine), nodes: nodes)]
+    }
+
+    /// The tabs of `workspace` that `isPage` calls New Tab pages.
+    static func newTabPages(of workspace: WorkspaceModel, _ isPage: (WorkspaceModel, TabModel) -> Bool) -> Set<String> {
+        Set(workspace.screens.flatMap(\.panes).flatMap(\.tabs).filter { isPage(workspace, $0) }.map(\.id))
     }
 
     /// `showsUnread: false` hides the unread badge (`notifications.attention.showOnSidebar`).
@@ -178,8 +186,11 @@ public struct SidebarMapping {
             agentWorking: statuses.working,
             // A page in a split beside a chat or terminal leaves the row's icon to that work, as it
             // leaves its name (#22250; Leo 2026-10-21: "why did this turn into the githb favicon?").
+            // A site with no favicon (none, or not loaded yet) keeps the slot with a globe the favicon replaces
+            // (Lawrence default: "a site with no favicon gets a placeholder").
             icon: Self.icon(color: workspace.color, icon: workspace.icon, asset: iconAsset)
-                ?? page?.favicon.map(WorkspaceIcon.favicon),
+                ?? page?.favicon.map(WorkspaceIcon.favicon)
+                ?? (Self.isSite(face, newTabPages: newTabPages) ? .pagePlaceholder : nil),
             color: color(workspace.color), kind: kind(face),
             kindBrand: face?.agentBrand,
             // A tab marked unread by hand (Mark Tab Unread) or by an agent that needs the person
@@ -516,6 +527,12 @@ public struct SidebarMapping {
 
     private static func isLoopback(_ host: String) -> Bool {
         host == "localhost" || host.hasSuffix(".localhost") || host.hasPrefix("127.") || host == "[::1]" || host == "::1" || host == "0.0.0.0"
+    }
+
+    /// Whether `tab` is a site page (a browser tab on a host, not a New Tab page): the tabs that show a favicon.
+    static func isSite(_ tab: TabModel?, newTabPages: Set<String>) -> Bool {
+        guard let tab, tab.kind == .browser, !newTabPages.contains(tab.id) else { return false }
+        return pageHost(tab.url) != nil
     }
 
     /// A page's host for the hover card's tab rows ("github.com"); nil for a blank or local page.

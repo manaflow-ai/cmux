@@ -44,6 +44,7 @@ pub use sink::{FieldKind, Sink, TerminalKey};
 use crate::event::FocusEffect;
 use crate::state::ExpectationKey;
 use crate::topology::Kind;
+use crate::window::Reduction;
 use std::sync::Arc;
 
 /// A key's id: given by the router to every key event, in typing order.
@@ -181,6 +182,10 @@ pub enum InputEffect {
     SinkNew { sink: Sink },
     /// A focus effect of `window` (the focus reducer's).
     Focus { window: Arc<str>, effect: FocusEffect },
+    /// A focus event of `window` was reduced (after its `Focus` effects):
+    /// whether the reducer ran, and what the address bar memory asks for
+    /// (DESIGN.md stage S2: the app's focus handle replies with this).
+    FocusReduced { window: Arc<str>, reduction: Reduction },
 }
 
 impl InputEffect {
@@ -197,6 +202,7 @@ impl InputEffect {
             | InputEffect::OfferClosed { id, .. }
             | InputEffect::SessionKey { id, .. } => Some(*id),
             InputEffect::Focus { .. }
+            | InputEffect::FocusReduced { .. }
             | InputEffect::SessionEnded { .. }
             | InputEffect::SinkEnded { .. }
             | InputEffect::SinkNew { .. } => None,

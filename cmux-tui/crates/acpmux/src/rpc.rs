@@ -65,6 +65,11 @@ impl RpcError {
 /// relay's metadata without falling back to a connection-reset failure.
 pub const MAX_MESSAGE_BYTES: usize = 31 << 20;
 
+/// How long a request waits for the answer of a daemon, host or helper that took it (it is
+/// connected, so alive): long enough that a busy machine's slow answer still arrives. A dead one
+/// ends the wait sooner, on its closed connection.
+pub const ANSWER_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+
 impl RpcError {
     /// A message over [`MAX_MESSAGE_BYTES`]: it fails alone, the connection stays.
     pub fn too_large(bytes: usize) -> Self {
@@ -328,6 +333,9 @@ pub mod method {
     /// Turn one of a chat's tools on or off (`hub/tools.rs`): `{sessionId,
     /// id, enabled}`.
     pub const MUX_SET_TOOLS: &str = "_acpmux/set_tools";
+    /// Replace the folders a chat sees beside its own (`hub/additional_dirs.rs`):
+    /// `{sessionId, additionalDirectories}`; its agent restarts on them.
+    pub const MUX_SET_DIRECTORIES: &str = "_acpmux/set_directories";
     /// Reconnect one of a Claude Code chat's MCP servers (`hub/tools.rs`):
     /// `{sessionId, server}`.
     pub const MUX_MCP_RECONNECT: &str = "_acpmux/mcp/reconnect";
@@ -352,6 +360,10 @@ pub mod method {
     /// when the daemon closes the socket, so stream consumers notice.
     pub const MUX_DISCONNECTED: &str = "_acpmux/disconnected";
     pub const MUX_PRESETS: &str = "_acpmux/presets";
+    /// Read or update the effective prompt context for a session.
+    pub const MUX_CONTEXT: &str = "_acpmux/context";
+    /// Persist a cmux-added context override for the user or current project.
+    pub const MUX_CONTEXT_OVERRIDE: &str = "_acpmux/context_override";
     pub const MUX_ATTACH: &str = "_acpmux/attach";
     pub const MUX_VIEW: &str = "_acpmux/view";
     pub const MUX_MARK_UNREAD: &str = "_acpmux/markUnread";

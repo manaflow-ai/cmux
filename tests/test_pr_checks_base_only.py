@@ -271,22 +271,24 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertEqual(JOBS["base-only"]["if"], "github.event.action == 'synchronize'")
 
     def test_only_advisory_jobs_and_every_one_waits_on_it(self):
-        self.assertEqual(set(JOBS), {"base-only", *SKIPPED_ON_BASE_ONLY, *ALWAYS})
+        self.assertEqual(set(JOBS), {"portable-placement", "base-only", *SKIPPED_ON_BASE_ONLY, *ALWAYS})
         for job_id in SKIPPED_ON_BASE_ONLY:
             with self.subTest(job=job_id):
                 job = JOBS[job_id]
-                self.assertEqual(job["needs"], "base-only")
+                placed = job_id in {"ui-review", "split"}
+                self.assertEqual(job["needs"], ["base-only", "portable-placement"] if placed else "base-only")
                 # A skipped or failed answer runs the job: no implicit success().
-                self.assertTrue(str(job["if"]).startswith("${{ !cancelled() && " + ANSWER))
+                prefix = "${{ always() && !cancelled() && " if placed else "${{ !cancelled() && "
+                self.assertTrue(str(job["if"]).startswith(prefix + ANSWER))
                 self.assertNotIn("continue-on-error", job)
         self.assertNotIn("pull_request_target", WORKFLOW_PATH.read_text())
 
     def test_the_size_check_never_skips_on_a_base_only_update(self):
         for job_id in ALWAYS:
             job = JOBS[job_id]
-            self.assertNotIn("needs", job)
+            self.assertEqual(job["needs"], "portable-placement")
             self.assertNotIn("base_only", str(job["if"]))
-            self.assertTrue(str(job["if"]).startswith("${{ !cancelled() && "))
+            self.assertTrue(str(job["if"]).startswith("${{ always() && !cancelled() && "))
             self.assertNotIn("continue-on-error", job)
 
     def test_the_run_title_names_the_event_the_previous_run_check_reads(self):

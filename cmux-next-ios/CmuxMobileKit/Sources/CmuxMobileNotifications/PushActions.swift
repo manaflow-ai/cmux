@@ -71,8 +71,8 @@ public enum PushAction: Equatable, Hashable, Sendable {
         }
     }
 
-    /// Opens the app: an Allow and an answer are signed after Face ID, which
-    /// iOS shows only in a foreground app (verify/rich-push.md).
+    /// Opens the app: an Allow and an answer are signed and sent by the app
+    /// in the foreground (verify/rich-push.md); no Face ID is asked.
     public var opensApp: Bool {
         switch self {
         case .option, .answer, .allowOnce, .allowAlways, .retry: true

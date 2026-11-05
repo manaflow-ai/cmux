@@ -708,6 +708,9 @@ class GeneratedClientMixin:
     def set_host_size_policy(self, policy: HostSizePolicyRequest) -> SetHostSizePolicyResult:
         return self._invoke_command('set-host-size-policy', SetHostSizePolicyRequest(policy=policy))
 
+    def set_layout_sizes(self, transaction: int, values: List[LayoutSizeValue]) -> EmptyResult:
+        return self._invoke_command('set-layout-sizes', SetLayoutSizesRequest(transaction=transaction, values=values))
+
     def set_personal_terminal(self, session_id: str, terminal_key: str, *, theme: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('set-personal-terminal', SetPersonalTerminalRequest(session_id=session_id, terminal_key=terminal_key, theme=theme))
 
@@ -1112,6 +1115,7 @@ GeneratedClientMixin.set_column_dock.__cmux_command__ = COMMANDS['set-column-doc
 GeneratedClientMixin.set_default_colors.__cmux_command__ = COMMANDS['set-default-colors']
 GeneratedClientMixin.set_frontend_browser_history.__cmux_command__ = COMMANDS['set-frontend-browser-history']
 GeneratedClientMixin.set_host_size_policy.__cmux_command__ = COMMANDS['set-host-size-policy']
+GeneratedClientMixin.set_layout_sizes.__cmux_command__ = COMMANDS['set-layout-sizes']
 GeneratedClientMixin.set_personal_terminal.__cmux_command__ = COMMANDS['set-personal-terminal']
 GeneratedClientMixin.set_personal_workspace.__cmux_command__ = COMMANDS['set-personal-workspace']
 GeneratedClientMixin.set_profile_follows.__cmux_command__ = COMMANDS['set-profile-follows']

@@ -38,8 +38,8 @@ ARBITRARY_BRANCH_PUSH = {
     "cmux-tui-artifacts.yml": (
         "a same-repository pull request's checks fetch the cmux-tui tree its branch push "
         "published (cx-r2is), cp/ heads included now that they open pull requests; tree-preflight "
-        "skips a push whose tree is already published, and a cp/, lane/ or perf/ head no open "
-        "pull request has"
+        "skips a push whose tree is already published, and any non-trunk head no open "
+        "pull request has (scripts/ci/cmux_tui_superseded_push.py)"
     ),
 }
 

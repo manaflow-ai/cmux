@@ -27,7 +27,7 @@ fn body(value: serde_json::Value) -> Vec<u8> {
 }
 
 fn active(name: &str, revision: u64, value: &str) -> EnvItem {
-    EnvItem { name: name.into(), revision, value: Some(Zeroizing::new(value.into())) }
+    EnvItem { name: name.into(), revision, value: Some(Zeroizing::new(value.into())), proxy: None }
 }
 
 fn salted() -> State {
@@ -125,8 +125,8 @@ fn plan_stores_new_and_changed_keeps_current_and_deletes_revoked_and_gone() {
             active("KEEP", 1, "same"),
             active("CHANGED", 1, "after"),
             active("NEW", 5, SECRET_A),
-            EnvItem { name: "REVOKED".into(), revision: 2, value: None },
-            EnvItem { name: "NEVER_HAD".into(), revision: 2, value: None },
+            EnvItem { name: "REVOKED".into(), revision: 2, value: None, proxy: None },
+            EnvItem { name: "NEVER_HAD".into(), revision: 2, value: None, proxy: None },
         ],
     );
     let text = format!("{steps:?}");
@@ -197,7 +197,7 @@ fn settle_stores_values_and_the_state_file_is_private_and_holds_no_value() {
     let again = Answer::Granted {
         env: vec![
             active("OPENAI_API_KEY", 2, SECRET_A),
-            EnvItem { name: "MULTI".into(), revision: 2, value: None },
+            EnvItem { name: "MULTI".into(), revision: 2, value: None, proxy: None },
         ],
         refused: 0,
     };
@@ -353,7 +353,10 @@ async fn a_fake_hub_answers_200_403_and_401() {
     assert_eq!(env[0].revision, 7);
     assert_eq!(env[0].value.as_deref().map(String::as_str), Some(SECRET_A));
     let request = seen.await.unwrap();
-    assert!(request.starts_with("GET /v1/vault/machine HTTP/1.1\r\n"), "{request}");
+    assert!(
+        request.starts_with("GET /v1/vault/machine?delivery=proxy.v1 HTTP/1.1\r\n"),
+        "{request}"
+    );
     assert!(request.to_ascii_lowercase().contains(&format!("authorization: bearer {credential}")));
 
     let (hub, _) = fake_hub(403, body(json!({"error": {"code": "vault.not_granted"}}))).await;
@@ -651,7 +654,7 @@ fn with_no_secret_store_removals_still_leave_the_delivered_set() {
     let away = MemoryStore { unavailable: true, ..MemoryStore::default() };
     let answer = Answer::Granted {
         env: vec![
-            EnvItem { name: "REVOKE_ME".into(), revision: 2, value: None },
+            EnvItem { name: "REVOKE_ME".into(), revision: 2, value: None, proxy: None },
             active("NEW_KEY", 1, SECRET_B),
         ],
         refused: 0,
@@ -1269,4 +1272,61 @@ fn an_older_daemon_is_told_apart_and_the_refusal_says_to_restart_it() {
         })
     );
     assert!(shown.contains("acpmux daemon restart"), "{shown}");
+}
+
+#[test]
+fn delivery_and_allowed_hosts_are_read_and_withheld_entries_are_not_delivered() {
+    let answer = wire::parse(
+        200,
+        &body(json!({"env": [
+            {"name": "PROXIED", "revision": 3, "state": "active", "valueBase64": b64(SECRET_A),
+             "delivery": "proxy", "allowedHosts": ["api.github.com", "*.example.com:8443", "API.EVIL", "https://x.y", "api.github.com"]},
+            {"name": "OPTED_OUT", "revision": 4, "state": "active", "valueBase64": b64(SECRET_A),
+             "delivery": "env", "allowedHosts": []},
+            {"name": "OLD_HUB", "revision": 5, "state": "active", "valueBase64": b64(SECRET_A)},
+            {"name": "WITHHELD", "revision": 6, "state": "withheld", "delivery": "proxy", "allowedHosts": []},
+            {"name": "ODD", "revision": 7, "state": "active", "valueBase64": b64(SECRET_A), "delivery": "mail"},
+        ]})),
+    );
+    let Answer::Granted { env, refused } = answer else { panic!("not granted") };
+    assert_eq!(refused, 2, "withheld and an unknown delivery are refused");
+    let by: BTreeMap<_, _> = env.iter().map(|e| (e.name.as_str(), e)).collect();
+    assert_eq!(
+        by["PROXIED"].proxy.as_deref(),
+        Some(&["api.github.com".to_owned(), "*.example.com:8443".to_owned()][..])
+    );
+    assert_eq!(by["OPTED_OUT"].proxy, None);
+    assert_eq!(by["OLD_HUB"].proxy, None, "a hub before delivery means env");
+    assert_no_value(&format!("{env:?}"));
+}
+
+#[test]
+#[cfg(unix)]
+fn a_policy_change_at_the_same_revision_reaches_the_next_spawn() {
+    let _one = LOADED_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+    let home = tempfile::tempdir().unwrap();
+    let store = MemoryStore::default();
+    let item = |proxy: Option<Vec<String>>| EnvItem { proxy, ..active("API_TOKEN", 1, SECRET_A) };
+    let answer = Answer::Granted { env: vec![item(None)], refused: 0 };
+    pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &live, 1).unwrap();
+    super::reset_loaded();
+    let at = std::time::Instant::now();
+    let given = super::deliver_at(home.path(), &store, &live, at);
+    assert_eq!(given.len(), 1);
+    assert_eq!(given[0].proxy, None);
+
+    // env -> proxy without a new revision: the record and the next spawn follow.
+    let hosts = vec!["api.github.com".to_owned()];
+    let answer = Answer::Granted { env: vec![item(Some(hosts.clone()))], refused: 0 };
+    pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &live, 2).unwrap();
+    assert_eq!(pull::read_state(home.path()).env["API_TOKEN"].proxy, Some(hosts.clone()));
+    let given = super::deliver_at(home.path(), &store, &live, at);
+    assert_eq!(given[0].proxy, Some(hosts));
+    let env = super::egress::child_env_with(given, None, &|_| None);
+    assert_eq!(env, vec![("API_TOKEN".to_owned(), "cmux-secret://API_TOKEN".to_owned())]);
+
+    // The state file names the delivery, never a value.
+    let saved = std::fs::read_to_string(pull::state_path(home.path())).unwrap();
+    assert!(saved.contains("api.github.com"));
+    assert_no_value(&saved);
 }

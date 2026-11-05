@@ -314,6 +314,11 @@ impl Hub {
                 if subagent.is_none() && !muted && !kind.ends_with(".replay") {
                     tap_hub.background_turn_update(&tap_session, &params["update"]);
                 }
+                // A wrap-up's first answer is the turn's suggestion where the harness makes none
+                // (`wrap_up_suggestion.rs`).
+                if subagent.is_none() && !muted && !kind.ends_with(".replay") {
+                    crate::wrap_up_suggestion::observe(&tap_session.id, &params["update"]);
+                }
                 // A predicted next prompt reaches the composer only when likely to be taken
                 // (`suggestion_gate.rs`); a withheld one goes on with no suggestion.
                 if subagent.is_none() && !muted && kind == "prompt_suggestion" {

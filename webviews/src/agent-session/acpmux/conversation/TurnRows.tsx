@@ -9,7 +9,7 @@ import { MessageCard } from "./MessageCard";
 import { DispatchCard } from "./DispatchCard";
 import { McpCallRows } from "./McpCallRows";
 import { SubsessionCallCard } from "./SubsessionCallCard";
-import { AcpmuxSendLine, sendKey } from "./SentMessageLine";
+import { AcpmuxSendLine, SentMessageGroup, sendKey } from "./SentMessageLine";
 import { mcpNames, McpNamesContext } from "./mcpCalls";
 import { ToolGroupRow } from "./ToolGroupRow";
 import { ToolRow } from "./ToolRow";
@@ -97,11 +97,7 @@ export function WorkedFor({
           <TurnTokens split={row.tokens} />
         </span>
       )}
-      <ChevronRight
-        size={14}
-        strokeWidth={1.2}
-        className={`cv-worked__chevron cv-rotor${expanded ? " is-open" : ""}`}
-      />
+      <ChevronRight size={14} className={`cv-worked__chevron cv-rotor${expanded ? " is-open" : ""}`} />
     </button>
   );
 }
@@ -159,6 +155,25 @@ function groupNode(
           send={group.send}
         />
       );
+    case "sendGroup": {
+      const key = `sends:${group.entries[0]!.type === "send" ? sendKey(group.items[0]!.tool!.id, group.entries[0]!.send.index) : group.items[0]!.tool!.id}`;
+      return (
+        <SentMessageGroup key={key} entries={group.entries} disclosureKey={key}>
+          {group.entries.map((entry, at) =>
+            entry.type === "send" ? (
+              <AcpmuxSendLine
+                key={sendKey(entry.item.tool!.id, entry.send.index) || at}
+                tool={entry.item.tool!}
+                send={entry.send}
+                grouped
+              />
+            ) : (
+              groupNode(entry, at, rowId, rowAt, false)
+            ),
+          )}
+        </SentMessageGroup>
+      );
+    }
     case "subsession":
       return <SubsessionCallCard key={group.item.tool!.id || index} call={group.call} tool={group.item.tool!} />;
     case "subsessionGroup":
@@ -364,6 +379,23 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
       : retry && prompt && row.retryRowId
         ? () => retry(row.retryRowId!, prompt)
         : undefined;
+  // The last completed turn keeps its prompt and retry target on the footer as well as under the
+  // prompt bubble. ChatGPT leaves the action with the answer, which makes a finished reply
+  // recoverable without scrolling back to its prompt. `retryable` is only set on that last turn
+  // (turns.ts), so older successful replies never gain another action row.
+  const lastTurnRetry =
+    !failed && retry && row.retryable === true && prompt && row.retryRowId
+      ? { rowId: row.retryRowId, prompt, run: () => retry(row.retryRowId!, prompt) }
+      : undefined;
+  const retryAction = failedRetry ?? lastTurnRetry?.run;
+  const retryTitle = row.changedFiles ? t("turn.retryChangedFiles") : t("turn.retryLabel");
+  // The model picker follows the same rule as Retry: it is available for the last turn, whether
+  // that turn ended successfully or failed. A view-only turn has no retry callback, so it stays
+  // out of both controls.
+  const modelRetry =
+    retryWith && retryWith.models.length > 1 && retry && row.retryable === true && prompt && row.retryRowId
+      ? { retryWith, rowId: row.retryRowId, prompt }
+      : undefined;
   // The card's lead (errorRecovery.ts): Continue when the turn had done work, Retry when nothing
   // ran; it shares the footer Retry's one-at-a-time state and refusal note. A sign-in failure's comes
   // only after its Sign in again, so only the card offers it (signInRetry), never the native command.
@@ -419,22 +451,22 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
         <MessageFooterRow className="cv-turn-footer-row">
           <span className="cv-turn-action-group">
             {!messages && copy && <MessageCopy text={copy} />}
-            {failedRetry && (
+            {retryAction && (
               <button
                 type="button"
                 className="cv-iconbtn cv-iconbtn--compact"
                 aria-label={t("turn.retry")}
-                title={t("turn.retryLabel")}
+                title={retryTitle}
                 disabled={retrying}
-                onClick={failedRetry}
+                onClick={retryAction}
               >
                 <Retry size={ROW_ICON} />
               </button>
             )}
-            {failed && retry && prompt && retryWith && retryWith.models.length > 1 && (
+            {modelRetry && (
               <RetryModelMenu
-                retryWith={retryWith}
-                onPick={(model) => retryWith.retry(row.retryRowId ?? "", prompt, model)}
+                retryWith={modelRetry.retryWith}
+                onPick={(model) => modelRetry.retryWith.retry(modelRetry.rowId, modelRetry.prompt, model)}
               />
             )}
             {!messages && fork && seq !== undefined && (forkAny || seq === forkSeq) && (
@@ -705,12 +737,7 @@ function TurnFailure({
             {/* The chat's chevron, as on Worked for, not the browser's triangle. */}
             <summary className="cv-turn-note__summary">
               {t("turn.failure.details")}
-              <ChevronRight
-                size={12}
-                strokeWidth={1.2}
-                aria-hidden="true"
-                className={`cv-rotor${detailsOpen ? " is-open" : ""}`}
-              />
+              <ChevronRight size={12} aria-hidden="true" className={`cv-rotor${detailsOpen ? " is-open" : ""}`} />
             </summary>
             <span className="cv-turn-error__raw">
               <span className="block font-mono text-detail whitespace-pre-wrap text-dim select-text">{message}</span>

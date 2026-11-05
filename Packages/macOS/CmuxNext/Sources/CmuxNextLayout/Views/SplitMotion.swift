@@ -24,15 +24,31 @@ struct SplitMotion {
     /// from rest.
     /// `moved` / `movedDividers`: the frames the release's layout change retargeted; a frame already on its way
     /// for another reason keeps its own velocity. Nil: every frame (callers that know no better).
+    /// `edges` (FRAME OWNER S2B, the drag's `DividerDragState.sharedEdges`): only the edges each frame's
+    /// target moved get the release's velocity; an edge that did not move keeps its own spring's (`SharedEdgeMotion`).
     static func seed(velocity: CGFloat, along axis: SplitAxis, divider: AnimatedFrame,
                      panes: inout [PaneID: AnimatedFrame], dividers: inout [DividerHandleView.Kind: AnimatedFrame],
-                     moved: Set<PaneID>? = nil, movedDividers: Set<DividerHandleView.Kind>? = nil) {
+                     moved: Set<PaneID>? = nil, movedDividers: Set<DividerHandleView.Kind>? = nil,
+                     edges: (panes: [PaneID: CGRect], dividers: [DividerHandleView.Kind: CGRect])? = nil) {
         let travel = axis == .horizontal ? divider.x.target - divider.x.value : divider.y.target - divider.y.value
         guard abs(travel) > 0.5 else { return }
         let fraction = velocity / travel
         guard fraction > 0 else { return }
         // A fling faster than the spring could start (10 travels a second) is capped there.
         let rate = min(fraction, 10)
+        if let edges {
+            for (key, frame) in panes where moved?.contains(key) ?? true {
+                var seeded = frame
+                SharedEdgeMotion.seed(&seeded, moved: .init(before: edges.panes[key], after: frame.targetRect), rate: rate)
+                panes[key] = seeded
+            }
+            for (key, frame) in dividers where movedDividers?.contains(key) ?? true {
+                var seeded = frame
+                SharedEdgeMotion.seed(&seeded, moved: .init(before: edges.dividers[key], after: frame.targetRect), rate: rate)
+                dividers[key] = seeded
+            }
+            return
+        }
         for key in Array(panes.keys) where moved?.contains(key) ?? true { panes[key]?.seed(fractionVelocity: rate) }
         for key in Array(dividers.keys) where movedDividers?.contains(key) ?? true { dividers[key]?.seed(fractionVelocity: rate) }
     }

@@ -66,7 +66,7 @@ const drawn = (line: AcpmuxRow, now: number) =>
     ),
   );
 
-test("a turn waiting on its foreground subagents says so, with the turn's time as its total", () => {
+test('a turn waiting on its foreground subagents says so, with the turn\'s time beside it and no "total"', () => {
   const user = row("u", "user");
   const line = codex([
     user,
@@ -74,7 +74,7 @@ test("a turn waiting on its foreground subagents says so, with the turn's time a
     row("g", SUBAGENTS, { subagents: [agent("review-a", "running"), agent("review-b", "running")] }),
   ]).at(-1)!;
   expect(line).toMatchObject({ kind: THINKING, liveState: "subagents", liveAgents: 2, turnTotal: true });
-  expect(drawn(line, user.at + 5_047_000)).toBe("Waiting on 2 subagents · 1h 24m 7s total");
+  expect(drawn(line, user.at + 5_047_000)).toBe("Waiting on 2 subagents 1h 24m 7s");
 });
 
 // With the running tray (the default) the groups leave the transcript for the tray, so the pane
@@ -171,7 +171,7 @@ test("a finished step reads its own time, not the turn's", () => {
     }),
   ]).at(-1)!;
   expect(line).toMatchObject({ doing: "Opened 1 agent session", doingDone: true, doingForMs: 207_000 });
-  expect(drawn(line, user.at + 4_951_000)).toBe("Opened 1 agent session 3m 27s · 1h 22m 31s total");
+  expect(drawn(line, user.at + 4_951_000)).toBe("Opened 1 agent session 3m 27s · 1h 22m 31s");
 });
 
 test("an answer paused mid-stream reads Writing, not Thinking", () => {
@@ -180,7 +180,7 @@ test("an answer paused mid-stream reads Writing, not Thinking", () => {
   const reply = row("a", "assistant", { text: "So" });
   const line = codex([user, run, reply]).at(-1)!;
   expect(line).toMatchObject({ liveState: "writing", turnTotal: true, quietAt: reply.at });
-  expect(drawn(line, reply.at + 2_000)).toBe(`Writing · ${(reply.at + 2_000 - user.at) / 1_000}s total`);
+  expect(drawn(line, reply.at + 2_000)).toBe(`Writing ${(reply.at + 2_000 - user.at) / 1_000}s`);
 });
 
 // A chat opened (or the gallery's stage mounted) long after its reply paused: the line reads
@@ -205,9 +205,9 @@ test("the long-wait gallery entry's live line names its subagents and the turn's
   const rows = longWait.variants["waiting-on-subagents"]!.snapshot.rows;
   const line = codex(rows).at(-1)!;
   expect(line).toMatchObject({ kind: THINKING, liveState: "subagents", liveAgents: 3 });
-  expect(drawn(line, GALLERY_NOW)).toBe("Waiting on 3 subagents · 1h 24m 7s total");
+  expect(drawn(line, GALLERY_NOW)).toBe("Waiting on 3 subagents 1h 24m 7s");
   const step = codex(longWait.variants["finished-step"]!.snapshot.rows).at(-1)!;
-  expect(drawn(step, GALLERY_NOW)).toBe("Opened 1 agent session 3m 27s · 1h 24m 7s total");
+  expect(drawn(step, GALLERY_NOW)).toBe("Opened 1 agent session 3m 27s · 1h 24m 7s");
 });
 
 test("a running call reads the turn's clock as its total, never a clock that starts at the call", () => {
@@ -216,7 +216,7 @@ test("a running call reads the turn's clock as its total, never a clock that sta
   const html = renderToStaticMarkup(
     <Thinking since={start} doing="bun test" doingShell doingAt={start + 5_000} turnTotal now={() => start + 13_000} />,
   );
-  expect(words(html)).toBe("Running bun test · 13s total");
+  expect(words(html)).toBe("Running bun test 13s");
   expect(html).toContain('<span class="cv-worked__time">13s</span>');
 });
 
@@ -228,7 +228,7 @@ test("waiting on subagents, the line does not count them a second time", () => {
       <Thinking since={start} liveState="subagents" liveAgents={2} turnTotal now={() => start + 60_000} />
     </WorkingCountsContext.Provider>,
   );
-  expect(words(html)).toBe("Waiting on 2 subagents · 1m total · 1 command");
+  expect(words(html)).toBe("Waiting on 2 subagents 1m · 1 command");
 });
 
 test("Thinking past the first step shows only the thoughts' streamed time, the waits go to the total", () => {
@@ -250,5 +250,5 @@ test("Thinking past the first step shows only the thoughts' streamed time, the w
   ]).at(-1)!;
   expect(line).toMatchObject({ kind: THINKING, thoughtMs: 8_000, turnTotal: true });
   expect(line.doing).toBeUndefined();
-  expect(drawn(line, t0 + 454_000)).toBe("Thinking 8s · 7m 34s total");
+  expect(drawn(line, t0 + 454_000)).toBe("Thinking 8s · 7m 34s");
 });

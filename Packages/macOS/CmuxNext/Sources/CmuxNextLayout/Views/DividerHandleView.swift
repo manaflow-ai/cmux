@@ -44,18 +44,12 @@ final class DividerHandleView: NSView {
     /// (`applyPresentation`): its hidden state and cursor clip follow from them and the frame, so
     /// equal ones skip the work.
     var placedClips: [CGRect?]?
-    /// The pointer crossed this handle's tracking area. The screen that owns
-    /// the handles decides hover from the pointer and the current frames
-    /// (`ScreenContentView.refreshDividerHover`); the handle keeps no hover
-    /// of its own, because a layout change can move it under a still pointer.
-    var onPointerChange: (() -> Void)?
 
     private let line = CALayer()
     /// The accent band over the line while hovered or dragged (`DividerGlowBand`).
     let glow = DividerGlowBand()
     private(set) var isHovered = false { didSet { if isHovered != oldValue { applyColors() } } }
     private var isDragging = false { didSet { applyColors() } }
-    private var trackingArea: NSTrackingArea?
     /// Escape and modifier keys while a drag runs: this handle is never first responder, so it
     /// would hear neither. Installed on the press, removed when the drag ends.
     private var keyMonitor: Any?
@@ -93,7 +87,6 @@ final class DividerHandleView: NSView {
     func setAxis(_ axis: SplitAxis) {
         guard self.axis != axis else { return }
         self.axis = axis
-        window?.invalidateCursorRects(for: self)
         needsLayout = true
     }
 
@@ -132,11 +125,10 @@ final class DividerHandleView: NSView {
     }
 
     /// The part of the superview where the handle may take the pointer; nil for all of it. A strip
-    /// divider that runs on under a docked column stops where the dock begins: AppKit cursor rects
-    /// ignore the views above, so its whole frame showed a resize cursor over the docked pane.
-    var cursorClip: CGRect? {
-        didSet { if cursorClip != oldValue { window?.invalidateCursorRects(for: self) } }
-    }
+    /// divider that runs on under a docked column stops where the dock begins: the views above do not
+    /// hide this handle from the screen's hit test, so its whole frame showed a resize cursor over the docked pane.
+    /// Read by that hit test (`cursorRectInBounds`, `ScreenDividers`): a new clip invalidates nothing.
+    var cursorClip: CGRect?
 
     /// Where the handle shows its resize cursor, in its own coordinates: its bounds within `cursorClip`.
     var cursorRectInBounds: CGRect {
@@ -145,23 +137,17 @@ final class DividerHandleView: NSView {
         return rect.isNull ? .zero : rect
     }
 
-    override func resetCursorRects() {
-        let rect = cursorRectInBounds
-        guard !rect.isEmpty else { return }
-        if #available(macOS 15, *) {
-            addCursorRect(rect, cursor: axis == .horizontal ? .columnResize : .rowResize)
-        } else {
-            addCursorRect(rect, cursor: axis == .horizontal ? .resizeLeftRight : .resizeUpDown)
-        }
-    }
+    /// One object per axis: the screen sets it again only when it changes (`ScreenDividerPointer`), and macOS 15's
+    /// frame-resize cursors may be a new object at each read.
+    var resizeCursor: NSCursor { axis == .horizontal ? Self.columnCursor : Self.rowCursor }
+    private static let columnCursor: NSCursor = if #available(macOS 15, *) { .columnResize } else { .resizeLeftRight }
+    private static let rowCursor: NSCursor = if #available(macOS 15, *) { .rowResize } else { .resizeUpDown }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let trackingArea { removeTrackingArea(trackingArea) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        trackingArea = area
-    }
+    // No tracking area and no cursor rects: AppKit moves a view's tracking areas and cursor rects with its frame, and
+    // each move rebuilt the window's structural regions (drag margins and a constraint min-size walk of every view) in
+    // that display cycle; a spring or a drag moves dividers in every frame. The screen's one tracking area, which does
+    // not move, hit-tests the current handle frames for the hover and the resize cursor (`ScreenDividerPointer`), as
+    // Chrome sets the cursor from the hit test of each mouse event (HOT PATH AUDIT frames).
 
     /// The drawn line in the superview's coordinates. It is native UI that
     /// must show above Chromium pages (an occlusion hole), unlike the rest
@@ -196,8 +182,14 @@ final class DividerHandleView: NSView {
     /// Set only by the owning screen's hover pass.
     func setHovered(_ hovered: Bool) { isHovered = hovered }
 
-    override func mouseEntered(with event: NSEvent) { onPointerChange?() }
-    override func mouseExited(with event: NSEvent) { onPointerChange?() }
+    /// AppKit sends `cursorUpdate` to the view under the pointer when the pointer crosses any cursor area (a terminal's
+    /// I-beam rect beside this handle): the handle on top answers with its resize cursor inside its clip, as its cursor
+    /// rect did. It needs no tracking area of its own for that.
+    override func cursorUpdate(with event: NSEvent) {
+        guard cursorRectInBounds.contains(convert(event.locationInWindow, from: nil)) else { return super.cursorUpdate(with: event) }
+        resizeCursor.set()
+        (superview as? ScreenContentView)?.dividerPointer.handleDidShow(resizeCursor)
+    }
 
     /// Leaving the view tree mid-drag: the mouse-up will never arrive here,
     /// so the drag state ends with the view (the screen ends the gesture).

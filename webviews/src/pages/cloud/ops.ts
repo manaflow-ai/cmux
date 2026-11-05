@@ -49,6 +49,23 @@ export const CloudOps = {
   browserOpen: "cmux.cloud.browser.open",
 } as const;
 
+/** Native preview actions. They are intentionally separate from server ops so
+ * the Cloud app card can invoke the same share/revoke flow later. */
+export const CloudActions = {
+  previewShare: "cloudPreviewShare",
+  previewRevoke: "cloudPreviewRevoke",
+} as const;
+
+export interface PreviewShareResult {
+  confirmed?: boolean;
+  machine_id?: string;
+  port?: number;
+  linkId?: string;
+  url?: string;
+  expiresAt?: number;
+  revoked?: boolean;
+}
+
 /**
  * Account ops no catalog declares yet (first-party-apps/cloud/README.md "Gaps": the host credential
  * owner will). No server serves them: each answers an unknown-op error, and the page shows "Not

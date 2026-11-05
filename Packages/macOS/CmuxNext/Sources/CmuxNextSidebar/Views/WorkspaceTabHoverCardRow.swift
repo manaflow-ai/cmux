@@ -99,6 +99,8 @@ final class WorkspaceTabHoverCardRow: NSView {
         let side = WorkspaceHoverCardView.iconSize
         favicon = tab.favicon
         icon.image = tab.favicon.map(faviconImage)
+            // A site with no favicon (yet): the workspace rows' placeholder globe (`WorkspaceIcon.pagePlaceholder`).
+            ?? (tab.host != nil ? NSImage.icon(symbol: WorkspaceIcon.pagePlaceholderSymbol, size: side) : nil)
             ?? tab.brand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: side) }
             ?? NSImage.icon(tab.kind.icon, size: side)
         let line = WorkspaceTabHoverCardLine(tab, style: style, now: now, machine: machine)

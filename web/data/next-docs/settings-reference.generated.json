@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 564,
+  "count": 572,
   "sections": [
     {
       "id": "general",
@@ -17,6 +17,18 @@
             "inline",
             "strip",
             "both"
+          ]
+        },
+        {
+          "key": "agentPane.composerRing",
+          "title": "Composer Ring",
+          "help": "What the ring at the end of the composer shows: the chat's context usage, or your plan's usage limits (5-hour and weekly) when the harness reports them.",
+          "kind": "choice",
+          "default": "context",
+          "group": "Agent Chat",
+          "values": [
+            "context",
+            "planUsage"
           ]
         },
         {
@@ -1144,6 +1156,14 @@
           "group": "Tabs"
         },
         {
+          "key": "tabs.hideLoneChatTab",
+          "title": "Hide the Tab of a Chat Alone in Its Pane",
+          "help": "When a pane holds only one chat, hide its tab so the chat fills the tab bar. A second tab brings the tab bar back.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Tabs"
+        },
+        {
           "key": "tabs.nativeNewTabPage",
           "title": "Native New Tab Page",
           "help": "Cmd-T and the + button open the native New Tab page instead of the web one. It opens faster and lists every command palette action as you type. Recent chats and widgets are only on the web page for now.",
@@ -1474,6 +1494,14 @@
           ]
         },
         {
+          "key": "updates.oneClickInstall",
+          "title": "Update in One Click",
+          "help": "Off: Update downloads the update, then cmux asks before it restarts into it. On: one click on Update downloads it, shows its progress, then installs it and restarts cmux. Terminals and agents keep running across the restart.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Updates"
+        },
+        {
           "key": "updates.showFeatureTips",
           "title": "Show Feature Tips",
           "help": "Now and then, a small tip points at a feature an update added. Close it or use the feature and it never comes back.",
@@ -1725,6 +1753,14 @@
           ]
         },
         {
+          "key": "agentPane.display.pinnedPlan",
+          "title": "Pin Task List in Chat",
+          "help": "While the agent works, its task list stays under the latest message instead of in the bar over the composer.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Chat"
+        },
+        {
           "key": "agentPane.display.presentation",
           "title": "Chat Presentation",
           "help": "",
@@ -1772,6 +1808,27 @@
             "thinking",
             "verbose"
           ]
+        },
+        {
+          "key": "agentPane.display.trayHandle",
+          "title": "Running Tray Handle",
+          "help": "Where the handle that tucks the running tray away and brings it back sits along the top of the composer.",
+          "kind": "choice",
+          "default": "middle",
+          "group": "Agent Chat",
+          "values": [
+            "left",
+            "middle",
+            "right"
+          ]
+        },
+        {
+          "key": "agentPane.display.trayTucked",
+          "title": "Tuck Away Running Tray",
+          "help": "Hides the bar of running work over the composer. Hover the top middle of the composer and click its chevron to bring it back.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Chat"
         },
         {
           "key": "agentPane.display.vscodeMinimap",
@@ -2841,6 +2898,14 @@
           "group": "App Theme"
         },
         {
+          "key": "appearance.themeFile",
+          "title": "Theme File",
+          "help": "A look from a file in ~/.config/cmux/themes, such as \"tokyo\" for tokyo.json. Its values apply over these settings, live as you save it. Unset, no file applies.",
+          "kind": "text",
+          "default": null,
+          "group": "App Theme"
+        },
+        {
           "key": "appearance.wallpaperTint",
           "title": "Tint with Desktop Wallpaper",
           "help": "The glass takes the colors of your desktop picture and follows it when the picture or Space changes.",
@@ -3028,6 +3093,19 @@
           }
         },
         {
+          "key": "layout.cornerPadding",
+          "title": "Corner Padding",
+          "help": "Space between a pane's edge and its tabs. Inner corners use the corner radius minus this.",
+          "kind": "number",
+          "default": null,
+          "group": "Panes",
+          "range": {
+            "min": 0,
+            "max": 12,
+            "unit": "points"
+          }
+        },
+        {
           "key": "layout.paneBorder",
           "title": "Border",
           "help": "",
@@ -3063,7 +3141,7 @@
         {
           "key": "layout.paneCornerRadius",
           "title": "Corner Radius",
-          "help": "",
+          "help": "One radius for panes and tabs. Shapes inside a pane use this radius minus the corner padding.",
           "kind": "number",
           "default": null,
           "group": "Panes",
@@ -5992,10 +6070,10 @@
         },
         {
           "key": "cloud.agentsStartWithoutAsking",
-          "title": "Let Agents Start Cloud Sessions Without Asking",
-          "help": "An agent's `cmux cloud start-session` creates or resumes the Cloud machine and starts its session with no Start card in the chat. Only you can turn this on.",
+          "title": "Let Agents Use Cloud Without Asking",
+          "help": "Agents, `cmux cloud` in a terminal and scripts create Cloud machines, move chats to Cloud and start sessions there with no card asking you first. Your plan's limits still apply. Only you can change this.",
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "group": "Cloud Workspaces"
         },
         {

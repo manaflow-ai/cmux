@@ -181,7 +181,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
         }
     }
 
-    static func statsLine(_ session: ScreenSession) -> String {
+    static func statsLine(_ session: MacScreenSession) -> String {
         let stats = session.stats
         return statsLine(path: session.streamPath, fps: stats.fps, targetFps: stats.targetFps, latencyMs: stats.latencyMs,
                          encoding: stats.encoding, frameSize: session.frameSize)

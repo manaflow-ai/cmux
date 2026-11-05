@@ -60,9 +60,17 @@ public struct TabStripMetrics: Equatable, Sendable {
     /// Every pill's corner radius (`Metrics.tabCornerRadius`): concentric with the card
     /// corner the strip sits in; the strip's + and a tab's hover card share it.
     public var cornerRadius: CGFloat
-    /// Corner of the close button's hover and pressed fill: Helium's rounded
-    /// rect (`TabCloseButton` `kCornerRadius`, 4), not Chrome's circle.
-    public var closeCornerRadius: CGFloat
+    /// The radius of a fill (the close button's hover and pressed fill, a badge's
+    /// fill, a group chip) at `rect` inside a tab pill at `pill`: concentric with the
+    /// pill (``cornerRadius`` less the fill's inset from the pill's nearer top or bottom
+    /// edge, `ConcentricCorners`), at most half the fill's shorter side. A rounded rect,
+    /// not Chrome's circle; the default 16 pt close button in a 24 pt, 8 pt pill is
+    /// Helium's 4 pt (`TabCloseButton` `kCornerRadius`).
+    public func nestedCornerRadius(_ rect: CGRect, in pill: CGRect) -> CGFloat {
+        let corners = Metrics.corners
+        let inset = max(0, min(rect.minY - pill.minY, pill.maxY - rect.maxY))
+        return corners.radius(fitting: rect.size, radius: corners.nested(in: cornerRadius, inset: inset))
+    }
 
     // MARK: Groups
 
@@ -82,6 +90,8 @@ public struct TabStripMetrics: Equatable, Sendable {
     public var showsSeparators: Bool
     public var separatorHeight: CGFloat
     public var separatorOpacity: CGFloat
+    /// Whether a line ends the pinned group (`tabs.pinnedDivider`), in ``pinnedGroupGap``.
+    public var showsPinnedDivider: Bool
     /// A group chip's icon: the tab icon size, inset inside the pill's height.
     public var groupChipIconSize: CGFloat { max(0, min(iconSize, groupChipHeight - 2 * Metrics.space1)) }
     /// Between a group chip's icon and its name or count.
@@ -171,7 +181,6 @@ public struct TabStripMetrics: Equatable, Sendable {
         tabBackgroundInset = Metrics.tabBackgroundInset
         tearOffDistance = TabTunables.tearOffDistance.value
         cornerRadius = Metrics.tabCornerRadius
-        closeCornerRadius = Metrics.space2
         groupChipOuterInset = Metrics.space1
         groupChipPadding = TabTunables.groupChipPadding.value
         groupChipHeight = max(Metrics.space6, Metrics.tabHeight - 2 * Metrics.space2)
@@ -182,6 +191,7 @@ public struct TabStripMetrics: Equatable, Sendable {
         showsSeparators = TabTunables.separators.value
         separatorHeight = TabTunables.separatorHeight.value
         separatorOpacity = TabTunables.separatorOpacity.value
+        showsPinnedDivider = TabTunables.pinnedDivider.value
     }
 
     /// Token-derived metrics for the current density.

@@ -4417,6 +4417,34 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "workspace-group set-sort",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceGroup"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "workspaceGroup.setSort",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Set Workspace Group Sort Order…",
+      "title_key" : "action.workspaceGroup.setSort",
+      "title_table" : "WorkspaceActions"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "workspace-group move-to-window",
       "context_menu" : "offered",
       "context_menus" : [
@@ -24940,6 +24968,34 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "guiOnly",
+      "cli_name" : "action gallery-open-stage",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "gallery.openStage",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Gallery Stage",
+      "title_key" : "action.gallery.openStage",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "agent activity",
       "context_menu" : "noObject",
@@ -28047,6 +28103,62 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "cloud preview-share",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloudPreviewShare",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Share Machine Preview…",
+      "title_key" : "action.cloudPreviewShare",
+      "title_table" : "CloudPortActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud preview-revoke",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloudPreviewRevoke",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Revoke Machine Preview Link…",
+      "title_key" : "action.cloudPreviewRevoke",
+      "title_table" : "CloudPortActions"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "cloud machine-link",
       "context_menu" : "duplicateOfDefault",
       "context_menus" : [
@@ -28771,6 +28883,34 @@
       "palette_suggested" : null,
       "title" : "Start Agent Session on Cloud Machine…",
       "title_key" : "action.cloudStartSession",
+      "title_table" : "CloudSessionActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud relay-chat",
+      "context_menu" : "pointerMenuTrim",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloudRelayChat",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Chat on Cloud Machine via the Relay…",
+      "title_key" : "action.cloudRelayChat",
       "title_table" : "CloudSessionActions"
     },
     {
@@ -42028,7 +42168,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "cloudStartSession",
+              "id" : "cloudPreviewShare",
               "kind" : "action",
               "order" : 18,
               "visible_when" : {
@@ -42040,14 +42180,40 @@
               }
             },
             {
+              "enabled_when" : "can_perform",
+              "id" : "cloudPreviewRevoke",
+              "kind" : "action",
+              "order" : 19,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : "cloud",
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "cloudStartSession",
+              "kind" : "action",
+              "order" : 20,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : "cloud",
+                "requires" : [
+
+                ]
+              }
+            },
+            {
               "kind" : "separator",
-              "order" : 19
+              "order" : 21
             },
             {
               "enabled_when" : "can_perform",
               "id" : "palette.cloud.deleteSnapshot",
               "kind" : "action",
-              "order" : 20,
+              "order" : 22,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : "cloud",
@@ -48930,11 +49096,49 @@
               }
             },
             {
+              "choices" : {
+                "argument" : "sort",
+                "more_opens_palette" : false,
+                "values" : [
+                  {
+                    "title" : "Manual",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "manual"
+                  },
+                  {
+                    "title" : "Name",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "name"
+                  },
+                  {
+                    "title" : "Recent",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "recent"
+                  }
+                ]
+              },
+              "enabled_when" : "can_perform",
+              "id" : "workspaceGroup.setSort",
+              "kind" : "choices",
+              "label" : "Sort Order",
+              "order" : 7,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
               "enabled_when" : "can_perform",
               "id" : "workspaceGroup.sortByName",
               "kind" : "action",
               "label" : "Sort by Name",
-              "order" : 7,
+              "order" : 8,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -48948,7 +49152,7 @@
               "id" : "workspaceGroup.sortByLastUsed",
               "kind" : "action",
               "label" : "Sort by Last Used",
-              "order" : 8,
+              "order" : 9,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -48962,7 +49166,7 @@
               "id" : "workspaceGroup.sortByDirectory",
               "kind" : "action",
               "label" : "Sort by Directory",
-              "order" : 9,
+              "order" : 10,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,

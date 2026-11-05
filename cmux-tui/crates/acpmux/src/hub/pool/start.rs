@@ -149,14 +149,11 @@ impl Hub {
         )
         .await;
         host_spec.orphan_exit = servers.orphan_exit(self.orphan_exit());
-        // The start itself has no time budget (`link::spawn`); the pool is its caller and gives
-        // up after its own `START_BUDGET`, as for its later stages. Giving up ends the host.
-        let record = tokio::time::timeout(
-            START_BUDGET,
-            agent_host::program_wait::spawn(&launcher, &host_spec),
-        )
-        .await
-        .unwrap_or_else(|_| Err(anyhow::anyhow!("no pooled agent host within {START_BUDGET:?}")))?;
+        // `link::spawn` waits for the host while its process is alive. Do not
+        // wrap that wait in a wall-clock cutoff: a loaded machine can take
+        // minutes to schedule the host and that is still a valid start. The
+        // host exits (or daemon shutdown) remain the terminal conditions.
+        let record = agent_host::program_wait::spawn(&launcher, &host_spec).await?;
         // Not at a background class another process set (`cpu_class.rs`, item 1). Its host reaps
         // it: a harness that already ended leaves the pid to a process of this user at most.
         if let Some(pid) = record.harness_pid {
@@ -177,8 +174,10 @@ impl Hub {
     }
 
     /// The rest of `spawn_pooled` once its host runs: attach, `initialize`,
-    /// the harness session, all within `START_BUDGET`. On failure the host
-    /// is ended.
+    /// and the harness session. A live process is allowed to finish; the
+    /// progress-aware wait only ends a process that has received CPU but made
+    /// no answer for the real wedged-peer hazard bound. On failure the host is
+    /// ended.
     async fn start_pooled(
         self: &Arc<Self>,
         session_id: String,
@@ -208,9 +207,10 @@ impl Hub {
         let (inbound, target) = holding_inbound();
         let attach =
             ChildAgent::attach_hosted(&draft.harness, record.clone(), 0, Vec::new(), inbound, tap);
-        let attached = tokio::time::timeout(START_BUDGET, attach)
-            .await
-            .unwrap_or_else(|_| Err(anyhow::anyhow!("no host link within {START_BUDGET:?}")));
+        // `agent_host::link::connect` owns the hello/liveness decision. An
+        // outer 90 s timeout used to turn a slow but live host into a failed
+        // prewarm, so let the link settle or report its peer exit.
+        let attached = attach.await;
         let child = match attached {
             Ok(Attached::Ready(child, _, _)) => child,
             Ok(Attached::Incompatible { .. }) => {
@@ -243,22 +243,13 @@ impl Hub {
             let slot = held.lock().unwrap_or_else(|e| e.into_inner());
             matches!(&*slot, TapSlot::Held(h) if held_reports_full_access(h, None))
         };
-        let outcome = tokio::time::timeout(START_BUDGET, async {
-            tokio::select! {
-                started = started => started.map_err(|e| anyhow::anyhow!("{}", e.message)),
-                () = latch.reported_under_off(&reported, held_full) => {
-                    Err(anyhow::anyhow!("its harness reported full access, which MDM forces off"))
-                }
+        let outcome = tokio::select! {
+            started = Self::wait_for_start(&child, started) => {
+                started.map_err(|e| anyhow::anyhow!("{}", e.message))
             }
-        })
-        .await;
-        let outcome = match outcome {
-            Ok(outcome) => outcome,
-            // What its harness was doing, read before it is ended (`cpu_class.rs`).
-            Err(_) => Err(anyhow::anyhow!(
-                "no harness session within {START_BUDGET:?}{}",
-                child.harness_seen().await.detail()
-            )),
+            () = latch.reported_under_off(&reported, held_full) => {
+                Err(anyhow::anyhow!("its harness reported full access, which MDM forces off"))
+            }
         };
         let (init, new_result) = match outcome {
             Ok(v) => v,
@@ -294,6 +285,113 @@ impl Hub {
             anyhow::bail!("it came up in full access, which MDM forces off");
         }
         Ok(p)
+    }
+
+    /// Wait for a pooled harness request while observing its process. A machine
+    /// under load may leave the harness with no CPU for a while; that is progress
+    /// waiting, not a failed start. Once the process has received CPU, the long
+    /// hazard bound protects the pool from a genuinely wedged peer. Every tick is
+    /// also a visible progress record for diagnostics and the warming status.
+    async fn wait_for_start<T>(
+        child: &ChildAgent,
+        start: impl std::future::Future<Output = Result<T, RpcError>>,
+    ) -> Result<T, RpcError> {
+        let began = tokio::time::Instant::now();
+        let mut tick = tokio::time::interval_at(began + START_PROGRESS, START_PROGRESS);
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        tokio::pin!(start);
+        let mut last_cpu_ms = None;
+        let mut no_progress_since = None;
+        let mut unread_since = None;
+        loop {
+            tokio::select! {
+                done = &mut start => return done,
+                _ = tick.tick() => {
+                    if !child.is_alive().await {
+                        return Err(RpcError::internal("agent process closed during pooled start"));
+                    }
+                    let seen = child.harness_seen().await;
+                    let waited = began.elapsed();
+                    match seen {
+                        crate::cpu_class::HarnessSeen::Running(state) => {
+                            unread_since = None;
+                            let cpu_progressed = last_cpu_ms.is_some_and(|last| state.cpu_ms > last);
+                            if state.cpu_ms > 0 && !cpu_progressed {
+                                let since = *no_progress_since.get_or_insert(tokio::time::Instant::now());
+                                if since.elapsed() >= START_HAZARD {
+                                    return Err(RpcError::internal(format!(
+                                        "pooled agent made no progress for {START_HAZARD:?}: {state}"
+                                    )));
+                                }
+                            } else {
+                                no_progress_since = None;
+                            }
+                            last_cpu_ms = Some(state.cpu_ms);
+                            tracing::info!(
+                                waited_ms = waited.as_millis() as u64,
+                                cpu_ms = state.cpu_ms,
+                                threads_running = state.threads_running,
+                                "pooled agent start waiting; machine busy"
+                            );
+                        }
+                        // A hosted child can be alive before it reports a harness
+                        // pid. Keep waiting in that state; `is_alive` above is the
+                        // terminal process-liveness check.
+                        crate::cpu_class::HarnessSeen::Unread => {
+                            let cpu_ticks = child
+                                .pid
+                                .and_then(crate::cpu_class::harness_cpu_ticks);
+                            if let Some(cpu_ticks) = cpu_ticks {
+                                unread_since = None;
+                                let cpu_progressed =
+                                    last_cpu_ms.is_some_and(|last| cpu_ticks > last);
+                                if cpu_ticks > 0 && !cpu_progressed {
+                                    let since = *no_progress_since
+                                        .get_or_insert(tokio::time::Instant::now());
+                                    if since.elapsed() >= START_HAZARD {
+                                        return Err(RpcError::internal(format!(
+                                            "pooled agent made no progress for {START_HAZARD:?} (Linux CPU ticks: {cpu_ticks})"
+                                        )));
+                                    }
+                                } else {
+                                    no_progress_since = None;
+                                }
+                                last_cpu_ms = Some(cpu_ticks);
+                                tracing::info!(
+                                    waited_ms = waited.as_millis() as u64,
+                                    cpu_ticks,
+                                    "pooled agent start waiting; machine busy"
+                                );
+                            } else {
+                                last_cpu_ms = None;
+                                no_progress_since = None;
+                                let since =
+                                    *unread_since.get_or_insert(tokio::time::Instant::now());
+                                if since.elapsed() >= START_UNREAD_HAZARD {
+                                    return Err(RpcError::internal(format!(
+                                        "pooled agent has no progress signal for {START_UNREAD_HAZARD:?}"
+                                    )));
+                                }
+                                tracing::info!(
+                                    waited_ms = waited.as_millis() as u64,
+                                    "pooled agent start waiting; progress signal unavailable"
+                                );
+                            }
+                        }
+                        crate::cpu_class::HarnessSeen::NotStarted
+                        | crate::cpu_class::HarnessSeen::Ended => {
+                            unread_since = None;
+                            no_progress_since = None;
+                            last_cpu_ms = None;
+                            tracing::info!(
+                                waited_ms = waited.as_millis() as u64,
+                                "pooled agent start waiting; machine busy"
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// End entries nobody will take (in the background).

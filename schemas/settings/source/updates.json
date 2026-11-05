@@ -124,6 +124,27 @@
           ]
         },
         {
+          "key": "updates.oneClickInstall",
+          "note": "One click on a found update's Update downloads it with its progress, then installs and restarts (Leo 2026-11-04, after the Codex app's Update available button). Off: the Update Ready card asks before the restart.",
+          "title": {
+            "key": "settings.updates.oneClickInstall",
+            "text": "Update in One Click"
+          },
+          "help": {
+            "key": "settings.updates.oneClickInstall.help",
+            "text": "Off: Update downloads the update, then cmux asks before it restarts into it. On: one click on Update downloads it, shows its progress, then installs it and restarts cmux. Terminals and agents keep running across the restart."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "update",
+            "install",
+            "restart",
+            "relaunch",
+            "one click"
+          ]
+        },
+        {
           "key": "updates.meteredNetwork",
           "note": "What automatic downloads do on a metered link.",
           "title": {

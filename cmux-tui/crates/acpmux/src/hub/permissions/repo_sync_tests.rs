@@ -7,8 +7,8 @@ fn fixture() -> (tempfile::TempDir, Arc<Hub>, Arc<Session>) {
     let dir = tempfile::tempdir().unwrap();
     let cwd = dir.path().canonicalize().unwrap().join("repo");
     std::fs::create_dir(&cwd).unwrap();
-    let mut config = Config::default();
-    config.permission_policy = PermissionPolicy::ApproveEdits;
+    let mut config =
+        Config { permission_policy: PermissionPolicy::ApproveEdits, ..Default::default() };
     config.store.mode = crate::config::StoreMode::Memory;
     let store = crate::store::open(&config.store, dir.path()).unwrap();
     let hub = Hub::new(config, store);

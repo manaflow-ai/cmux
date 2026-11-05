@@ -79,6 +79,17 @@ public struct WorkspaceLayout: Hashable, Sendable {
             }
         }
 
+        /// Every split of the node, outermost first: its id, its axis, its ratio, and the panes on
+        /// each side of its divider (what Resize Pane moves).
+        public var splits: [ResizableSplit] {
+            switch self {
+            case .pane, .stack: return []
+            case .split(let id, let axis, let ratio, let first, let second):
+                return [ResizableSplit(split: id, axis: axis, ratio: ratio, first: first.paneIDs, second: second.paneIDs)]
+                    + first.splits + second.splits
+            }
+        }
+
         /// The node without the panes `gone` (dead panes the Mac still keeps a leaf for): a split
         /// whose side is all gone is its other side. Nil when nothing is left.
         public func removing(_ gone: Set<Int>) -> Node? {
@@ -141,6 +152,43 @@ public struct WorkspaceLayout: Hashable, Sendable {
 
         /// The split already has its equal share (the daemon keeps float32 ratios).
         public var isEqual: Bool { abs(ratio - equalized) < 0.001 }
+    }
+
+    /// One divider of a screen, as Resize Pane moves it (`set-split-ratio {split, ratio}`): the
+    /// panes before it (left or above) and after it, and the first side's share.
+    public struct ResizableSplit: Hashable, Sendable, Identifiable {
+        public var split: Int
+        public var axis: Axis
+        public var ratio: Double
+        public var first: [Int]
+        public var second: [Int]
+
+        public init(split: Int, axis: Axis, ratio: Double, first: [Int], second: [Int]) {
+            self.split = split
+            self.axis = axis
+            self.ratio = ratio
+            self.first = first
+            self.second = second
+        }
+
+        public var id: Int { split }
+
+        /// The Mac's keyboard resize moves a divider in small steps; the phone's stepper moves it
+        /// by 5% of the split, between 10% and 90% (the Mac keeps every pane visible).
+        public static let step = 0.05
+        public static let range = 0.1...0.9
+
+        /// The ratio one step toward the second side (`+1`) or the first (`-1`), on the 5% grid;
+        /// nil at the end of the range.
+        public func stepped(_ direction: Int) -> Double? {
+            let next = ((ratio + Double(direction) * Self.step) / Self.step).rounded() * Self.step
+            let clamped = min(max(next, Self.range.lowerBound), Self.range.upperBound)
+            let rounded = (clamped * 100).rounded() / 100
+            return abs(rounded - ratio) < 0.001 ? nil : rounded
+        }
+
+        /// The first side's share in whole percent ("60%").
+        public var percent: Int { Int((ratio * 100).rounded()) }
     }
 
     /// A horizontal viewport column of a screen (`columns`): as wide as the Mac draws it (a share
@@ -296,6 +344,9 @@ public struct WorkspaceLayout: Hashable, Sendable {
             return (pane, frame.width >= frame.height ? .right : .down)
         }
 
+        /// The dividers Resize Pane can move: each split of the trees Equalize Splits evens out.
+        public var resizableSplits: [ResizableSplit] { equalizable.flatMap(\.splits) }
+
         /// The splits Equalize Splits would change.
         public var unequalSplits: [EqualizedSplit] { equalizable.flatMap(\.equalizedRatios).filter { !$0.isEqual } }
         /// The screen has a divider at all (Equalize Splits has something to even out).
@@ -414,9 +465,37 @@ public enum TabSplitEdge: String, CaseIterable, Hashable, Sendable {
     }
 }
 
+/// Move Tab to New Dock Column's edge (the Mac's `tab.moveToNewDockColumn {edge}`, a dock column
+/// pinned to that side of the screen; `move-tab-to-column {dock: {edge, mode}}`).
+public enum DockEdge: String, CaseIterable, Hashable, Sendable {
+    case left, right, top, bottom
+
+    public var title: String {
+        switch self {
+        case .left: "Left"
+        case .right: "Right"
+        case .top: "Top"
+        case .bottom: "Bottom"
+        }
+    }
+
+    public var systemImage: String {
+        switch self {
+        case .left: "rectangle.leadingthird.inset.filled"
+        case .right: "rectangle.trailingthird.inset.filled"
+        case .top: "rectangle.topthird.inset.filled"
+        case .bottom: "rectangle.bottomthird.inset.filled"
+        }
+    }
+
+    /// The new column's width (a share of the viewport; a band's share of its height), as the
+    /// Mac's `TabMoves.toNewDockColumn`: a left dock half the window, a band or a right dock 30%.
+    public var width: Double { self == .left ? 0.5 : 0.3 }
+}
+
 /// Where Fork Conversation opens the copy (the Mac's `AgentForkDestination`, less New Window).
 public enum ChatForkDestination: String, CaseIterable, Hashable, Sendable, Identifiable {
-    case right, left, up, down, tab, workspace
+    case right, left, up, down, column, tab, workspace
     public var id: String { rawValue }
 
     /// The choice in the phone's Fork Conversation list.
@@ -426,6 +505,7 @@ public enum ChatForkDestination: String, CaseIterable, Hashable, Sendable, Ident
         case .left: "To the Left"
         case .up: "Above"
         case .down: "Below"
+        case .column: "In a New Column"
         case .tab: "In a New Tab"
         case .workspace: "In a New Workspace"
         }
@@ -438,6 +518,7 @@ public enum ChatForkDestination: String, CaseIterable, Hashable, Sendable, Ident
         case .left: "Fork Conversation to the Left"
         case .up: "Fork Conversation Above"
         case .down: "Fork Conversation Below"
+        case .column: "Fork Conversation to New Column Right"
         case .tab: "Fork Conversation to New Tab"
         case .workspace: "Fork Conversation to New Workspace"
         }
@@ -451,7 +532,7 @@ public enum ChatForkDestination: String, CaseIterable, Hashable, Sendable, Ident
         case .left: .left
         case .up: .up
         case .down: .down
-        case .tab, .workspace: nil
+        case .column, .tab, .workspace: nil
         }
     }
 }
@@ -518,4 +599,23 @@ public protocol WorkspacePaneBackend: AnyObject {
     /// Fork Conversation to `destination`: a copy of the chat beside it, in a new tab, or in a
     /// new workspace; returned once the Mac lists it there.
     func forkAgentChat(_ tab: WorkspaceTab, to destination: ChatForkDestination, in workspace: Workspace) async throws -> WorkspaceTab
+    /// Resize Pane: the divider `split` to `ratio` (the first side's share).
+    func setSplitRatio(_ split: Int, to ratio: Double, in workspace: Workspace) async throws
+    /// Move Tab to New Dock Column: a new column pinned to `edge` of the screen, holding the tab.
+    func moveTab(_ tab: WorkspaceTab, toNewDock edge: DockEdge, in workspace: Workspace) async throws
+    /// Move Pane to New Workspace: the pane's tabs, in order, into a new workspace right below
+    /// this one (the Mac's `pane.moveToNewWorkspace`). Returns it once the Mac lists it.
+    func movePaneToNewWorkspace(_ pane: Int, in workspace: Workspace) async throws -> Workspace
+}
+
+extension WorkspacePaneBackend {
+    public func setSplitRatio(_ split: Int, to ratio: Double, in workspace: Workspace) async throws {
+        throw WorkspaceCreationError("Not connected")
+    }
+    public func moveTab(_ tab: WorkspaceTab, toNewDock edge: DockEdge, in workspace: Workspace) async throws {
+        throw WorkspaceCreationError("Not connected")
+    }
+    public func movePaneToNewWorkspace(_ pane: Int, in workspace: Workspace) async throws -> Workspace {
+        throw WorkspaceCreationError("Not connected")
+    }
 }

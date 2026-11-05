@@ -147,7 +147,7 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
   const favicon = site?.icon ? (
     <img className="cv-chip__icon cv-chip__favicon" src={site.icon} alt="" width={14} height={14} />
   ) : undefined;
-  const cardMark = mark ?? favicon ?? <Globe size={16} strokeWidth={1.1} className="cv-chip__icon" />;
+  const cardMark = mark ?? favicon ?? <Globe size={16} className="cv-chip__icon" />;
   const hover = useHoverCard();
   const [anchor, setAnchor] = useState<HTMLAnchorElement | null>(null);
   const pullRequest = pullRequestRef(href);

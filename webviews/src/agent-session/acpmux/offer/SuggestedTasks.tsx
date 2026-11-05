@@ -15,6 +15,7 @@ import { ContextMenu } from "../../../ui/ContextMenu";
 import { Menu, MenuButton, MenuCheckboxItem, MenuItem, MenuPopup } from "../../../ui/Menu";
 import "./suggestedTasks.css";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
+import { openSessionAttributes } from "../conversation/menuParts";
 
 /// What a task's buttons do (App.tsx routes them to `chat.offer.*`).
 export type OfferActions = {
@@ -286,7 +287,13 @@ export function ReceivedResult({
   return (
     <div className="acpmux-task-received">
       <Line
-        {...(readOnly ? {} : { type: "button" as const, onClick: () => onOpen(result.childSessionId) })}
+        {...(readOnly
+          ? {}
+          : {
+              type: "button" as const,
+              onClick: () => onOpen(result.childSessionId),
+              ...openSessionAttributes(result.childSessionId),
+            })}
         className="acpmux-task-received-line"
       >
         <span className="acpmux-task-received-icon">

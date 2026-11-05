@@ -1,38 +1,42 @@
 import CmuxNextRemoteView
-import CmuxScreenKit
+import CmuxNextCompat
 import CoreGraphics
 
-/// The pane's input events as screen stream input: physical keys by keysym
-/// (the host maps them back to its own layout), pointer in stream pixels,
-/// wheel clicks, committed text.
+/// The pane's input events, sent as they are on the session's cmux.rd/1
+/// transport: physical keys by HID usage (the host maps them to its own
+/// layout), pointer in stream pixels, buttons, scroll in hundredths, text.
+@MainActor
 final class MacScreenInputSink: RemoteViewInputSink {
-    weak var session: ScreenSession?
-    private var scroll = MacScreenScroll()
+    weak var session: MacScreenSession?
 
-    init(session: ScreenSession) {
+    init(session: MacScreenSession) {
         self.session = session
     }
 
     func send(_ event: RemoteInputEvent) {
-        guard let session else { return }
-        switch event {
-        case let .key(usage, down):
-            guard let keysym = VNCKeysym(hidUsage: usage) else { return }
-            session.key(keysym, down: down)
-        case let .pointer(x, y):
-            session.movePointer(to: CGPoint(x: Int(x), y: Int(y)))
-        case let .button(button, down):
-            switch button {
-            case .left: session.press(.left, down: down)
-            case .middle: session.press(.middle, down: down)
-            case .right: session.press(.right, down: down)
-            case .back, .forward: break
-            }
-        case let .scroll(dx, dy, precise):
-            let lines = scroll.add(dx: dx, dy: dy, precise: precise)
-            session.scroll(dx: lines.dx, dy: lines.dy)
-        case let .text(text):
-            session.type(text)
+        session?.send(event)
+    }
+}
+
+/// Counts presented frames off the main actor; every 15th frame (and the
+/// first) tells the pane, which updates the stats and the picture state.
+nonisolated final class MacScreenFrameCounter: Sendable {
+    private let state = Mutex((total: 0, pending: 0))
+
+    /// Counts one frame; true when the pane should hear now.
+    func tick() -> Bool {
+        state.withLock { state in
+            state.total += 1
+            state.pending += 1
+            return state.total == 1 || state.pending >= 15
+        }
+    }
+
+    /// The frames counted since the last call.
+    func take() -> Int {
+        state.withLock { state in
+            defer { state.pending = 0 }
+            return state.pending
         }
     }
 }

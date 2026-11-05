@@ -48,14 +48,6 @@ enum MiscHandlerStrings {
         String(localized: "handlers.misc.failed.noNotificationToCopy", defaultValue: "There are no notifications to copy.", table: "MiscHandlers", bundle: .module)
     }
     static var noPrompt: String { String(localized: "handlers.misc.failed.noPrompt", defaultValue: "No agent has been given a prompt yet.", table: "MiscHandlers", bundle: .module) }
-    /// `agent.openSessionTab` with a peer `host` this Mac mirrors, but no live chat of it named `session`.
-    static func noPeerSession(_ session: String, _ peer: String) -> String {
-        String(format: String(localized: "handlers.misc.failed.noPeerSession", defaultValue: "%1$@ has no running chat named %2$@.", table: "MiscHandlers", bundle: .module), peer, session)
-    }
-    /// `agent.openSessionTab` with a peer `host` where more than one live chat has the name `session`.
-    static func ambiguousPeerSession(_ session: String, _ peer: String) -> String {
-        String(format: String(localized: "handlers.misc.failed.ambiguousPeerSession", defaultValue: "%1$@ has more than one chat named %2$@. Name it by its session id.", table: "MiscHandlers", bundle: .module), peer, session)
-    }
     static var sessionRequired: String { String(localized: "handlers.misc.failed.sessionRequired", defaultValue: "Name the acpmux session to open (session).", table: "MiscHandlers", bundle: .module) }
     static var noAgentSession: String { String(localized: "handlers.misc.failed.noAgentSession", defaultValue: "The focused terminal has no agent session to fork.", table: "MiscHandlers", bundle: .module) }
     static var noAgentPane: String { String(localized: "handlers.misc.failed.noAgentPane", defaultValue: "The focused pane is not showing an agent chat.", table: "MiscHandlers", bundle: .module) }
@@ -117,11 +109,11 @@ enum MiscHandlerStrings {
 }
 
 extension ActionWorkFailure {
-    /// The failure of a person's optimistic create (Cmd-D, Ctrl-`, New Row, New Column) as the refusal HUD shows it:
-    /// ``PendingPaneNotCreated`` and ``PaneNotReady`` read in the app's language at this boundary (their English text stays
-    /// for the log); other errors keep the daemon's own text, as before.
+    /// A person's failed optimistic create (Cmd-D, Ctrl-`, New Row, New Column) as the refusal HUD shows it: ``PendingPaneNotCreated``
+    /// and ``PaneNotReady`` in the app's language; no other daemon text (`ActionWorkFailure.notice(title:)`), and never `label`.
     @MainActor static func create(_ label: String, _ error: any Error) -> ActionWorkFailure {
-        if error is PendingPaneNotCreated { return ActionWorkFailure("\(label): \(MiscHandlerStrings.pendingPaneNotCreated)") }
+        let notCreated = MiscHandlerStrings.pendingPaneNotCreated
+        if error is PendingPaneNotCreated { return ActionWorkFailure(log: "\(label): \(notCreated)", reason: notCreated) }
         var failure = ActionWorkFailure(label, error)
         if error is PaneNotReady { failure.message = MiscHandlerStrings.paneNotReady }
         return failure

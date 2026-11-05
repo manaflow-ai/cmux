@@ -204,7 +204,7 @@ async function openRow(kind: string, output: string, command?: string) {
   await click(host.querySelector("button.cv-tool"));
 }
 
-test("a Shell block caps its output at eight scrolling lines and wraps its output with a hanging indent", async () => {
+test("a Shell block caps its output at eight scrolling lines and opens it aligned, each line on its own row", async () => {
   await openRow(
     "execute",
     lines(30, (index) => `case ${index + 1} ${"ok ".repeat(40)}`),
@@ -216,11 +216,12 @@ test("a Shell block caps its output at eight scrolling lines and wraps its outpu
   // The thirty lines of output; the command is a block of its own.
   const more = byText("Show all 30 lines", shell);
   expect(Boolean(more)).toBe(true);
-  // Output wraps by default, each line its own block so a wrapped line hangs under its start.
+  // Output opens aligned (blockWrap.ts): each line its own block, kept on one row, the body
+  // scrolling sideways for what runs past. Wrap lines folds the long rows back under their start.
   const wrap = wrapOf(shell);
   expect(Boolean(wrap?.closest(".cv-shell__label"))).toBe(true);
-  expect(wrap?.getAttribute("aria-pressed")).toBe("true");
-  expect(body.getAttribute("data-wrap")).toBe("true");
+  expect(wrap?.getAttribute("aria-pressed")).toBe("false");
+  expect(body.getAttribute("data-wrap")).toBe("false");
   expect(shell.querySelectorAll(".cv-shell__output .cv-line").length).toBe(30);
   // Copy and Find still read the output's exact text.
   expect(shell.querySelector(".cv-shell__output")?.textContent).toBe(
@@ -229,7 +230,7 @@ test("a Shell block caps its output at eight scrolling lines and wraps its outpu
   await click(more);
   expect(body.getAttribute("data-preview")).toBe("all");
   await click(wrap);
-  expect(body.getAttribute("data-wrap")).toBe("false");
+  expect(body.getAttribute("data-wrap")).toBe("true");
 });
 
 test("a long output's preview counts all its lines, not only the end it shows, and opens all of it", async () => {
@@ -312,7 +313,7 @@ test("a diff Find reveals through its row opens past the cut too", async () => {
 test("a call's output has Wrap lines and the same preview", async () => {
   await openRow("other", lines(12));
   const card = host.querySelector(".cv-tool-output-card")!;
-  expect(wrapOf(card)?.getAttribute("aria-pressed")).toBe("true");
+  expect(wrapOf(card)?.getAttribute("aria-pressed")).toBe("false");
   expect(card.querySelector(".cv-tool-output")?.getAttribute("data-preview")).toBe("cut");
   expect(Boolean(byText("Show all 12 lines", card))).toBe(true);
 });

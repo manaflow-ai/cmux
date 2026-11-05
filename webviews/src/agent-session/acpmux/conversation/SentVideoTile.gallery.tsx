@@ -105,7 +105,7 @@ export default componentEntry<Props>({
       },
     },
     "video-expanded": {
-      note: "Leo, 2026-11-03: \"i can neither preview a vid in place nor have it pop up anymore\". A double-click on the poster opens the recording large over the pane, playing with its controls, as a sent image opens in its viewer; Close brings the tile back. Held still at 1 s for the capture.",
+      note: 'Leo, 2026-11-03: "i can neither preview a vid in place nor have it pop up anymore". A double-click on the poster opens the recording large over the pane, playing with its controls, as a sent image opens in its viewer; Close brings the tile back. Held still at 1 s for the capture.',
       props: { typed: "Why does the sidebar jump when I open this?", screenshot: true },
       chipHost: { media: { [PATH]: `data:video/mp4;base64,${LOGIN_TESTS_MP4}` } },
       play: async (ctx) => {

@@ -24,6 +24,7 @@ enum CloudHandlers {
         bindDomainActions(into: registry, context: context, reason: signedInReason)
         bindListActions(into: registry, context: context)
         CloudStartSession.bind(into: registry, context: context, reason: signedInReason)
+        CloudStartSession.bindRelayChat(into: registry, context: context, reason: signedInReason)
         bindCreation(into: registry, context: context, reason: { cloud.unavailableReason })
         bindAccount(into: registry, context: context, reason: reason)
         bindMove(into: registry, context: context)
@@ -164,7 +165,7 @@ enum CloudHandlers {
             } catch {
                 logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
                 if interactive { CloudPresenter.failure(error, in: window(context)) }
-                return ActionWorkFailure("\(label): \(CloudStrings.errorText(error))")
+                return ActionWorkFailure(log: "\(label): \(CloudStrings.errorText(error))", reason: CloudStrings.errorText(error))
             }
         }
         context.services.registry.track(task)

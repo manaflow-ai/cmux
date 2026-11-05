@@ -108,7 +108,7 @@ impl TaskPlan {
                 if delete {
                     self.tasks.remove(at);
                 } else {
-                    let task = &mut self.tasks[at];
+                    let task = self.tasks.get_mut(at)?;
                     let before = task.clone();
                     if let Some(status) = status {
                         task.status = status;

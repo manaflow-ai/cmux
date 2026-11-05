@@ -1,6 +1,270 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.agentPane.display.commandLabels": {
+      "comment": "Settings > Appearance > Agent Chat > Command Labels (cmux-next.json only): the title of the command label rules",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تسميات الأوامر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oznake naredbi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kommandoetiketter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Befehlsbeschriftungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command Labels"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Etiquetas de comandos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Libellés des commandes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Etichette dei comandi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "コマンドのラベル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្លាកពាក្យបញ្ជា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "명령 레이블"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kommandoetiketter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Etykiety poleceń"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rótulos de comandos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Подписи команд"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ป้ายคำสั่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Komut etiketleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Підписи команд"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhãn lệnh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "命令标签"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "命令標籤"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.commandLabels.help": {
+      "comment": "Settings > Appearance > Agent Chat > Command Labels: help; cmux-fleet is a preset name and stays as is",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "كيف تسمي المحادثة أوامر الخلفية: أسماء إعدادات مسبقة مثل cmux-fleet، وقواعد ببرنامج أو نمط وتسمية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kako razgovor imenuje naredbe u pozadini: nazivi unaprijed postavljenih skupova kao cmux-fleet i pravila s programom ili uzorkom i oznakom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvordan chatten navngiver baggrundskommandoer: navne på forudindstillinger som cmux-fleet og regler med et program eller mønster og en etiket."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wie der Chat Hintergrundbefehle benennt: Namen von Voreinstellungen wie cmux-fleet und Regeln mit einem Programm oder Muster und einer Beschriftung."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How the chat names background commands: preset names such as cmux-fleet, and rules with a program or pattern and a label."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cómo nombra el chat los comandos en segundo plano: nombres de ajustes predefinidos como cmux-fleet y reglas con un programa o patrón y una etiqueta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comment la discussion nomme les commandes en arrière-plan : noms de préréglages comme cmux-fleet, et règles avec un programme ou un motif et un libellé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Come la chat nomina i comandi in background: nomi di preimpostazioni come cmux-fleet e regole con un programma o un modello e un'etichetta."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャットがバックグラウンドのコマンドを呼ぶ名前：cmux-fleet などのプリセット名と、プログラムまたはパターンとラベルを持つルール。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "របៀបដែលការជជែកដាក់ឈ្មោះពាក្យបញ្ជាផ្ទៃខាងក្រោយ៖ ឈ្មោះកំណត់ជាមុនដូចជា cmux-fleet និងច្បាប់ដែលមានកម្មវិធី ឬលំនាំ និងស្លាក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅이 백그라운드 명령을 부르는 방식: cmux-fleet 같은 프리셋 이름, 그리고 프로그램이나 패턴과 레이블이 있는 규칙."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvordan chatten navngir bakgrunnskommandoer: navn på forhåndsinnstillinger som cmux-fleet, og regler med et program eller mønster og en etikett."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jak czat nazywa polecenia w tle: nazwy ustawień wstępnych, takie jak cmux-fleet, oraz reguły z programem lub wzorcem i etykietą."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Como o chat nomeia comandos em segundo plano: nomes de predefinições como cmux-fleet e regras com um programa ou padrão e um rótulo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Как чат называет фоновые команды: имена наборов, например cmux-fleet, и правила с программой или шаблоном и подписью."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "วิธีที่แชตตั้งชื่อคำสั่งเบื้องหลัง: ชื่อพรีเซ็ต เช่น cmux-fleet และกฎที่มีโปรแกรมหรือรูปแบบพร้อมป้าย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbetin arka plan komutlarını nasıl adlandırdığı: cmux-fleet gibi hazır ayar adları ve bir program ya da desen ile etiket içeren kurallar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Як чат називає фонові команди: назви наборів, як-от cmux-fleet, і правила з програмою або шаблоном і підписом."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cách cuộc trò chuyện đặt tên lệnh chạy nền: tên cài đặt sẵn như cmux-fleet và các quy tắc có chương trình hoặc mẫu cùng nhãn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天如何称呼后台命令：预设名称（如 cmux-fleet），以及带程序或模式和标签的规则。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天如何稱呼背景命令：預設集名稱（如 cmux-fleet），以及帶有程式或模式和標籤的規則。"
+          }
+        }
+      }
+    },
     "settings.imessage.enabled": {
       "extractionState": "manual",
       "localizations": {
@@ -3938,6 +4202,87 @@
             "value": "每個聊天都以這些顏色開始。按右鍵點聊天並選擇「聊天顏色」可單獨設定。未設定的文字顏色會自動選擇以保持清晰易讀。"
           }
         }
+      }
+    },
+    "settings.appearance.themeFile": {
+      "comment": "Settings > Theme > App Theme: the theme file (appearance.themeFile) row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Theme File"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "ملف السمة"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Datoteka teme"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Temafil"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Theme-Datei"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Archivo de tema"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Fichier de thème"}},
+        "it": {"stringUnit": {"state": "translated", "value": "File del tema"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "テーマファイル"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ឯកសារ​រូបរាង"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "테마 파일"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Temafil"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Plik motywu"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Arquivo de tema"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Файл темы"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ไฟล์ธีม"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Tema Dosyası"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Файл теми"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Tệp chủ đề"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "主题文件"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "主題檔案"}}
+      }
+    },
+    "settings.appearance.themeFile.help": {
+      "comment": "Settings > Theme > App Theme: the theme file (appearance.themeFile) row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "A look from a file in ~/.config/cmux/themes, such as \"tokyo\" for tokyo.json. Its values apply over these settings, live as you save it. Unset, no file applies."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "مظهر من ملف في ~/.config/cmux/themes، مثل \"tokyo\" للملف tokyo.json. تُطبَّق قيمه فوق هذه الإعدادات مباشرةً عند حفظه. إذا لم يُضبط، فلا يُطبَّق أي ملف."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Izgled iz datoteke u ~/.config/cmux/themes, npr. \"tokyo\" za tokyo.json. Njene vrijednosti se primjenjuju preko ovih postavki, uživo čim je sačuvate. Ako nije postavljeno, ne primjenjuje se nijedna datoteka."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Et udseende fra en fil i ~/.config/cmux/themes, f.eks. \"tokyo\" for tokyo.json. Dens værdier gælder over disse indstillinger, live når du gemmer den. Uden værdi anvendes ingen fil."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Ein Look aus einer Datei in ~/.config/cmux/themes, etwa \"tokyo\" für tokyo.json. Ihre Werte gelten über diesen Einstellungen, live beim Speichern. Ohne Wert gilt keine Datei."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Un aspecto de un archivo en ~/.config/cmux/themes, como \"tokyo\" para tokyo.json. Sus valores se aplican sobre estos ajustes, en vivo al guardarlo. Sin valor, no se aplica ningún archivo."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Une apparence issue d'un fichier de ~/.config/cmux/themes, comme « tokyo » pour tokyo.json. Ses valeurs s'appliquent par-dessus ces réglages, en direct à chaque enregistrement. Sans valeur, aucun fichier ne s'applique."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Un aspetto da un file in ~/.config/cmux/themes, come \"tokyo\" per tokyo.json. I suoi valori si applicano sopra queste impostazioni, dal vivo quando lo salvi. Se non impostato, non si applica alcun file."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "~/.config/cmux/themes にあるファイルの外観です（tokyo.json なら \"tokyo\"）。保存するとすぐに、これらの設定の上に値が適用されます。未設定のときはファイルを適用しません。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "រូបរាង​ពី​ឯកសារ​ក្នុង ~/.config/cmux/themes ដូចជា \"tokyo\" សម្រាប់ tokyo.json។ តម្លៃ​របស់​វា​អនុវត្ត​លើ​ការកំណត់​ទាំងនេះ ភ្លាមៗ​ពេល​អ្នក​រក្សាទុក។ បើ​មិន​កំណត់ គ្មាន​ឯកសារ​ណា​អនុវត្ត​ទេ។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "~/.config/cmux/themes에 있는 파일의 모양입니다(tokyo.json이면 \"tokyo\"). 저장하는 즉시 이 설정 위에 값이 적용됩니다. 설정하지 않으면 파일이 적용되지 않습니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Et utseende fra en fil i ~/.config/cmux/themes, for eksempel \"tokyo\" for tokyo.json. Verdiene gjelder over disse innstillingene, direkte når du lagrer den. Uten verdi brukes ingen fil."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Wygląd z pliku w ~/.config/cmux/themes, np. \"tokyo\" dla tokyo.json. Jego wartości obowiązują ponad tymi ustawieniami, na żywo po zapisaniu. Bez wartości żaden plik nie obowiązuje."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Uma aparência de um arquivo em ~/.config/cmux/themes, como \"tokyo\" para tokyo.json. Os valores dele se aplicam sobre estes ajustes, ao vivo quando você salva. Sem valor, nenhum arquivo se aplica."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Оформление из файла в ~/.config/cmux/themes, например \"tokyo\" для tokyo.json. Его значения применяются поверх этих настроек, сразу при сохранении. Если не задано, файл не применяется."}},
+        "th": {"stringUnit": {"state": "translated", "value": "รูปลักษณ์จากไฟล์ใน ~/.config/cmux/themes เช่น \"tokyo\" สำหรับ tokyo.json ค่าในไฟล์จะใช้ทับการตั้งค่าเหล่านี้ทันทีที่บันทึก ถ้าไม่ได้ตั้งค่า จะไม่ใช้ไฟล์ใด"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "~/.config/cmux/themes içindeki bir dosyadan görünüm; örneğin tokyo.json için \"tokyo\". Değerleri, kaydettiğiniz anda bu ayarların üzerine uygulanır. Ayarlanmazsa hiçbir dosya uygulanmaz."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Вигляд із файлу в ~/.config/cmux/themes, наприклад \"tokyo\" для tokyo.json. Його значення застосовуються поверх цих налаштувань одразу після збереження. Якщо не задано, файл не застосовується."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Giao diện từ một tệp trong ~/.config/cmux/themes, ví dụ \"tokyo\" cho tokyo.json. Các giá trị của tệp áp dụng lên trên các cài đặt này ngay khi bạn lưu. Nếu không đặt, không tệp nào được áp dụng."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "来自 ~/.config/cmux/themes 中文件的外观，例如 tokyo.json 对应 \"tokyo\"。保存后其值会立即覆盖这些设置。未设置时不应用任何文件。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "來自 ~/.config/cmux/themes 中檔案的外觀，例如 tokyo.json 對應 \"tokyo\"。儲存後其值會立即覆蓋這些設定。未設定時不套用任何檔案。"}}
+      }
+    },
+    "settings.appearance.themeFile.summary": {
+      "comment": "Settings > Theme > App Theme: the theme file (appearance.themeFile) row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "A look from ~/.config/cmux/themes"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "مظهر من ~/.config/cmux/themes"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Izgled iz ~/.config/cmux/themes"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Et udseende fra ~/.config/cmux/themes"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Ein Look aus ~/.config/cmux/themes"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Un aspecto de ~/.config/cmux/themes"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Une apparence de ~/.config/cmux/themes"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Un aspetto da ~/.config/cmux/themes"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "~/.config/cmux/themes の外観"}},
+        "km": {"stringUnit": {"state": "translated", "value": "រូបរាង​ពី ~/.config/cmux/themes"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "~/.config/cmux/themes의 모양"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Et utseende fra ~/.config/cmux/themes"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Wygląd z ~/.config/cmux/themes"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Uma aparência de ~/.config/cmux/themes"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Оформление из ~/.config/cmux/themes"}},
+        "th": {"stringUnit": {"state": "translated", "value": "รูปลักษณ์จาก ~/.config/cmux/themes"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "~/.config/cmux/themes içinden bir görünüm"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Вигляд із ~/.config/cmux/themes"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Giao diện từ ~/.config/cmux/themes"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "来自 ~/.config/cmux/themes 的外观"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "來自 ~/.config/cmux/themes 的外觀"}}
       }
     },
     "settings.appearance.highlightColor": {
@@ -28747,6 +29092,84 @@
             "value": "邊框寬度"
           }
         }
+      }
+    },
+    "settings.layout.cornerPadding": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Corner Padding"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "角のパディング"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "حشوة الزاوية"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Razmak uglova"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Hjørneafstand"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Eckabstand"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Margen de esquina"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Marge des coins"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Spaziatura degli angoli"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "គម្លាតជ្រុង"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "모서리 여백"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Hjørneavstand"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Odstęp narożnika"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Espaçamento do canto"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Отступ углов"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ระยะห่างมุม"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Köşe boşluğu"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Відступ кутів"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Khoảng đệm góc"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "圆角内边距"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "圓角內距"}}
+      }
+    },
+    "settings.layout.paneCornerRadius.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "One radius for panes and tabs. Shapes inside a pane use this radius minus the corner padding."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ペインとタブに共通の半径です。ペイン内の図形はこの半径から角のパディングを引いた値を使います。"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "نصف قطر واحد للأجزاء وعلامات التبويب. تستخدم الأشكال داخل الجزء هذا النصف مطروحًا منه حشوة الزاوية."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Jedan radijus za panele i kartice. Oblici unutar panela koriste ovaj radijus umanjen za razmak uglova."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Én radius for ruder og faner. Former i en rude bruger denne radius minus hjørneafstanden."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Ein Radius für Bereiche und Tabs. Formen in einem Bereich nutzen diesen Radius minus den Eckabstand."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Un radio para paneles y pestañas. Las formas dentro de un panel usan este radio menos el margen de esquina."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Un seul rayon pour les volets et les onglets. Les formes d'un volet utilisent ce rayon moins la marge des coins."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Un raggio per pannelli e schede. Le forme in un pannello usano questo raggio meno la spaziatura degli angoli."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "កាំតែមួយសម្រាប់ផ្ទាំង និងផ្ទាំងរង។ រូបរាងក្នុងផ្ទាំងប្រើកាំនេះដកគម្លាតជ្រុង។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "창과 탭에 쓰는 하나의 반경입니다. 창 안의 도형은 이 반경에서 모서리 여백을 뺀 값을 씁니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Én radius for ruter og faner. Former i en rute bruker denne radiusen minus hjørneavstanden."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Jeden promień dla paneli i kart. Kształty w panelu używają tego promienia minus odstęp narożnika."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Um raio para painéis e abas. As formas dentro de um painel usam este raio menos o espaçamento do canto."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Один радиус для панелей и вкладок. Фигуры внутри панели используют этот радиус минус отступ углов."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "รัศมีเดียวสำหรับบานหน้าต่างและแท็บ รูปทรงในบานหน้าต่างใช้รัศมีนี้ลบระยะห่างมุม"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Bölmeler ve sekmeler için tek yarıçap. Bölme içindeki şekiller bu yarıçaptan köşe boşluğunu çıkarır."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Один радіус для панелей і вкладок. Фігури всередині панелі використовують цей радіус мінус відступ кутів."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Một bán kính cho ô và thẻ. Hình bên trong ô dùng bán kính này trừ khoảng đệm góc."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "窗格和标签页共用一个半径。窗格内的形状使用此半径减去圆角内边距。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "窗格與分頁共用一個半徑。窗格內的形狀使用此半徑減去圓角內距。"}}
+      }
+    },
+    "settings.layout.cornerPadding.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Space between a pane's edge and its tabs. Inner corners use the corner radius minus this."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ペインの端とタブの間隔です。内側の角は角丸の半径からこの値を引いたものです。"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "المسافة بين حافة الجزء وعلامات التبويب. تستخدم الزوايا الداخلية نصف قطر الزاوية مطروحًا منه هذه القيمة."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Razmak između ruba panela i kartica. Unutrašnji uglovi koriste radijus uglova umanjen za ovo."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Afstand mellem en rudes kant og dens faner. Indre hjørner bruger hjørneradius minus denne."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Abstand zwischen dem Rand eines Bereichs und seinen Tabs. Innere Ecken nutzen den Eckradius minus diesen Wert."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Espacio entre el borde de un panel y sus pestañas. Las esquinas internas usan el radio de esquina menos este valor."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Espace entre le bord d'un volet et ses onglets. Les coins intérieurs utilisent le rayon des coins moins cette valeur."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Spazio tra il bordo di un pannello e le sue schede. Gli angoli interni usano il raggio meno questo valore."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "គម្លាតរវាងគែមផ្ទាំង និងផ្ទាំងរងរបស់វា។ ជ្រុងខាងក្នុងប្រើកាំជ្រុងដកតម្លៃនេះ។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "창 가장자리와 탭 사이의 간격입니다. 안쪽 모서리는 모서리 반경에서 이 값을 뺍니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Avstand mellom kanten av en rute og fanene. Indre hjørner bruker hjørneradius minus denne."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Odstęp między krawędzią panelu a jego kartami. Wewnętrzne narożniki używają promienia minus ta wartość."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Espaço entre a borda de um painel e suas abas. Os cantos internos usam o raio do canto menos este valor."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Расстояние между краем панели и её вкладками. Внутренние углы используют радиус углов минус это значение."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ระยะห่างระหว่างขอบบานหน้าต่างกับแท็บ มุมด้านในใช้รัศมีมุมลบค่านี้"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Bölme kenarı ile sekmeleri arasındaki boşluk. İç köşeler köşe yarıçapından bunu çıkarır."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Відстань між краєм панелі та її вкладками. Внутрішні кути використовують радіус кутів мінус це значення."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Khoảng cách giữa cạnh ô và các thẻ của nó. Góc bên trong dùng bán kính góc trừ giá trị này."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "窗格边缘与其标签页之间的间距。内侧圆角使用圆角半径减去此值。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "窗格邊緣與其分頁之間的間距。內側圓角使用圓角半徑減去此值。"}}
       }
     },
     "settings.layout.paneCornerRadius": {
@@ -76435,6 +76858,58 @@
         }
       }
     },
+    "settings.tabs.hideLoneChatTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Hide the Tab of a Chat Alone in Its Pane"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "إخفاء علامة تبويب المحادثة الوحيدة في جزئها"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Sakrij karticu razgovora koji je sam u svom oknu"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Skjul fanen for en chat, der er alene i sin rude"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Tab eines Chats ausblenden, der allein im Bereich ist"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Ocultar la pestaña de un chat solo en su panel"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Masquer l’onglet d’une discussion seule dans son volet"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Nascondi la scheda di una chat da sola nel suo riquadro"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ペインに 1 つだけのチャットのタブを隠す"}},
+        "km": {"stringUnit": {"state": "translated", "value": "លាក់ផ្ទាំងនៃការជជែកដែលនៅតែឯងក្នុងផ្ទាំងរបស់វា"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "창에 하나뿐인 채팅의 탭 숨기기"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Skjul fanen til en chat som er alene i ruten"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Ukryj kartę czatu, który jest sam w panelu"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Ocultar a aba de um chat sozinho no painel"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Скрывать вкладку чата, если он один в панели"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ซ่อนแท็บของแชตที่อยู่เดี่ยวในบานหน้าต่าง"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Bölmesinde tek başına olan sohbetin sekmesini gizle"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Приховувати вкладку чату, якщо він один на панелі"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Ẩn thẻ của cuộc trò chuyện duy nhất trong ngăn"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "隐藏窗格中唯一聊天的标签页"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "隱藏窗格中唯一聊天的分頁"}}
+      }
+    },
+    "settings.tabs.hideLoneChatTab.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "When a pane holds only one chat, hide its tab so the chat fills the tab bar. A second tab brings the tab bar back."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "عندما يحتوي الجزء على محادثة واحدة فقط، تُخفى علامة تبويبها لتملأ المحادثة شريط علامات التبويب. تعيد علامة تبويب ثانية الشريط."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Kada okno sadrži samo jedan razgovor, sakrij njegovu karticu da razgovor ispuni traku kartica. Druga kartica vraća traku kartica."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Når en rude kun indeholder én chat, skjules dens fane, så chatten fylder fanelinjen. En fane mere bringer fanelinjen tilbage."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Enthält ein Bereich nur einen Chat, wird sein Tab ausgeblendet, sodass der Chat die Tableiste füllt. Ein zweiter Tab bringt die Tableiste zurück."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Cuando un panel tiene un solo chat, oculta su pestaña para que el chat ocupe la barra de pestañas. Una segunda pestaña la vuelve a mostrar."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Lorsqu’un volet ne contient qu’une discussion, son onglet est masqué pour que la discussion occupe la barre d’onglets. Un deuxième onglet la fait revenir."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Quando un riquadro contiene una sola chat, ne nasconde la scheda così la chat occupa la barra delle schede. Una seconda scheda la fa tornare."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ペインにチャットが 1 つしかないとき、そのタブを隠してチャットがタブバーまで広がります。2 つ目のタブを開くとタブバーが戻ります。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "នៅពេលផ្ទាំងមានការជជែកតែមួយ លាក់ផ្ទាំងរបស់វា ដើម្បីឱ្យការជជែកពេញរបារផ្ទាំង។ ផ្ទាំងទីពីរនាំរបារផ្ទាំងត្រឡប់មកវិញ។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "창에 채팅이 하나만 있으면 탭을 숨겨 채팅이 탭 막대까지 채웁니다. 두 번째 탭을 열면 탭 막대가 돌아옵니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Når en rute bare har én chat, skjules fanen slik at chatten fyller fanelinjen. En fane til henter fanelinjen tilbake."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Gdy panel zawiera tylko jeden czat, jego karta jest ukryta, a czat wypełnia pasek kart. Druga karta przywraca pasek kart."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Quando um painel tem só um chat, oculta a aba para que o chat ocupe a barra de abas. Uma segunda aba traz a barra de volta."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Когда в панели только один чат, его вкладка скрывается и чат занимает полосу вкладок. Вторая вкладка возвращает полосу."}},
+        "th": {"stringUnit": {"state": "translated", "value": "เมื่อบานหน้าต่างมีแชตเดียว จะซ่อนแท็บเพื่อให้แชตเต็มแถบแท็บ แท็บที่สองจะนำแถบแท็บกลับมา"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Bir bölmede yalnızca bir sohbet varsa sekmesi gizlenir ve sohbet sekme çubuğunu doldurur. İkinci bir sekme çubuğu geri getirir."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Коли на панелі лише один чат, його вкладка ховається і чат займає смугу вкладок. Друга вкладка повертає смугу."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Khi một ngăn chỉ có một cuộc trò chuyện, ẩn thẻ của nó để cuộc trò chuyện lấp đầy thanh thẻ. Thẻ thứ hai sẽ đưa thanh thẻ trở lại."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "窗格中只有一个聊天时，隐藏其标签页，让聊天占满标签栏。打开第二个标签页时标签栏会回来。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "窗格中只有一個聊天時，隱藏其分頁，讓聊天佔滿分頁列。開啟第二個分頁時分頁列會回來。"}}
+      }
+    },
     "settings.choice.diffUnified": {
       "extractionState": "manual",
       "localizations": {
@@ -83479,6 +83954,268 @@
           "stringUnit": {
             "state": "translated",
             "value": "更新後，側邊欄底部會顯示一張通往「新功能」的卡片，直到你打開或關閉它。"
+          }
+        }
+      }
+    },
+    "settings.updates.oneClickInstall": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update in One Click"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit einem Klick aktualisieren"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mettre à jour en un clic"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التحديث بنقرة واحدة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualizar con un clic"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一鍵更新"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一键更新"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "한 번의 클릭으로 업데이트"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワンクリックでアップデート"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ažuriraj jednim klikom"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opdater med ét klik"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiorna con un clic"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ធ្វើបច្ចុប្បន្នភាពដោយចុចតែម្តង"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppdater med ett klikk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktualizuj jednym kliknięciem"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atualizar com um clique"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обновление в один клик"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อัปเดตในคลิกเดียว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tek Tıkla Güncelle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оновлення в один клік"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cập nhật bằng một lần nhấp"
+          }
+        }
+      }
+    },
+    "settings.updates.oneClickInstall.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off: Update downloads the update, then cmux asks before it restarts into it. On: one click on Update downloads it, shows its progress, then installs it and restarts cmux. Terminals and agents keep running across the restart."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus: „Aktualisieren“ lädt das Update, dann fragt cmux, bevor es neu startet. Ein: Ein Klick auf „Aktualisieren“ lädt es, zeigt den Fortschritt, installiert es und startet cmux neu. Terminals und Agenten laufen über den Neustart hinweg weiter."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactivé : Mettre à jour télécharge la mise à jour, puis cmux demande avant de redémarrer. Activé : un clic sur Mettre à jour la télécharge, affiche sa progression, puis l’installe et redémarre cmux. Les terminaux et les agents continuent de tourner pendant le redémarrage."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إيقاف: يؤدي «تحديث» إلى تنزيل التحديث، ثم يسأل cmux قبل إعادة التشغيل. تشغيل: نقرة واحدة على «تحديث» تنزّله وتعرض تقدّمه، ثم تثبّته وتعيد تشغيل cmux. تستمر الطرفيات والوكلاء في العمل خلال إعادة التشغيل."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desactivado: Actualizar descarga la actualización y cmux pregunta antes de reiniciarse. Activado: un clic en Actualizar la descarga, muestra su progreso, la instala y reinicia cmux. Los terminales y los agentes siguen ejecutándose durante el reinicio."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉：「更新」會下載更新，cmux 會在重新啟動前先詢問。開啟：按一下「更新」即會下載並顯示進度，接著安裝並重新啟動 cmux。終端機和代理程式在重新啟動期間會繼續執行。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭：“更新”会下载更新，cmux 会在重新启动前先询问。开启：点按一次“更新”即会下载并显示进度，然后安装并重新启动 cmux。终端和代理在重新启动期间会继续运行。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끔: 업데이트를 누르면 업데이트를 다운로드하고, cmux가 재시작하기 전에 묻습니다. 켬: 업데이트를 한 번 클릭하면 다운로드하며 진행 상황을 표시하고, 설치한 뒤 cmux를 재시작합니다. 터미널과 에이전트는 재시작 중에도 계속 실행됩니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフ：「アップデート」でアップデートをダウンロードし、再起動の前に cmux が確認します。オン：「アップデート」を1回クリックするとダウンロードして進行状況を表示し、インストールして cmux を再起動します。ターミナルとエージェントは再起動中も動作し続けます。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Isključeno: Ažuriraj preuzima ažuriranje, a zatim cmux pita prije ponovnog pokretanja. Uključeno: jedan klik na Ažuriraj preuzima ga, prikazuje napredak, zatim ga instalira i ponovo pokreće cmux. Terminali i agenti nastavljaju raditi tokom ponovnog pokretanja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fra: Opdater henter opdateringen, og cmux spørger, før det genstarter. Til: ét klik på Opdater henter den, viser fremskridtet, installerer den og genstarter cmux. Terminaler og agenter kører videre under genstarten."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disattivato: Aggiorna scarica l'aggiornamento, poi cmux chiede prima di riavviarsi. Attivato: un clic su Aggiorna lo scarica, ne mostra l'avanzamento, lo installa e riavvia cmux. Terminali e agenti continuano a funzionare durante il riavvio."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បិទ៖ ធ្វើបច្ចុប្បន្នភាព ទាញយកការធ្វើបច្ចុប្បន្នភាព បន្ទាប់មក cmux សួរមុនពេលចាប់ផ្តើមឡើងវិញ។ បើក៖ ចុចម្តងលើ ធ្វើបច្ចុប្បន្នភាព ដើម្បីទាញយក បង្ហាញដំណើរការ បន្ទាប់មកដំឡើង ហើយចាប់ផ្តើម cmux ឡើងវិញ។ ស្ថានីយ និងភ្នាក់ងារនៅតែដំណើរការក្នុងពេលចាប់ផ្តើមឡើងវិញ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Av: Oppdater laster ned oppdateringen, og cmux spør før det starter på nytt. På: ett klikk på Oppdater laster den ned, viser fremdriften, installerer den og starter cmux på nytt. Terminaler og agenter fortsetter å kjøre under omstarten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyłączone: Aktualizuj pobiera aktualizację, a cmux pyta przed ponownym uruchomieniem. Włączone: jedno kliknięcie Aktualizuj pobiera ją, pokazuje postęp, instaluje ją i uruchamia cmux ponownie. Terminale i agenci działają dalej podczas ponownego uruchomienia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desativado: Atualizar baixa a atualização e o cmux pergunta antes de reiniciar. Ativado: um clique em Atualizar a baixa, mostra o progresso, instala e reinicia o cmux. Terminais e agentes continuam rodando durante a reinicialização."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выкл.: «Обновить» загружает обновление, затем cmux спрашивает перед перезапуском. Вкл.: один клик по «Обновить» загружает его, показывает ход загрузки, устанавливает и перезапускает cmux. Терминалы и агенты продолжают работать во время перезапуска."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิด: อัปเดตจะดาวน์โหลดการอัปเดต แล้ว cmux จะถามก่อนรีสตาร์ท เปิด: คลิกอัปเดตครั้งเดียวจะดาวน์โหลด แสดงความคืบหน้า แล้วติดตั้งและรีสตาร์ท cmux เทอร์มินัลและเอเจนต์ยังคงทำงานระหว่างรีสตาร์ท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapalı: Güncelle, güncellemeyi indirir, ardından cmux yeniden başlatmadan önce sorar. Açık: Güncelle'ye tek tık güncellemeyi indirir, ilerlemesini gösterir, ardından yükler ve cmux'u yeniden başlatır. Terminaller ve ajanlar yeniden başlatma boyunca çalışmaya devam eder."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вимк.: «Оновити» завантажує оновлення, потім cmux питає перед перезапуском. Увімк.: один клік на «Оновити» завантажує його, показує перебіг, встановлює та перезапускає cmux. Термінали й агенти працюють далі під час перезапуску."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tắt: Cập nhật sẽ tải bản cập nhật, sau đó cmux hỏi trước khi khởi động lại. Bật: một lần nhấp vào Cập nhật sẽ tải xuống, hiển thị tiến trình, rồi cài đặt và khởi động lại cmux. Terminal và tác tử vẫn tiếp tục chạy trong khi khởi động lại."
           }
         }
       }
@@ -156168,6 +156905,930 @@
         }
       }
     },
+    "settings.agentPane.display.pinnedPlan": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pin Task List in Chat"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تثبيت قائمة المهام في الدردشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikači listu zadataka u razgovoru"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fastgør opgavelisten i chatten"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufgabenliste im Chat anheften"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fijar la lista de tareas en el chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Épingler la liste des tâches dans le chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fissa l'elenco delle attività nella chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスクリストをチャットに固定"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ខ្ទាស់បញ្ជីកិច្ចការក្នុងការជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅에 작업 목록 고정"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fest oppgavelisten i chatten"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przypnij listę zadań w czacie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fixar lista de tarefas no chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закрепить список задач в чате"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปักหมุดรายการงานในแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Görev listesini sohbete sabitle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закріпити список завдань у чаті"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghim danh sách việc trong cuộc trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在聊天中固定任务列表"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在聊天中釘選工作清單"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.pinnedPlan.help": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "While the agent works, its task list stays under the latest message instead of in the bar over the composer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أثناء عمل الوكيل، تبقى قائمة مهامه تحت أحدث رسالة بدلًا من الشريط فوق مربع الكتابة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dok agent radi, njegova lista zadataka ostaje ispod posljednje poruke umjesto u traci iznad polja za pisanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mens agenten arbejder, bliver dens opgaveliste under den seneste besked i stedet for i bjælken over skrivefeltet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Während der Agent arbeitet, bleibt seine Aufgabenliste unter der neuesten Nachricht statt in der Leiste über dem Eingabefeld."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mientras el agente trabaja, su lista de tareas queda bajo el último mensaje en lugar de en la barra sobre el editor."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pendant que l'agent travaille, sa liste des tâches reste sous le dernier message au lieu de la barre au-dessus du champ de saisie."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mentre l'agente lavora, il suo elenco delle attività resta sotto l'ultimo messaggio invece che nella barra sopra il campo di scrittura."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントの作業中、タスクリストを入力欄の上のバーではなく最新のメッセージの下に表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពេលភ្នាក់ងារកំពុងធ្វើការ បញ្ជីកិច្ចការរបស់វានៅក្រោមសារចុងក្រោយ ជំនួសឱ្យរបារនៅលើប្រអប់សរសេរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트가 작업하는 동안 작업 목록을 입력창 위의 막대 대신 최신 메시지 아래에 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mens agenten jobber, blir oppgavelisten under den nyeste meldingen i stedet for i linjen over skrivefeltet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdy agent pracuje, jego lista zadań pozostaje pod najnowszą wiadomością zamiast na pasku nad polem pisania."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enquanto o agente trabalha, a lista de tarefas fica abaixo da mensagem mais recente em vez de na barra acima do campo de escrita."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пока агент работает, его список задач остаётся под последним сообщением, а не в полосе над полем ввода."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขณะที่เอเจนต์ทำงาน รายการงานจะอยู่ใต้ข้อความล่าสุดแทนที่จะอยู่ในแถบเหนือช่องพิมพ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan çalışırken görev listesi, yazma alanının üstündeki çubuk yerine en son mesajın altında kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поки агент працює, його список завдань лишається під останнім повідомленням, а не на смузі над полем введення."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi tác nhân đang làm việc, danh sách việc của nó nằm dưới tin nhắn mới nhất thay vì trên thanh phía trên ô soạn thảo."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理工作时，其任务列表显示在最新消息下方，而不是输入框上方的栏中。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式工作時，其工作清單顯示在最新訊息下方，而不是輸入框上方的列中。"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.trayTucked": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tuck Away Running Tray"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إخفاء شريط العمل الجاري"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skloni traku rada u toku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjul bjælken med igangværende arbejde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leiste mit laufender Arbeit wegklappen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar la barra de trabajo en curso"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replier la barre du travail en cours"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nascondi la barra del lavoro in corso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中の作業バーをしまう"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "លាក់របារការងារកំពុងដំណើរការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 중인 작업 막대 접어 두기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjul linjen med pågående arbeid"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schowaj pasek trwającej pracy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recolher a barra de trabalho em andamento"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Убрать панель текущей работы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เก็บซ่อนแถบงานที่กำลังทำ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Süren iş çubuğunu gizle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сховати панель поточної роботи"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thu gọn thanh công việc đang chạy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "收起正在运行的工作栏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "收起進行中的工作列"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.trayTucked.help": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hides the bar of running work over the composer. Hover the top middle of the composer and click its chevron to bring it back."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يخفي شريط العمل الجاري فوق مربع الكتابة. مرّر المؤشر فوق منتصف أعلى مربع الكتابة وانقر على السهم لإظهاره مجددًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skriva traku rada u toku iznad polja za pisanje. Pređite mišem preko sredine vrha polja i kliknite strelicu da je vratite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjuler bjælken med igangværende arbejde over skrivefeltet. Hold markøren over midten af skrivefeltets top, og klik på pilen for at vise den igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blendet die Leiste mit laufender Arbeit über dem Eingabefeld aus. Zeige oben in der Mitte des Eingabefelds und klicke auf den Pfeil, um sie zurückzuholen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oculta la barra de trabajo en curso sobre el campo de redacción. Pasa el puntero por el centro superior del campo y haz clic en su flecha para mostrarla de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masque la barre du travail en cours au-dessus de la zone de saisie. Survolez le haut de la zone, au milieu, puis cliquez sur sa flèche pour la rétablir."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nasconde la barra del lavoro in corso sopra il campo di scrittura. Passa il puntatore al centro in alto del campo e fai clic sulla freccia per mostrarla di nuovo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力欄の上にある実行中の作業バーを隠します。入力欄の上端中央にポインタを置き、山形のボタンをクリックすると元に戻ります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "លាក់របារការងារកំពុងដំណើរការនៅលើប្រអប់សរសេរ។ ដាក់ទស្សន៍ទ្រនិចលើកណ្ដាលផ្នែកខាងលើនៃប្រអប់ ហើយចុចព្រួញដើម្បីបង្ហាញវាវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "입력창 위의 실행 중인 작업 막대를 숨깁니다. 입력창 위쪽 가운데에 포인터를 올리고 화살표를 클릭하면 다시 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjuler linjen med pågående arbeid over skrivefeltet. Hold pekeren over midten av toppen av skrivefeltet og klikk pilen for å hente den tilbake."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukrywa pasek trwającej pracy nad polem tekstowym. Najedź na środek górnej krawędzi pola i kliknij strzałkę, aby go przywrócić."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oculta a barra de trabalho em andamento acima do campo de texto. Passe o cursor no centro do topo do campo e clique na seta para trazê-la de volta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скрывает панель текущей работы над полем ввода. Наведите указатель на середину верхнего края поля и нажмите на стрелку, чтобы вернуть её."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ซ่อนแถบงานที่กำลังทำเหนือช่องพิมพ์ วางเมาส์ที่กึ่งกลางด้านบนของช่องพิมพ์แล้วคลิกลูกศรเพื่อแสดงกลับมา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yazma alanının üstündeki süren iş çubuğunu gizler. Geri getirmek için alanın üst ortasının üzerine gelip okuna tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ховає панель поточної роботи над полем введення. Наведіть вказівник на середину верхнього краю поля й натисніть стрілку, щоб повернути її."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ẩn thanh công việc đang chạy phía trên ô soạn thảo. Di chuột vào giữa cạnh trên của ô và bấm mũi tên để hiện lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏输入框上方正在运行的工作栏。将指针移到输入框顶部中间，点按箭头即可重新显示。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱藏輸入框上方進行中的工作列。將指標移到輸入框頂部中間，按一下箭頭即可重新顯示。"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.trayHandle": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Running Tray Handle"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مقبض شريط العمل الجاري"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ručka trake rada u toku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Håndtag til bjælken med igangværende arbejde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Griff der Leiste mit laufender Arbeit"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Asa de la barra de trabajo en curso"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poignée de la barre de travail en cours"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maniglia della barra del lavoro in corso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中の作業バーのハンドル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដៃចាប់របារការងារកំពុងដំណើរការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 중인 작업 막대 핸들"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Håndtak for linjen med pågående arbeid"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uchwyt paska trwającej pracy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alça da barra de trabalho em andamento"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ручка панели текущей работы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ที่จับแถบงานที่กำลังทำ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Süren iş çubuğunun tutamacı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ручка панелі поточної роботи"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tay cầm thanh công việc đang chạy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在进行的工作栏的把手"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "進行中工作列的把手"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.trayHandle.help": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Where the handle that tucks the running tray away and brings it back sits along the top of the composer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "موضع المقبض الذي يخفي شريط العمل الجاري ويعيده، على امتداد أعلى مربع الكتابة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdje uz vrh polja za pisanje stoji ručka koja sklanja traku rada u toku i vraća je."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor langs toppen af skrivefeltet håndtaget sidder, der skjuler bjælken med igangværende arbejde og henter den frem igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wo am oberen Rand des Eingabefelds der Griff sitzt, der die Leiste mit laufender Arbeit wegklappt und zurückholt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dónde se sitúa, a lo largo del borde superior del editor, el asa que oculta la barra de trabajo en curso y la vuelve a mostrar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Où se trouve, le long du haut de la zone de saisie, la poignée qui replie la barre de travail en cours et la fait revenir."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dove si trova, lungo il bordo superiore del compositore, la maniglia che nasconde la barra del lavoro in corso e la riporta."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中の作業バーをしまったり戻したりするハンドルを、入力欄の上辺のどこに置くか。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទីតាំងនៃដៃចាប់ដែលលាក់ និងបង្ហាញរបារការងារកំពុងដំណើរការវិញ នៅតាមគែមខាងលើនៃប្រអប់សរសេរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 중인 작업 막대를 접어 두거나 다시 꺼내는 핸들이 입력창 위쪽 가장자리 어디에 놓이는지."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor langs toppen av skrivefeltet håndtaket sitter, som skjuler linjen med pågående arbeid og henter den fram igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdzie wzdłuż górnej krawędzi pola pisania stoi uchwyt, który chowa pasek trwającej pracy i przywraca go."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Onde fica, ao longo da borda superior do compositor, a alça que recolhe a barra de trabalho em andamento e a traz de volta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Где вдоль верхнего края поля ввода находится ручка, которая убирает панель текущей работы и возвращает её."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตำแหน่งของที่จับซึ่งเก็บซ่อนและเรียกแถบงานที่กำลังทำกลับมา ตามแนวขอบบนของช่องพิมพ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Süren iş çubuğunu gizleyen ve geri getiren tutamacın, yazma alanının üst kenarında nerede durduğu."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Де вздовж верхнього краю поля введення розташована ручка, яка ховає панель поточної роботи й повертає її."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vị trí của tay cầm thu gọn và mở lại thanh công việc đang chạy, dọc theo cạnh trên của ô soạn thảo."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "收起和展开正在进行的工作栏的把手，位于输入框顶部边缘的哪个位置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "收起和展開進行中工作列的把手，位於輸入框頂端邊緣的哪個位置。"
+          }
+        }
+      }
+    },
+    "settings.choice.middle": {
+      "comment": "Settings: a choice of where a control sits along an edge: its middle",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Middle"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الوسط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sredina"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Midten"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mitte"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Centro"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Milieu"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Centro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中央"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កណ្ដាល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가운데"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Midten"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Środek"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Centro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "По центру"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตรงกลาง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Orta"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Посередині"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giữa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中间"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中間"
+          }
+        }
+      }
+    },
     "settings.agentPane.display.fullWidth": {
       "comment": "Settings: the agent chat's and Markdown viewer's display rows",
       "extractionState": "manual",
@@ -200447,57 +202108,585 @@
       }
     },
     "settings.cloud.agentsStartWithoutAsking": {
-      "comment": "Settings > Machines: toggle that lets agents start Cloud machines and sessions with no Start card in their chat.",
+      "comment": "Settings > Machines: toggle that lets agents, the cmux CLI and scripts create Cloud machines, move chats to Cloud and start sessions there with no card asking first.",
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Let Agents Start Cloud Sessions Without Asking"}},
-        "ar": {"stringUnit": {"state": "needs_review", "value": "السماح للوكلاء ببدء جلسات سحابية دون سؤال"}},
-        "bs": {"stringUnit": {"state": "needs_review", "value": "Dozvoli agentima da pokreću Cloud sesije bez pitanja"}},
-        "da": {"stringUnit": {"state": "needs_review", "value": "Lad agenter starte Cloud-sessioner uden at spørge"}},
-        "de": {"stringUnit": {"state": "needs_review", "value": "Agents Cloud-Sitzungen ohne Nachfrage starten lassen"}},
-        "es": {"stringUnit": {"state": "needs_review", "value": "Permitir que los agentes inicien sesiones en la nube sin preguntar"}},
-        "fr": {"stringUnit": {"state": "needs_review", "value": "Laisser les agents démarrer des sessions Cloud sans demander"}},
-        "it": {"stringUnit": {"state": "needs_review", "value": "Consenti agli agenti di avviare sessioni Cloud senza chiedere"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "確認なしでエージェントにクラウドセッションを開始させる"}},
-        "km": {"stringUnit": {"state": "needs_review", "value": "អនុញ្ញាតឱ្យភ្នាក់ងារចាប់ផ្ដើមវគ្គ Cloud ដោយមិនសួរ"}},
-        "ko": {"stringUnit": {"state": "needs_review", "value": "묻지 않고 에이전트가 클라우드 세션 시작"}},
-        "nb": {"stringUnit": {"state": "needs_review", "value": "La agenter starte Cloud-økter uten å spørre"}},
-        "pl": {"stringUnit": {"state": "needs_review", "value": "Pozwól agentom uruchamiać sesje w chmurze bez pytania"}},
-        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Permitir que agentes iniciem sessões na nuvem sem perguntar"}},
-        "ru": {"stringUnit": {"state": "needs_review", "value": "Разрешить агентам запускать облачные сеансы без вопроса"}},
-        "th": {"stringUnit": {"state": "needs_review", "value": "ให้เอเจนต์เริ่มเซสชันคลาวด์โดยไม่ต้องถาม"}},
-        "tr": {"stringUnit": {"state": "needs_review", "value": "Ajanların sormadan bulut oturumu başlatmasına izin ver"}},
-        "uk": {"stringUnit": {"state": "needs_review", "value": "Дозволити агентам запускати хмарні сеанси без запиту"}},
-        "vi": {"stringUnit": {"state": "needs_review", "value": "Cho phép tác tử khởi động phiên đám mây mà không cần hỏi"}},
-        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "允许智能体无需询问即启动云端会话"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "允許代理程式不經詢問即啟動雲端工作階段"}}
+        "en": {"stringUnit": {"state": "translated", "value": "Let Agents Use Cloud Without Asking"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "السماح للوكلاء باستخدام السحابة دون سؤال"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Dozvoli agentima da koriste Cloud bez pitanja"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Lad agenter bruge Cloud uden at spørge"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Agents die Cloud ohne Nachfrage nutzen lassen"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Permitir que los agentes usen la nube sin preguntar"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Laisser les agents utiliser le Cloud sans demander"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Consenti agli agenti di usare il Cloud senza chiedere"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "確認なしでエージェントにクラウドを使わせる"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "អនុញ្ញាតឱ្យភ្នាក់ងារប្រើ Cloud ដោយមិនសួរ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "묻지 않고 에이전트가 클라우드 사용"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "La agenter bruke Cloud uten å spørre"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Pozwól agentom korzystać z chmury bez pytania"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Permitir que agentes usem a nuvem sem perguntar"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Разрешить агентам использовать облако без вопроса"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ให้เอเจนต์ใช้คลาวด์โดยไม่ต้องถาม"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Ajanların sormadan bulutu kullanmasına izin ver"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Дозволити агентам користуватися хмарою без запиту"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Cho phép tác tử dùng đám mây mà không cần hỏi"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "允许智能体无需询问即使用云端"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "允許代理程式不經詢問即使用雲端"}}
       }
     },
     "settings.cloud.agentsStartWithoutAsking.help": {
-      "comment": "Settings > Machines: help for the Let Agents Start Cloud Sessions Without Asking toggle (keep the command in backticks).",
+      "comment": "Settings > Machines: help for the Let Agents Use Cloud Without Asking toggle (keep the command in backticks).",
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "An agent's `cmux cloud start-session` creates or resumes the Cloud machine and starts its session with no Start card in the chat. Only you can turn this on."}},
-        "ar": {"stringUnit": {"state": "needs_review", "value": "يُنشئ أمر `cmux cloud start-session` الخاص بالوكيل الجهاز السحابي أو يستأنفه ويبدأ جلسته دون بطاقة بدء في المحادثة. أنت وحدك من يمكنه تفعيل هذا."}},
-        "bs": {"stringUnit": {"state": "needs_review", "value": "Agentov `cmux cloud start-session` kreira ili nastavlja Cloud mašinu i pokreće sesiju bez kartice Pokreni u četu. Samo ti ovo možeš uključiti."}},
-        "da": {"stringUnit": {"state": "needs_review", "value": "En agents `cmux cloud start-session` opretter eller genoptager Cloud-maskinen og starter sessionen uden Start-kort i chatten. Kun du kan slå dette til."}},
-        "de": {"stringUnit": {"state": "needs_review", "value": "`cmux cloud start-session` eines Agents erstellt oder setzt die Cloud-Maschine fort und startet die Sitzung ohne Starten-Karte im Chat. Nur du kannst das einschalten."}},
-        "es": {"stringUnit": {"state": "needs_review", "value": "El `cmux cloud start-session` de un agente crea o reanuda la máquina en la nube e inicia su sesión sin la tarjeta Iniciar en el chat. Solo tú puedes activarlo."}},
-        "fr": {"stringUnit": {"state": "needs_review", "value": "Le `cmux cloud start-session` d'un agent crée ou reprend la machine Cloud et démarre sa session sans carte Démarrer dans le chat. Vous seul pouvez l'activer."}},
-        "it": {"stringUnit": {"state": "needs_review", "value": "Il `cmux cloud start-session` di un agente crea o riprende la macchina Cloud e avvia la sessione senza la scheda Avvia nella chat. Solo tu puoi attivarlo."}},
-        "ja": {"stringUnit": {"state": "translated", "value": "エージェントの `cmux cloud start-session` が、チャットに 開始 カードを出さずにクラウドマシンを作成または再開してセッションを開始します。これをオンにできるのはあなただけです。"}},
-        "km": {"stringUnit": {"state": "needs_review", "value": "`cmux cloud start-session` របស់ភ្នាក់ងារ បង្កើត ឬបន្តម៉ាស៊ីន Cloud ហើយចាប់ផ្ដើមវគ្គដោយគ្មានកាត ចាប់ផ្ដើម នៅក្នុងការជជែក។ មានតែអ្នកទេដែលអាចបើកវាបាន។"}},
-        "ko": {"stringUnit": {"state": "needs_review", "value": "에이전트의 `cmux cloud start-session`이 채팅에 시작 카드 없이 클라우드 머신을 만들거나 재개하고 세션을 시작합니다. 이 설정은 본인만 켤 수 있습니다."}},
-        "nb": {"stringUnit": {"state": "needs_review", "value": "En agents `cmux cloud start-session` oppretter eller gjenopptar Cloud-maskinen og starter økten uten Start-kort i chatten. Bare du kan slå dette på."}},
-        "pl": {"stringUnit": {"state": "needs_review", "value": "Polecenie `cmux cloud start-session` agenta tworzy lub wznawia maszynę w chmurze i uruchamia sesję bez karty Uruchom w czacie. Tylko Ty możesz to włączyć."}},
-        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "O `cmux cloud start-session` de um agente cria ou retoma a máquina na nuvem e inicia a sessão sem o cartão Iniciar no chat. Só você pode ativar isso."}},
-        "ru": {"stringUnit": {"state": "needs_review", "value": "Команда `cmux cloud start-session` агента создаёт или возобновляет облачную машину и запускает сеанс без карточки «Запустить» в чате. Включить это можете только вы."}},
-        "th": {"stringUnit": {"state": "needs_review", "value": "`cmux cloud start-session` ของเอเจนต์จะสร้างหรือกลับมาใช้เครื่องคลาวด์และเริ่มเซสชันโดยไม่มีการ์ด เริ่ม ในแชท มีเพียงคุณเท่านั้นที่เปิดตัวเลือกนี้ได้"}},
-        "tr": {"stringUnit": {"state": "needs_review", "value": "Bir ajanın `cmux cloud start-session` komutu, sohbette Başlat kartı olmadan bulut makinesini oluşturur veya sürdürür ve oturumunu başlatır. Bunu yalnızca siz açabilirsiniz."}},
-        "uk": {"stringUnit": {"state": "needs_review", "value": "Команда `cmux cloud start-session` агента створює або відновлює хмарну машину й запускає сеанс без картки «Запустити» в чаті. Увімкнути це можете лише ви."}},
-        "vi": {"stringUnit": {"state": "needs_review", "value": "Lệnh `cmux cloud start-session` của tác tử sẽ tạo hoặc tiếp tục máy đám mây và khởi động phiên mà không hiện thẻ Bắt đầu trong cuộc trò chuyện. Chỉ bạn mới có thể bật tùy chọn này."}},
-        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "智能体的 `cmux cloud start-session` 会创建或恢复云端机器并启动会话，聊天中不显示“开始”卡片。只有你可以打开此项。"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "代理程式的 `cmux cloud start-session` 會建立或恢復雲端機器並啟動工作階段，聊天中不顯示「開始」卡片。只有你可以開啟此項。"}}
+        "en": {"stringUnit": {"state": "translated", "value": "Agents, `cmux cloud` in a terminal and scripts create Cloud machines, move chats to Cloud and start sessions there with no card asking you first. Your plan's limits still apply. Only you can change this."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "ينشئ الوكلاء و`cmux cloud` في الطرفية والبرامج النصية أجهزة سحابية، وينقلون المحادثات إلى السحابة ويبدؤون الجلسات هناك دون بطاقة تسألك أولًا. تظل حدود خطتك سارية. أنت وحدك من يمكنه تغيير هذا."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Agenti, `cmux cloud` u terminalu i skripte kreiraju Cloud mašine, premještaju četove u Cloud i tamo pokreću sesije bez kartice koja te prvo pita. Ograničenja tvog plana i dalje važe. Samo ti ovo možeš promijeniti."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Agenter, `cmux cloud` i en terminal og scripts opretter Cloud-maskiner, flytter chats til Cloud og starter sessioner der uden et kort, der spørger dig først. Din plans grænser gælder stadig. Kun du kan ændre dette."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Agents, `cmux cloud` im Terminal und Skripte erstellen Cloud-Maschinen, verschieben Chats in die Cloud und starten dort Sitzungen, ohne dich zuerst mit einer Karte zu fragen. Die Grenzen deines Plans gelten weiterhin. Nur du kannst das ändern."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Los agentes, `cmux cloud` en una terminal y los scripts crean máquinas en la nube, mueven chats a la nube e inician sesiones allí sin una tarjeta que te pregunte antes. Los límites de tu plan siguen aplicándose. Solo tú puedes cambiarlo."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Les agents, `cmux cloud` dans un terminal et les scripts créent des machines Cloud, déplacent des chats vers le Cloud et y démarrent des sessions sans carte qui vous demande d'abord. Les limites de votre forfait s'appliquent toujours. Vous seul pouvez modifier ce réglage."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Gli agenti, `cmux cloud` in un terminale e gli script creano macchine Cloud, spostano le chat nel Cloud e vi avviano sessioni senza una scheda che ti chieda prima. I limiti del tuo piano restano validi. Solo tu puoi cambiarlo."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "エージェント、ターミナルの `cmux cloud`、スクリプトが、先に確認するカードを出さずにクラウドマシンを作成し、チャットをクラウドに移動し、そこでセッションを開始します。プランの上限は引き続き適用されます。これを変更できるのはあなただけです。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ភ្នាក់ងារ `cmux cloud` នៅក្នុងទែមីណាល់ និងស្គ្រីប បង្កើតម៉ាស៊ីន Cloud ផ្លាស់ទីការជជែកទៅ Cloud ហើយចាប់ផ្ដើមវគ្គនៅទីនោះ ដោយគ្មានកាតសួរអ្នកជាមុន។ ដែនកំណត់គម្រោងរបស់អ្នកនៅតែអនុវត្ត។ មានតែអ្នកទេដែលអាចប្ដូរវាបាន។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "에이전트, 터미널의 `cmux cloud`, 스크립트가 먼저 묻는 카드 없이 클라우드 머신을 만들고, 채팅을 클라우드로 옮기고, 그곳에서 세션을 시작합니다. 요금제 한도는 계속 적용됩니다. 이 설정은 본인만 바꿀 수 있습니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Agenter, `cmux cloud` i en terminal og skript oppretter Cloud-maskiner, flytter chatter til Cloud og starter økter der uten et kort som spør deg først. Grensene i planen din gjelder fortsatt. Bare du kan endre dette."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Agenci, `cmux cloud` w terminalu i skrypty tworzą maszyny w chmurze, przenoszą czaty do chmury i uruchamiają tam sesje bez karty, która najpierw Cię pyta. Limity Twojego planu nadal obowiązują. Tylko Ty możesz to zmienić."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Agentes, `cmux cloud` em um terminal e scripts criam máquinas na nuvem, movem chats para a nuvem e iniciam sessões lá sem um cartão perguntando antes. Os limites do seu plano continuam valendo. Só você pode mudar isso."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Агенты, `cmux cloud` в терминале и скрипты создают облачные машины, переносят чаты в облако и запускают там сеансы без карточки с вопросом. Ограничения вашего тарифа по-прежнему действуют. Изменить это можете только вы."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เอเจนต์ `cmux cloud` ในเทอร์มินัล และสคริปต์ จะสร้างเครื่องคลาวด์ ย้ายแชทไปยังคลาวด์ และเริ่มเซสชันที่นั่นโดยไม่มีการ์ดถามคุณก่อน ขีดจำกัดของแผนยังคงมีผล มีเพียงคุณเท่านั้นที่เปลี่ยนตัวเลือกนี้ได้"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Ajanlar, terminaldeki `cmux cloud` ve betikler, önce size soran bir kart olmadan bulut makineleri oluşturur, sohbetleri buluta taşır ve orada oturum başlatır. Planınızın sınırları yine geçerlidir. Bunu yalnızca siz değiştirebilirsiniz."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Агенти, `cmux cloud` у терміналі та скрипти створюють хмарні машини, переносять чати в хмару й запускають там сеанси без картки із запитом. Обмеження вашого тарифу й далі діють. Змінити це можете лише ви."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Tác tử, `cmux cloud` trong terminal và script sẽ tạo máy đám mây, chuyển cuộc trò chuyện lên đám mây và khởi động phiên ở đó mà không có thẻ hỏi bạn trước. Giới hạn gói của bạn vẫn áp dụng. Chỉ bạn mới có thể thay đổi tùy chọn này."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "智能体、终端中的 `cmux cloud` 和脚本会创建云端机器、将聊天移到云端并在那里启动会话，不会先显示卡片询问你。你的方案限制仍然适用。只有你可以更改此项。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "代理程式、終端機中的 `cmux cloud` 和指令碼會建立雲端機器、將聊天移到雲端並在那裡啟動工作階段，不會先顯示卡片詢問你。你的方案限制仍然適用。只有你可以變更此項。"}}
+      }
+    },
+    "settings.agentPane.composerRing": {
+      "comment": "Settings > Agent Chat: the row that picks what the composer's ring shows (context usage or plan usage limits)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حلقة أداة الكتابة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prsten polja za pisanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ring i skrivefeltet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ring im Eingabefeld"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Composer Ring"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anillo del editor"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anneau de la zone de saisie"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anello del compositore"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力欄のリング"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រង្វង់ក្នុងប្រអប់សរសេរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "입력창 링"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ring i skrivefeltet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pierścień pola wiadomości"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anel do compositor"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кольцо поля ввода"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "วงแหวนในช่องเขียน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yazma Alanı Halkası"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кільце поля введення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vòng trong ô soạn thảo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入框圆环"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "輸入框圓環"
+          }
+        }
+      }
+    },
+    "settings.agentPane.composerRing.help": {
+      "comment": "Settings > Agent Chat > Composer Ring: help under the row",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ما تعرضه الحلقة في نهاية أداة الكتابة: استخدام سياق المحادثة، أو حدود استخدام خطتك (5 ساعات وأسبوعيًا) عندما يبلغ عنها الأداة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Šta prsten na kraju polja za pisanje prikazuje: korištenje konteksta razgovora ili ograničenja korištenja vašeg plana (5 sati i sedmično) kada ih alat prijavi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvad ringen i enden af skrivefeltet viser: chattens kontekstforbrug eller din plans forbrugsgrænser (5 timer og ugentligt), når værktøjet rapporterer dem."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Was der Ring am Ende des Eingabefelds zeigt: die Kontextnutzung des Chats oder die Nutzungslimits deines Plans (5 Stunden und wöchentlich), wenn das Tool sie meldet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What the ring at the end of the composer shows: the chat's context usage, or your plan's usage limits (5-hour and weekly) when the harness reports them."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lo que muestra el anillo al final del editor: el uso de contexto del chat o los límites de uso de tu plan (5 horas y semanal) cuando la herramienta los informa."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce qu'affiche l'anneau au bout de la zone de saisie : l'utilisation du contexte de la conversation, ou les limites d'utilisation de votre forfait (5 heures et hebdomadaire) quand l'outil les indique."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cosa mostra l'anello alla fine del compositore: l'uso del contesto della chat o i limiti di utilizzo del tuo piano (5 ore e settimanale) quando lo strumento li riporta."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力欄の端のリングに表示する内容：チャットのコンテキスト使用量、またはハーネスが報告する場合はプランの使用制限（5時間と週間）。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អ្វីដែលរង្វង់នៅចុងប្រអប់សរសេរបង្ហាញ៖ ការប្រើបរិបទរបស់ការជជែក ឬដែនកំណត់ការប្រើប្រាស់គម្រោងរបស់អ្នក (5 ម៉ោង និងប្រចាំសប្តាហ៍) នៅពេលឧបករណ៍រាយការណ៍វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "입력창 끝의 링에 표시할 내용: 채팅의 컨텍스트 사용량 또는 하네스가 알려 주는 경우 플랜의 사용 한도(5시간 및 주간)."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hva ringen på slutten av skrivefeltet viser: chattens kontekstbruk, eller planens bruksgrenser (5 timer og ukentlig) når verktøyet rapporterer dem."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Co pokazuje pierścień na końcu pola wiadomości: użycie kontekstu czatu lub limity użycia Twojego planu (5-godzinny i tygodniowy), gdy narzędzie je podaje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O que o anel no fim do compositor mostra: o uso de contexto do chat ou os limites de uso do seu plano (5 horas e semanal) quando a ferramenta os informa."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Что показывает кольцо в конце поля ввода: использование контекста чата или лимиты вашего тарифа (5 часов и неделя), когда инструмент их сообщает."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สิ่งที่วงแหวนท้ายช่องเขียนแสดง: การใช้บริบทของแชต หรือขีดจำกัดการใช้งานของแพ็กเกจคุณ (5 ชั่วโมงและรายสัปดาห์) เมื่อเครื่องมือรายงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yazma alanının sonundaki halkanın gösterdiği: sohbetin bağlam kullanımı veya araç bildirdiğinde planınızın kullanım sınırları (5 saatlik ve haftalık)."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Що показує кільце в кінці поля введення: використання контексту чату або ліміти вашого плану (5 годин і тиждень), коли інструмент їх повідомляє."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vòng ở cuối ô soạn thảo hiển thị gì: mức dùng ngữ cảnh của cuộc trò chuyện, hoặc giới hạn sử dụng của gói (5 giờ và hằng tuần) khi công cụ báo cáo."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入框末端的圆环显示什么：对话的上下文用量，或在工具报告时显示你的套餐用量限制（5 小时和每周）。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "輸入框末端的圓環顯示什麼：對話的上下文用量，或在工具回報時顯示你的方案用量限制（5 小時與每週）。"
+          }
+        }
+      }
+    },
+    "settings.choice.composerRingContext": {
+      "comment": "Settings > Agent Chat > Composer Ring: the choice that shows the chat's context usage",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السياق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontekst"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontekst"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontext"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Context"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contexto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contexte"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contesto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンテキスト"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បរិបទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컨텍스트"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontekst"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontekst"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contexto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Контекст"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บริบท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bağlam"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Контекст"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ngữ cảnh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上下文"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上下文"
+          }
+        }
+      }
+    },
+    "settings.choice.composerRingPlanUsage": {
+      "comment": "Settings > Agent Chat > Composer Ring: the choice that shows the plan's 5-hour and weekly usage limits",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدام الخطة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Korištenje plana"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Planforbrug"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plannutzung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan Usage"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso del plan"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation du forfait"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilizzo del piano"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プランの使用量"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការប្រើប្រាស់គម្រោង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "플랜 사용량"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Planbruk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użycie planu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso do plano"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использование тарифа"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การใช้แพ็กเกจ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan Kullanımı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використання плану"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mức dùng gói"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "套餐用量"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "方案用量"
+          }
+        }
       }
     }
   },

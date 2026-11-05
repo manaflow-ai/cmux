@@ -83,7 +83,7 @@ struct SidebarListStillTests {
         f.change("c4") { $0.lastAt = f.now.addingTimeInterval(60); $0.unreadCount = 1; $0.typing = true }
         seen += f.animations()
         // A Chief's turn starts and ends (its avatar's state changes twice).
-        f.change("c1") { $0.avatarMotion = .working }
+        f.change("c1") { $0.avatarMotion = .thinking }
         seen += f.animations()
         f.change("c1") { $0.avatarMotion = .idle }
         seen += f.animations()

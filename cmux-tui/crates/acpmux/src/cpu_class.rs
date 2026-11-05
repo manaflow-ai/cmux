@@ -7,9 +7,9 @@
 //! children (`cmux-git` `run.rs`): the lowest CPU priority, throttled disk I/O and
 //! background-class new sockets. `normal` leaves the harness at its starter's class.
 //!
-//! The start never runs at background class. Every start has a deadline (`agent_start`, the
-//! pool's `START_BUDGET`, the app's own wait on `session/new`), and a background harness can miss
-//! it on a busy disk: on 2026-10-30 (load 125 on 18 cores, `du` and `git` scans of a 3.3 TB disk)
+//! The start never runs at background class. A caller may retain a real hazard bound, and a
+//! background harness can miss it on a busy disk: on 2026-10-30 (load 125 on 18 cores, `du` and
+//! `git` scans of a 3.3 TB disk)
 //! a `claude` harness at `PRIO_DARWIN_BG` spent 90 s in its trust-settings reads (`open()` and a
 //! plist parse at disk tier 3) with under 1 s of CPU, and every Chief turn failed; the same
 //! command at normal class answered in 14.5 s. So:
@@ -143,7 +143,7 @@ pub fn clear_running(pid: u32) -> bool {
 }
 
 /// What a harness was doing when its start missed its deadline or failed, read from the kernel
-/// with no process listing (`proc_pidinfo` of the one pid).
+/// with no process listing (`proc_pidinfo` or `/proc/<pid>/stat` for the one pid).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HarnessState {
@@ -169,6 +169,13 @@ pub fn harness_state(pid: u32) -> Option<HarnessState> {
     imp::state(pid)
 }
 
+/// A portable progress signal for a live harness. On Linux this is the process's
+/// cumulative user plus system CPU ticks from `/proc/<pid>/stat`; macOS reuses
+/// its kernel CPU accounting. Platforms without a per-process signal return None.
+pub fn harness_cpu_ticks(pid: u32) -> Option<u64> {
+    imp::cpu_ticks(pid)
+}
+
 /// What a start's deadline error can say about its harness.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HarnessSeen {
@@ -176,7 +183,7 @@ pub enum HarnessSeen {
     NotStarted,
     /// It ended.
     Ended,
-    /// It runs, and its state cannot be read (not macOS, or the kernel refused).
+    /// It runs, and its state cannot be read (the platform lacks accounting, or the kernel refused).
     Unread,
     Running(HarnessState),
 }
@@ -295,9 +302,47 @@ mod imp {
             threads_running: task.pti_numrunning,
         })
     }
+
+    pub(super) fn cpu_ticks(pid: u32) -> Option<u64> {
+        state(pid).map(|state| state.cpu_ms)
+    }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
+mod imp {
+    use super::HarnessState;
+
+    pub(super) fn set_background(_pid: u32, _on: bool) -> bool {
+        false
+    }
+
+    /// The one process record's fields after the parenthesized command name.
+    /// The command may contain spaces, so split only after its final `)`.
+    fn stat(pid: u32) -> Option<Vec<String>> {
+        let raw = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+        let (_, fields) = raw.rsplit_once(')')?;
+        Some(fields.split_whitespace().map(str::to_owned).collect())
+    }
+
+    /// `/proc/<pid>/stat` fields 14 and 15 (`utime` and `stime`) become indexes
+    /// 11 and 12 after the leading pid and command name have been removed.
+    fn ticks(pid: u32) -> Option<u64> {
+        let fields = stat(pid)?;
+        let user = fields.get(11)?.parse::<u64>().ok()?;
+        let system = fields.get(12)?.parse::<u64>().ok()?;
+        Some(user.saturating_add(system))
+    }
+
+    pub(super) fn cpu_ticks(pid: u32) -> Option<u64> {
+        ticks(pid)
+    }
+
+    pub(super) fn state(_pid: u32) -> Option<HarnessState> {
+        None
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 mod imp {
     use super::HarnessState;
 
@@ -306,6 +351,10 @@ mod imp {
     }
 
     pub(super) fn state(_pid: u32) -> Option<HarnessState> {
+        None
+    }
+
+    pub(super) fn cpu_ticks(_pid: u32) -> Option<u64> {
         None
     }
 }
@@ -329,5 +378,11 @@ mod tests {
         // A value that names no class is skipped.
         assert_eq!(CpuClass::resolve(Some("utility"), Some("normal".into()), bg), CpuClass::Normal);
         assert_eq!(CpuClass::resolve(Some(""), None, None), CpuClass::Background);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_harness_cpu_ticks_reads_one_process_record() {
+        assert!(harness_cpu_ticks(std::process::id()).is_some());
     }
 }

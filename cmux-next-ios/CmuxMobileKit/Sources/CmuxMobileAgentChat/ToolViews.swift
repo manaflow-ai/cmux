@@ -36,7 +36,7 @@ struct ToolRowView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Button {
-                toggleDisclosure(holdFold) {
+                toggleDisclosure(holdFold, key: "tool-\(call.id)", in: disclosures) {
                     if let disclosures { disclosures.set("tool-\(call.id)", !expanded) } else { localExpanded.toggle() }
                 }
             } label: {
@@ -146,7 +146,7 @@ struct ToolGroupView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Button {
-                toggleDisclosure(holdFold) {
+                toggleDisclosure(holdFold, key: key, in: disclosures) {
                     if let disclosures { disclosures.set(key, !expanded) } else { userExpanded = !expanded }
                 }
             } label: {
@@ -205,7 +205,7 @@ struct ToolGroupView: View {
     private var groupDuration: TimeInterval? {
         guard !calls.contains(where: \.isRunning),
               let start = calls.compactMap(\.startedAt).min(), let end = calls.compactMap(\.endedAt).max() else { return nil }
-        return end.timeIntervalSince(start)
+        return wording.shown(end.timeIntervalSince(start))
     }
 }
 
@@ -236,7 +236,7 @@ struct ThoughtRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Button {
-                toggleDisclosure(holdFold) { choice.toggle(automatic: isLive) }
+                toggleDisclosure(holdFold, key: id.map { "thought-\($0)" }, in: disclosures) { choice.toggle(automatic: isLive) }
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "brain").font(.system(size: 14)).foregroundStyle(.secondary).frame(width: 18)

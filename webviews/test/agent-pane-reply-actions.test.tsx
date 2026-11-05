@@ -98,7 +98,11 @@ test("the footer copies the whole turn: every reply in order and each tool run's
     new Set(),
     { now: 10_000 },
   );
-  const footer = rows.find((one) => one.kind === "turnSummary")!;
+  // The turn's own footer, not the one over the steer (turns.ts supersededFooters), which copies
+  // only the stretch before it.
+  const footer = rows.find((one) => one.kind === "turnSummary" && !one.superseded)!;
+  const stretch = rows.find((one) => one.superseded)!;
+  expect(turnCopyText(t, stretch.turnCopy!)).toBe([BEFORE_STEER, "Ran 2 commands, read a file"].join("\n\n"));
   expect(turnCopyText(t, footer.turnCopy!)).toBe(
     [BEFORE_STEER, "Ran 2 commands, read a file", "Read /r/turns.ts", ANSWER].join("\n\n"),
   );

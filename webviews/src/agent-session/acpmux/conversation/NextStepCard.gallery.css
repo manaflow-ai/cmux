@@ -45,3 +45,9 @@
   background: var(--acpmux-question-highlight);
   color: var(--agent-text);
 }
+
+/* divider (NextStepWrapUp.gallery.tsx): a hairline between the wrap-up recap and the question. */
+.acpmux-next-step-gallery[data-next-step-look="divider"] .acpmux-next-step:not(.acpmux-next-step--recap) .acpmux-next-step__recap {
+  padding-bottom: var(--ds-space-3, 12px);
+  border-bottom: var(--cmux-hairline, 0.5px) solid var(--acpmux-question-edge);
+}

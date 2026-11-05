@@ -23,16 +23,19 @@ export const streamWords = () =>
 const reducedMotion = () =>
   typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
 
-/// Text revealed `count` characters at a time; each step fades in for the host's
-/// `--agent-motion-in` duration from `born`.
+/// Text revealed `count` characters at a time; each step fades in for FRESH_FADE_STEPS of the
+/// host's `--agent-motion-in` from `born`.
 export type Reveal = { id: number; count: number; born: number };
+/// How many of the host's `--agent-motion-in` steps the fade of newly revealed text runs
+/// (conversation.css `.cv-fresh`, which multiplies by the same number).
+export const FRESH_FADE_STEPS = 3;
 /// How long newly revealed text keeps its fade (acp-streaming.md "Reveal animation"). `.cv-fresh`
-/// runs the host's `--agent-motion-in`. The fallback matches the conversation stylesheet's
-/// default. The host can change this token at runtime, so expiry reads it as spans are retired
-/// instead of letting a fixed scale value outlive or cut short the CSS fade.
-export const FADE_MS = MOTION_MS.standard;
+/// runs FRESH_FADE_STEPS of the host's `--agent-motion-in`. The fallback matches the conversation
+/// stylesheet's default. The host can change this token at runtime, so expiry reads it as spans are
+/// retired instead of letting a fixed scale value outlive or cut short the CSS fade.
+export const FADE_MS = MOTION_MS.standard * FRESH_FADE_STEPS;
 
-function motionDurationMs(): number {
+function freshFadeMs(): number {
   if (typeof document === "undefined") return FADE_MS;
   try {
     const token =
@@ -40,8 +43,8 @@ function motionDurationMs(): number {
       "";
     const value = Number.parseFloat(token);
     if (!Number.isFinite(value) || value < 0) return FADE_MS;
-    if (token.endsWith("ms")) return value;
-    if (token.endsWith("s")) return value * 1000;
+    if (token.endsWith("ms")) return value * FRESH_FADE_STEPS;
+    if (token.endsWith("s")) return value * 1000 * FRESH_FADE_STEPS;
   } catch {
     // A document without computed styles (SSR or a minimal test DOM) uses the stylesheet fallback.
   }
@@ -131,7 +134,7 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
         length = latest.current.text.length;
       }
       // Nothing fades in on return, including the steps that were fading as the page hid.
-      const fadeMs = motionDurationMs();
+      const fadeMs = freshFadeMs();
       const fresh = away ? [] : before.fresh.filter((step) => now - step.born < fadeMs);
       if (length > before.length && !reduce.current && !away)
         fresh.push({ id: (nextId.current += 1), count: length - before.length, born: now });
