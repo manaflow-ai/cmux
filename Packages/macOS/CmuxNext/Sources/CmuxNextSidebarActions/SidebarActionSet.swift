@@ -36,6 +36,7 @@ public struct SidebarActionSet {
     public func bind(into registry: ActionRegistry) {
         SidebarArchiveActions(host: host).bind(into: registry)
         AutoArchiveActions(coordinator: autoArchive, host: host).bind(into: registry)
+        WorkspaceBulkArchiveActions(coordinator: autoArchive, host: host).bind(into: registry)
         SidebarGroupSortActions(host: host).bind(into: registry)
         SidebarCompactListToggle(settings: settings).bind(into: registry)
         let host = host

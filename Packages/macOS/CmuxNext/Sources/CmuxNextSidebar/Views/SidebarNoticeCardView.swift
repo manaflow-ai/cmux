@@ -58,7 +58,7 @@ final class SidebarNoticeCardView: NSView {
     /// - Parameter motionPolicy: The motion settings the card's transitions follow (`Motion.overlays.policy`).
     init(frame: NSRect = .zero, reduceTransparency: ReduceTransparency = .shared,
          motionPolicy: @escaping @MainActor () -> MotionPolicy = { Motion.overlays.policy }) {
-        surface = CardSurfaceView(cornerRadius: Metrics.space3, reduceTransparency: reduceTransparency)
+        surface = CardSurfaceView(cornerRadius: Metrics.surfaceCornerRadius, reduceTransparency: reduceTransparency)
         self.motionPolicy = motionPolicy
         super.init(frame: frame)
         wantsLayer = true
@@ -79,8 +79,8 @@ final class SidebarNoticeCardView: NSView {
         // Nothing draws past the card's rounded edge: a card laid out narrower than its rows (a sidebar laid out
         // small) drew its switch past its leading edge, alone, with no card around it (Lawrence msg 19185).
         content.layer?.masksToBounds = true
-        track.cornerRadius = 1.5
-        bar.cornerRadius = 1.5
+        track.cornerRadius = Metrics.capsuleRadius(CGSize(width: 3, height: 3))
+        bar.cornerRadius = Metrics.capsuleRadius(CGSize(width: 3, height: 3))
         // The bar lives in the track, which clips it: the unmeasured sweep never leaves the track.
         track.masksToBounds = true
         content.layer?.addSublayer(track)
@@ -314,13 +314,14 @@ final class SidebarNoticeCardView: NSView {
         super.layout()
         let b = bounds, pad = Self.padding, line = Self.lineHeight, close = Self.closeSide
         surface.frame = b
-        surface.cornerRadius = Metrics.space3
-        content.layer?.cornerRadius = Metrics.space3
+        surface.cornerRadius = Metrics.surfaceCornerRadius
+        content.layer?.cornerRadius = Metrics.surfaceCornerRadius
         content.layer?.cornerCurve = .continuous
         content.frame = b
         eyebrowLabel.font = Typography.caption
         titleLabel.font = Typography.bodyEmphasized
-        detailLabel.font = Typography.caption
+        // A loading card's detail counts (bytes, seconds): tabular digits keep each count's width.
+        detailLabel.font = notice?.progress != nil ? Typography.captionDigits : Typography.caption
         shortcutLabel.font = Typography.caption
         let dismissWidth = dismissButton.fittingWidth, dismissHeight = SidebarCardTextButton.height
         let titleY = pad + (eyebrowLabel.isHidden ? 0 : line.caption)
@@ -328,9 +329,10 @@ final class SidebarNoticeCardView: NSView {
                                      width: dismissWidth, height: dismissHeight)
         let width = max(0, b.width - 2 * pad)
         // The right-hand control, vertically centred in the whole card; the text and the bar stop
-        // a grid step short of it.
+        // a grid step short of it. A loading card keeps that room in every stage, so the bar and the
+        // text never widen or narrow when the cancel comes and goes (Starting to Downloading to Preparing).
         let trailingSide = Self.trailingSide
-        let trailingRoom = trailingButton.isHidden ? 0 : trailingSide + Metrics.space4
+        let trailingRoom = trailingButton.isHidden && notice?.progress == nil ? 0 : trailingSide + Metrics.space4
         trailingButton.frame = NSRect(x: b.width - pad - trailingSide, y: ((b.height - trailingSide) / 2).rounded(),
                                       width: trailingSide, height: trailingSide)
         let closeRoom = !dismissButton.isHidden ? dismissWidth + Metrics.space1 : closeButton.isHidden ? trailingRoom : close

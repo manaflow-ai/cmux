@@ -61,7 +61,10 @@ stop_watch() {
 case "$verb" in
   build)
     swift build -c release --package-path "$package" --product cmux-vnc-host
-    cp "$(swift build -c release --package-path "$package" --show-bin-path)/cmux-vnc-host" "$EVAL_BIN/cmux-vnc-host"
+    # Run in place: it loads WebRTC.framework from beside it (@rpath), which a copy of it would not find.
+    printf '#!/bin/sh\nexec "%s/cmux-vnc-host" "$@"\n' "$(swift build -c release --package-path "$package" --show-bin-path)" \
+      >"$EVAL_BIN/cmux-vnc-host"
+    chmod +x "$EVAL_BIN/cmux-vnc-host"
     swift build --package-path "$package" --build-tests
     ;;
   host-start) host_start ;;

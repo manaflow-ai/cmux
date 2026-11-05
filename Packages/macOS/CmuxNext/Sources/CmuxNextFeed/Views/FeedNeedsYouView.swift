@@ -71,7 +71,7 @@ public final class FeedNeedsYouView: NSView {
         self.limit = max(1, limit)
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerRadius = 12
+        layer?.cornerRadius = Metrics.surfaceCornerRadius
         layer?.cornerCurve = .continuous
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
@@ -428,6 +428,6 @@ final class FeedNeedsYouOpener: NSView {
     override func draw(_ dirtyRect: NSRect) {
         guard hovering else { return }
         hoverFill.setFill()
-        NSBezierPath(roundedRect: bounds, xRadius: 7, yRadius: 7).fill()
+        NSBezierPath(roundedRect: bounds, xRadius: Metrics.insetCornerRadius, yRadius: Metrics.insetCornerRadius).fill()
     }
 }
