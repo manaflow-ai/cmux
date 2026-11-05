@@ -178,7 +178,7 @@ impl Injector {
         if let Some(p) = self.person {
             return p;
         }
-        let mut guard = PERSON_USERS.lock().unwrap();
+        let mut guard = PERSON_USERS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let users = guard.get_or_insert_with(HashMap::new).entry(self.display.clone()).or_insert(0);
         // No injector here owns a master yet: one that exists is a crashed host's.
         let fresh = *users == 0;
@@ -346,7 +346,7 @@ impl Drop for Injector {
     fn drop(&mut self) {
         let _ = self.release_all();
         let Some(Some(master)) = self.person else { return };
-        let mut guard = PERSON_USERS.lock().unwrap();
+        let mut guard = PERSON_USERS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let users = guard.get_or_insert_with(HashMap::new).entry(self.display.clone()).or_insert(0);
         *users = users.saturating_sub(1);
         if *users > 0 {
