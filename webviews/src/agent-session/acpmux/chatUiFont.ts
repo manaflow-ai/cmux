@@ -60,8 +60,8 @@ const STACKS: Record<Exclude<ChatUiFont, "inter-tuned">, string> = {
   plex: `"${BUNDLED_FAMILY.plex}", "IBM Plex Sans", "Inter", sans-serif`,
   "source-sans": `"${BUNDLED_FAMILY["source-sans"]}", "Source Sans 3", "Inter", sans-serif`,
   geist: `"${BUNDLED_FAMILY.geist}", Geist, "Inter", sans-serif`,
-  "system-ui": '-apple-system, BlinkMacSystemFont, system-ui, sans-serif',
-  "system-ui-tight": '-apple-system, BlinkMacSystemFont, system-ui, sans-serif',
+  "system-ui": "-apple-system, BlinkMacSystemFont, system-ui, sans-serif",
+  "system-ui-tight": "-apple-system, BlinkMacSystemFont, system-ui, sans-serif",
 };
 
 /// The type scale's steps whose letter-spacing token each choice sets (pages/shared/desktop.css).

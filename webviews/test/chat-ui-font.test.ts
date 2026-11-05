@@ -38,7 +38,9 @@ test("the row estimator measures the System preset's text in the interface font"
   const plex = chatMetrics(resolveChatDisplay({ [CHAT_UI_FONT_KEY]: "plex" }));
   expect(plex.measureFont).toContain("cmux IBM Plex Sans");
   // A reading preset of its own keeps its own face.
-  const serif = chatMetrics(resolveChatDisplay({ [CHAT_UI_FONT_KEY]: "plex", "agentPane.display.font.preset": "serif" }));
+  const serif = chatMetrics(
+    resolveChatDisplay({ [CHAT_UI_FONT_KEY]: "plex", "agentPane.display.font.preset": "serif" }),
+  );
   expect(serif.measureFont).toContain("Georgia");
   expect(chatMetrics(resolveChatDisplay({})).measureFont).toBe('14px "Inter", system-ui, sans-serif');
 });
