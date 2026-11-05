@@ -543,6 +543,73 @@ def build_window_edge(root, name, variant):
     return base
 
 
+# The rest-cut films (3e.6): terminal A | band | page B, as the strip films (no strips). At rest A's view is 18 px
+# narrower than the grid it shows: the pane edge cuts A's last column (ring 1, 16 px) and 2 px of ring 2, so A's right
+# side reads rings [0, 14, 16] at rest (as p1 in the Command films ab-cmdb-b5e96a1 / ab-cmdh-307045f
+# px-cmd-col-edge-3t-s1: [0, 14, 16] and [0, 16, 16]). While A grows (samples 10-29) its grid fits its view: the rings
+# show whole, [16, 16, 16], with the ground strip.
+#   rest-cut-stretch: the same, and in samples 20-22 A's cells are drawn 2x wide (a real stretch).
+def draw_tui_cut(img, x0, w, picture_w, cw=CW, y0=0, shift=0):
+    """tui_border.py's picture for a view PICTURE_W wide, its grid SHIFT px further right, shown in a view W wide at x0
+    (the part past W cut)."""
+    tmp = np.zeros((H, picture_w + shift + 64, 3), np.uint8)
+    tmp[:] = CYAN
+    cols, rows = (picture_w - 2 * PAD) // cw, (H - y0 - 2 * PAD) // CH
+    ring = [RED, WHITE, BLACK]
+    for r in range(rows):
+        for c in range(cols):
+            k = min(r, c, rows - 1 - r, cols - 1 - c)
+            x = PAD + shift + c * cw
+            tmp[y0 + PAD + r * CH:y0 + PAD + (r + 1) * CH, x:x + cw] = ring[k] if k < 3 else YELLOW
+    img[y0:, x0:x0 + w] = tmp[y0:, :w]
+
+
+def rc_frame(k, variant):
+    s = min(max(k - 1, 0), N - 1)
+    aw = int(round(a_width(s, "strip")))
+    img = np.zeros((H, W, 3), np.uint8)
+    img[:] = MAGENTA
+    moving = MOVE[0] <= s < MOVE[1]
+    cw = 2 * CW if variant == "rest-cut-stretch" and 20 <= k <= 22 else CW
+    if moving:
+        draw_tui_cut(img, 0, aw, aw, cw=cw)  # the grid of whole cells that fits, with its ground strip
+    else:
+        draw_tui_cut(img, 0, aw, aw + CW, shift=6)  # one column more, 6 px right: the pane edge cuts 18 px of it
+    b_x = aw + DIV_PX
+    draw_page(img, b_x, W - b_x)
+    return img
+
+
+def build_rest_cut(root, name, variant):
+    base = Path(root) / name
+    header = {"width": W, "height": H, "rows": ROWS, "columns": COLS, "format": "BGRA", "time": "float64-le host seconds"}
+    with open(f"{base}.mov.scan", "wb") as out:
+        out.write(json.dumps(header).encode() + b"\n")
+        for k in range(N):
+            px = bgra(rc_frame(k, variant))
+            out.write(struct.pack("<d", T0 + k * P))
+            for y in ROWS:
+                out.write(px[y].tobytes())
+            for x in COLS:
+                out.write(px[:, x].tobytes())
+    samples = []
+    for k in range(N):
+        aw = int(round(a_width(k, "strip"))) / SCALE
+        bx = aw + DIV_PX / SCALE
+        a = ["pa", 0, 0, aw, 150, 1, 0, 0, 0, aw, 150, aw, 150, 0, 0, 0, aw, 150]
+        b = ["pb", bx, 0, 300 - bx, 150, 1, 1, bx, 0, 300 - bx, 150, 300 - bx, 150, 0, bx, 0, 300 - bx, 150]
+        samples.append({"t": k * P * 1000, "window": [300, 150], "panes": [a, b],
+                        "dividers": [["d0", aw, 0, DIV_PX / SCALE, 150, 1, 2]], "page": []})
+    Path(f"{base}.trace.json").write_text(json.dumps({"t0_s": T0 - 0.001, "refresh_ms": P * 1000, "samples": samples}))
+    note = {"scale": SCALE, "panes": {"pa": {"kind": "tui", "fill": "#FFFF00", "label": "p0"},
+                                      "pb": {"kind": "page", "fill": "#00FF00", "label": "p1"}},
+            "speed": 1, "reduce": False, "input": "keys", "window_frame": [WINDOW_X, 50, 300, 150], "page_backdrop": False}
+    Path(f"{base}.events.json").write_text(json.dumps({"hid": [], "journal": []}))
+    meta = {"start": {"width": W, "height": H, "scale": SCALE, "rows": ROWS, "columns": COLS}, "notes": {"pixel": note}}
+    Path(f"{base}.meta.json").write_text(json.dumps(meta))
+    return base
+
+
 def bgra(img):
     return np.concatenate((img[..., ::-1], np.full(img.shape[:-1] + (1,), 255, np.uint8)), axis=-1)
 
@@ -1743,6 +1810,37 @@ class WindowEdgeTests(unittest.TestCase):
         self.assertEqual({f: got[f]["status"] for f in at_rest}, {f: "found" for f in at_rest})
         self.assertEqual({tuple(got[f]["rings"]) for f in at_rest}, {(2.0, 4.0, 6.0)})
         self.assertEqual(side(self.report, "p1", "row@110", "hi")["off_ranges"], "")
+
+
+class RestCutRingTests(unittest.TestCase):
+    """3e.6 (pixel-perfect, 2026-11-05: the Command films ab-cmdb-b5e96a1 and ab-cmdh-307045f px-cmd-col-edge-3t-s1 and
+    -reduce, every terminal "scaled" frame: p1's hi side with rest rings [0, 14, 16] or [0, 16, 16], ring 1 shown 1-3 px
+    or ring 2 at 16 px in motion): the pane edge cut the side's outer rings at rest, so their rest widths are not the
+    rings' widths. E5 compares each ring with its rest width on whichever of the pane's two sides of that line shows it
+    wider (a ring the pane edge cuts on one side is whole on the other); a ring with no rest width on either side is
+    not compared. A real stretch still fails."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp(prefix="judge-pixel-rest-cut-")
+        cls.reports = {v: jp.judge(build_rest_cut(cls.tmp, v, v), all_frames=True) for v in ("rest-cut", "rest-cut-stretch")}
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_the_rest_rings_are_cut_by_the_pane_edge(self):
+        hi = side(self.reports["rest-cut"], "p0", "row@110", "hi")
+        self.assertEqual(hi["rest"]["rings"], [0.0, 14.0, 16.0], hi)
+
+    def test_a_ring_the_pane_edge_cut_at_rest_is_not_stretched_when_it_shows_whole(self):
+        t = self.reports["rest-cut"]["m6"]["kinds"]["terminal"]
+        self.assertEqual(t["fail_by_rule"]["E5"], 0, t)
+        self.assertEqual(self.reports["rest-cut"]["m14"]["kinds"]["terminal"]["scaled"], 0)
+
+    def test_a_real_stretch_still_fails(self):
+        t = self.reports["rest-cut-stretch"]["m6"]["kinds"]["terminal"]
+        self.assertEqual(jp_frames(t["fail_frames_by_rule"]["E5"]), {20, 21, 22}, t)
 
 
 TOL_TEST_PX = 1.0
