@@ -750,8 +750,10 @@ impl Mux {
         &self,
         ids: impl IntoIterator<Item = TerminalPublicId>,
     ) -> HashSet<TerminalPublicId> {
+        // Registry, then connection, then state (`lock_rank`): the kept-tab
+        // read below queries the registry database while state is held.
         let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
-        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        let state = self.lock_state_pinned(&registry).unwrap_or_else(PoisonError::into_inner);
         ids.into_iter()
             .filter(|id| state.terminal_catalog.get(id).is_none_or(|surface| surface.is_dead()))
             .filter(|id| Self::terminal_tabs_kept_locked(&registry, &state, id).unwrap_or(false))
