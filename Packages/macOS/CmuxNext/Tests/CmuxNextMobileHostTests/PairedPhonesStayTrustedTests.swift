@@ -9,10 +9,10 @@ import Testing
 /// Keychain's `errSecAuthFailed`), each read as "the list was tampered with", so every phone had to be
 /// allowed again; and any session that ended by itself ran the sign-out path that forgets every phone.
 @Suite(.timeLimit(.minutes(1))) struct PairedPhonesStayTrustedTests {
-    static let phone = MobileHostPairRequest(phoneDeviceID: "phone-a", name: "iPhone",
+    nonisolated static let phone = MobileHostPairRequest(phoneDeviceID: "phone-a", name: "iPhone",
                                              identityKey: "04" + String(repeating: "aa", count: 64),
                                              approvalKey: "04" + String(repeating: "bb", count: 64))
-    static let newPhone = MobileHostPairRequest(phoneDeviceID: "phone-b", name: "iPad",
+    nonisolated static let newPhone = MobileHostPairRequest(phoneDeviceID: "phone-b", name: "iPad",
                                                 identityKey: "04" + String(repeating: "cc", count: 64),
                                                 approvalKey: "04" + String(repeating: "dd", count: 64))
 
@@ -113,12 +113,71 @@ import Testing
         try await store.change(for: "u") { $0.approve(Self.phone, at: Date(timeIntervalSince1970: 5)) }
 
         store.forgetForSignOut()
-        #expect(!store.trusts(Self.phone))
+        #expect(store.current == nil && !store.trusts(Self.phone), "nothing is trusted or asked about while the sign-out runs")
         store.select(userID: nil)
         store.select(userID: "u")
         await store.reload()
         #expect(!store.trusts(Self.phone))
         let relaunched = await Self.launch(directory, seal: seal)
         #expect(!relaunched.trusts(Self.phone))
+    }
+
+    /// Past the waits, with the Keychain still refusing (the memory-only run).
+    static func refusedPastTheWaits(_ directory: URL, seal: MobileHostMemoryPairingSeal) async throws -> MobileHostPairedStore {
+        seal.refuseAll()
+        let clock = ManualClock()
+        let store = await launch(directory, seal: seal, clock: clock)
+        for wait in MobileHostPairedStore.sealWaits {
+            try await clock.waitForSleeper()
+            clock.advance(by: wait)
+        }
+        await until { store.current != nil }
+        return store
+    }
+
+    /// Review of #36157, finding 2: a Don't Allow given while the seal is refused is written (fail
+    /// closed), so the next launch does not trust the refused phone from the stored list.
+    @Test func aDenyWhileTheSealIsRefusedIsNotUndoneAtTheNextLaunch() async throws {
+        let directory = Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let seal = MobileHostMemoryPairingSeal()
+        try await Self.allowed(directory, seal: seal)
+        let refused = try await Self.refusedPastTheWaits(directory, seal: seal)
+        try await refused.change(for: "u") { $0.deny(Self.phone) }
+        seal.answerAgain()
+        let next = await Self.launch(directory, seal: seal)
+        #expect(!next.trusts(Self.phone), "a phone refused while the Keychain refused was trusted again")
+    }
+
+    /// Review of #36157, finding 4: a second read while a refused seal's wait is pending starts no
+    /// second chain of waits.
+    @Test func aSecondReadDuringTheWaitStartsNoSecondChain() async throws {
+        let directory = Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let seal = MobileHostMemoryPairingSeal()
+        try await Self.allowed(directory, seal: seal)
+        seal.refuseAll()
+        let clock = ManualClock()
+        let store = await Self.launch(directory, seal: seal, clock: clock)
+        try await clock.waitForSleeper()
+        await store.reload()
+        await store.reload()
+        #expect(clock.sleeperCount == 1)
+    }
+
+    /// Review of #36157, finding 7: an Allow given while the seal was refused joins the stored list once
+    /// the Keychain answers, and both phones stay trusted after a relaunch.
+    @Test func anAllowWhileTheSealIsRefusedJoinsTheListOnceTheKeychainAnswers() async throws {
+        let directory = Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let seal = MobileHostMemoryPairingSeal()
+        try await Self.allowed(directory, seal: seal)
+        let refused = try await Self.refusedPastTheWaits(directory, seal: seal)
+        try await refused.change(for: "u") { $0.approve(Self.newPhone, at: Date(timeIntervalSince1970: 6)) }
+        seal.answerAgain()
+        await refused.reload()
+        #expect(refused.trusts(Self.phone) && refused.trusts(Self.newPhone))
+        let next = await Self.launch(directory, seal: seal)
+        #expect(next.trusts(Self.phone) && next.trusts(Self.newPhone))
     }
 }
