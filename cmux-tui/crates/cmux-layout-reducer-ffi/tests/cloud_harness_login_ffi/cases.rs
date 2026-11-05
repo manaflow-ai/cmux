@@ -208,4 +208,13 @@ fn the_vm_kind_and_fingerprint_ops_answer() {
         json!({"fingerprint": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"})
     );
     assert_eq!(call(c"cloud_start_check_account", &json!({"asked": []})).0, ERR_INVALID);
+    assert_eq!(
+        call(c"cloud_recovery_refreshes", &json!({"probe": {"exitCode": 0, "stdout": "cached\n"}})).1,
+        json!({"refresh": true})
+    );
+    assert_eq!(
+        call(c"cloud_recovery_refreshes", &json!({"probe": {"exitCode": 0, "stdout": "none\n"}})).1,
+        json!({"refresh": false})
+    );
+    assert_eq!(call(c"cloud_recovery_refreshes", &json!({})).1, json!({"refresh": true}));
 }

@@ -55,3 +55,22 @@ fn the_wire_is_the_apps_shape() {
     let probe: Probe = serde_json::from_str(r#"{"exitCode":0,"stdout":"rejected\n"}"#).unwrap();
     assert_eq!(parse(probe.exit_code, &probe.stdout), MachineLogin::Rejected);
 }
+
+#[test]
+fn a_manual_recovery_mints_a_new_login_only_when_the_machine_has_the_cached_one() {
+    // The machine runs cmux's own cached token and its turn failed: that token is what the
+    // provider refused, so the recovery asks for a new one.
+    assert!(recovery_refreshes(Some(MachineLogin::Cached)));
+    // Any other login on the machine: the cached token never reached it, so the recovery
+    // installs the cached one and the person signs in again only when there is none.
+    for login in [
+        MachineLogin::None,
+        MachineLogin::Session,
+        MachineLogin::Working,
+        MachineLogin::Rejected,
+    ] {
+        assert!(!recovery_refreshes(Some(login)), "{login:?}");
+    }
+    // A probe that did not answer: the recovery mints a new login, as before.
+    assert!(recovery_refreshes(None));
+}
