@@ -32,6 +32,7 @@ mod generated;
 pub mod backend;
 mod error;
 pub mod ops;
+pub mod transcript;
 
 pub use error::ApiError;
 pub use generated::*;
