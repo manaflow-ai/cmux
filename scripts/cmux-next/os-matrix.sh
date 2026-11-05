@@ -81,11 +81,15 @@ if [[ -z "$REF" ]]; then
   # The tip without a write to the clone: other runs and agents share it, and a ref, FETCH_HEAD or
   # maintenance lock held by their fetch failed a `git fetch origin feat-cmux-next` here (exit 75),
   # and a FETCH_HEAD read after it could name their commit. ls-remote reads the sha only; the fetch
-  # of that exact sha, only when its commit is missing, writes objects and no ref or FETCH_HEAD.
-  REF=$(git -C "$ROOT" ls-remote origin refs/heads/feat-cmux-next | awk 'NR == 1 {print $1}') || REF=""
+  # of that exact sha, only when its commit is missing, writes objects and no ref or FETCH_HEAD. It
+  # does not go into submodules (on-demand recursion fetches there and writes their refs when the
+  # tip moves a submodule pointer) or follow tags (a tagOpt=--tags config would write refs/tags).
+  REF=$(git -C "$ROOT" ls-remote --heads origin feat-cmux-next \
+    | awk '$2 == "refs/heads/feat-cmux-next" {print $1; exit}') || REF=""
   [[ "$REF" =~ ^[0-9a-f]{40}$ ]] || { echo "os-matrix: cannot read the feat-cmux-next tip from origin" >&2; exit 75; }
   git -C "$ROOT" cat-file -e "$REF^{commit}" 2>/dev/null \
-    || git -C "$ROOT" fetch -q --no-write-fetch-head --no-auto-maintenance origin "$REF" \
+    || git -C "$ROOT" fetch -q --no-write-fetch-head --no-auto-maintenance --no-recurse-submodules --no-tags \
+      origin "$REF" \
     || { echo "os-matrix: cannot fetch $REF from origin" >&2; exit 75; }
 fi
 [[ "$REF" =~ ^[0-9a-f]{40}$ ]] || { echo "--ref needs a 40-character commit" >&2; exit 2; }
