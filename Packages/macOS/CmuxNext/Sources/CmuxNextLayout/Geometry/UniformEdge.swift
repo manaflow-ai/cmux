@@ -27,11 +27,23 @@ nonisolated struct UniformEdge: Hashable, Sendable {
     /// How far the dragged column's left edge moves with every column `width` wide (the anchor's shift).
     func shift(_ width: CGFloat) -> CGFloat { widths.prefix(index).reduce(0) { $0 + width - $1 } }
 
-    /// The camera's value after the anchored sync with every column `width` wide: the value now plus the shift its target
-    /// can take in the new strip (the reducer gives the value the same shift as the target).
-    func presented(_ width: CGFloat) -> CGFloat {
-        let maxOffset = max(0, content + widths.reduce(0) { $0 + width - $1 } - viewport)
-        return shown + ColumnScrollState.anchorShift(shift(width), target: camera, maxOffset: maxOffset)
+    /// The new strip's room with every column `width` wide.
+    func maxOffset(_ width: CGFloat) -> CGFloat { max(0, content + widths.reduce(0) { $0 + width - $1 } - viewport) }
+
+    /// The shift the anchored sync gives the camera (its target and its value alike) with every column `width` wide.
+    func cameraShift(_ width: CGFloat) -> CGFloat {
+        ColumnScrollState.anchorShift(shift(width), target: camera, maxOffset: maxOffset(width))
+    }
+
+    /// The camera's value after the anchored sync with every column `width` wide: the value now plus that shift.
+    func presented(_ width: CGFloat) -> CGFloat { shown + cameraShift(width) }
+
+    /// Whether the shifted target is outside the new strip, so the sync clamps it and the camera springs back under a
+    /// still pointer: a shrink at the strip's end that moves the end further than the anchor's shift (as before the anchor
+    /// shift was bounded).
+    func springsBack(_ width: CGFloat) -> Bool {
+        let target = camera + cameraShift(width)
+        return target < -0.01 || target > maxOffset(width) + 0.01
     }
 
     /// Where the dragged edge shows (strip space less the camera's value) with every column `width` wide.
@@ -42,13 +54,13 @@ nonisolated struct UniformEdge: Hashable, Sendable {
     /// there is the one, within the pointer's travel of the dragged column's width now: in the first, second and last the
     /// edge moves at least as far as the width, so a solution further away is another branch, and taking it would jump
     /// every width. Nil when none is: at the strip's end the content pins the edge (shrinking every column moves it right,
-    /// or not at all for the last column).
+    /// or not at all for the last column), and a width whose shifted target leaves the new strip would spring back.
     func width(restingEdgeAt place: CGFloat) -> CGFloat? {
         let k = CGFloat(index), n = CGFloat(widths.count)
         let before = widths.prefix(index).reduce(0, +), all = widths.reduce(0, +), base = place - left + before + shown
         var candidates = [place - left + shown, (base - camera) / (k + 1), base / (k + 1)]
         if k + 1 != n { candidates.append((base + content - all - viewport - camera) / (k + 1 - n)) }
         let current = widths[index], reach = abs(place - edge(current)) + 0.01
-        return candidates.first { $0 > 0 && abs($0 - current) <= reach && abs(edge($0) - place) < 0.01 }
+        return candidates.first { $0 > 0 && abs($0 - current) <= reach && abs(edge($0) - place) < 0.01 && !springsBack($0) }
     }
 }
