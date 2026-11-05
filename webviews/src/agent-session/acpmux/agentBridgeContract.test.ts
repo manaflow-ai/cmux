@@ -301,6 +301,13 @@ describe("agent bridge contract (schemas/agent-bridge/contract.json)", () => {
         function attach(id: string, send: (method: string, params: object) => Promise<unknown> = postNative) {
           return send("run.atach", { id });
         }
+        function toggle(on: boolean, call: (method: string, params: object) => Promise<unknown>) {
+          return call("pane.setRemoteContrl", { on });
+        }
+        toggle(true, callNative);
+        function daemonRead(daemon: (method: string, params: object) => Promise<unknown>) {
+          return daemon("_acpmux/info", {});
+        }
         const H = "cmuxNope";
         window.webkit?.messageHandlers?.[H]?.postMessage({});
       `,
@@ -310,6 +317,7 @@ describe("agent bridge contract (schemas/agent-bridge/contract.json)", () => {
       "webviews/src/agent-session/acpmux/fake.ts:7: the app has no method 'account.ad'",
       expect.stringContaining("link.inspect takes"),
       "webviews/src/agent-session/acpmux/fake.ts:11: the app has no method 'run.atach'",
+      "webviews/src/agent-session/acpmux/fake.ts:14: the app has no method 'pane.setRemoteContrl'",
     ]);
     expect([...handlerNames([file]).keys()]).toEqual(["cmuxNope"]);
   });
