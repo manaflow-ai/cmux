@@ -1,4 +1,4 @@
-public import Foundation
+public import AppKit
 
 /// CMD-N FIRST FRAME instrument (never merged): the main run loop's turns while a bench runs.
 /// `turn` is a wake until the first before-waiting observer (events, timers, sources, main-queue
@@ -76,5 +76,15 @@ public nonisolated final class BenchTurnRecorder {
     private static func ms(_ duration: Duration) -> Double {
         let (seconds, attoseconds) = duration.components
         return Double(seconds) * 1_000 + Double(attoseconds) / 1e15
+    }
+
+    /// CMD-N FIRST FRAME instrument: a key-window change's label: the window's class and its callers (no AppKit frames).
+    public static func keyLabel(_ label: String, _ window: NSWindow?) -> String {
+        let frames = Thread.callStackSymbols.dropFirst(2).compactMap { line -> String? in
+            let parts = line.split(separator: " ", omittingEmptySubsequences: true)
+            guard parts.count >= 4, !["AppKit", "CoreFoundation", "Foundation", "libdispatch.dylib"].contains(String(parts[1])) else { return nil }
+            return parts[1] + ":" + String(parts[3...].joined(separator: " ").prefix(90))
+        }
+        return label + " " + (window.map { String(describing: type(of: $0)) } ?? "nil") + " | " + frames.prefix(14).joined(separator: " < ")
     }
 }

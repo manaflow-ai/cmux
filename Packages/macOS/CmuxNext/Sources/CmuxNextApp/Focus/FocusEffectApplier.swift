@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextLayout
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
@@ -33,6 +34,7 @@ final class FocusEffectApplier: FocusEffectApplying {
         let center = NotificationCenter.default
         observers.append(MainActorObservation(NSWindow.didBecomeKeyNotification, center: center, read: { $0.object as? NSWindow }) { [weak self] window in
             guard let window else { return }
+            BenchSpans.mark(BenchTurnRecorder.keyLabel("key.become", window))
             self?.ownedWindowDidBecomeKey(window)
             self?.childWindowDidBecomeKey(window)
             // This window took the keys back from a page it focused, with no click (ChildPageFocus.keysReturned):

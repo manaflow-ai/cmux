@@ -1,9 +1,7 @@
 import CmuxNextLayout
 import Foundation
 
-/// Main-thread spans for `debug.new_tab` benches (R81: Cmd-W and `!` on the
-/// new tab page in < 10 ms). DEBUG builds record into a bounded ring while a
-/// bench runs; release builds run the body and record nothing.
+/// Main-thread spans for `debug.new_tab` benches (never-merge instrument branch: doc shortened).
 @MainActor
 enum BenchSpans {
     struct Span {
@@ -19,7 +17,6 @@ enum BenchSpans {
     static let capacity = 512
     #endif
 
-    /// Starts recording (a bench began).
     static func begin() {
         #if DEBUG || CMUX_BENCH_HOOKS
         origin = .now
@@ -51,8 +48,7 @@ enum BenchSpans {
         return try body()
     }
 
-    /// Records an instant (a point in an async flow) under `name`, or a span another module timed
-    /// (`CEFBenchMarks`) that is `milliseconds` long and ends now.
+    /// Records an instant under `name`, or a span another module timed that is `milliseconds` long and ends now.
     static func mark(_ name: String, milliseconds: Double = 0) {
         #if DEBUG || CMUX_BENCH_HOOKS
         guard let origin, spans.count < capacity else { return }
