@@ -205,8 +205,9 @@ export function SenderName({
     [query, resolved],
   );
   const sessionId = listed ?? resolved?.sessionId;
-  // The chat the name opens shows its hover card, as any reference to a chat does.
-  const { trigger: hover, card } = useSessionHover(sessionId ?? "");
+  // The chat the name opens shows its hover card, as any reference to a chat does; the card opens it
+  // as the name does, as a sender.
+  const { trigger: hover, card } = useSessionHover(sessionId ?? "", onOpen);
   const openAsked = () => {
     if (!query) return;
     void resolveSessionRef(query).then((target) =>

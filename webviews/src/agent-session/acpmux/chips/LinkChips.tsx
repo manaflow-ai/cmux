@@ -10,7 +10,7 @@
 // 2026-10-21, #22896 grew into "#22896 · cmux-next updates: …" after a hover). Titles and favicons
 // live in the shared link card (LinkHoverCard.tsx) that hovering opens: Open and Open in, and a
 // pull request's title, state, author and checks.
-import { useState, type ReactNode } from "react";
+import { useContext, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { callChipHost } from "./host";
 import { useMessageScope } from "./messageScope";
@@ -26,6 +26,8 @@ import { usePullRequestState } from "./pullRequestStore";
 import { useHoverCard } from "./useHoverCard";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
 import { useAgentLinkClick } from "../conversation/SessionRef";
+import { useSessionHover } from "../started/SessionHoverCard";
+import { SubsessionContext } from "../subagents/subsessions";
 
 /// A path chip. `label` is the link's text, else the file name; `written` is the reply's own
 /// text, which a path that gets no chip draws as.
@@ -158,6 +160,12 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
   // An agent link (`cmux.com/deeplink/agent?...`) opens the reader's own session's chat
   // (conversation/SessionRef.tsx); its web page otherwise.
   const agent = useAgentLinkClick(href);
+  // Once it names one of the reader's listed chats, its card is that chat's (started/SessionHoverCard.tsx),
+  // opening it as the link does, in place of the site's.
+  const subsessions = useContext(SubsessionContext);
+  const session = useSessionHover(agent["data-open-session"] ?? "", subsessions?.openSender ?? subsessions?.open);
+  const chat = session.trigger.onPointerEnter !== undefined;
+  const trigger = chat ? session.trigger : hover.trigger;
   return (
     <>
       <a
@@ -170,28 +178,32 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
         data-open-session-sender={agent["data-open-session-sender"]}
         href={href}
         rel="noreferrer"
-        {...hover.trigger}
+        {...trigger}
         onPointerEnter={(event) => {
           agent.onPointerEnter?.();
-          hover.trigger.onPointerEnter(event);
+          trigger.onPointerEnter?.(event);
         }}
         onFocus={(event) => {
           agent.onFocus?.();
-          hover.trigger.onFocus(event);
+          trigger.onFocus?.(event);
         }}
         onClick={agent.onClick}
       >
         {mark}
         <span className="cv-chip__label">{label}</span>
       </a>
-      <LinkHoverCard
-        href={href}
-        anchor={anchor}
-        hover={hover}
-        mark={cardMark}
-        siteTitle={site?.title}
-        pullRequest={pullRequest && { ...pullRequest, title: githubRefTitle(site?.title) }}
-      />
+      {chat ? (
+        session.card
+      ) : (
+        <LinkHoverCard
+          href={href}
+          anchor={anchor}
+          hover={hover}
+          mark={cardMark}
+          siteTitle={site?.title}
+          pullRequest={pullRequest && { ...pullRequest, title: githubRefTitle(site?.title) }}
+        />
+      )}
     </>
   );
 }

@@ -78,7 +78,7 @@ export function SessionRefCode({
   );
 
   const sender = subsessions?.openSender !== undefined;
-  const { trigger, card } = useSessionHover(target?.sessionId ?? "");
+  const { trigger, card } = useSessionHover(target?.sessionId ?? "", open);
   const hover = target ? trigger : {};
   // With its hover card (a page with session hover), the native tooltip would cover it.
   const carded = target !== null && target !== undefined && trigger.onPointerEnter !== undefined;

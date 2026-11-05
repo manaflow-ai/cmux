@@ -22,6 +22,7 @@ import {
   useId,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import { AnchoredCard } from "../../../ui/Tooltip";
 import { HOVER_INTENT, HoverGroup, useHoverIntent } from "../../../ui/hoverIntent";
@@ -62,10 +63,19 @@ export type SessionHoverTrigger = {
   "aria-describedby"?: string;
 };
 
+const noStore = () => () => {};
+
 /// The hover card of session `sessionId`: spread `trigger` on the reference and render `card`
-/// beside it. Both are empty without a ``SessionHoverContext``.
-export function useSessionHover(sessionId: string): { trigger: SessionHoverTrigger; card: ReactNode } {
+/// beside it. Both are empty without a ``SessionHoverContext`` and for a chat its store does not list,
+/// so a reference keeps its own tooltip there. A click on the card opens the chat with `open`, the
+/// reference's own opener (a sender's name opens as a sender), else the context's.
+export function useSessionHover(
+  sessionId: string,
+  open?: (sessionId: string) => void,
+): { trigger: SessionHoverTrigger; card: ReactNode } {
   const hover = useContext(SessionHoverContext);
+  const readListed = () => (hover && sessionId ? hover.store.get(sessionId) !== undefined : false);
+  const listed = useSyncExternalStore(hover?.store.subscribe ?? noStore, readListed, readListed);
   const intent = useHoverIntent<HTMLElement>({ delay: SESSION_HOVER_DELAY, group });
   const { hover: point, dismiss } = intent;
   const [placed, setPlaced] = useState<{ anchor: HTMLElement; side: "top" | "bottom" } | null>(null);
@@ -78,7 +88,7 @@ export function useSessionHover(sessionId: string): { trigger: SessionHoverTrigg
     if (intent.shown) setPlaced({ anchor: intent.shown, side: hoverCardSide(intent.shown) });
   }, [intent.shown]);
   useEffect(() => () => clearTimeout(leave.current), []);
-  if (!hover) return { trigger: {}, card: null };
+  if (!hover || !listed) return { trigger: {}, card: null };
 
   const stay = () => {
     clearTimeout(leave.current);
@@ -150,7 +160,7 @@ export function useSessionHover(sessionId: string): { trigger: SessionHoverTrigg
         buttonRef={inside}
         onOpen={() => {
           now();
-          hover.open(sessionId);
+          (open ?? hover.open)(sessionId);
         }}
         onEscape={() => {
           now();
