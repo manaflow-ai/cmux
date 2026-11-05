@@ -84,6 +84,28 @@ import Testing
         #expect(failures.isEmpty, Comment(rawValue: "\(failures.count) lines off their bar:\n" + failures.joined(separator: "\n")))
     }
 
+    /// Under Glass a group with no color draws a calm neutral pane: visible, never the heavy grey bar the theme's ink at
+    /// the vivid tint drew (Lawrence 2026-11-05 capture: No color read stronger than the red group).
+    @Test func aNoColorGlassPaneStaysCalm() throws {
+        var failures: [String] = []
+        for (name, scope) in try GroupPaletteDefaultTests.themes() {
+            let ground = scope.tokens.sidebarBackground.withAlpha(1)
+            let id = GroupID("grp_calm")
+            let header = GroupHeaderRowView(key: .group(id))
+            header.frame = NSRect(x: 0, y: 0, width: 240, height: 24)
+            scope.root(header)
+            let group = CmuxNextSidebar.SidebarGroup(id: id, name: "group", custom: GroupTint.none.wire, workspaces: [])
+            let row = SidebarRow(key: .group(id), y: 0, height: 24, section: .pinned, group: id, siblingIndex: 0,
+                                 parentIndex: nil, isLastInGroup: false, isCollapsed: false, childCount: 2, groupColor: nil)
+            header.configure(group, row: row, details: GroupHeaderDetails(background: .glass), animated: false)
+            header.layoutSubtreeIfNeeded()
+            header.updateLayer()
+            let contrast = Self.rgba(header.pill.backgroundColor).composited(over: ground).contrast(with: ground)
+            if contrast > 1.5 || contrast < Self.minimum - 0.005 { failures.append(String(format: "%@: %.3f:1", name, contrast)) }
+        }
+        #expect(failures.isEmpty, Comment(rawValue: "no-color glass panes off 1.2...1.5:1:\n" + failures.joined(separator: "\n")))
+    }
+
     /// Switching `sidebar.groupHeader.background` redraws the headers already on screen.
     @Test func changingTheBackgroundStyleRedrawsTheList() {
         var before = SidebarSectionsPreferences()

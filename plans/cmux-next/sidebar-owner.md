@@ -4,7 +4,7 @@
   must always have a visible bg color, groups should support both glassy and solid bgs too". New setting
   `sidebar.groupHeader.background`: Automatic (default: cmux's own group look, Leo's glass, or solid when Debug `sidebar.groupGlass` is solid), Glass,
   Solid. Glass is Leo's tinted pane with its rim (#36225, Debug `sidebar.groupGlass`; under Glass a Debug solid
-  draws vivid; the wash, line and tinted looks stay a solid wash unless the setting is Glass), and a group with no color is the same pane untinted. Every header, at rest, hovered and dropped, keeps
+  draws vivid; the wash, line and tinted looks stay a solid wash unless the setting is Glass); a no-color glass pane is the solid bar's calm neutral at 0.3, not the ink at the tint (`aNoColorGlassPaneStaysCalm`), and a group with no color is the same pane untinted. Every header, at rest, hovered and dropped, keeps
   at least 1.2:1 against the sidebar (`GroupBackground.minimumVisibleContrast`): a too-faint pane is pushed away
   from the sidebar at its own opacity (`GroupGlassPaint`); the solid band with no color is a neutral step of the
   theme's text (`GroupBackground`). Under glass the rail stays the pane's vivid tint (Leo's
