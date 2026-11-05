@@ -2949,6 +2949,9 @@ class WsCheckPerTest(unittest.TestCase):
                                              + f"\n2026-11-05T04:39:28.0421097Z FAST_CHECKS_RECEIPT="
                                              + json.dumps({"source_sha": snapshot, "run_id": str(run_id)}))
         self.assertIn("every failure", self.judge()[0])
+        # A title that also names the tested repo and commit (`Fast checks SOURCE tests REPO@TESTED`) is the same run.
+        self.gh.runs[1]["display_title"] = f"Fast checks {snapshot} tests teamleaderleo/leo-workspace@{HEAD}"
+        self.assertIn("every failure", self.judge()[0])
         self.gh.runs[1]["display_title"] = "Fast checks " + "8" * 40
         with self.assertRaisesRegex(excuse.Refused, "is from another checkout"):
             self.judge()

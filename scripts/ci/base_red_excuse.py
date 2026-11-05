@@ -1494,7 +1494,8 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
             receipt = {}
         if not (isinstance(receipt, dict) and result.get("head") and receipt.get("source_sha") == result.get("head")
                 and str(receipt.get("run_id")) == link[1]
-                and run.get("display_title") == f"Fast checks {result.get('head')}"):
+                and re.fullmatch(r"Fast checks " + re.escape(str(result.get("head"))) + r"(?: tests \S+)?",
+                                 run.get("display_title") or "")):
             raise Refused(f"{where}: the WS_CHECK_RESULT of run {link[1]} is from another checkout")
     if (int(named[1]), int(named[2])) != (len(failed), result.get("steps")) or not failed[0].startswith(named[3]):
         raise Refused(f"{where}: its status (\"{description}\") does not match run {link[1]}'s WS_CHECK_RESULT")
