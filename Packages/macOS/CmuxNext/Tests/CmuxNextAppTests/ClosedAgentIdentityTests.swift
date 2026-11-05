@@ -92,6 +92,32 @@ struct ClosedAgentIdentityTests {
         }
     }
 
+    /// The daemon's closed row names a chat's session and harness (cmux-tui `closed_entry`, #31871), so the
+    /// app reads the agent identity from the row itself, with no second read of the closed records.
+    @Test func daemonClosedRowCarriesItsAgentIdentity() throws {
+        let row = try JSONDecoder().decode(DaemonHistoryEntry.self, from: Data("""
+            {"id":"closed:daemon:closed_1","kind":"closed","at_ms":"1","title":"",
+             "closed_kind":"browser_tab","available":true,"session_id":"same-session","provider":"codex"}
+            """.utf8))
+        let entry = try #require(row.historyEntry(untitled: "Terminal fallback"))
+        guard case .closed(let item) = entry.payload else { Issue.record("not a closed row"); return }
+        #expect(item.id == "daemon:closed_1")
+        #expect(item.agentSession?.sessionID == "same-session")
+        #expect(item.agentSession?.harness == "codex")
+        #expect(NewTabClosed.kind(for: item) == .agent)
+        #expect(HistoryPalettePages.agentBrand(entry) != nil)
+        #expect(entry.searchText.contains("same-session"))
+
+        let plain = try JSONDecoder().decode(DaemonHistoryEntry.self, from: Data("""
+            {"id":"closed:daemon:closed_2","kind":"closed","at_ms":"1","title":"",
+             "closed_kind":"browser_tab","available":true}
+            """.utf8))
+        let plainEntry = try #require(plain.historyEntry(untitled: "Terminal fallback"))
+        guard case .closed(let plainItem) = plainEntry.payload else { Issue.record("not a closed row"); return }
+        #expect(plainItem.agentSession == nil)
+        #expect(plainEntry.title == "Terminal fallback")
+    }
+
     @Test func closedContainersRetainTheirOwnKind() throws {
         var item = try Self.closed()
         #expect(HistoryService.closedAgentSession(item)?.harness == "codex")
