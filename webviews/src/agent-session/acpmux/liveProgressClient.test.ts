@@ -230,7 +230,7 @@ test("an active Progress plan survives an older historical clear", async () => {
     while (!last || !said("Current.")(last)) await new Promise<void>((resolve) => wakes.push(resolve));
     expect(last!.progress?.plan.map((step) => step.content)).toEqual(["Current work"]);
     await client.loadOlder();
-    expect(last!.rows.some((row) => row.plan?.some((step) => step.content === "Old work"))).toBe(true);
+    expect(last!.rows.some((row) => row.text?.includes("Older plan"))).toBe(true);
     expect(last!.progress?.plan.map((step) => step.content)).toEqual(["Current work"]);
   } finally {
     client.close?.();
