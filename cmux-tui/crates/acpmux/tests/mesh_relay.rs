@@ -862,8 +862,8 @@ async fn mesh_controls_start_and_stop_through_shared_sender_and_replay_success()
             sessions: hub.mesh_rows().await,
             leaving: false,
         })
-            .await
-            .unwrap();
+        .await
+        .unwrap();
         let to = if by_name {
             Recipient::Name { name: name.into(), host: None }
         } else {
