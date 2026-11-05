@@ -4,6 +4,7 @@ import { preferredLocaleFromAcceptLanguage } from "./i18n/accept-language";
 import { routing } from "./i18n/routing";
 import { isAgentPageVariantPath } from "./app/lib/agent-page-paths";
 import { isDocsPathname, isDocsZoneDeployment } from "./app/lib/docs-channel";
+import { docsLinkFallback } from "./app/lib/docs-link-fallbacks";
 import {
   fallbackContentRequestForPathname,
   featureWorkflowContentLocales,
@@ -172,6 +173,15 @@ function handleHostAndMachineRoutes(
   // Locale handling belongs to those origins; rewriting it here first causes
   // the origin to normalize the path back through the router in a loop.
   if (!isDocsZoneDeployment() && isDocsPathname(pathname)) {
+    // A docs link that shipped in What's New but has no page goes to the
+    // nearest live page (docs-link-fallbacks.ts says why it never shadows one).
+    const fallback = docsLinkFallback(pathname);
+    if (fallback) {
+      // A plain URL: NextURL would put back the request's trailing slash.
+      const url = new URL(request.url);
+      url.pathname = fallback;
+      return NextResponse.redirect(url, 307);
+    }
     return NextResponse.next();
   }
 

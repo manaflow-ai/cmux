@@ -35,6 +35,9 @@ ALLOWED_SHARED: dict[tuple[str, str], str] = {
     ("nightly-next-launch-smoke.yml", ""): (
         "a schedule or dispatch run has a group of its own run id; only a pull request's runs share one, "
         "per pull request, and such a run delivers nothing (it never rolls back or files)"),
+    ("nightly-next-tick.yml", "unstick"): (
+        "the stuck-run rescue and cancelled-tip re-run read every run's state when they start, so the "
+        "newest waiting one does the work of any it replaced; a sha request skips the job"),
     ("nightly-next-tick.yml", "request"): (
         "the tick dispatches no build itself (test_delivery_coalescers_have_fixed_backstops...); a sha "
         "request has its own group"),

@@ -68,6 +68,9 @@ FORK_BRANCHES = (
     FORK_LINUX_ARM64_BRANCH,
 )
 OWNER_ONLY_JOB_IF = "if: github.repository_owner == 'manaflow-ai'"
+# The repository check is stricter than the owner check (manaflow-ai/cmux implies owner manaflow-ai), so a job
+# behind it never runs outside manaflow-ai either (fast-checks.yml's checks job since #30529).
+OWNER_ONLY_JOB_IFS = frozenset({OWNER_ONLY_JOB_IF, "if: github.repository == 'manaflow-ai/cmux'"})
 EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}")
 JOB_HEADER = re.compile(r"^  ([A-Za-z0-9_-]+):\s*(?:#.*)?$")
 INPUT_HEADER = re.compile(r"^      ([A-Za-z0-9_-]+):\s*$")
@@ -108,13 +111,25 @@ HOSTED_LITERAL_RUNNER = re.compile(
 # other value, including a persistent mini's label, falls back to Blacksmith,
 # and a fork running its own CI gets GitHub-hosted. Either provider can then
 # carry the merge-gating checks while the other is down.
-TRUSTED_RUNNER_LABELS = ("ubuntu-24.04", "blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404")
+TRUSTED_RUNNER_LABELS = ("ubuntu-24.04", "blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404")
 TRUSTED_RUNNER_EXPRESSION = (
     "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('"
     + json.dumps(list(TRUSTED_RUNNER_LABELS), separators=(",", ":"))
     + "'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
 )
-TRUSTED_RUNNER_LINE = re.compile(r"^\s*runs-on:\s*" + re.escape(TRUSTED_RUNNER_EXPRESSION) + r"\s*(?:#.*)?$")
+# CLA's trusted base validator pins its older selector and runner-name guard.
+# Keep that policy valid while other trusted jobs adopt the measured BS8 size.
+CLA_TRUSTED_RUNNER_EXPRESSION = TRUSTED_RUNNER_EXPRESSION.replace(',"blacksmith-8vcpu-ubuntu-2404"', '')
+TRUSTED_RUNNER_EXPRESSIONS = (TRUSTED_RUNNER_EXPRESSION, CLA_TRUSTED_RUNNER_EXPRESSION)
+# Fast checks admission accepts only the smallest measured Blacksmith size (a
+# picker's one re-run route, never 16 or 32 vCPU), with the same hosted
+# default. No input can select a persistent runner.
+FAST_CHECKS_ADMISSION_EXPRESSION = (
+    "${{ contains(fromJSON('[\"blacksmith-8vcpu-ubuntu-2404\"]'), inputs.runner) && inputs.runner || 'ubuntu-24.04' }}"
+)
+TRUSTED_RUNNER_LINE = re.compile(
+    r"^\s*runs-on:\s*(?:" + "|".join(map(re.escape, TRUSTED_RUNNER_EXPRESSIONS)) + r")\s*(?:#.*)?$"
+)
 # Merge-gating checks: a ruleset requires them, so they must not depend on one runner provider.
 TRUSTED_RUNNER_JOBS = (
     ("backend-migrations.yml", "plan"),
@@ -137,8 +152,8 @@ APP_KEY_MARKER = re.compile(r"create-github-app-token@|^\s*private-key:", re.MUL
 # when it names one of these Blacksmith Linux sizes (.github/runners.json), else 4 vCPU.
 # So a 4 vCPU stall can move these jobs (the overflow switch or a person sets LINUX_RUNNER),
 # and no value reaches a reused machine. The bound is in the expression, not the variable.
-BOUNDED_LINUX_LABELS = ("blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404",
-                        "blacksmith-32vcpu-ubuntu-2404")
+BOUNDED_LINUX_LABELS = ("blacksmith-4vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404",
+                        "blacksmith-16vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404")
 BOUNDED_LINUX_SELECTOR = (
     "contains(fromJSON('" + json.dumps(list(BOUNDED_LINUX_LABELS), separators=(",", ":"))
     + "'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404'"
@@ -266,7 +281,7 @@ def runner_label_errors(runs_on: str) -> list[str]:
     `github.repository_owner != 'manaflow-ai' && '<hosted label>'`, first, which never runs in
     manaflow-ai. The exact CI_TRUSTED_RUNNER selector is accepted too: its list is ephemeral.
     """
-    if runs_on == TRUSTED_RUNNER_EXPRESSION:
+    if runs_on in (*TRUSTED_RUNNER_EXPRESSIONS, FAST_CHECKS_ADMISSION_EXPRESSION):
         return []
     expression = re.fullmatch(r"\$\{\{(.*)\}\}", runs_on.strip(), re.DOTALL)
     if expression is None:
@@ -305,9 +320,6 @@ def runner_label_errors(runs_on: str) -> list[str]:
 # job that runs on a reused owned machine by design and still holds a secret there: each needs
 # its secret moved to a separate job on an ephemeral label, as #27622 did for the dogfood capture.
 SECRET_RUNNER_EXCEPTIONS = {
-    ("nightly.yml", "generate-nightly-deltas"):
-        "pick-classic-sign-runner's output, which names only Blacksmith macOS labels "
-        "(classic_nightly_build_runner.py), else the literal Blacksmith fallback",
     ("nightly.yml", "build-sign-notarize-nightly"):
         "the same picker as generate-nightly-deltas: only Blacksmith macOS labels",
     ("cmux-next-dev-daily.yml", "tip-deltas"):
@@ -615,8 +627,18 @@ def evaluate_runner_condition(node: tuple, context: dict[str, str]) -> bool | st
         return all(evaluate_runner_condition(child, context) for child in node[1])
     if kind == "not":
         return not evaluate_runner_condition(node[1], context)
-    if kind == "literal" and node[1].startswith("'"):
-        return node[1][1:-1].replace("''", "'")
+    if kind == "literal":
+        if node[1].startswith("'"):
+            return node[1][1:-1].replace("''", "'")
+        if node[1] == "true":
+            return True
+        if node[1] == "false":
+            return False
+        if node[1] == "null":
+            return None
+        if "." in node[1]:
+            return float(node[1])
+        return int(node[1])
     if kind == "ref":
         return context[node[1]]
     if kind == "cmp" and node[1] in ("==", "!="):
@@ -893,7 +915,7 @@ def ungated_blacksmith_labels(name: str, text: str) -> list[str]:
         header = JOB_HEADER.match(raw)
         if header:
             job = header.group(1)
-        elif job and raw.strip() == OWNER_ONLY_JOB_IF and raw.startswith("    if:"):
+        elif job and raw.strip() in OWNER_ONLY_JOB_IFS and raw.startswith("    if:"):
             owner_only_jobs.add(job)
 
     def input_is_translated(input_name: str) -> bool:
@@ -1317,6 +1339,8 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                 runs_on = [line for line in block.group(1).splitlines() if re.match(r"^    runs-on:", line)]
                 self.assertEqual(len(runs_on), 1, runs_on)
                 self.assertRegex(runs_on[0], TRUSTED_RUNNER_LINE)
+                if workflow in {"cla.yml", "cla-policy-guard.yml"}:
+                    self.assertEqual(runs_on[0].strip(), "runs-on: " + CLA_TRUSTED_RUNNER_EXPRESSION)
 
     def test_a_job_with_an_app_key_runs_where_no_variable_can_move_it(self) -> None:
         jobs = app_key_jobs()
@@ -1388,7 +1412,11 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         for key in sorted(BOUNDED_SELECTOR_JOBS):
             with self.subTest(job=key):
                 self.assertIn(key, runs_on)
-                self.assertIn(BOUNDED_LINUX_SELECTOR + " }}", runs_on[key])
+                expected = BOUNDED_LINUX_SELECTOR
+                if key == ("sdk-release-cut.yml", "cut-tags"):
+                    # The SDK release security contract pins the pre-BS8 selector.
+                    expected = expected.replace(',"blacksmith-8vcpu-ubuntu-2404"', '')
+                self.assertIn(expected + " }}", runs_on[key])
 
     def test_the_bounded_selector_yields_only_its_labels_for_any_value(self) -> None:
         fork = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
@@ -1404,8 +1432,12 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         self.assertEqual(evaluate_runs_on(tree, {"github.repository_owner": "manaflow-ai",
                                                  "vars.LINUX_RUNNER": "glaeda-std-xcode-26.6"}),
                          "blacksmith-4vcpu-ubuntu-2404")
+        # Each is a declared Blacksmith Linux label: a linux pool member, or a literal listed for
+        # actionlint (32 vCPU left the pool on 2026-11-01 but stays a size jobs may name).
+        declared = (ROOT / ".github/runners.json").read_text(encoding="utf-8") + \
+            (ROOT / ".github/actionlint.yaml").read_text(encoding="utf-8")
         for label in BOUNDED_LINUX_LABELS:
-            self.assertIn(label, (ROOT / ".github/runners.json").read_text(encoding="utf-8"))
+            self.assertIn(label, declared)
 
     def test_the_app_key_runner_rule_refuses_a_variable(self) -> None:
         fork = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
@@ -1608,8 +1640,14 @@ class ForkRunnerRoutingTests(unittest.TestCase):
             "  c:\n"
             "    " + OWNER_ONLY_JOB_IF + "\n"
             "    runs-on: blacksmith-32vcpu-ubuntu-2404\n"
+            "  d:\n"
+            "    if: github.repository == 'manaflow-ai/cmux'\n"
+            "    runs-on: ${{ needs.admit.outputs.runner || 'blacksmith-8vcpu-ubuntu-2404' }}\n"
         )
         self.assertEqual(ungated_blacksmith_labels("x.yml", text), [])
+        # Another repository's check is not an owner gate.
+        other = "jobs:\n  e:\n    if: github.repository == 'someone/cmux'\n    runs-on: blacksmith-8vcpu-ubuntu-2404\n"
+        self.assertEqual(len(ungated_blacksmith_labels("x.yml", other)), 1)
 
 
 if __name__ == "__main__":

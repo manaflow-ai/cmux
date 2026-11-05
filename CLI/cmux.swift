@@ -19814,16 +19814,51 @@ struct CMUXCLI {
             let localJSONOutput = hasFlag(subArgs, name: "--json")
             let outputAsJSON = effectiveJSONOutput || localJSONOutput
             let responseTimeout = BrowserScreenshotTimingBudget().clientResponseTimeout
-            var payload = try client.sendV2(
-                method: "browser.screenshot",
-                params: ["surface_id": sid],
-                responseTimeout: responseTimeout
-            )
 
             func fileURL(fromPath rawPath: String) -> URL {
                 let resolvedPath = resolvePath(rawPath)
                 return URL(fileURLWithPath: resolvedPath).standardizedFileURL
             }
+
+            func hasText(_ value: String?) -> Bool {
+                guard let value else { return false }
+                return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+
+            // An empty path resolves to the working directory, so check before capturing.
+            if subArgs.contains("--out") || outPathOpt != nil {
+                guard let outPathOpt, hasText(outPathOpt) else {
+                    throw CLIError(message: String(
+                        localized: "cli.browser.screenshot.error.outPathEmpty",
+                        defaultValue: "browser screenshot: --out needs a file path",
+                        bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+                    ))
+                }
+                var isDirectory: ObjCBool = false
+                let targetExists = FileManager.default.fileExists(
+                    atPath: fileURL(fromPath: outPathOpt).path,
+                    isDirectory: &isDirectory
+                )
+                let namesDirectory = outPathOpt.hasSuffix("/")
+                    || outPathOpt.hasSuffix("/.")
+                    || outPathOpt.hasSuffix("/..")
+                guard !namesDirectory, !(targetExists && isDirectory.boolValue) else {
+                    throw CLIError(message: String(
+                        format: String(
+                            localized: "cli.browser.screenshot.error.outPathDirectory",
+                            defaultValue: "browser screenshot: --out needs a file path, not the directory '%@'",
+                            bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+                        ),
+                        outPathOpt
+                    ))
+                }
+            }
+
+            var payload = try client.sendV2(
+                method: "browser.screenshot",
+                params: ["surface_id": sid],
+                responseTimeout: responseTimeout
+            )
 
             func writeScreenshot(_ data: Data, to destinationURL: URL) throws {
                 try FileManager.default.createDirectory(
@@ -19831,11 +19866,6 @@ struct CMUXCLI {
                     withIntermediateDirectories: true
                 )
                 try data.write(to: destinationURL, options: .atomic)
-            }
-
-            func hasText(_ value: String?) -> Bool {
-                guard let value else { return false }
-                return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             }
 
             var screenshotPath = payload["path"] as? String
@@ -19867,12 +19897,7 @@ struct CMUXCLI {
                     let sourceURL = URL(fileURLWithPath: sourcePath).standardizedFileURL
                     do {
                         if sourceURL.path != destinationURL.path {
-                            try FileManager.default.createDirectory(
-                                at: destinationURL.deletingLastPathComponent(),
-                                withIntermediateDirectories: true
-                            )
-                            try? FileManager.default.removeItem(at: destinationURL)
-                            try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+                            try writeScreenshot(Data(contentsOf: sourceURL), to: destinationURL)
                         }
                         return true
                     } catch {

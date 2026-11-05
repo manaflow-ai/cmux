@@ -40,12 +40,16 @@ POOL_READ = re.compile(r"fromJSON\(\s*vars\.RUNNER_POOLS\s*\)\.([A-Za-z0-9_]+)")
 
 # workflow file -> (why it is not on a pool yet, its jobs that still name only literals)
 PINNED: dict[str, tuple[str, set[str]]] = {
+    'fast-checks.yml': ('the hosted admission picker is a light read-only job; checks use its live fleet output',
+     {'admit'}),
     'auto-resume-nightly-notarization.yml': ('nightly signing and notarization: an ephemeral label the signing rule checks literally',
      {'preflight', 'poll', 'wait-and-staple', 'poll-outer', 'staple-outer', 'poll-stapled', 'staple-stapled', 'verify-stapled', 'publish', 'generate-deltas', 'republish-deltas'}),
+    'cloud-journey-prod.yml': ('holds the production journey environment secrets: the fork-routing secret rule forbids a variable-movable runner',
+     {'journey'}),
     'build-ghosttykit.yml': ('not yet on a pool; moves in its own PR',
      {'build-ghosttykit'}),
-    'ci-cloud-overflow-probe.yml': ('holds the App key that writes the runner variables, so a variable must never move it (it would write its own runner)',
-     {'watch'}),
+    'cmux-next-cua-helper-dev-sign.yml': ('DEV Computer Use helper signing: an ephemeral label the signing rule checks literally',
+     {'sign'}),
     'cmux-next-dev-daily.yml': ('DEV signing and publish: an ephemeral label the signing rule checks literally',
      {'sign', 'publish', 'tip-dmg'}),
     'cmux-tui-build-package.yml': ('GitHub OIDC provenance: moves to fromJSON(vars.RUNNER_POOLS).provenance',
@@ -85,7 +89,7 @@ PINNED: dict[str, tuple[str, set[str]]] = {
     'nightly-tag-permission-probe.yml': ('not yet on a pool; moves in its own PR',
      {'probe'}),
     'nightly.yml': ('NEXT nightly: never moved mid-train here; its runner change is its own PR',
-     {'decide', 'promote-nightly-next', 'await-release-surface-ack', 'promote-nightly-next-acked', 'refresh-compilation-cache', 'build-nightly-ghostty-cli-helper', 'pick-nightly-app-runner', 'resolve-nightly-cmux-tui-client', 'pick-classic-sign-runner', 'pick-classic-prepare-runner', 'publish-nightly', 'republish-nightly-deltas', 'report-nightly-failure', 'close-nightly-failure-issue'}),
+     {'promote-nightly-next', 'await-release-surface-ack', 'promote-nightly-next-acked', 'refresh-compilation-cache', 'build-nightly-ghostty-cli-helper', 'pick-nightly-app-runner', 'pick-classic-prepare-runner', 'publish-nightly'}),
     'pr-media-privacy.yml': ('not yet on a pool; moves in its own PR',
      {'scan'}),
     'rcodesign-parity-proof.yml': ('signing parity proof: an ephemeral label the signing rule checks literally',
@@ -214,8 +218,9 @@ class RuleTests(unittest.TestCase):
 class WorkflowTests(unittest.TestCase):
     def test_fast_checks_reads_the_linux_pool(self) -> None:
         runs_on = {(path, name): value for path, name, value in jobs()}[("fast-checks.yml", "checks")]
-        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux }}", runs_on)
-        self.assertNotRegex(runs_on.split("inputs.runner ||")[-1], r"'blacksmith-")
+        self.assertIn("needs.admit.outputs.runner", runs_on)
+        self.assertNotIn("RUNNER_POOLS", runs_on)
+        self.assertIn("blacksmith-8vcpu-ubuntu-2404", runs_on)
 
     def test_no_job_names_only_literal_labels(self) -> None:
         pinned = {(path, job) for path, (_, names) in PINNED.items() for job in names}

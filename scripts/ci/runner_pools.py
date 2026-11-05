@@ -30,7 +30,11 @@ watch job, every 10 minutes, with the token the overflow switch already uses) it
     The snapshot's `starved` and `unserved` describe owned (glaeda-*) labels, which are never
     pool members, so they are not read;
 - marks dead labels in RUNNER_POOLS' `_dead` (label -> when last seen dead). A mark expires after
-  DEAD_TTL unless seen again; evidence that the label started a job clears it at once;
+  DEAD_TTL unless seen again; evidence that the label started a job clears it at once. A mark expires
+  only on a pass whose evidence covers its label (evidence_covers()): the probe's health for the sizes
+  it probes, the janitor's snapshot for the rest. Unknown stays unknown: in watch run 41279880300
+  (2026-11-01 06:12-06:23Z) every read returned 403, the marks expired with no evidence at all, and
+  the linux pool went from 16 back to the stalled 32 vCPU size;
 - points each pool at its first member with no mark. With every member marked, the pool keeps
   its first member;
 - writes RUNNER_POOLS only when something changed. A value that does not match the schema
@@ -38,7 +42,8 @@ watch job, every 10 minutes, with the token the overflow switch already uses) it
 
 LINUX_RUNNER predates RUNNER_POOLS and most Linux runs-on still read it (`vars.LINUX_RUNNER || ...`),
 so each pass also writes the linux pool's live member to it (MIRRORS, mirror_writes()) unless the
-overflow switch's record is set, and --check fails while it names a label outside the pool.
+overflow switch's record names it among the variables it changed, and --check fails while it names a
+label outside the pool.
 
 Moving jobs already queued on a dead member is not done here: GitHub binds a job's label when it
 creates the job, and the queue janitor's dead-label re-dispatch (cmux#27114) re-runs those jobs,
@@ -52,7 +57,7 @@ that must run GitHub-hosted (npm and PyPI provenance accept only GitHub's OIDC) 
 `"hosted": true` with its reason; no other pool may name a GitHub-hosted label.
 
 --check validates a RUNNER_POOLS value (every pool set, each to one of its own members) and the
-MIRRORS variables (each a member of its pool while the overflow record is unset).
+MIRRORS variables (each a member of its pool unless the overflow record changed it).
 """
 
 from __future__ import annotations
@@ -202,18 +207,41 @@ def value_problems(value: Mapping[str, Any], pools: Mapping[str, Mapping[str, An
     return found
 
 
+def switch_owned(record: str | None) -> frozenset[str] | None:
+    """The MIRRORS variables the overflow switch's record says it changed (and so puts back), or None for all.
+
+    No record: none. A record whose `changed` cannot be read: all of them, as before, so an unreadable
+    record never lets this script race the switch. Otherwise only the variables `changed` names. On
+    2026-11-01 the record (set 04:23Z) changed only macOS variables, yet any record stopped the mirror,
+    so LINUX_RUNNER stayed on blacksmith-32vcpu-ubuntu-2404 after RUNNER_POOLS marked it dead at 05:30Z
+    and moved the linux pool to 16 vCPU; about 1,900 jobs sat queued on the dead size.
+    """
+    if not (record or "").strip():
+        return frozenset()
+    try:
+        changed = json.loads(str(record)).get("changed")
+    except (ValueError, AttributeError):
+        return None
+    if not isinstance(changed, dict):
+        return None
+    return frozenset(name for name in MIRRORS if name in changed)
+
+
 def mirror_writes(value: Mapping[str, Any], live: Mapping[str, str | None], *,
                   record: str | None) -> list[tuple[str, str]]:
     """(variable, label) for each MIRRORS variable that does not hold its pool's live member.
 
-    Nothing while the overflow switch's record is set: the switch moved those variables and puts them
-    back. A variable is moved only when it is unset or holds a Blacksmith label; any other value is a
-    deliberate choice, left alone here and named by --check (mirror_problems()).
+    Not a variable the overflow switch's record changed (switch_owned()): the switch moved it and puts
+    it back. A variable is moved only when it is unset or holds a Blacksmith label; any other value is
+    a deliberate choice, left alone here and named by --check (mirror_problems()).
     """
-    if (record or "").strip():
+    owned = switch_owned(record)
+    if owned is None:
         return []
     writes = []
     for name, pool in MIRRORS.items():
+        if name in owned:
+            continue
         want = value.get(pool)
         current = (live.get(name) or "").strip()
         if not isinstance(want, str) or not want or current == want:
@@ -226,11 +254,14 @@ def mirror_writes(value: Mapping[str, Any], live: Mapping[str, str | None], *,
 
 def mirror_problems(live: Mapping[str, str | None], pools: Mapping[str, Mapping[str, Any]], *,
                     record: str | None) -> list[str]:
-    """Why a MIRRORS variable misroutes its jobs: it names no member of its pool (overflow off)."""
-    if (record or "").strip():
+    """Why a MIRRORS variable misroutes its jobs: it names no member of its pool (and the switch did not move it)."""
+    owned = switch_owned(record)
+    if owned is None:
         return []
     found = []
     for name, pool in MIRRORS.items():
+        if name in owned:
+            continue
         current = (live.get(name) or "").strip()
         allowed = members(pools[pool]) if pool in pools else []
         if current not in allowed:
@@ -295,15 +326,44 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
     return dead - started, started, notes
 
 
+def evidence_covers(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any] | None,
+                    pools: Mapping[str, Mapping[str, Any]], *, now: dt.datetime) -> set[str]:
+    """The labels this pass has fresh evidence about, so a dead mark on one may expire.
+
+    The probe's health (fresh, as label_evidence() reads it) covers the labels it lists. The janitor's
+    snapshot (fresh and complete) covers every other pool member: it lists the Blacksmith macOS labels'
+    queues, but no Linux label, so the linux pool's sizes are covered only by the probe."""
+    covered: set[str] = set()
+    probed = set(members(pools["linux"])) if "linux" in pools else set()
+    if isinstance(health, Mapping):
+        checked, labels = parse_time(health.get("checked")), health.get("labels")
+        if checked is not None and isinstance(labels, Mapping) and \
+                dt.timedelta(minutes=-1) <= now - checked <= HEALTH_MAX_AGE:
+            covered |= {str(label) for label in labels}
+    generated = parse_time(snapshot.get("generated_at")) if isinstance(snapshot, Mapping) else None
+    if generated is not None and dt.timedelta(minutes=-1) <= now - generated <= SNAPSHOT_MAX_AGE \
+            and not pr_runner_pool.snapshot_truncated(snapshot):
+        covered |= {label for spec in pools.values() for label in members(spec)} - probed
+    return covered
+
+
 def reconcile(current: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]], *,
-              dead_now: Iterable[str], served_now: Iterable[str], now: dt.datetime) -> tuple[dict[str, Any], list[str]]:
-    """The next RUNNER_POOLS value and a line per change. `current` is parse_value()'s output."""
+              dead_now: Iterable[str], served_now: Iterable[str], now: dt.datetime,
+              covered: Iterable[str] | None = None) -> tuple[dict[str, Any], list[str]]:
+    """The next RUNNER_POOLS value and a line per change. `current` is parse_value()'s output.
+
+    `covered` (evidence_covers()) names the labels whose marks may expire; None lets every mark expire."""
     lines: list[str] = []
     marks: dict[str, str] = {}
+    known_now = None if covered is None else set(covered)
     for label, since in (current.get(DEAD_KEY) or {}).items():
         seen = parse_time(since)
         if seen is not None and now - seen < DEAD_TTL:
             marks[label] = since
+        elif seen is not None and known_now is not None and label not in known_now:
+            # No fresh evidence about this label: it stays dead rather than taking jobs again on a guess.
+            marks[label] = since
+            lines.append(f"{label}: dead mark past {DEAD_TTL} kept; no fresh evidence about it this pass")
         else:
             lines.append(f"{label}: dead mark expired; it may take jobs again")
     for label in sorted(set(served_now)):
@@ -408,10 +468,12 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             snapshot = api.snapshot(now=now)
         except Exception as error:  # noqa: BLE001 - a missing snapshot only means no janitor evidence
             print(f"::warning title=Runner pools::no janitor snapshot ({error}); judging on the probe alone")
-    dead, started, notes = label_evidence(_health(switch, env), snapshot, now=now)
+    health = _health(switch, env)
+    dead, started, notes = label_evidence(health, snapshot, now=now)
     for note in notes:
         print(note)
-    value, lines = reconcile(current, pools, dead_now=dead, served_now=started, now=now)
+    value, lines = reconcile(current, pools, dead_now=dead, served_now=started, now=now,
+                             covered=evidence_covers(health, snapshot, pools, now=now))
     for line in lines:
         print(line)
     summary = env.get("GITHUB_STEP_SUMMARY")

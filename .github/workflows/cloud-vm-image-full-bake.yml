@@ -1,0 +1,51 @@
+name: Cloud VM image weekly full bake
+
+# The Cloud VM image is baked from cached layers by default (feat-cmux-next's cloud-vm-image-bake.yml,
+# layered=true): only a layer whose inputs changed rebuilds. Once a week this starts the full bake from
+# the lock instead (layered=false), on feat-cmux-next, so the image stays reproducible from
+# images/cmux-vm/inputs.lock.json alone and a layer chain never drifts from what the lock describes.
+# Scheduled workflows run only from the default branch, hence this file on main. It starts one run
+# unless a bake is already queued or running; the bake itself, its smoke and cleanup live there.
+on:
+  schedule:
+    - cron: "17 9 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: cloud-vm-image-full-bake
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    if: github.repository == 'manaflow-ai/cmux'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      actions: write
+      contents: read
+    timeout-minutes: 5
+    steps:
+      - name: Start the full bake on feat-cmux-next unless a bake is pending
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const source = 'feat-cmux-next';
+            const workflow = 'cloud-vm-image-bake.yml';
+            for (const status of ['requested', 'waiting', 'pending', 'queued', 'in_progress']) {
+              const { data } = await github.rest.actions.listWorkflowRuns({
+                owner, repo, workflow_id: workflow, branch: source, status, per_page: 5,
+              });
+              if (data.total_count > 0) {
+                core.notice(`A bake is already ${status} (run ${data.workflow_runs[0].id}); the full bake waits for next week`);
+                return;
+              }
+            }
+            await github.rest.actions.createWorkflowDispatch({
+              owner, repo, workflow_id: workflow,
+              // Fully qualified: a tag named feat-cmux-next must never be picked.
+              ref: `refs/heads/${source}`,
+              inputs: { mode: 'bake', layered: 'false' },
+            });
+            core.notice(`Started the weekly full bake on ${source}`);

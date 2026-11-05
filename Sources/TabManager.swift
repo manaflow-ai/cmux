@@ -2441,7 +2441,8 @@ class TabManager: ObservableObject {
     }
 
     func isChiefHomeGroup(_ groupId: UUID) -> Bool {
-        workspaceGroups.contains { $0.id == groupId && $0.externalID == ChiefHomeNavigation.homeGroupExternalID }
+        guard ChiefSettings.isEnabled else { return false }
+        return workspaceGroups.contains { $0.id == groupId && $0.externalID == ChiefHomeNavigation.homeGroupExternalID }
             || tabs.contains { $0.groupId == groupId && $0.isChiefHome }
     }
 
@@ -2462,9 +2463,21 @@ class TabManager: ObservableObject {
         workspaceGrouping.toggleWorkspaceGroupPinned(groupId: groupId)
     }
 
-    func setWorkspaceGroupPinned(groupId: UUID, isPinned: Bool) {
-        guard isPinned || workspaceGroupAnchor(for: groupId)?.isChiefHome != true else { return }
+    /// Pins or unpins a group. Returns false when the change was refused:
+    /// Chief Home's group stays pinned while `chief.enabled` is on.
+    @discardableResult
+    func setWorkspaceGroupPinned(groupId: UUID, isPinned: Bool) -> Bool {
+        guard isPinned || workspaceGroupAnchor(for: groupId)?.isChiefHome != true else { return false }
         workspaceGrouping.setWorkspaceGroupPinned(groupId: groupId, isPinned: isPinned)
+        return true
+    }
+
+    /// Why an unpin of Chief Home's group was refused, for socket callers.
+    static var chiefHomeCannotUnpinMessage: String {
+        String(
+            localized: "workspaceGroup.error.chiefHomeCannotUnpin",
+            defaultValue: "The Home group stays pinned while Chief is enabled"
+        )
     }
 
     func setWorkspaceGroupColor(groupId: UUID, hex: String?) {
@@ -2939,10 +2952,8 @@ class TabManager: ObservableObject {
             ) else { return }
         }
 
-        for panelId in plan.panelIds {
-            plan.workspace.markCloseHistoryEligible(panelId: panelId)
-            _ = plan.workspace.closePanel(panelId, force: true)
-        }
+        let tabIds = plan.panelIds.compactMap { plan.workspace.surfaceIdFromPanelId($0) }
+        plan.workspace.closeTabsAfterConfirmation(tabIds, force: true)
     }
 
     func closeCurrentWorkspaceWithConfirmation() {
@@ -5289,6 +5300,8 @@ class TabManager: ObservableObject {
                 || !Self.isCloudVMWorkspaceSnapshotForManagedPolicy(entry.snapshot) else {
             return false
         }
+        // A workspace of only Chief panes has nothing to reopen while Chief is off.
+        guard ChiefSettings.isEnabled || !entry.snapshot.holdsOnlyChiefPanels else { return false }
         let promptBatch = SurfaceResumeRunPromptBatch.shared
         promptBatch.beginRestorePass()
         defer { promptBatch.endRestorePass() }
@@ -5322,6 +5335,12 @@ class TabManager: ObservableObject {
         guard !workspace.panels.isEmpty else {
             closeWorkspace(workspace, recordHistory: false)
             return false
+        }
+        // A workspace closed while Chief was on can carry Chief panes. With
+        // Chief off, drop them; a workspace that held only Chief stays closed.
+        if !ChiefSettings.isEnabled, workspace.holdsChiefPane {
+            ChiefHomeNavigation.removeHome(in: self)
+            guard tabs.contains(where: { $0.id == workspace.id }) else { return false }
         }
         reconcileWorkspaceCustomization(afterRestoring: entry.snapshot, to: workspace)
         // The snapshot may carry a groupId for a group that no longer exists
