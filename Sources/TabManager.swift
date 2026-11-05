@@ -3073,20 +3073,20 @@ class TabManager: ObservableObject {
         } else if plan.willCloseWindow {
             // A batch that closes the whole window follows the window warning
             // policy. The tab warning must not suppress this prompt.
-            let windowWarns = CloseTabWarningStore(defaults: closeTabWarningDefaults).warnsBeforeClosingWindow
-                || hasActiveProcess
+            let windowSettingWarns = CloseTabWarningStore(defaults: closeTabWarningDefaults).warnsBeforeClosingWindow
+            let windowWarns = windowSettingWarns || hasActiveProcess
             showsBatchConfirmation = windowWarns || alwaysConfirm
             dontAskAgain = Self.workspaceCloseDontAskAgain(
-                ordinary: hasActiveProcess ? [.window, .safety] : .window,
+                ordinary: Self.closeWarningKinds(.window, settingWarns: windowSettingWarns, hasActiveProcess: hasActiveProcess),
                 ordinaryWarns: windowWarns,
                 alwaysConfirm: alwaysConfirm
             )
         } else {
-            let workspaceWarns = shouldConfirmWorkspaceClose(requiresConfirmation: true, source: .tabClose)
-                || hasActiveProcess
+            let workspaceSettingWarns = shouldConfirmWorkspaceClose(requiresConfirmation: true, source: .tabClose)
+            let workspaceWarns = workspaceSettingWarns || hasActiveProcess
             showsBatchConfirmation = workspaceWarns || alwaysConfirm
             dontAskAgain = Self.workspaceCloseDontAskAgain(
-                ordinary: hasActiveProcess ? [.workspace, .safety] : .workspace,
+                ordinary: Self.closeWarningKinds(.workspace, settingWarns: workspaceSettingWarns, hasActiveProcess: hasActiveProcess),
                 ordinaryWarns: workspaceWarns,
                 alwaysConfirm: alwaysConfirm
             )
@@ -3381,15 +3381,15 @@ class TabManager: ObservableObject {
         let needsCloseConfirmation = workspaceNeedsConfirmClose(workspace)
             || windowDockNeedsConfirmation
         let alwaysConfirm = CloseTabWarningStore(defaults: closeTabWarningDefaults).alwaysConfirmsWorkspaceClose
-        let warnsWithoutAlwaysConfirm = needsCloseConfirmation
-            || shouldConfirmWorkspaceClose(
-                requiresConfirmation: needsCloseConfirmation,
-                source: source
-            )
+        let workspaceSettingWarns = shouldConfirmWorkspaceClose(
+            requiresConfirmation: needsCloseConfirmation,
+            source: source
+        )
+        let warnsWithoutAlwaysConfirm = needsCloseConfirmation || workspaceSettingWarns
         let showsCloseConfirmation = requiresConfirmation
             && (warnsWithoutAlwaysConfirm || alwaysConfirm)
         let dontAskAgain = Self.workspaceCloseDontAskAgain(
-            ordinary: needsCloseConfirmation ? [.workspace, .safety] : .workspace,
+            ordinary: Self.closeWarningKinds(.workspace, settingWarns: workspaceSettingWarns, hasActiveProcess: needsCloseConfirmation),
             ordinaryWarns: warnsWithoutAlwaysConfirm,
             alwaysConfirm: alwaysConfirm
         )
@@ -3445,6 +3445,20 @@ class TabManager: ObservableObject {
     private func shouldConfirmWorkspaceClose(requiresConfirmation: Bool, source: CloseConfirmationSource) -> Bool {
         AppCatalogSection().warnBeforeClosingWorkspace.value(in: closeTabWarningDefaults)
             && shouldConfirmConfiguredClose(requiresConfirmation: requiresConfirmation, source: source)
+    }
+
+    /// The warnings behind a close prompt: `setting` only while it is on and
+    /// asks for this close, plus `.safety` for a running process. Offering a
+    /// setting that is already off would show a checkbox that changes nothing,
+    /// since the running process asks anyway.
+    static func closeWarningKinds(
+        _ setting: CloseWarningKinds,
+        settingWarns: Bool,
+        hasActiveProcess: Bool
+    ) -> CloseWarningKinds {
+        var kinds: CloseWarningKinds = settingWarns ? setting : []
+        if hasActiveProcess { kinds.insert(.safety) }
+        return kinds
     }
 
     /// What "Don't ask again" turns off on a workspace close prompt. When the

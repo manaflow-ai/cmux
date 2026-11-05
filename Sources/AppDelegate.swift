@@ -6843,12 +6843,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             shouldConfirm = context.tabManager.shouldConfirmWindowClose(
                 windowDockNeedsConfirmation: windowDockNeedsConfirmation
             )
-            if windowDockNeedsConfirmation
-                || context.tabManager.tabs.contains(where: {
-                    context.tabManager.workspaceNeedsConfirmClose($0)
-                }) {
-                dontAskAgain.insert(.safety)
-            }
+            dontAskAgain = TabManager.closeWarningKinds(
+                .window,
+                settingWarns: CloseTabWarningStore(defaults: warningDefaults).warnsBeforeClosingWindow,
+                hasActiveProcess: windowDockNeedsConfirmation
+                    || context.tabManager.tabs.contains(where: {
+                        context.tabManager.workspaceNeedsConfirmClose($0)
+                    })
+            )
         } else {
             warningDefaults = .standard
             shouldConfirm = CloseTabWarningStore(defaults: warningDefaults).warnsBeforeClosingWindow
