@@ -392,8 +392,7 @@ public final class TerminalHostView: NSView {
 
     /// The surface's size and edge while its pane's layout spring runs; nil at rest.
     private(set) var surfaceHold: (size: CGSize, anchor: PaneMotionAnchor)?
-    /// FRAME OWNER S3: the hold this host follows its pane through (``PaneMotionHoldFollowing``), and the host's size
-    /// when it began; nil at rest.
+    /// FRAME OWNER S3: the hold this host follows its pane through (``PaneMotionHoldFollowing``) and its size then; nil at rest.
     var followedHold: (hold: PaneMotionHold, heldSize: CGSize)?
     /// A person drags a divider or edge of this host's pane (``PaneResizeGestureFollowing``): the surface it shows follows.
     var followsResizeGesture = false
@@ -406,8 +405,7 @@ public final class TerminalHostView: NSView {
         placeSurface()
     }
 
-    /// The hold ends: the spring landed, a divider drag caught it, or (with `motion.frameOwner.terminals` on) a press whose
-    /// terminal follows its pane (`restAt`). The surface takes the host's area again (the same size, unless it differs).
+    /// The hold ends (the spring landed, a drag caught it, a followed key press: `restAt`): the surface takes the area again.
     func releaseSurfaceHold() {
         guard surfaceHold != nil else { return }
         surfaceHold = nil
