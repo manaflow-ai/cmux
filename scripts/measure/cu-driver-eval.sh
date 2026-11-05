@@ -79,24 +79,26 @@ fi
 
 echo "CU-DRIVER-EVAL-STAGE downloads"
 driver_args=()
-IFS=',' read -r -a names <<<"$drivers"
-for name in "${names[@]}"; do
+names=()
+[[ -n "$drivers" ]] && IFS=',' read -r -a names <<<"$drivers"
+for name in ${names[@]+"${names[@]}"}; do
   [[ -n "$name" ]] || continue
   dir="$work/drivers/$name"
   mkdir -p "$dir"
   if [[ "$name" == cmux-cua ]]; then
-    # The pin cmux ships at this ref (scripts/build-cmux-cua.sh), so the arm follows every bump.
+    # The cmux-cua release at cmux's pin for this ref (scripts/build-cmux-cua.sh), checked against the
+    # hash pinned there, so the arm follows every bump. It is the release binary: cmux's own patches
+    # (CMUX_CUA_PATCH_RELATIVE_PATHS) are not applied.
     tag=$(sed -n 's/^CMUX_CUA_RELEASE_TAG="\(.*\)"$/\1/p' "$root/scripts/build-cmux-cua.sh")
+    sum=$(sed -n 's/^CMUX_CUA_DARWIN_UNIVERSAL_UNSIGNED_SHA256="\(.*\)"$/\1/p' "$root/scripts/build-cmux-cua.sh")
     version="${tag#cmux-cua-v}"
-    asset="cmux-cua-$version-darwin-universal-unsigned-binary.tar.gz"
-    base="https://github.com/manaflow-ai/cmux-cua/releases/download/$tag"
-    sum=$(curl -fsSL --retry 3 "$base/SHA256SUMS" | awk -v a="$asset" '{f = $2; sub(/^\*/, "", f); if (f == a) print $1}')
-    if [[ ! "$sum" =~ ^[0-9a-f]{64}$ ]] || ! file=$(fetch "$name" "$base/$asset" "$sum"); then
-      echo "CU-DRIVER-EVAL-ERROR $name: could not fetch $asset" | tee -a "$out/input-ab/download-errors.txt"
+    asset="cmux-cua-$version-darwin-universal-unsigned"
+    if ! file=$(fetch "$name" "https://github.com/manaflow-ai/cmux-cua/releases/download/$tag/$asset.tar.gz" "$sum"); then
+      echo "CU-DRIVER-EVAL-ERROR $name: could not fetch $asset.tar.gz" | tee -a "$out/input-ab/download-errors.txt"
       continue
     fi
     tar -xzf "$file" -C "$dir"
-    binary="$dir/cmux-cua"
+    binary="$dir/$asset/cmux-cua"
     label="cmux-cua-$version"
   else
     url=$(pin drivers "$name" url 2>/dev/null) && sum=$(pin drivers "$name" sha256) && inner=$(pin drivers "$name" binary) || {

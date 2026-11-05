@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import select
 import statistics
 import subprocess
@@ -36,14 +37,27 @@ SCHEMA = "cmux.cu-driver-eval.input-ab/1"
 ROUTES = ["cg-pid", "sl-pid", "session-tap", "nsevent-pid", "stamped-pid"]
 GESTURES = ["click", "key", "scroll"]
 CONDITIONS = ["background", "foreground"]
-# Target window, top-left screen points; the user's window covers its lower-right corner.
-TARGET_FRAME = (60, 80, 900, 640)
-WITNESS_FRAME = (560, 380, 600, 400)
-# The gesture's point, window-local below the title bar, outside the user's window.
+# The gesture's point, window-local below the title bar, outside the user's window (layout()).
 POINT = (200, 150)
 SETTLE_S = 0.35
 AFTER_S = 0.6
 SCROLL_LINES = 5
+# A driver arm that times out this many calls in a row is stopped for the rest of the run.
+MAX_TIMEOUTS = 3
+
+
+def layout(width: float, height: float) -> dict:
+    """Window frames (top-left screen points) for a WIDTH x HEIGHT main display: the target at the
+    top left, the user's window over the target's lower-right corner, and a pointer rest right of
+    both. POINT stays outside the user's window, and the user's window keeps a corner (its lower
+    right) that the target never covers, down to a 1280 x 800 display."""
+    tw, th = min(900, width * 0.5), min(640, height * 0.6)
+    tx, ty = 40, 60
+    ww, wh = min(600, width * 0.35), min(400, height * 0.4)
+    wx, wy = tx + tw * 0.55, ty + th * 0.5
+    free = wx + ww
+    return {"target": (tx, ty, round(tw), round(th)), "witness": (round(wx), round(wy), round(ww), round(wh)),
+            "park": (round(free + (width - free) / 2), ty + 20)}
 
 
 def sh(argv: list[str], timeout: float = 20) -> dict:
@@ -90,58 +104,74 @@ class Log:
 
 
 class Mcp:
-    """A Cua Driver build over MCP stdio, run in-process (`mcp --direct`) so it inherits this
-    step's Accessibility grant; plain `mcp` when the build has no --direct."""
+    """A Cua Driver build over MCP stdio, in this process tree so it inherits this step's
+    Accessibility grant and measures exactly the downloaded binary: cua-driver with `mcp --direct`
+    (no daemon), cmux-cua with `mcp --no-daemon-relaunch` (never hands off to an installed
+    cmux Computer Use.app). No fallback to plain `mcp`, which may hand the work to another build."""
 
-    def __init__(self, binary: str, stderr_path: Path):
-        self.binary, self.stderr_path, self.next_id, self.proc = binary, stderr_path, 1, None
-        errors = []
-        for argv in ([binary, "mcp", "--direct"], [binary, "mcp"]):
-            try:
-                self._start(argv)
-                return
-            except Exception as error:  # the next form, then give up with both reasons
-                errors.append(f"{' '.join(argv[1:])}: {error}")
-                self.close()
-        raise RuntimeError("; ".join(errors))
-
-    def _start(self, argv: list[str]) -> None:
-        self.stderr = open(self.stderr_path, "ab")
-        self.proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.stderr)
-        self.request("initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
-                                    "clientInfo": {"name": "cu-driver-eval", "version": "1"}}, timeout=30)
-        self._send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+    def __init__(self, name: str, binary: str, stderr_path: Path):
+        self.name, self.next_id, self.timeouts, self.buffer = name, 1, 0, b""
+        env = None
+        if name.startswith("cmux-cua"):
+            argv = [binary, "mcp", "--no-daemon-relaunch"]
+            env = {**os.environ, "CMUX_CUA_MCP_NO_RELAUNCH": "1"}
+        else:
+            argv = [binary, "mcp", "--direct"]
+        self.stderr = open(stderr_path, "ab")
+        self.proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.stderr, env=env)
+        try:
+            self.request("initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
+                                        "clientInfo": {"name": "cu-driver-eval", "version": "1"}}, timeout=30)
+            self._send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        except Exception:
+            self.close()
+            raise
 
     def _send(self, message: dict) -> None:
-        assert self.proc and self.proc.stdin
+        assert self.proc.stdin
         self.proc.stdin.write((json.dumps(message) + "\n").encode())
         self.proc.stdin.flush()
 
+    def _line(self, deadline: float) -> bytes | None:
+        """One stdout line, read with os.read into our own buffer: a buffered readline() can hold
+        a second message where select() no longer sees it."""
+        assert self.proc.stdout
+        fd = self.proc.stdout.fileno()
+        while b"\n" not in self.buffer:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None
+            if self.proc.poll() is not None:
+                raise RuntimeError(f"exited {self.proc.returncode}")
+            ready, _, _ = select.select([fd], [], [], min(remaining, 0.2))
+            if ready:
+                chunk = os.read(fd, 65536)
+                if not chunk:
+                    raise RuntimeError("closed its stdout")
+                self.buffer += chunk
+        line, _, self.buffer = self.buffer.partition(b"\n")
+        return line
+
     def request(self, method: str, params: dict, timeout: float = 30) -> dict:
-        assert self.proc and self.proc.stdout
         ident = self.next_id
         self.next_id += 1
         self._send({"jsonrpc": "2.0", "id": ident, "method": method, "params": params})
         deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            if self.proc.poll() is not None:
-                raise RuntimeError(f"exited {self.proc.returncode}")
-            ready, _, _ = select.select([self.proc.stdout], [], [], 0.2)
-            if not ready:
-                continue
-            raw = self.proc.stdout.readline()
-            if not raw:
-                continue
+        while True:
+            raw = self._line(deadline)
+            if raw is None:
+                self.timeouts += 1
+                raise RuntimeError(f"{method} timed out after {timeout:.0f} s")
             try:
                 message = json.loads(raw)
             except ValueError:
                 continue
             if message.get("id") != ident:
                 continue
+            self.timeouts = 0
             if "error" in message:
                 raise RuntimeError(json.dumps(message["error"])[:300])
             return message.get("result") or {}
-        raise RuntimeError(f"{method} timed out after {timeout:.0f} s")
 
     def call(self, tool: str, args: dict) -> dict:
         result = self.request("tools/call", {"name": tool, "arguments": args})
@@ -151,13 +181,13 @@ class Mcp:
         return result
 
     def close(self) -> None:
-        if self.proc:
+        if self.proc.poll() is None:
             try:
                 self.proc.stdin.close()
                 self.proc.wait(timeout=5)
             except Exception:
                 self.proc.kill()
-            self.proc = None
+        self.stderr.close()
 
 
 class Run:
@@ -198,7 +228,8 @@ class Run:
             self.stop(proc)
             return None
         return {"name": name, "proc": proc, "log": log, "pid": ready["pid"], "wid": found["wid"],
-                "frame": found["frame"], "scale": ready.get("scale", 2), "title_bar": ready.get("title_bar", 28)}
+                "frame": found["frame"], "scale": ready.get("scale", 2), "title_bar": ready.get("title_bar", 28),
+                "pixels_per_point": {}}
 
 
 def p50(values: list[float]) -> float | None:
@@ -214,10 +245,13 @@ def trial(run: Run, arm: str, drivers: dict, target: dict, witness: dict, gestur
           park: tuple[float, float]) -> dict:
     lx, ly = POINT[0], target["title_bar"] + POINT[1]
     row = {"arm": arm, "target": target["name"], "gesture": gesture, "condition": condition}
+    if arm in drivers and drivers[arm].timeouts >= MAX_TIMEOUTS:
+        row["setup_failed"] = f"{arm} stopped after {MAX_TIMEOUTS} timeouts in a row"
+        return row
     # Setup: a real click puts the user's window (background) or the target (foreground) in front.
     if condition == "background":
         # Its lower-right corner: the part of the user's window the target never covers.
-        tap(run, witness, (WITNESS_FRAME[2] - 60, WITNESS_FRAME[3] - 40))
+        tap(run, witness, (witness["frame"][2] - 60, witness["frame"][3] - 40))
     else:
         tap(run, target, (40, target["title_bar"] + 40))
     sh([run.inject, "warp", str(park[0]), str(park[1])])
@@ -240,7 +274,8 @@ def trial(run: Run, arm: str, drivers: dict, target: dict, witness: dict, gestur
                 return row
         else:
             mcp = drivers[arm]
-            scale = target["scale"]
+            # Screenshot pixels per window point, as get_window_state reported them for this window.
+            scale = target["pixels_per_point"].get(arm) or target["scale"]
             base = {"pid": target["pid"], "window_id": target["wid"]}
             if gesture == "click":
                 mcp.call("click", {**base, "x": lx * scale, "y": ly * scale})
@@ -289,7 +324,8 @@ def trial(run: Run, arm: str, drivers: dict, target: dict, witness: dict, gestur
         row["focus_steal"] = after["front_pid"] != witness["pid"] or "resign-active" in states
         row["key_loss"] = "resign-key" in states
         row["raised"] = above(order) and not above(was)
-        row["stray"] = sum(1 for e in seen if e.get("kind") == "event")
+        # The window layer only: the app layer logs the same event a second time.
+        row["stray"] = sum(1 for e in seen if e.get("kind") == "event" and e.get("layer") == "window")
         row["clean"] = row["delivered"] and not (row["focus_steal"] or row["key_loss"] or row["raised"]
                                                  or row["pointer_moved"] or row["stray"])
     return row
@@ -369,33 +405,42 @@ def main() -> int:
     result = {"schema": SCHEMA, "grants": grants, "gestures": GESTURES, "conditions": CONDITIONS}
     all_trials: list[dict] = []
     try:
-        frame = ",".join(str(v) for v in WITNESS_FRAME)
+        screen = sh([run.inject, "observe"]).get("screen") or [1920, 1080]
+        frames = layout(*screen)
+        result["screen"], result["layout"] = screen, frames
+        frame = ",".join(str(v) for v in frames["witness"])
         witness = run.window("witness", "witness", [run.app, "witness", str(out / "witness.jsonl"), frame])
         if not witness:
             raise RuntimeError("the user's window did not start")
         for spec in args.driver:
             name, _, binary = spec.partition("=")
             try:
-                drivers[name] = Mcp(binary, out / f"{name}.stderr.log")
+                drivers[name] = Mcp(name, binary, out / f"{name}.stderr.log")
             except Exception as error:
                 run.errors.append(f"{name}: did not start over MCP: {error}")
         arms = ROUTES + list(drivers)
-        target_frame = ",".join(str(v) for v in TARGET_FRAME)
+        target_frame = ",".join(str(v) for v in frames["target"])
         specs = [("native", [run.app, "native", str(out / "native.jsonl"), target_frame]),
                  ("webkit", [run.app, "webkit", str(out / "webkit.jsonl"), target_frame])]
         if args.electron:
             main_js = str(Path(__file__).resolve().parent / "electron" / "main.js")
             specs.append(("electron", [args.electron, main_js, str(out / "electron.jsonl"), target_frame]))
         # The pointer rests right of both windows, so no hover lands on either between trials.
-        park = (WITNESS_FRAME[0] + WITNESS_FRAME[2] + 40, TARGET_FRAME[1] + 20)
+        park = frames["park"]
         for name, argv in specs:
             target = run.window(name, name, argv)
             if not target:
                 continue
             targets.append(target)
             for arm, mcp in drivers.items():
-                try:  # an agent's first look at the window; some builds want it before a pixel click
-                    mcp.call("get_window_state", {"pid": target["pid"], "window_id": target["wid"]})
+                try:  # an agent's first look at the window, and the pixel scale its x,y use
+                    state = mcp.call("get_window_state", {"pid": target["pid"], "window_id": target["wid"]})
+                    facts = state.get("structuredContent") or {}
+                    width = (facts.get("window_bounds") or {}).get("width")
+                    if facts.get("screenshot_width") and width:
+                        target["pixels_per_point"][arm] = facts["screenshot_width"] / width
+                    else:
+                        run.errors.append(f"{arm} get_window_state on {name}: no screenshot size; used the backing scale")
                 except Exception as error:
                     run.errors.append(f"{arm} get_window_state on {name}: {str(error)[:200]}")
             for rep in range(args.reps):
@@ -424,6 +469,7 @@ def main() -> int:
                 run.stop(proc)
         run.trials.close()
     names = [t["name"] for t in targets]
+    result["pixels_per_point"] = {t["name"]: t["pixels_per_point"] for t in targets}
     result["targets"] = names
     result["rows"] = aggregate(all_trials)
     result["wins"] = wins(result["rows"], result["arms"], names)

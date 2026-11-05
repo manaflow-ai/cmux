@@ -36,8 +36,12 @@ Arms (`inject.swift` for the routes, MCP stdio for the drivers):
 | `session-tap` | `CGEventPost` at the session tap; moves the pointer |
 | `nsevent-pid` | an `NSEvent` with the target's `windowNumber` and a window-local location, converted to a CGEvent, posted to the pid (Hopp's idea; Hopp is AGPL, so idea only, no code). No scroll: NSEvent has no public wheel constructor |
 | `stamped-pid` | Cua Driver's event fields (1, 3, 7, 40, 51, 58, 91, 92, `CGEventSetWindowLocation`, a `mouseMoved` primer), posted through SkyLight then CGEventPostToPid, without its focus step. Ported from trycua/cua (MIT) |
-| `cmux-cua-X.Y.Z` | the cmux-cua release cmux ships at this ref (`CMUX_CUA_RELEASE_TAG` in `scripts/build-cmux-cua.sh`), with its own `click`, `press_key`, `scroll` tools |
-| `cua-driver-0.38.0` | upstream Cua Driver v0.38.0 (`pins.json`), the same tools |
+| `cmux-cua-X.Y.Z` | the cmux-cua release at cmux's pin for this ref (`CMUX_CUA_RELEASE_TAG` and its hash in `scripts/build-cmux-cua.sh`; the release binary, without cmux's local patches), run as `mcp --no-daemon-relaunch`, with its own `click`, `press_key`, `scroll` tools |
+| `cua-driver-0.38.0` | upstream Cua Driver v0.38.0 (`pins.json`), run as `mcp --direct`, the same tools |
+
+Driver x,y are screenshot pixels: the scale comes from each driver's own `get_window_state`
+(`screenshot_width` over `window_bounds.width`), recorded as `pixels_per_point`. The window layout
+is derived from the main display's size (`layout()` in `input_ab.py`, down to 1280 x 800).
 
 Per trial it records: delivered (the target got the whole gesture), duplicates, click position
 error, and in the background condition the disturbances Cua Driver Bench v2 counts: a focus steal

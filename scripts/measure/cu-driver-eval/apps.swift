@@ -26,7 +26,9 @@ guard parts.count == 4 else { exit(2) }
 let start = Date()
 
 FileManager.default.createFile(atPath: logURL.path, contents: nil)
-guard let logHandle = FileHandle(forWritingAtPath: logURL.path) else { exit(2) }
+// A global, not a top-level guard: the classes below call log(), and a top-level local declared
+// with guard cannot be captured by them.
+let logHandle: FileHandle = FileHandle(forWritingAtPath: logURL.path) ?? { exit(2) }()
 func log(_ fields: [String: Any]) {
   var line = fields
   line["t"] = Int(Date().timeIntervalSince(start) * 1000)
@@ -129,7 +131,8 @@ final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let f = window.frame
     log(["kind": "ready", "pid": Int(getpid()), "wid": window.windowNumber, "mode": mode,
          "frame": [f.minX, screenHeight - f.maxY, f.width, f.height], "scale": window.backingScaleFactor,
-         "title_bar": f.height - window.contentLayoutRect.height])
+         "title_bar": f.height - window.contentLayoutRect.height,
+         "screen": [NSScreen.screens.first?.frame.width ?? 0, screenHeight]])
   }
 
   func windowDidBecomeKey(_ note: Notification) { log(["kind": "state", "type": "key"]) }

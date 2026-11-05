@@ -1,7 +1,7 @@
 // The input A/B's injector and observer (scripts/measure/cu-driver-eval/README.md).
 //
 //   cu-eval-inject grants                       {"accessibility","post_event","screen_recording"}
-//   cu-eval-inject observe                      {"front_pid","cursor":[x,y],"order":[wid,...]}
+//   cu-eval-inject observe                      {"front_pid","cursor":[x,y],"order":[wid,...],"screen":[w,h]}
 //   cu-eval-inject find-window PID              {"wid","frame":[x,y,w,h]} of PID's largest window
 //   cu-eval-inject tap-click X Y                a real click through the session tap (setup only)
 //   cu-eval-inject warp X Y                     park the pointer
@@ -71,8 +71,9 @@ case "grants":
 
 case "observe":
   let cursor = CGEvent(source: nil)?.location ?? .zero
+  let screen = CGDisplayBounds(CGMainDisplayID())
   emit(["front_pid": Int(NSWorkspace.shared.frontmostApplication?.processIdentifier ?? -1),
-        "cursor": [cursor.x, cursor.y],
+        "cursor": [cursor.x, cursor.y], "screen": [screen.width, screen.height],
         "order": windows().compactMap { $0[kCGWindowNumber as String] as? Int }])
 
 case "find-window":
