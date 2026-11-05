@@ -248,7 +248,6 @@ def forbidden_reason(label: str) -> str | None:
 # name only its cmux15 label, which no other runner carries (cmuxterm-hq build-fleet/nightly_mini_policy_test.py).
 CLASSIC_NIGHTLY_MINI_VARIABLES = {
     "CI_CLASSIC_NIGHTLY_MINI": "glaeda-nightly-mini",
-    "CI_CLASSIC_NIGHTLY_MINI_BUILDER": "glaeda-nightly-mini-builder",
 }
 
 

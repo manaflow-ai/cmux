@@ -1,23 +1,21 @@
 #!/usr/bin/env python3
-"""The classic nightly runs on one Mac mini while vars.CI_CLASSIC_NIGHTLY_MINI is set.
+"""The classic nightly runs its open jobs on one Mac mini while vars.CI_CLASSIC_NIGHTLY_MINI is set.
 
 Lawrence, 2026-11-04: "we need to just make nightlies build on a single mac mini", for next and classic, and
 no one cancels nightlies. Classic run 41920015425 built, signed and verified on Blacksmith macOS, prepared on
 cmux7s's trusted-main runner and decided on cmux12s.
 
 With vars.CI_CLASSIC_NIGHTLY_MINI set (to cmux15's light nightly-only label, `glaeda-nightly-mini`), every job of
-main's nightly.yml on a main push or schedule, on every attempt and picker output, takes a label only cmux15 carries
-(cmuxterm-hq build-fleet/nightly_mini_policy_test.py):
-  - build-nightly-app: vars.CI_CLASSIC_NIGHTLY_MINI_BUILDER (`glaeda-nightly-mini-builder`, the warm builders);
-  - every other job: vars.CI_CLASSIC_NIGHTLY_MINI.
-Except KEPT: every job that holds a secret (tests/test_ci_fork_runner_routing.py: no variable may move it; rule 7
-of tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py for signing material) and verify-signed-nightly,
-which runs the signed bundle (rule 6). Main has no owned-Mac path for them yet (feat-cmux-next's claim gate, Blacksmith
-twin and test_ci_signing_owned_mac.py), so they keep their ephemeral route until that is ported. build-nightly-app
-holds the cache-writer keys too, but its owned route is a documented exception already (SECRET_RUNNER_EXCEPTIONS).
-The variable is separate from NEXT's vars.CI_NIGHTLY_MINI, so classic switches on its own. A workflow_dispatch and
-an rc/** push keep their earlier routes: cmux15's trusted runners take only main's push and schedule jobs
-(glaeda trusted_refusal), and its nightly-only runners only nightly-next and main.
+main's nightly.yml on main (push, schedule or dispatch: glaeda-nightly-only-admit takes all three there), on every
+attempt and picker output, takes that label, except KEPT. The variable is separate from NEXT's vars.CI_NIGHTLY_MINI,
+so classic switches on its own. An rc/** push keeps every route (the nightly-only runners refuse rc/**).
+
+KEPT keep their route: every job that holds a key (signing material, Sparkle, R2, App keys, Sentry:
+tests/test_ci_fork_runner_routing.py lets no variable move them, and they must not run on the shared nightly-only
+runners), verify-signed-nightly, which runs the signed bundle (rule 6 of
+tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py), and the helper build (Zig 0.15.2 cannot link main's
+helper on macOS 26). Main has no owned-Mac signing path yet (feat-cmux-next's claim gate and Blacksmith twin), and
+glaeda's trusted runners refuse a dispatch, which is most of main's nightly runs.
 """
 
 from __future__ import annotations
@@ -36,9 +34,8 @@ sys.path.insert(0, str(ROOT / "tests"))
 from test_ci_fork_runner_routing import parse_expression  # noqa: E402
 
 JOBS = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8"))["jobs"]
-MINI, BUILDER, SIGN = "glaeda-nightly-mini", "glaeda-nightly-mini-builder", "glaeda-trusted-next-signing"
-MODE = {"vars.CI_CLASSIC_NIGHTLY_MINI": MINI, "vars.CI_CLASSIC_NIGHTLY_MINI_BUILDER": BUILDER,
-        "vars.CI_NIGHTLY_SIGN_RUNNER": SIGN}
+MINI, SIGN = "glaeda-nightly-mini", "glaeda-trusted-next-signing"
+MODE = {"vars.CI_CLASSIC_NIGHTLY_MINI": MINI, "vars.CI_NIGHTLY_SIGN_RUNNER": SIGN}
 # glaeda scripts/glaeda-cmux-runner-hook SIGNING_JOBS, nightly.yml entries: the jobs that take the whole Mac.
 SIGNING = {"promote-nightly-next", "build-sign-notarize-nightly", "recover-nightly-next-notarization",
            "publish-nightly", "publish-nightly-next-github", "publish-nightly-next-github-names",
@@ -49,11 +46,12 @@ BLACKSMITH = "blacksmith-6vcpu-macos-26"
 
 KEPT = SIGNING | {"verify-signed-nightly", "promote-nightly-next-acked", "await-release-surface-ack",
                   "refresh-compilation-cache", "refresh-test-compilation-cache", "pick-nightly-app-runner",
-                  "pick-classic-prepare-runner", "republish-nightly-deltas"}
+                  "pick-classic-prepare-runner", "republish-nightly-deltas",
+                  "build-nightly-app", "build-nightly-ghostty-cli-helper"}
 
 
 def want(name: str) -> str:
-    return BUILDER if name == "build-nightly-app" else MINI
+    return MINI
 
 
 def evaluate(node, context):
@@ -141,10 +139,10 @@ class ClassicNightlyOneMini(unittest.TestCase):
                 continue  # the tag permission probe: a dispatch-only promote child, out of this mode
             for source in sources(job):
                 for _ in range(200):
-                    event = rng.choice(("push", "schedule"))
+                    event = rng.choice(("push", "schedule", "workflow_dispatch"))
                     value, context = resolve(source, rng, "refs/heads/main", event, MODE)
                     if name in KEPT:
-                        if value in (MINI, BUILDER, SIGN):
+                        if value in (MINI, SIGN):
                             failures[name] = (value, {k: v for k, v in context.items() if v})
                             break
                     elif value != want(name):
@@ -154,31 +152,31 @@ class ClassicNightlyOneMini(unittest.TestCase):
 
     def test_the_mode_is_off_without_the_variable(self) -> None:
         rng = random.Random(7)
-        off = {**MODE, "vars.CI_CLASSIC_NIGHTLY_MINI": "", "vars.CI_CLASSIC_NIGHTLY_MINI_BUILDER": ""}
+        off = {**MODE, "vars.CI_CLASSIC_NIGHTLY_MINI": ""}
         for name, job in JOBS.items():
             if job.get("uses") or name in KEPT:
                 continue
             for source in sources(job):
                 for _ in range(50):
                     value, _ = resolve(source, rng, "refs/heads/main", "push", off)
-                    self.assertNotIn(value, (MINI, BUILDER), name)
+                    self.assertNotEqual(value, MINI, name)
 
-    def test_a_dispatch_or_rc_push_keeps_its_route(self) -> None:
-        # cmux15's trusted runners refuse a dispatch, and its nightly-only runners an rc/** ref.
+    def test_an_rc_push_keeps_its_route(self) -> None:
+        # cmux15's nightly-only runners refuse an rc/** ref.
         rng = random.Random(11)
         for name, job in JOBS.items():
             if job.get("uses"):
                 continue
             for source in sources(job):
-                for ref, event in (("refs/heads/main", "workflow_dispatch"), ("refs/heads/rc/1.2", "push")):
+                for ref, event in (("refs/heads/rc/1.2", "push"), ("refs/heads/rc/1.2", "workflow_dispatch")):
                     for _ in range(30):
                         value, _ = resolve(source, rng, ref, event, MODE)
-                        self.assertNotIn(value, (MINI, BUILDER), (name, ref, event))
+                        self.assertNotEqual(value, MINI, (name, ref, event))
 
     def test_the_variables_hold_only_the_mini_labels(self) -> None:
         sys.path.insert(0, str(ROOT / "scripts/ci"))
         import runner_label_policy as policy  # noqa: E402
-        for name, good in (("CI_CLASSIC_NIGHTLY_MINI", MINI), ("CI_CLASSIC_NIGHTLY_MINI_BUILDER", BUILDER)):
+        for name, good in (("CI_CLASSIC_NIGHTLY_MINI", MINI),):
             for value in ("", good):
                 self.assertEqual(policy.drifted_runner_variables({name: value}), [], (name, value))
             for value in ("glaeda-nightly-only-m4pro", BLACKSMITH, "macos-15", "ubuntu-24.04"):

@@ -153,7 +153,6 @@ jobs:
           ROUTE_BRANCHES: main feat-cmux-next nightly-next rc/cnx-ios-builder
           CMUX_CI_RUNS_ON_VARIABLES: |
             CI_CLASSIC_NIGHTLY_MINI=${{ vars.CI_CLASSIC_NIGHTLY_MINI }}
-            CI_CLASSIC_NIGHTLY_MINI_BUILDER=${{ vars.CI_CLASSIC_NIGHTLY_MINI_BUILDER }}
             CI_CLOUD_OVERFLOW_SAVED=${{ vars.CI_CLOUD_OVERFLOW_SAVED }}
             CI_COMPILE_CHECK_GATEWAY=${{ vars.CI_COMPILE_CHECK_GATEWAY }}
             CI_CONTROL_RUNNER=${{ vars.CI_CONTROL_RUNNER }}
