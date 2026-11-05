@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextDaemonService
 import CmuxNextDesign
 @testable import CmuxNextApp
@@ -38,9 +39,11 @@ import Testing
         for _ in 0..<40 { await Task.yield() }
     }
 
-    /// The names whose tracked read a change woke (the change's `willSet` runs on the main thread here).
-    private final class Woken: @unchecked Sendable {
-        var names: [String] = []
+    /// The names whose tracked read a change woke (a `willSet` callback may run on any thread).
+    private nonisolated final class Woken: Sendable {
+        private let woken = Mutex<[String]>([])
+        var names: [String] { woken.withLock { $0 } }
+        func add(_ name: String) { woken.withLock { $0.append(name) } }
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -66,7 +69,7 @@ import Testing
 
         let woken = Woken()
         func track(_ name: String, _ read: @escaping @MainActor () -> Void) {
-            withObservationTracking { read() } onChange: { woken.names.append(name) }
+            withObservationTracking { read() } onChange: { woken.add(name) }
         }
         let machine = services.daemon.machineID
         // The whole strip item, then each read it makes (PaneController.tabItem).
