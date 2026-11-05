@@ -18,13 +18,18 @@ import Testing
     /// The socket asks the host made; the first `failures` find cmux-tui not connected.
     nonisolated final class Socket: Sendable {
         private let state = Mutex<(asks: Int, failures: Int)>((0, 0))
-        init(failures: Int) { state.withLock { $0.failures = failures } }
+        private let blocked: Bool
+        init(failures: Int, blocked: Bool = false) {
+            self.blocked = blocked
+            state.withLock { $0.failures = failures }
+        }
         var asks: Int { state.withLock { $0.asks } }
         func ask() throws -> String {
             let fail = state.withLock { state in
                 state.asks += 1
                 return state.asks <= state.failures
             }
+            if fail, blocked { throw IPhoneHostService.DaemonSocketBlocked(reason: "turned off by your organization") }
             if fail { throw DaemonErrorStandIn.notConnected }
             return "/nonexistent/daemon.sock"
         }
@@ -102,5 +107,29 @@ import Testing
         clock.advance(by: .seconds(60))
         for _ in 0..<50 { await Task.yield() }
         #expect(socket.asks == 1)
+    }
+
+    /// Policy turned cmux-tui's endpoint off: that does not pass by itself, so the host shows it and
+    /// does not retry (review of #36099: a retry loop there only spun).
+    @Test func aBlockedDaemonEndpointIsNotRetried() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let socket = Socket(failures: .max, blocked: true), reads = Reads(), clock = ManualClock(), toggle = Toggle()
+        let host = Self.host(socket: socket, reads: reads, clock: clock, directory: directory)
+        defer { host.stop() }
+        host.follow(allowed: { toggle.on })
+        host.accountChanged(Self.account)
+        await Self.until { host.phase == .unavailable("turned off by your organization") }
+        for _ in 0..<50 { await Task.yield() }
+        #expect(clock.sleeperCount == 0)
+        clock.advance(by: .seconds(60))
+        for _ in 0..<50 { await Task.yield() }
+        #expect(socket.asks == 1)
+        // Turning connections off afterwards still stops the host and shows off (review of #36130).
+        toggle.on = false
+        await Self.until { host.phase == .off }
+        // And back on asks for the socket again.
+        toggle.on = true
+        await Self.until { socket.asks == 2 }
     }
 }

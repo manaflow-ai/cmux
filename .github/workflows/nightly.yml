@@ -3506,9 +3506,9 @@ jobs:
     # best-effort lane, so it cannot delay the first update users can install.
     # A cx-f58x notary test waits up to 160 minutes for Apple (52c6c12d took
     # over 90) because it has no recovery hand-off.
-    # nightly-next adds the cmux NIGHTLY identity's steps (their own step timeouts, 160 min at most: the feed
-    # comparison's 10, then Apple's two 20 min waits then pending inside the notarize step's 50) to the 160: a slow copy
-    # fails its step, never cmux NEXT's job.
+    # nightly-next adds the cmux NIGHTLY identity's steps to the 160: their longest path is 155 min (the feed
+    # comparison's 10, then Apple's two 15 min waits then pending inside the notarize step's 45; the pending and signed
+    # branches never both run), each step its own timeout: a slow copy fails its step, never cmux NEXT's job.
     timeout-minutes: ${{ needs.decide.outputs.notary_test == 'true' && 235 || needs.decide.outputs.track == 'nightly-next' && 320 || 160 }}
     # One universal Xcode build feeds every variant: the thin variants are cut
     # from it with lipo, so each user downloads only their architecture.
@@ -4394,9 +4394,13 @@ jobs:
       - name: "cmux NIGHTLY identity: notarize the cmux NIGHTLY DMG"
         id: legacy-notarize
         if: steps.legacy-build-src.outcome == 'success'
-        timeout-minutes: 50
+        # Apple's two waits (the app, then the DMG around it) end as submission_pending at 15 min each, 15 min inside
+        # the 45: a slow Apple day hands the submission to a later run instead of this step being killed. 45, not 50,
+        # pays for the upload steps' 5 min each, so the copy still fits the 145 min the job budget gives it.
+        timeout-minutes: 45
         continue-on-error: true
         env:
+          LEGACY_NOTARY_WAIT: 15m
           NIGHTLY_BUILD: ${{ steps.legacy-target.outputs.build }}
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
@@ -4422,6 +4426,7 @@ jobs:
       - name: "cmux NIGHTLY identity: upload the pending submission bundle"
         id: legacy-pending-bundle
         if: steps.legacy-keep-pending.outcome == 'success'
+        timeout-minutes: 5
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -4434,6 +4439,7 @@ jobs:
       - name: "cmux NIGHTLY identity: upload the pending submission metadata"
         id: legacy-pending-meta
         if: steps.legacy-pending-bundle.outcome == 'success'
+        timeout-minutes: 5
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -4455,6 +4461,7 @@ jobs:
       - name: "cmux NIGHTLY identity: upload the stapled DMG"
         id: legacy-signed-upload
         if: steps.legacy-handoff.outcome == 'success'
+        timeout-minutes: 5
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

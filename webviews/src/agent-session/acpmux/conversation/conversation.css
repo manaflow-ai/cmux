@@ -1083,7 +1083,7 @@
   margin-top: 0;
 }
 .cv-p {
-  margin: 0 0 var(--cv-para-after, 14px);
+  margin: 0 0 var(--cv-para-after, var(--grid-gap-inner));
 }
 .cv-p:has(+ .cv-list) {
   margin-bottom: 0;
@@ -1676,8 +1676,13 @@
 .cv-math--display .katex-display {
   margin: 0;
 }
+/* Paragraph to display math is one grid gap whatever the paragraph token: the paragraph drops its
+   margin (as before a list) and the math carries the gap, since stacked margins collapse. */
+.cv-p:has(+ .cv-math-display) {
+  margin-bottom: 0;
+}
 .cv-p + .cv-math-display {
-  margin-top: calc(12px - var(--cv-para-after, 14px));
+  margin-top: var(--grid-gap-inner);
 }
 .cv-math-display + .cv-math-display {
   margin-top: -1px;

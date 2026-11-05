@@ -49,6 +49,17 @@ struct AgentPaneAddAccountTests {
         #expect((replayed["error"] as? [String: Any])?["code"] as? String == "transport.gesture_required")
     }
 
+    @Test func expandsOnlyAHomeRelativeAccountFolder() {
+        #expect(AgentPaneAddAccount.expandedHome("~/.cmux/accounts/chatgpt-2", homeDirectory: "/Users/x")
+            == ["accountHome": "/Users/x/.cmux/accounts/chatgpt-2"])
+        #expect(AgentPaneAddAccount.expandedHome("/tmp/account-work", homeDirectory: "/Users/x").isEmpty)
+        #expect(AgentPaneAddAccount.expandedHome("~/", homeDirectory: "/Users/x").isEmpty)
+        #expect(AgentPaneAddAccount.expandedHome("~other/x", homeDirectory: "/Users/x").isEmpty)
+        #expect(AgentPaneAddAccount.expandedHome(nil).isEmpty)
+        let request = AgentPaneAddAccount(params: params.merging(["accountHome": "~/.cmux/accounts/work"]) { _, value in value })
+        #expect(request?.fields["accountHome"] == (NSHomeDirectory() as NSString).appendingPathComponent(".cmux/accounts/work"))
+    }
+
     @Test func remoteChatCannotCreateLocalAccounts() async {
         let model = AgentPaneModel(host: AccountNoHost(), sessionId: "session-1")
         model.remoteChat = true

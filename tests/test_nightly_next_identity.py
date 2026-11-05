@@ -292,9 +292,15 @@ def test_the_old_feed_is_signed_in_the_same_job_as_cmux_next():
     blocks = steps.split("\n      - name: ")
     assert len(blocks) == 17, len(blocks)
     for block in blocks:
-        # A failed or slow copy never fails or times out cmux NEXT's job.
+        # A failed or slow copy never fails or times out cmux NEXT's job: an upload too has its own timeout, or a
+        # stalled one runs into the job's (the #35994 review).
         assert "\n        continue-on-error: true\n" in block, block[:80]
-        assert "\n        timeout-minutes: " in block or "uses: actions/upload-artifact@" in block, block[:80]
+        assert "\n        timeout-minutes: " in block, block[:80]
+    # Apple's two waits end as pending well inside the notarize step, so a slow Apple day never kills it.
+    notarize = next(block for block in blocks if "\n        id: legacy-notarize\n" in block)
+    wait = int(re.search(r"\n          LEGACY_NOTARY_WAIT: (\d+)m\n", notarize).group(1))
+    cap = int(re.search(r"\n        timeout-minutes: (\d+)\n", notarize).group(1))
+    assert 2 * wait + 15 <= cap, (wait, cap)
     # The same scripts as the separate job for a new build of this run (no continue, no pending download).
     separate = job_block("sign-nightly-identity-legacy")
     raw_separate = re.search(r"\n  sign-nightly-identity-legacy:\n(.*?)(?=\n  [a-z0-9-]+:\n)", raw, re.S).group(1)
