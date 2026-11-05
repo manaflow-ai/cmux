@@ -209,30 +209,47 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     let _ = std::env::set_current_dir(home());
     exe_path::check_run(opts.ready_fd)?;
     let lock = home().join("daemon.lock");
+    // Debug builds only: a daemon a test started stops with that test's process, mid-turn too
+    // (`daemon/owner_exit.rs`); never in a release build. Armed before the lock wait, which has no
+    // limit while the holder lives, so a test that dies during it ends this daemon too.
+    let mut test_owner = std::pin::pin!(owner_exit::test_owner_exit());
     #[cfg(unix)]
     handover::reclaim_from_dev(&lock, &socket_path(), &home()).await;
-    let _lock_file = match acquire_daemon_lock(&lock, opts.take_over).await {
-        Ok(lock) => lock,
-        Err(e) => {
-            // The command that started this daemon waits for the holder (`connect`).
-            if let Some(fd) = opts.ready_fd.filter(|_| e.downcast_ref::<LockHeld>().is_some()) {
-                // The app launches `daemon run` directly, without `start_and_connect`.
-                // Its losing launch must report the winner's endpoint once it answers.
-                tracing::info!("another daemon holds the lock; waiting for its socket or exit");
-                match handover::wait(&home(), &socket_path()).await {
-                    Some(handover::Started::Acquired(lock)) => lock,
-                    Some(handover::Started::Ready(ready)) => {
-                        write_ready(fd, &ready);
-                        return Ok(());
+    // None: another daemon answers for this home and its ready line went out; nothing to do.
+    let lock_wait = async {
+        match acquire_daemon_lock(&lock, opts.take_over).await {
+            Ok(lock) => Ok(Some(lock)),
+            Err(e) => {
+                // The command that started this daemon waits for the holder (`connect`).
+                if let Some(fd) = opts.ready_fd.filter(|_| e.downcast_ref::<LockHeld>().is_some()) {
+                    // The app launches `daemon run` directly, without `start_and_connect`.
+                    // Its losing launch must report the winner's endpoint once it answers.
+                    tracing::info!("another daemon holds the lock; waiting for its socket or exit");
+                    match handover::wait(&home(), &socket_path()).await {
+                        Some(handover::Started::Acquired(lock)) => Ok(Some(lock)),
+                        Some(handover::Started::Ready(ready)) => {
+                            write_ready(fd, &ready);
+                            Ok(None)
+                        }
+                        None => {
+                            write_ready(fd, &serde_json::json!({"ready": false, "lockHeld": true}));
+                            Err(e)
+                        }
                     }
-                    None => {
-                        write_ready(fd, &serde_json::json!({"ready": false, "lockHeld": true}));
-                        return Err(e);
-                    }
+                } else {
+                    Err(e)
                 }
-            } else {
-                return Err(e);
             }
+        }
+    };
+    let _lock_file = tokio::select! {
+        lock = lock_wait => match lock? {
+            Some(lock) => lock,
+            None => return Ok(()),
+        },
+        pid = &mut test_owner => {
+            tracing::warn!("stopping before it held its lock: its test process {pid} exited");
+            return Ok(());
         }
     };
     // The home and lock this daemon holds, read as soon as it holds them: one replaced during
@@ -408,9 +425,37 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     }
     let mailbox = crate::mailbox::Mailbox::open(home().join("mailbox"))?;
     let memory_store = config.store.mode == crate::config::StoreMode::Memory;
+    // A machine credential copied here from another box (`cli/cloud_join/host_fingerprint.rs`)
+    // is marked cloned and this box gets its own node key, before the WireGuard transport and
+    // the mesh relay read either.
+    // Off the async workers: it may wait a bounded while for the join lock.
+    let settled = tokio::task::spawn_blocking(crate::cli::cloud_join::settle_clone_at_start)
+        .await
+        .unwrap_or_else(|e| Err(anyhow!("clone check task: {e}")));
+    let clone_unsettled = match settled {
+        Ok(crate::cli::cloud_join::CloneCheck::Cloned) => {
+            tracing::warn!(
+                "machine credential was copied from another machine: not used here; this machine has a new node key. Paste a new join line to join it."
+            );
+            false
+        }
+        Ok(_) => false,
+        Err(e) => {
+            // The copied node key could not be replaced: keep this box off WireGuard for this
+            // run rather than answer with the original's identity.
+            let copied = crate::cli::cloud_join::copied_from_another_box();
+            tracing::warn!(copied, "machine clone check failed: {e:#}");
+            copied
+        }
+    };
+    if clone_unsettled {
+        tracing::warn!(
+            "WireGuard transport off for this run: this home was copied from another machine"
+        );
+    }
     // Start one mesh before Hub starts its saved peers. It forwards only to
     // the WebSocket listener bound above, whose existing tokens remain mandatory.
-    let wireguard = if config.transport.wireguard {
+    let wireguard = if config.transport.wireguard && !clone_unsettled {
         let websocket =
             ws_listener.as_ref().context("WireGuard needs a WebSocket listener")?.0.local_addr()?;
         crate::wireguard::Transport::start(&config, &home(), websocket).await?
@@ -637,9 +682,6 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // Unused for its grace on a home of its own, or soon after its owner app quit: a normal stop
     // (`daemon/unused_exit.rs`, `daemon/owner_exit.rs`).
     let mut unused = std::pin::pin!(unused_exit::unused(Arc::downgrade(&hub)));
-    // Debug builds only: a daemon a test started stops with that test's process, mid-turn too
-    // (`daemon/owner_exit.rs`); never in a release build.
-    let mut test_owner = std::pin::pin!(owner_exit::test_owner_exit());
     // Its home and lock, re-read during the shutdown too.
     #[cfg(unix)]
     let held_home = owned_home.clone();

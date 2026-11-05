@@ -108,18 +108,16 @@ final class CEFHostView: NSView {
         updateBackground()
     }
 
-    /// Until Chromium's page window shows its first frame, the page area
-    /// follows the shared pane ground. It stays clear over Liquid Glass so
-    /// the window backdrop remains visible. During a live resize it takes
-    /// the page's own background (`pageBackdrop`). Under a see-through page
-    /// (`pageSeeThrough`) it paints nothing, so the page shows what a WebKit
-    /// page shows.
+    /// Once the page's own background is known (`pageBackdrop`) the page area takes it, so the gap beside a page that is
+    /// still at its last, smaller frame shows the page's color in every motion frame (m20 item 1: a key resize, a drag, a
+    /// spring and the window's live resize); at rest the page covers it. Before that it follows the shared pane ground,
+    /// clear over Liquid Glass so the window backdrop shows. Under a see-through page (`pageSeeThrough`) it paints nothing.
     private func updateBackground() {
         if pageSeeThrough {
             layer?.backgroundColor = nil
             return
         }
-        if inLiveResize, let pageBackdrop {
+        if let pageBackdrop {
             layer?.backgroundColor = pageBackdrop
             return
         }
