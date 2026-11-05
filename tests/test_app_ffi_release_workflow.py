@@ -437,7 +437,9 @@ class BuildSpeedAndSupersede(unittest.TestCase):
         self.assertIs(concurrency["cancel-in-progress"], True)
 
     def test_publish_is_never_cancelled_and_repins_run_one_at_a_time(self):
-        self.assertNotIn("concurrency", self.jobs["publish"])
+        publish = self.jobs["publish"]["concurrency"]
+        self.assertEqual(publish["group"], "app-ffi-release-publish-${{ github.sha }}")
+        self.assertIs(publish["cancel-in-progress"], False)
         repin = self.jobs["repin"]["concurrency"]
         self.assertEqual(repin["group"], "app-ffi-repin")
         self.assertIs(repin["cancel-in-progress"], False)

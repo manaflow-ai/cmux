@@ -362,6 +362,12 @@ jobs:
     if: github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 15
+    # Never cancelled. Two runs of one commit (a push and a dispatch, or two
+    # dispatches) publish one at a time, so the second sees the first's
+    # release and checks its checksum instead of losing the create race.
+    concurrency:
+      group: app-ffi-release-publish-${{ github.sha }}
+      cancel-in-progress: false
     # Holds the FFI release App credentials; its deployment policy admits only
     # feat-cmux-next. GITHUB_TOKEN stays read-only: the release create uses
     # the App token below and nothing else does.
