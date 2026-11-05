@@ -1,7 +1,7 @@
 {
  "id": "sidebar-rows-film-200",
  "priority": "P2",
- "title": "SIDEBAR ROWS film: 200 rows, light then STRESS (10 busy terminals): 10 Cmd-N row inserts and 10 Close Workspace row removes each, every display frame of the sidebar recorded",
+ "title": "SIDEBAR ROWS film: 200 rows, light then STRESS (10 busy terminals): 10 Cmd-N row inserts and 10 Close Workspace row removes each, the same light with no workspace switch, every display frame of the sidebar recorded",
  "why": "cmux-ad m23 (STATUS 14191): sidebar row insert and remove at 120 Hz with 0 missed refreshes, light and STRESS, 50 and 200 rows; no row view rebuilt during motion. Step 1 films and measures (missed refreshes, rebuilt rows); the y oracle is pixel-perfect's.",
  "source": "scripts/cmux-next/sidebar-instant-rows-live.py (debug.sidebar_rows motion), played on an exact fleet build with real keys (debug.key)",
  "budget_seconds": 250,
@@ -55,6 +55,13 @@
    "scenario": "light-200",
    "pairs": 10,
    "title": "light, 200 rows: 10 Cmd-N + 10 Cmd-Shift-W under films"
+  },
+  {
+   "do": "film_presses",
+   "scenario": "noswitch-200",
+   "mode": "noswitch",
+   "pairs": 10,
+   "title": "light, 200 rows, the window keeps its workspace: 10 script inserts (focus false) + 10 closes of that row"
   },
   {
    "do": "film_busy",

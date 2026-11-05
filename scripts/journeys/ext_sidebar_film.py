@@ -24,12 +24,15 @@ Steps (`do`):
   film_busy       {count, on?}            ON (default true): COUNT terminals of workspaces other than the shown one
                                           print a line every 20 ms (perf-stress-session.py's BUSY_COMMAND);
                                           on false: Ctrl-C to each terminal made busy before
-  film_presses    {scenario, pairs?, gap?, record?, insert_key?, remove_key?}
+  film_presses    {scenario, pairs?, gap?, record?, insert_key?, remove_key?, mode?}
                                           PAIRS (default 10) times: Cmd-N (a new workspace row: insert), then
                                           Cmd-Shift-W (Close Workspace on the new, selected row: remove), each under a
                                           film of RECORD seconds (default 1.2) and GAP seconds apart (default 0.8).
                                           Before and after each press the whole row list (debug.sidebar_rows rows, every
-                                          row of the list, realized or not) is kept, outside the film. Writes
+                                          row of the list, realized or not) is kept, outside the film. `mode:
+                                          noswitch`: a script's newTab (focus false) and a Close Workspace aimed at
+                                          that new unselected row instead of the keys (the window keeps its
+                                          workspace: the sidebar's own cost). Writes
                                           film-SCENARIO.json in the journey folder (run.py fetches it) and returns the
                                           scenario's summary.
 
@@ -174,7 +177,7 @@ def counters_read(j):
     return out
 
 
-def film_one(j, key, modifiers, record):
+def film_one(j, key, modifiers, record, act=None):
     """One press under a film: counters reset, the frame probe and the motion probe start, 0.15 s of still frames,
     the key, RECORD seconds, both stop, counters read (the press's own work, outside the film). The frame probe
     (`debug.frames` raw) gives each display frame's interval and the main thread's busy ms in it, and why each
@@ -187,7 +190,7 @@ def film_one(j, key, modifiers, record):
     j.app.rpc("debug.sidebar_rows", {"motion": "start"})
     time.sleep(0.15)  # still frames before the press
     sent = now()
-    reply = j.key(key, modifiers)
+    reply = act() if act else j.key(key, modifiers)
     returned = now()
     time.sleep(record)
     stopped = j.app.rpc("debug.sidebar_rows", {"motion": "stop"}, timeout=60) or {}
@@ -208,16 +211,31 @@ def step_film_presses(j, step):
     pairs, gap, record = int(step.get("pairs", 10)), float(step.get("gap", 0.8)), float(step.get("record", 1.2))
     insert_key = step.get("insert_key", {"key": "n", "modifiers": ["cmd"]})
     remove_key = step.get("remove_key", {"key": "w", "modifiers": ["cmd", "shift"]})
+    # `noswitch`: the same row insert and remove with the window staying on its workspace (a script's newTab with
+    # focus false, then Close Workspace aimed at that new, unselected row): the sidebar's own work, without the
+    # window's content switching to another workspace as Cmd-N and Cmd-Shift-W do.
+    noswitch = step.get("mode") == "noswitch"
     presses = []
     for index in range(pairs):
         for kind, press in (("insert", insert_key), ("remove", remove_key)):
             before_ws = workspace_ids(j)
             before_rows = row_list(j)
+            act = None
+            if noswitch and kind == "insert":
+                name = f"film-ns-{j.nonce}-{index}"
+                act = lambda name=name: j.app.rpc("action.run", {"action": "newTab", "origin": "script",
+                                                                 "args": {"name": name, "focus": False}})
+            elif noswitch:
+                made = [w for w in before_ws if w in getattr(j, "film_noswitch_made", set())]
+                if not made:
+                    raise D.StepError("film_presses noswitch: no workspace of this step's insert to close")
+                act = lambda wid=made[-1]: j.app.rpc("action.run", {"action": "closeWorkspace", "origin": "script",
+                                                                    "args": {"confirm": True}, "target": f"workspace:{wid}"})
             # A key typed while the app holds keys for a terminal being made (CreationInputCoordinator, after Cmd-N)
             # waits for it: the press would then move inside its film. Each press starts past that hold.
             held = j.outwait_creation_hold(getattr(j, "last_key_at", 0.0))
             time.sleep(0.3)  # the row list read settles before the film
-            shot = film_one(j, press["key"], press.get("modifiers", []), record)
+            shot = film_one(j, press["key"], press.get("modifiers", []), record, act=act)
             want = len(before_ws) + (1 if kind == "insert" else -1)
             end, after_ws, fallback = now() + 5, before_ws, None
             while now() < end:
@@ -225,14 +243,16 @@ def step_film_presses(j, step):
                 if len(after_ws) == want:
                     break
                 time.sleep(0.1)
-            if len(after_ws) != want and kind == "remove":
+            if len(after_ws) != want and kind == "remove" and not noswitch:
                 # The key did not close it (a question, a key the terminal took): the action, so the next pair
                 # starts from the same count. The film of this press then shows no remove; the summary says so.
                 fallback = j.app.rpc("action.run", {"action": "closeWorkspace", "args": {"confirm": True}})
                 time.sleep(1.0)
                 after_ws = workspace_ids(j)
             after_rows = row_list(j)
-            shot.update({"scenario": scenario, "index": len(presses), "pair": index, "kind": kind,
+            if noswitch and kind == "insert":
+                j.film_noswitch_made = getattr(j, "film_noswitch_made", set()) | (set(after_ws) - set(before_ws))
+            shot.update({"mode": "noswitch" if noswitch else "keys", "scenario": scenario, "index": len(presses), "pair": index, "kind": kind,
                          "workspaces_before": len(before_ws), "workspaces_after": len(after_ws),
                          "added": sorted(set(after_ws) - set(before_ws)), "removed": sorted(set(before_ws) - set(after_ws)),
                          "fallback_action": fallback, "waited_out_hold_s": held, "rows_before": before_rows, "rows_after": after_rows})
