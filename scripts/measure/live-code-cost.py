@@ -76,6 +76,8 @@ def main(argv=None):
     p.add_argument("--regular-build-s", type=int, required=True)
     p.add_argument("--live-app", required=True)
     p.add_argument("--live-build-s", type=int, required=True)
+    p.add_argument("--rounds", type=int, default=0, help="runs expected in each arm (0: no check)")
+    p.add_argument("--failed", type=int, default=0, help="bench runs that failed")
     o = p.parse_args(argv)
     builds = {"regular": {"build_s": o.regular_build_s, **app_sizes(o.regular_app)},
               "live": {"build_s": o.live_build_s, **app_sizes(o.live_app)}}
@@ -87,6 +89,9 @@ def main(argv=None):
     with open(os.path.join(o.out, "REPORT.md"), "w") as f:
         f.write(text)
     print("LIVE-CODE-COST\n" + text, flush=True)
+    jobs = (result["bench"]["jobs_a"], result["bench"]["jobs_b"])
+    if o.failed or (o.rounds and jobs != (o.rounds, o.rounds)):
+        sys.exit(f"live-code-cost: {o.failed} bench run(s) failed; runs read A {jobs[0]}, B {jobs[1]} of {o.rounds} each")
 
 
 if __name__ == "__main__":

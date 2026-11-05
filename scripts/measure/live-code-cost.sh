@@ -37,9 +37,12 @@ out="artifacts/live-code-cost"
 work="$(mktemp -d)"
 rm -rf "$out" && mkdir -p "$out"
 regular_tag="livecost-regular" live_tag="livecost-live"
+# Each build its own DerivedData: a measurement step's reload.sh otherwise shares .build/DerivedData/cmux-measure
+# between them, and the second build would reuse the first's objects.
+derived="$(pwd -P)/.build/DerivedData"
 
 start=$SECONDS
-CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$regular_tag" --config bench 2>&1 | tee "$work/regular.log" >&2 || true
+CMUX_DERIVED_DATA="$derived/$regular_tag" CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$regular_tag" --config bench 2>&1 | tee "$work/regular.log" >&2 || true
 regular_s=$((SECONDS - start))
 regular_app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$work/regular.log" | tail -n 1)"
 if [[ -z "$regular_app" || ! -d "$regular_app" ]]; then
@@ -48,14 +51,18 @@ if [[ -z "$regular_app" || ! -d "$regular_app" ]]; then
   exit 1
 fi
 start=$SECONDS
-live_app="$(scripts/live-code/build.sh "$work/live" "$live_tag" bench CMUX_DEV_BACKEND_MODE=local | tail -n 1)"
+live_app="$(CMUX_DERIVED_DATA="$derived/$live_tag" scripts/live-code/build.sh "$work/live" "$live_tag" bench CMUX_DEV_BACKEND_MODE=local | tail -n 1)"
 live_s=$((SECONDS - start))
 [[ -n "$live_app" && -d "$live_app" ]] || { echo "live-code-cost: the live code build printed no app path" >&2; exit 1; }
 
-bench() { # TAG APP ARM ROUND
+failed=0
+bench() { # TAG APP ARM ROUND; a run that fails or writes no JSON fails the step once the report is written
   local json="$out/bench-instant-r$4-$3-${sha:0:8}.json"
-  python3 scripts/cmux-next/instant-new-surfaces-bench.py --tag "$1" --app "$2" --out "$work" --json "$json" \
-    ${bench_args[@]+"${bench_args[@]}"} || echo "live-code-cost: round $4 $3 exited non-zero" >&2
+  if ! python3 scripts/cmux-next/instant-new-surfaces-bench.py --tag "$1" --app "$2" --out "$work" --json "$json" \
+    ${bench_args[@]+"${bench_args[@]}"} || [[ ! -s "$json" ]]; then
+    echo "live-code-cost: round $4 $3 failed or wrote no JSON" >&2
+    failed=$((failed + 1))
+  fi
 }
 for ((round = 1; round <= rounds; round++)); do
   if ((round % 2)); then
@@ -65,4 +72,5 @@ for ((round = 1; round <= rounds; round++)); do
   fi
 done
 python3 scripts/measure/live-code-cost.py --out "$out" --sha "$sha" \
-  --regular-app "$regular_app" --regular-build-s "$regular_s" --live-app "$live_app" --live-build-s "$live_s"
+  --regular-app "$regular_app" --regular-build-s "$regular_s" --live-app "$live_app" --live-build-s "$live_s" \
+  --rounds "$rounds" --failed "$failed"

@@ -50,7 +50,7 @@ class LiveCodeCostReport(unittest.TestCase):
             with open(os.path.join(out, "bench-instant-r9-after-ffffffff.json"), "w") as f:
                 json.dump({"runs": [{"command": "split_right", "phase": "idle", "visible_ms": 1.0}]}, f)
             p = subprocess.run([sys.executable, SCRIPT, "--out", out, "--sha", SHA, "--regular-app", regular,
-                                "--regular-build-s", "100", "--live-app", live, "--live-build-s", "250"],
+                                "--regular-build-s", "100", "--live-app", live, "--live-build-s", "250", "--rounds", "4"],
                                capture_output=True, text=True)
             self.assertEqual(p.returncode, 0, p.stderr)
             result = json.loads(read(os.path.join(out, "result.json")))
@@ -75,6 +75,25 @@ class LiveCodeCostReport(unittest.TestCase):
                                capture_output=True, text=True)
             self.assertEqual(p.returncode, 0, p.stderr)
             self.assertIn("Verdicts: none", read(os.path.join(out, "REPORT.md")))
+
+    def test_a_missing_or_failed_run_fails_after_the_report(self):
+        rng = random.Random(2)
+        with tempfile.TemporaryDirectory() as tmp:
+            out = os.path.join(tmp, "out")
+            os.makedirs(out)
+            app = fake_app(tmp, "a.app", 5)
+            for rnd in (1, 2):
+                fake_run(out, rnd, "before", 10.0, rng)
+            fake_run(out, 1, "after", 10.0, rng)
+            base = [sys.executable, SCRIPT, "--out", out, "--sha", SHA, "--regular-app", app,
+                    "--regular-build-s", "1", "--live-app", app, "--live-build-s", "2", "--rounds", "2"]
+            p = subprocess.run(base, capture_output=True, text=True)
+            self.assertNotEqual(p.returncode, 0)
+            self.assertIn("runs read A 2, B 1 of 2", p.stderr)
+            self.assertTrue(os.path.exists(os.path.join(out, "REPORT.md")))
+            fake_run(out, 2, "after", 10.0, rng)
+            self.assertEqual(subprocess.run(base, capture_output=True).returncode, 0)
+            self.assertNotEqual(subprocess.run(base + ["--failed", "1"], capture_output=True).returncode, 0)
 
 
 if __name__ == "__main__":
