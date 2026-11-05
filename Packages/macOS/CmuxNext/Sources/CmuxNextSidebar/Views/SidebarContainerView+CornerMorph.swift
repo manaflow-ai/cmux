@@ -41,15 +41,28 @@ public extension SidebarContainerView {
         return morph.isEmpty ? (alpha, nil) : (variant.shade(alpha, isDark: isDark), morph)
     }
 
-    /// The selected workspace row's pill in `view`'s coordinates; nil when it is not realized or not wholly
-    /// shown in the list (a sliver would join as a thin spike).
+    /// The selected row's pill in `view`'s coordinates: the list's selected workspace row, else the active row of a
+    /// band (Home or a pin, above or below the list). Nil when none is realized or wholly shown (a sliver would
+    /// join as a thin spike).
     private func selectedRowRect(in view: NSView) -> NSRect? {
         let list = sidebarView.list
-        guard let key = list.selectedRowKey, let row = list.rowViews[key], !row.isHidden, row.alphaValue > 0 else { return nil }
-        let frame = row.convert(row.bounds, to: nil)
-        let clipped = frame.intersection(list.convert(list.visibleRect, to: nil))
-        guard !clipped.isNull, clipped.height >= frame.height - 0.5 else { return nil }
-        return view.convert(frame, from: nil)
+        let listRow = list.selectedRowKey.flatMap { list.rowViews[$0] }
+        let bandRow = listRow == nil ? [sidebarView.aboveRegion, sidebarView.belowRegion].lazy.compactMap(Self.activeBandRow(in:)).first : nil
+        guard let row = listRow ?? bandRow, !row.isHiddenOrHasHiddenAncestor, row.alphaValue > 0,
+              row.visibleRect.height >= row.bounds.height - 0.5 else { return nil }
+        return view.convert(row.convert(row.bounds, to: nil), from: nil)
+    }
+
+    /// A band's active row (`SidebarItemRowView`, a list row style, not a tile or a favorite icon).
+    private static func activeBandRow(in root: NSView) -> NSView? {
+        for sub in root.subviews where !sub.isHidden {
+            if let row = sub as? SidebarItemRowView {
+                if row.info.isActive, !row.style.isIconOnly, row.style != .favorite { return row }
+            } else if let found = activeBandRow(in: sub) {
+                return found
+            }
+        }
+        return nil
     }
 }
 
