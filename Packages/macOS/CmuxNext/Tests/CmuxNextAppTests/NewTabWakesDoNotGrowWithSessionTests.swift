@@ -1,5 +1,4 @@
 import AppKit
-import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextCompat
 @testable import CmuxNextDaemon
@@ -10,8 +9,8 @@ import Testing
 /// (14 panes x 6 tabs) one New Terminal Tab woke about one observation per tab of the session, 9 ms of main-thread work
 /// before the frame on cmux19. This counts the observation trackings one New Terminal Tab wakes (``ObservationWakes``:
 /// `ObservationStream`, `SingleArmedTracking` and the Browser's `ObservationLoop`) in a whole window of 2 panes x 1 tab
-/// and in one of 14 panes x 6 tabs, through the registry's `newSurface` (the path the key, palette, menus, CLI and MCP
-/// share). The two counts must be equal: an observer that reads the whole session (the strip items, the sidebar, the
+/// and in one of 14 panes x 6 tabs, for the key's turn of New Terminal Tab: the stand-in tab in the store's intent log
+/// (what `newSurface` does before it sends; every entrypoint shares it). The two counts must be equal: an observer that reads the whole session (the strip items, the sidebar, the
 /// browser badge, Home, the browser tab list, the app services' watches, the workspace namer) makes the second larger.
 @MainActor @Suite(.serialized)
 struct NewTabWakesDoNotGrowWithSessionTests {
@@ -64,13 +63,14 @@ struct NewTabWakesDoNotGrowWithSessionTests {
         func tabCount() -> Int { workspace.screens.flatMap(\.panes).reduce(0) { $0 + $1.tabs.count } }
         let before = tabCount()
 
+        // The key's turn of New Terminal Tab: the stand-in tab in the store's intent log
+        // (`NewTerminalTabCommand.intendNow`, the part before any send). The registry's `newSurface` stops before it in
+        // a test: the offline store has no connection (`PaneController.newTerminalTab`'s guard).
         let wakes = ObservationWakes()
-        let refused = ObservationWakes.$current.withValue(wakes) {
-            services.registry.capturingRefusal {
-                _ = services.registry.perform("newSurface", invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.paneKey), origin: .user))
-            }
+        ObservationWakes.$current.withValue(wakes) {
+            store.intend(.createTab(pane: pane.pane.handle, provisional: ProvisionalTab().terminal(TerminalID.generate(), cwd: nil)),
+                         transaction: ClientTransactionID.generate())
         }
-        try #require(refused == nil, "newSurface was refused: \(refused ?? "")")
         try #require(tabCount() == before + 1, "fixture: New Terminal Tab made \(tabCount() - before) tabs, not 1")
         return wakes.bySite
     }
