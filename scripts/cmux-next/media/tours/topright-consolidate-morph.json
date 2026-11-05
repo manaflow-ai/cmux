@@ -1,0 +1,172 @@
+{
+ "title": "Chat header top-right icons, consolidate and morph: each layout of Debug agentChat.topRight.consolidate on a chat whose turn edited files",
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "An agent chat in /tmp",
+   "cmux": [
+    "agent",
+    "new-chat",
+    "--cwd",
+    "/tmp"
+   ],
+   "wait": 5,
+   "shot": false,
+   "optional": "agent backend unavailable on this runner"
+  },
+  {
+   "title": "A turn that edits three files",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "seed_rows",
+     "fixture": "worked-turn"
+    }
+   },
+   "wait": 2,
+   "shot": false,
+   "optional": "debug.agent_pane is DEBUG only"
+  },
+  {
+   "title": "Row (today): Changes, Terminal, Browser, the menu",
+   "wait": 1
+  },
+  {
+   "title": "Layout: Morph",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "agentChat.topRight.consolidate",
+     "value": "morph"
+    }
+   },
+   "wait": 1.2,
+   "shot": false,
+   "optional": "debug.tunables is DEBUG only"
+  },
+  {
+   "title": "Morph at rest: one control in the row's place",
+   "wait": 1
+  },
+  {
+   "title": "Morph expanded: the set slides out of the control, over the header",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "click",
+     "selector": ".acpmux-topright-morph-trigger"
+    }
+   },
+   "wait": 1.5,
+   "optional": "debug.agent_pane is DEBUG only"
+  },
+  {
+   "title": "Morph, Terminal picked: its glyph glides into the control, which wears it, lit, while the terminal is open",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "click",
+     "selector": ".acpmux-topright-morph-set [data-quick-action=\"terminal\"]"
+    }
+   },
+   "wait": 2,
+   "optional": "debug.agent_pane is DEBUG only"
+  },
+  {
+   "title": "Layout: Tab strip",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "agentChat.topRight.consolidate",
+     "value": "tabStrip"
+    }
+   },
+   "wait": 1.2,
+   "shot": false,
+   "optional": "debug.tunables is DEBUG only"
+  },
+  {
+   "title": "Tab strip, Terminal open: its icon is a tab at the trailing edge, against the right pane's strip",
+   "wait": 1
+  },
+  {
+   "title": "Tab strip, Terminal closed: today's row again",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "click",
+     "selector": ".acpmux-topright-tab[data-quick-action=\"terminal\"]"
+    }
+   },
+   "wait": 2,
+   "optional": "debug.agent_pane is DEBUG only"
+  },
+  {
+   "title": "Layout: Dock",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "agentChat.topRight.consolidate",
+     "value": "dock"
+    }
+   },
+   "wait": 1.2,
+   "shot": false,
+   "optional": "debug.tunables is DEBUG only"
+  },
+  {
+   "title": "Dock at rest: one recent-panes button",
+   "wait": 1
+  },
+  {
+   "title": "Dock open: Recent holds Terminal, then the rest",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "click",
+     "selector": ".acpmux-topright-dock"
+    }
+   },
+   "wait": 1.5,
+   "optional": "debug.agent_pane is DEBUG only"
+  },
+  {
+   "title": "Close the menu",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "click",
+     "selector": ".acpmux-topright-dock"
+    }
+   },
+   "wait": 0.8,
+   "shot": false,
+   "optional": "debug.agent_pane is DEBUG only"
+  },
+  {
+   "title": "Layout: Row",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "agentChat.topRight.consolidate",
+     "value": "row"
+    }
+   },
+   "wait": 1.2,
+   "shot": false,
+   "optional": "debug.tunables is DEBUG only"
+  },
+  {
+   "title": "Row (today) again",
+   "wait": 1
+  }
+ ]
+}
