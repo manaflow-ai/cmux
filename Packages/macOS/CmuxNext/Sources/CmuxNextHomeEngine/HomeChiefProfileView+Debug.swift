@@ -48,7 +48,7 @@ extension HomeChiefProfileView {
         context.fill(CGRect(x: 0, y: 0, width: 1280, height: 52))
         for x in [80.0, 152, 224, 296] { fill(CGRect(x: x, y: 18, width: 52, height: 16), 0.97, 0.97, 0.98, radius: 8) }
         fill(CGRect(x: 1080, y: 18, width: 120, height: 16), 0.97, 0.97, 0.98, radius: 8)
-        let window = CGRect(x: 150, y: 80, width: 980, height: 640)
+        let window = CGRect(x: 100, y: 80, width: 980, height: 640)  // clear of the card's expand button
         fill(window.insetBy(dx: -2, dy: -2), 0.2, 0.22, 0.28, radius: 18)  // its edge
         fill(window, 0.98, 0.98, 0.98, radius: 16)
         fill(CGRect(x: window.minX, y: window.minY, width: window.width, height: 56), 0.91, 0.91, 0.92, radius: 16)

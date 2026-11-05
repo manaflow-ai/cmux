@@ -112,7 +112,7 @@ public final class ChiefTeleportChip: NSView {
         }
         glyph.image = Self.symbol(symbol, scale: .medium)
         glyph.ink = label.ink
-        chevron.ink = .tertiary
+        chevron.ink = style == .field ? .primary : .tertiary  // a field's arrows read like the pop-ups beside it
         glyph.isHidden = !style.showsGlyph
         label.isHidden = !style.showsText
         chevron.isHidden = !style.showsChevron
@@ -152,7 +152,7 @@ public final class ChiefTeleportChip: NSView {
     private func applyShape() {
         layer?.cornerRadius = style == .field ? Metrics.controlCornerRadius : Self.height / 2
         label.font = style == .field ? Typography.body : Typography.caption
-        chevron.image = style == .field ? Self.symbol("chevron.up.chevron.down", scale: .small) : Self.symbol("chevron.down", scale: .small)
+        chevron.image = style == .field ? Self.symbol("chevron.up.chevron.down", scale: .medium) : Self.symbol("chevron.down", scale: .small)
     }
 
     override public var intrinsicContentSize: NSSize {
