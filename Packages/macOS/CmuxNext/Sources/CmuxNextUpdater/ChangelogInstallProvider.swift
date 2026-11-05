@@ -1,5 +1,6 @@
 public import CmuxNextPages
 public import CmuxNextSettings
+import Foundation
 
 /// What's New's Install (Leo 2026-11-05: "Like literally with a click to a past nightly"), routed
 /// here by prefix ahead of the page's notes: `installable` says whether this app can restart into
