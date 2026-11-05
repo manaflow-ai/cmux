@@ -857,7 +857,11 @@ async fn mesh_controls_start_and_stop_through_shared_sender_and_replay_success()
         let restarted = MeshControlHook::new(control_allowlist(), Some(path.clone()));
         assert_eq!(restarted.control(&hub, &duplicate).await.unwrap(), first);
         // Give the fake hub the address-book row explicitly, avoiding a timer race.
-        fake.heartbeat(&Heartbeat { host: "worker".into(), sessions: hub.mesh_rows().await })
+        fake.heartbeat(&Heartbeat {
+            host: "worker".into(),
+            sessions: hub.mesh_rows().await,
+            leaving: false,
+        })
             .await
             .unwrap();
         let to = if by_name {
@@ -1090,6 +1094,12 @@ async fn the_heartbeat_lists_the_sessions_here_and_a_stop_empties_them() {
     relay.stop().await;
     let last = fake.with(|s| s.heartbeats.last().cloned().unwrap());
     assert!(last.sessions.is_empty(), "the stop sends an empty heartbeat: {last:?}");
+    // It says it is leaving, so the hub ends this daemon's waiting poll (own-machines e2e run
+    // 42071975275: a start leased to the stopped daemon's poll ran 60 s later).
+    assert!(last.leaving, "{last:?}");
+    let earlier = fake.with(|s| s.heartbeats[0].clone());
+    assert!(!earlier.leaving, "{earlier:?}");
+    assert!(serde_json::to_value(&earlier).unwrap().get("leaving").is_none(), "omitted when false");
 }
 
 /// A session's send through the hub names that session as its sender, whatever `fromAgent` the
@@ -1107,7 +1117,9 @@ async fn a_send_through_the_hub_names_its_proven_session_not_a_claimed_one() {
         stuck_reason: None,
         team_address: None,
     };
-    fake.with(|s| s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row] }));
+    fake.with(|s| {
+        s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row], leaving: false })
+    });
     let _ = a.mesh.set(fake.clone());
     let mut as_lane = Client::local(&a);
     let token = acpmux::hub::person::caller_token(&lane);
