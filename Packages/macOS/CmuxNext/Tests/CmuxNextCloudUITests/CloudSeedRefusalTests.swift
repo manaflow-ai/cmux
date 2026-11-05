@@ -2,6 +2,7 @@ import CmuxNextCloud
 import CmuxNextCloudUI
 import CmuxNextDesign
 import Testing
+import Foundation
 
 /// A Cloud chat start whose git seed is refused asks the person before it copies the folder,
 /// instead of copying it silently (a 12.8 GB copy of cmuxterm-hq ran a 16 GB machine's disk out
