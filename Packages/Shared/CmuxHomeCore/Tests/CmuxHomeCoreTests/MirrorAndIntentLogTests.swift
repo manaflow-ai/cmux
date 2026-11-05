@@ -58,7 +58,7 @@ import Testing
     }
 
     /// Delete in a Chief chat (https://github.com/manaflow-ai/cmux/issues/36019): the list's preview
-    /// drops the deleted message at the press, before the owner's echo; a refused delete shows it again.
+    /// drops the deleted message at the press, before the owner's echo; a refused delete (discarded from the log) shows it again.
     @Test func aPendingRetractClearsTheNewestMessagesPreviewUntilRefused() {
         var mirror = HomeMirror()
         var newest = summary(lastSeq: 1, rev: 1)
@@ -69,7 +69,7 @@ import Testing
         #expect(mirror.inboxRows(log: log).first?.preview == "my locker code is 4417")
         log.append(HomeIntent(key: IdempotencyKey("r"), op: .retractMessage(message: MessageID("m1"), conversation: conv)))
         #expect(mirror.inboxRows(log: log).first?.preview == "")
-        log.fail(IdempotencyKey("r"), .invalid("message_retracted"))
+        log.discard(IdempotencyKey("r")) // HomeStore discards a refused retract
         #expect(mirror.inboxRows(log: log).first?.preview == "my locker code is 4417")
     }
 
