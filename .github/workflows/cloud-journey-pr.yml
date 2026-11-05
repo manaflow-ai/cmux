@@ -1,0 +1,100 @@
+name: Cloud journey (PR CLI on staging)
+
+# The headless Cloud journey (scripts/cmux-next/cloud-journey.ts: create a machine, start an agent, chat,
+# connect, sync, pause, resume, delete) for a feat-cmux-next pull request that changes the code the CLI's
+# Cloud path runs: the CLI's cloud commands, the generated platform client, the wire ops, the guest host and
+# acpmux's join. The cmux-tui it builds from the pull request runs every journey step (`--cmux PATH`) against
+# staging, which serves feat-cmux-next's backend, so a CLI that names a field or route the backend or the app
+# does not take is this pull request's red before it merges. backend.yml's journey-preview covers backend
+# changes (the pull request's own preview Worker); journey-staging runs the same build after each push.
+#
+# Not covered here: a Swift-only change to the app's Cloud handlers or socket validation
+# (Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud, CmuxNextControl/Routing). The headless journey runs
+# no app, so it cannot exercise them; their CLI-facing contract is the action argument export
+# (plans/cmux-next/action-surfaces.json) and the tests on both sides of it.
+#
+# Secrets: the staging agent test account (CMUX_DOGFOOD_STACK_*) in cmux-next-vm-image-dev, as
+# backend.yml's journey-staging reads it. Same-repo pull requests only; a fork's never gets them.
+# Without the pair, cloud-journey-ci.sh notes the skip and passes. The chat runs on the model stub.
+
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - cmux-tui/crates/cmux-tui/src/cli/cloud*
+      - cmux-tui/crates/cmux-tui/src/cli/cloud*/**
+      - cmux-tui/crates/cmux-tui/src/cli/vm.rs
+      - cmux-tui/crates/cmux-tui/src/cli/vm/**
+      - cmux-tui/crates/cmux-tui/src/cli/machine_join*
+      - cmux-tui/crates/cmux-tui/src/cli/machine_join/**
+      - cmux-tui/crates/cmux-cloud-client/**
+      - cmux-tui/crates/cmux-cloud-wire/**
+      - cmux-tui/crates/cmux-host/**
+      - cmux-tui/crates/acpmux/src/cli/cloud_join*
+      - cmux-tui/crates/acpmux/src/cli/cloud_join/**
+      - scripts/cmux-next/cloud-journey.ts
+      - scripts/cmux-next/cloud-journey-ci.sh
+      - .github/workflows/cloud-journey-pr.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-journey-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  journey:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    environment: cmux-next-vm-image-dev
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+      - name: Initialize Ghostty protocol submodules
+        run: git submodule update --init --depth 1 ghostty ghostty-next
+      - name: Install Linux cmux-tui build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+      - name: Set up cmux-tui Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+      - name: Set up Zig for Ghostty
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: 0.16.0
+      - name: Build this pull request's Linux cmux-tui
+        id: build-cmux-tui
+        working-directory: cmux-tui
+        env:
+          CARGO_NET_RETRY: "10"
+          CARGO_HTTP_TIMEOUT: "120"
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+          CMUX_GHOSTTY_SRC: ""
+        run: |
+          target_dir="${CARGO_TARGET_DIR:-target}"
+          binary="$target_dir/debug/cmux-tui"
+          cargo build -p cmux-tui --bin cmux-tui --locked
+          test -x "$binary"
+          file "$binary" | grep -q 'ELF 64-bit'
+          sha256sum "$binary"
+          if [[ "$binary" = /* ]]; then
+            echo "path=$binary" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=$PWD/$binary" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+      - name: Cloud journey (staging, this pull request's CLI)
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
+          CMUX_PATH: ${{ steps.build-cmux-tui.outputs.path }}
+          JOURNEY_MODEL: stub
+          TARGET: staging
+        run: bash scripts/cmux-next/cloud-journey-ci.sh
