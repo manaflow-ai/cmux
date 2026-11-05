@@ -1802,10 +1802,19 @@ fi
 if [[ "${CMUX_LIVE_CODE_BUILD:-0}" == "1" ]]; then
   # Live code (Packages/macOS/CmuxNext/Sources/CmuxNextLiveCode/LiveCode.swift): a patch replaces
   # CmuxNextApp's functions, so that module is compiled unoptimized and testable (every function
-  # stays a real call with an exported symbol), and the app is linked as the view shell is:
-  # `-interposable` with classic binds, its symbols exported and none stripped as unused.
-  # Every other module keeps the configuration's optimization. The log keeps each module's
-  # frontend command, which a patch is compiled with (scripts/live-code/patch.py).
+  # stays a real call with an exported symbol), and the app is linked with classic binds, its
+  # symbols exported and none stripped as unused. Every other module keeps the configuration's
+  # optimization. The log keeps each module's frontend command, which a patch is compiled with
+  # (scripts/live-code/patch.py).
+  # Interposable are only the symbols CMUX_LIVE_CODE_INTERPOSABLE_LIST names (the app's exported
+  # CmuxNextApp symbols, listed from a first link: scripts/measure/live-code-app.sh). A blanket
+  # `-interposable` also routes a whole-module build's hidden symbols (a file's private types,
+  # global across the module's object files but never exported) through dyld, which cannot find
+  # them, and the app does not launch.
+  live_ldflags='$(inherited) -Xlinker -no_fixup_chains'
+  if [[ -n "${CMUX_LIVE_CODE_INTERPOSABLE_LIST:-}" ]]; then
+    live_ldflags+=" -Xlinker -interposable_list -Xlinker $CMUX_LIVE_CODE_INTERPOSABLE_LIST"
+  fi
   # shellcheck disable=SC2016 # Xcode expands $(TARGET_NAME), not the shell
   XCODEBUILD_ARGS+=(
     EMIT_FRONTEND_COMMAND_LINES=YES
@@ -1815,9 +1824,9 @@ if [[ "${CMUX_LIVE_CODE_BUILD:-0}" == "1" ]]; then
     CMUX_LIVE_CODE_TESTABLE_CmuxNextApp=YES
     LD_EXPORT_SYMBOLS=YES
     DEAD_CODE_STRIPPING=NO
-    'OTHER_LDFLAGS=$(inherited) -Xlinker -interposable -Xlinker -no_fixup_chains'
+    "OTHER_LDFLAGS=$live_ldflags"
   )
-  echo "==> live code build: CmuxNextApp at -Onone and testable, the app linked -interposable"
+  echo "==> live code build: CmuxNextApp at -Onone and testable${CMUX_LIVE_CODE_INTERPOSABLE_LIST:+, interposable as listed in $CMUX_LIVE_CODE_INTERPOSABLE_LIST}"
 fi
 if [[ "$SWIFT_FRONTEND_WORKAROUND" -eq 1 || "${CMUX_SWIFT_FRONTEND_WORKAROUND:-}" == "1" || "${CMUX_SWIFT_DISABLE_GLOBAL_ISEL:-}" == "1" ]]; then
   SWIFT_FRONTEND_WORKAROUND_EFFECTIVE=1
