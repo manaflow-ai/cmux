@@ -10,7 +10,7 @@
 //! The app's Edit cmux Live action and the `cmux-live` agent skill run this command.
 
 use std::path::{Path, PathBuf};
-use std::process::Command as Process;
+use cmux_process::Command as Process;
 
 use super::UsageError;
 
@@ -126,7 +126,7 @@ fn checkout(worktree: Option<&Path>, started: bool) -> Option<PathBuf> {
         let tree = worktree.canonicalize().ok()?;
         return holds_script(&tree).then_some(tree);
     }
-    let around = std::process::Command::new("git")
+    let around = Process::new("git")
         .args(["rev-parse", "--show-toplevel"])
         .output()
         .ok()
