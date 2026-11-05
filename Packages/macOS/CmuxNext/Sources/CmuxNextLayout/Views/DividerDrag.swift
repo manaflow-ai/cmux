@@ -194,9 +194,9 @@ struct DividerDrag {
         case .top?: extent = max(point.y - drag.grabOffset - drag.container.minY, drag.minimumA)
         case .bottom?: extent = max(drag.container.maxY - (point.y - drag.grabOffset), drag.minimumA)
         case .left?, nil:
-            // Command where no uniform width holds the edge: every width stays as it is (the edge at its limit).
+            // Command where no uniform width holds the edge: every width stays as it is (the edge at its limit); Shift snaps only at the release.
             let uniform = uniformTarget(id, drag: drag, point: point)
-            if uniform == .keep, drag.modifiers.all, !drag.landsOnSnap, let strip = drag.strip {
+            if uniform == .keep, drag.modifiers.all, !(drag.landsOnSnap && phase == .ended), let strip = drag.strip {
                 return strip.columns.compactMap { column in
                     screen.geometry.columns[column.id].map { .width(column.id, strip.fraction($0.width)) }
                 }
