@@ -65,5 +65,28 @@ class MeasureTests(unittest.TestCase):
         self.assertEqual(m["window"]["missed_refreshes"], 0)
 
 
+XML = """<?xml version="1.0"?>
+<trace-query-result><node><schema name="time-profile"/>
+<row><sample-time id="1">1</sample-time><thread id="2" fmt="Main Thread 0x1 (cmux, pid: 9)"/><weight id="3">1000000</weight>
+<backtrace id="4"><frame id="5" name="layoutRows"/><frame id="6" name="apply"/></backtrace></row>
+<row><sample-time id="7">2</sample-time><thread ref="2"/><weight ref="3"/><backtrace ref="4"/></row>
+<row><sample-time id="8">3</sample-time><thread id="9" fmt="Thread 0x2 (cmux, pid: 9)"/><weight ref="3"/>
+<backtrace id="10"><frame ref="6"/></backtrace></row>
+</node></trace-query-result>"""
+
+
+class ProfileRowsTests(unittest.TestCase):
+    def test_refs_resolve_to_thread_weight_and_frames(self):
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".xml", delete=False) as handle:
+            handle.write(XML)
+        rows = film._profile_rows(handle.name)
+        os.unlink(handle.name)
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(rows[1], ("Main Thread 0x1 (cmux, pid: 9)", 1000000, ["layoutRows", "apply"]))
+        self.assertEqual(rows[2][0], "Thread 0x2 (cmux, pid: 9)")
+        self.assertEqual(rows[2][2], ["apply"])
+
+
 if __name__ == "__main__":
     unittest.main()

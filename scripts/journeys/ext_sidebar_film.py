@@ -31,10 +31,21 @@ Steps (`do`):
                                           film-SCENARIO.json in the journey folder (run.py fetches it) and returns the
                                           scenario's summary.
 
+  film_profile    {scenario, kind, presses?, gap?, seconds?}
+                                          Time Profiler (xctrace, attached to the app's pid) over PRESSES (default 5)
+                                          presses of KIND (insert: Cmd-N, remove: Cmd-Shift-W), GAP seconds apart
+                                          (default 2.5), no film and no socket reads meanwhile (they cost the main
+                                          thread). The main thread is idle between presses, so its samples are the
+                                          presses' own work. Each press also runs the per-frame probe (frame intervals,
+                                          motion window). Writes profile-SCENARIO.json: main-thread ms by function
+                                          (inclusive and self), the top stacks, the sample count, each press's frame
+                                          measure, and main-thread ms per motion frame (all main samples / motion frames).
+
 Condition (inside `expect.all`; evidence kind app):
   film_recorded   {scenario, presses}     the film of SCENARIO has at least PRESSES presses with frames
 """
 import json
+import os
 import time
 
 D = None  # the driver module (install)
@@ -284,6 +295,96 @@ def summarize(presses):
     return out
 
 
+def _profile_rows(xml_path):
+    """(thread name, weight ns, [frame names leaf first]) per sample of an xctrace time-profile export. Elements
+    with `ref` point at an earlier element with that `id`."""
+    import xml.etree.ElementTree as ET
+    ids = {}
+    rows = []
+    for _, el in ET.iterparse(xml_path, events=("end",)):
+        if el.get("id"):
+            ids[el.get("id")] = el
+        if el.tag == "row":
+            rows.append(el)
+    deref = lambda e: ids.get(e.get("ref"), e) if e is not None and e.get("ref") else e
+    out = []
+    for row in rows:
+        thread = deref(row.find("thread"))
+        weight = deref(row.find("weight"))
+        trace = deref(row.find("backtrace"))
+        frames = [deref(f).get("name") or "?" for f in (trace.findall("frame") if trace is not None else [])]
+        try:
+            ns = int((weight.text or "0").strip()) if weight is not None else 1000000
+        except ValueError:
+            ns = 1000000
+        out.append(((thread.get("fmt") if thread is not None else "") or "", ns, frames))
+    return out
+
+
+def step_film_profile(j, step):
+    import subprocess
+    scenario, kind = step["scenario"], step.get("kind", "insert")
+    presses, gap = int(step.get("presses", 5)), float(step.get("gap", 2.5))
+    press = {"insert": ("n", ["cmd"]), "remove": ("w", ["cmd", "shift"])}[kind]
+    seconds = int(step.get("seconds", 4 + presses * gap + 2))
+    trace = j.out / f"profile-{scenario}.trace"
+    xml = j.out / f"profile-{scenario}.xml"
+    proc = subprocess.Popen(["xcrun", "xctrace", "record", "--template", "Time Profiler", "--attach", str(j.app.pid),
+                             "--time-limit", f"{seconds}s", "--output", str(trace), "--no-prompt"],
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    time.sleep(4.0)  # xctrace attaches before the first press
+    j.outwait_creation_hold(getattr(j, "last_key_at", 0.0))
+    sent, measures = [], []
+    for _ in range(presses):
+        # The per-frame probe (cheap, one presentation read per frame) runs beside the profiler, so each press has
+        # its frame intervals; its start and stop requests fall outside the motion.
+        j.app.rpc("debug.sidebar_rows", {"motion": "start"})
+        time.sleep(0.15)  # still frames before the press
+        sent.append(now())
+        j.key(press[0], press[1])
+        time.sleep(gap)  # the press's motion ends; the main thread idles (no samples) until the next
+        stopped = j.app.rpc("debug.sidebar_rows", {"motion": "stop"}, timeout=60) or {}
+        measures.append(measure(stopped.get("frames") or []))
+    try:
+        log = proc.communicate(timeout=seconds + 60)[0].decode(errors="replace")[-600:]
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        raise D.StepError(f"film_profile: xctrace did not end after {seconds + 60} s")
+    done = subprocess.run(["xcrun", "xctrace", "export", "--input", str(trace), "--xpath",
+                           '/trace-toc/run[@number="1"]/data/table[@schema="time-profile"]', "--output", str(xml)],
+                          capture_output=True, text=True, timeout=300)
+    if done.returncode != 0 or not xml.exists():
+        raise D.StepError(f"film_profile: export failed: {(done.stdout + done.stderr)[-400:]}; record: {log}")
+    rows = _profile_rows(str(xml))
+    main = [(ns, frames) for name, ns, frames in rows if "Main Thread" in name]
+    inclusive, own, stacks = {}, {}, {}
+    for ns, frames in main:
+        ms = ns / 1e6
+        for name in set(frames):
+            inclusive[name] = inclusive.get(name, 0.0) + ms
+        if frames:
+            own[frames[0]] = own.get(frames[0], 0.0) + ms
+            key = " < ".join(frames[:12])
+            stacks[key] = stacks.get(key, 0.0) + ms
+    total = sum(ns for ns, _ in main) / 1e6
+    top = lambda d, n: [[k, round(v, 2)] for k, v in sorted(d.items(), key=lambda kv: -kv[1])[:n]]
+    profile = {"scenario": scenario, "kind": kind, "presses": presses, "rows": len(workspace_ids(j)),
+               "main_ms": round(total, 2), "main_ms_per_press": round(total / max(1, presses), 2),
+               "samples": len(main), "all_samples": len(rows), "inclusive": top(inclusive, 150), "self": top(own, 80),
+               "stacks": top(stacks, 60), "frames": measures,
+               "motion_frames": sum(m.get("motion_frames", 0) for m in measures),
+               "main_ms_per_motion_frame": round(total / max(1, sum(m.get("motion_frames", 0) for m in measures)), 2)}
+    (j.out / f"profile-{scenario}.json").write_text(json.dumps(profile) + "\n")
+    for path in (xml,):
+        try:
+            os.unlink(str(path))
+        except OSError:
+            pass
+    subprocess.run(["rm", "-rf", str(trace)], timeout=60)
+    return {k: profile[k] for k in ("scenario", "kind", "presses", "rows", "main_ms", "main_ms_per_press", "samples",
+                                    "motion_frames", "main_ms_per_motion_frame")}
+
+
 def cond_film_recorded(j, want, cache):
     film = _films(j).get(want.get("scenario"))
     if not film:
@@ -292,5 +393,6 @@ def cond_film_recorded(j, want, cache):
     return got >= int(want.get("presses", 20)), f"{got} presses with frames; summary {json.dumps(film['summary'])[:600]}"
 
 
-STEPS = {"film_grow": step_film_grow, "film_busy": step_film_busy, "film_presses": step_film_presses}
+STEPS = {"film_grow": step_film_grow, "film_busy": step_film_busy, "film_presses": step_film_presses,
+         "film_profile": step_film_profile}
 CONDITIONS = {"film_recorded": ("app", cond_film_recorded)}

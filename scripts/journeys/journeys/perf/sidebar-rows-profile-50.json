@@ -1,0 +1,68 @@
+{
+ "id": "sidebar-rows-profile-50",
+ "priority": "P2",
+ "title": "SIDEBAR ROWS profile: 50 rows, Time Profiler (main thread by function) of 5 Cmd-N row inserts and 5 Close Workspace row removes",
+ "why": "cmux-ad m23 (STATUS 14191), INSTANT OWNER step 2: name the main-thread work in the burst of long frames after the key (films: 9-30 missed refreshes per press) before any fix.",
+ "source": "xctrace Time Profiler attached to the app's pid on an exact fleet build, real keys (debug.key), light (no busy terminals)",
+ "budget_seconds": 250,
+ "require_hz": 120,
+ "steps": [
+  {
+   "do": "wait",
+   "seconds": 3,
+   "title": "the fresh profile's first window"
+  },
+  {
+   "do": "new_terminal",
+   "via": "key"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "marker_install"
+  },
+  {
+   "do": "type",
+   "text": "${marker} prof-${nonce}-$((6*7))",
+   "enter": true,
+   "mark": "typed"
+  },
+  {
+   "do": "expect",
+   "title": "set-up check: the app types (its result does not decide the profile)",
+   "since": "typed",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "prof-${nonce}-42"
+    },
+    {
+     "app_text_line": "prof-${nonce}-42"
+    },
+    {
+     "frame_marker": "prof-${nonce}-42"
+    }
+   ]
+  },
+  {
+   "do": "film_grow",
+   "count": 50,
+   "title": "50 workspaces"
+  },
+  {
+   "do": "film_profile",
+   "scenario": "insert-50",
+   "kind": "insert",
+   "presses": 5,
+   "title": "5 Cmd-N under Time Profiler"
+  },
+  {
+   "do": "film_profile",
+   "scenario": "remove-50",
+   "kind": "remove",
+   "presses": 5,
+   "title": "5 Cmd-Shift-W under Time Profiler"
+  }
+ ]
+}
