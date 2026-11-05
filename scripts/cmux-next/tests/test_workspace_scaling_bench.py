@@ -67,6 +67,21 @@ class WorkspaceScalingTests(unittest.TestCase):
         failures = bench.coverage_failures(rows)
         self.assertTrue(any(failure["workspaces"] == 1 for failure in failures))
 
+    def test_malformed_nested_report_is_treated_as_missing(self):
+        rows = bench.collect({1: {"instant": {"summary": "bad"},
+                                  "sidebar": {"sizes": []},
+                                  "typing": {"phases": ["bad"]}}})
+        failures = bench.coverage_failures(rows)
+        self.assertTrue(any(failure["workspaces"] == 1 for failure in failures))
+
+    def test_raw_sidebar_report_replays_bootstrap_offset(self):
+        report = {"sizes": {"99": {"scroll": {"frames": {
+            "intervals_ms": [8.3], "frame_metrics": {"complete": True}},
+            "switch": {"frames": {"frame_metrics": {"complete": True}},
+                       "click_to_idle_ms": {"p50": 8, "p95": 9, "p99": 9}}}}}}
+        rows = bench.collect({100: {"sidebar": report}})
+        self.assertEqual({row["interaction"] for row in rows}, {"sidebar_scroll", "switch"})
+
 
 if __name__ == "__main__":
     unittest.main()

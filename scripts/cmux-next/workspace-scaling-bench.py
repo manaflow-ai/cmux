@@ -54,7 +54,12 @@ def _samples(summary, key):
 def instant_rows(report, count):
     """Return new-workspace and open-pane timings from instant-new-surfaces."""
     report = report if isinstance(report, dict) else {}
-    summary = (report or {}).get("summary") or {}
+    summary = report.get("summary")
+    if not isinstance(summary, dict):
+        return {}
+    runs = report.get("runs")
+    if not isinstance(runs, list):
+        runs = []
     out = {}
     suffix = f"@{count}ws"
     # ``idle@Nws/new_workspace`` is the warm, same-harness interaction at N workspaces.
@@ -63,7 +68,7 @@ def instant_rows(report, count):
         values = []
         if entry:
             # Keep every warm-arm sample when present so p50/p95/p99 are meaningful.
-            values = [r.get("visible_ms") for r in (report or {}).get("runs", [])
+            values = [r.get("visible_ms") for r in runs if isinstance(r, dict)
                       if r.get("phase") == f"idle{suffix}" and r.get("command") == command]
             if not values:
                 if isinstance(entry.get("visible_p50"), (int, float)):
@@ -78,7 +83,12 @@ def instant_rows(report, count):
 
 def sidebar_rows(report, count):
     report = report if isinstance(report, dict) else {}
-    size = ((report or {}).get("sizes") or {}).get(str(count)) or {}
+    sizes = report.get("sizes")
+    if not isinstance(sizes, dict):
+        return {}
+    size = sizes.get(str(count))
+    if not isinstance(size, dict):
+        return {}
     out = {}
     frame_reply = (size.get("scroll") or {}).get("frames") or {}
     frame_metrics = frame_reply.get("frame_metrics") or {}
@@ -105,9 +115,16 @@ def typing_rows(report, count):
     # automation-typing-bench reports a phase for the seeded workspace count.  Prefer automation
     # (load) and fall back to light so older reports remain consumable.
     report = report if isinstance(report, dict) else {}
-    phases = (report or {}).get("phases") or []
-    candidates = [p for p in phases if "automation" in str(p.get("phase", "")) and p.get("key_to_frame_ms")]
-    candidates += [p for p in phases if "light" in str(p.get("phase", "")) and p.get("key_to_frame_ms")]
+    phases = report.get("phases")
+    if not isinstance(phases, list):
+        return {}
+    # A percentile is a valid scaling sample only when every requested key produced a
+    # complete frame record. Partial phases are reported as incomplete by coverage_failures.
+    complete = [p for p in phases if isinstance(p, dict) and isinstance(p.get("keys"), int)
+                and isinstance(p.get("complete"), int) and p.get("keys") > 0
+                and p.get("complete") >= p.get("keys") and p.get("key_to_frame_ms")]
+    candidates = [p for p in complete if "automation" in str(p.get("phase", ""))]
+    candidates += [p for p in complete if "light" in str(p.get("phase", ""))]
     if not candidates:
         return {}
     value = candidates[-1].get("key_to_frame_ms")
@@ -151,7 +168,11 @@ def collect(reports):
         if "instant" not in invalid:
             merged.update(instant_rows(docs.get("instant"), count))
         if "sidebar" not in invalid:
-            merged.update(sidebar_rows(docs.get("sidebar"), docs.get("sidebar_count", count)))
+            # The raw sidebar probe starts with one bootstrap row and receives count-1 from
+            # app mode. Preserve that same offset for report-only replay when no metadata was
+            # stored beside the raw results.
+            sidebar_count = docs.get("sidebar_count", count - 1 if count > 1 else count)
+            merged.update(sidebar_rows(docs.get("sidebar"), sidebar_count))
         if "typing" not in invalid:
             merged.update(typing_rows(docs.get("typing"), count))
         if count == 1 and "sidebar" not in invalid:
