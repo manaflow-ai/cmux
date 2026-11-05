@@ -61,7 +61,7 @@ struct StreamWindowTests {
         // The first frame (bounded: 15 s, as the rd bench).
         for _ in 0 ..< 150 where reader.rendered == 0 { try await Task.sleep(for: .milliseconds(100)) }
         try #require(reader.rendered > 0, "no video within 15 s")
-        // Unbuffered: the eval waits for this line while the test runs, with stdout in a file.
+        // Unbuffered, for a person reading the log; the eval starts its scene from CMUX_EVAL_GO below.
         FileHandle.standardOutput.write(Data("streamwindow: first frame\n".utf8))
         if let go = env["CMUX_EVAL_GO"] { FileManager.default.createFile(atPath: go, contents: nil) }
         var series: [[String: Any]] = []
