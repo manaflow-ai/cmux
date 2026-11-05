@@ -28,8 +28,8 @@ pub struct StoreConfig {
     /// Every event-log line goes through one append-only journal with group commit
     /// (R-DURABILITY S2, `store/journal_store.rs`): a line is durable within one sync, and a
     /// restart after a crash writes again every line the journal holds past its checkpoint.
-    /// Default off.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    /// Default on.
+    #[serde(default = "default_journal")]
     pub journal: bool,
 }
 
@@ -47,13 +47,17 @@ fn default_segment_bytes() -> u64 {
     8 * 1024 * 1024
 }
 
+fn default_journal() -> bool {
+    true
+}
+
 impl Default for StoreConfig {
     fn default() -> Self {
         Self {
             mode: StoreMode::Local,
             segment_bytes: default_segment_bytes(),
             closed_log_days: None,
-            journal: false,
+            journal: true,
         }
     }
 }
@@ -70,14 +74,14 @@ pub fn store_journal_enabled() -> bool {
     }
     #[derive(Deserialize)]
     struct Store {
-        #[serde(default)]
+        #[serde(default = "default_journal")]
         journal: bool,
     }
     let path = super::Config::path();
-    let Ok(mut file) = super::private_state_file(&path) else { return false };
+    let Ok(mut file) = super::private_state_file(&path) else { return true };
     let mut text = String::new();
     if std::io::Read::read_to_string(&mut file, &mut text).is_err() {
-        return false;
+        return true;
     }
-    serde_json::from_str::<File>(&text).ok().and_then(|file| file.store).is_some_and(|s| s.journal)
+    serde_json::from_str::<File>(&text).ok().and_then(|file| file.store).is_none_or(|s| s.journal)
 }
