@@ -106,6 +106,15 @@ final class HomeChiefLinkButton: NSButton {
     var ink: ThemeInk? { didSet { applyTitle() } }
     var textFont: NSFont = Typography.caption { didSet { applyTitle() } }
     private var text = ""
+    /// The link's words; a change redraws it (Connect, Disconnect).
+    var linkTitle: String {
+        get { text }
+        set {
+            text = newValue
+            setAccessibilityLabel(newValue)
+            applyTitle()
+        }
+    }
     private var isHovering = false { didSet { applyTitle() } }
     private var tracking: NSTrackingArea?
 

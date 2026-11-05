@@ -3,15 +3,18 @@ import CmuxHomeCore
 import CmuxHomeRender
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextAccounts
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextChiefMemory
 import CmuxNextChiefPetWiring
+import CmuxNextCloud
 import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextHomeEngine
 import CmuxNextHostedChief
 import CmuxNextPages
+import CmuxNextRemoteViewSessions
 import CmuxNextSidebar
 import CmuxNextWakeups
 import ImageIO
@@ -107,6 +110,28 @@ final class HomeHostView: NSView {
         petRows.onRefusal = { [settingsView] in settingsView.showNote($0) }  // why an upload was refused
         petRows.install(in: self, addRow: { [settingsView] in settingsView.addAppearanceRow($0, control: $1) },
                         open: { [weak self] in self?.toggleChiefSettings(openOnly: true) ?? false })
+        settingsView.computer.source = .init(directory: { [weak services] in (services?.machines.cloudLimits?.paysForCloud == true, services?.machines.cloud.map(\.machine) ?? []) },
+            frames: { [weak services] id, frame, ended in services?.cloudDesktopTransport(machine: id).map { CloudDesktopFrames.view(machine: id, open: $0, frame: frame, ended: ended) } })
+        // The Chief's vault (names only) and its Google connections (cmux issue 34263).
+        let work = services.work
+        settingsView.vault.names = {
+            let index = try? await work.run(.userVisible, mayBlock: .files) { CloudMachineSecrets.read(CloudMachineSecrets.indexURL().path) }
+            return index.flatMap(CloudMachineSecrets.index(from:)).map(CloudMachineSecrets.names(in:))
+        }
+        let connections = services.accounts.chiefConnections
+        settingsView.connections.source = .init(
+            rows: { [connections] in
+                (ChiefConnections.Provider.allCases.map { HomeChiefConnection(connections, $0) }, connections.failed)
+            },
+            refresh: { [connections] in
+                // task-owner: one list read per card open; the model drops an answer for a changed account
+                Task { await connections.refresh() }
+            },
+            act: { [connections] provider, connect in
+                guard let provider = ChiefConnections.Provider(rawValue: provider.rawValue) else { return }
+                // task-owner: one Connect or Disconnect gesture; the model refuses a second while it runs
+                Task { connect ? await connections.connect(provider) : await connections.disconnect(provider) }
+            })
         settingsView.onAvatar = { [weak self, weak service] in
             self?.loadAvatar()
             // Each Chief's tile reads its own brain home: this re-reads them, so only the

@@ -1,6 +1,6 @@
 public import CmuxNextCloud
 import CmuxNextPages
-import CmuxNextSettings
+public import CmuxNextSettings
 public import Foundation
 
 extension GitHubConnections {
@@ -13,12 +13,19 @@ extension GitHubConnections {
     /// The connections of the Cloud sign-in AUTH, through the owner API at OWNER_API; PREVIEW (showcase or
     /// fixture launches) is always signed out. The GitHub App installation page opens through LinkRouter.
     public static func live(auth: CloudAuth, ownerAPI: URL, preview: Bool) -> GitHubConnections {
+        let (current, call) = liveCall(auth: auth, ownerAPI: ownerAPI, preview: preview)
+        return GitHubConnections(scope: current, call: call, open: { url in LinkRouter.shared.open(url) })
+    }
+
+    /// The signed-in scope and the owner API op call every connection model shares
+    /// (``GitHubConnections``, ``ChiefConnections``): reads go to `v1/read`, a mutation with its key to `v1/ops`.
+    public static func liveCall(auth: CloudAuth, ownerAPI: URL, preview: Bool) -> (scope: @MainActor () -> Scope?, call: Call) {
         let transport = InstallHTTPTransport(baseURL: ownerAPI)
         let current: @MainActor () -> Scope? = {
             guard !preview, auth.isSignedIn, let user = auth.user?.id else { return nil }
             return signedInScope(project: auth.configuration.stackProjectID, user: user, team: auth.teamID, managedTeam: auth.managedTeamID)
         }
-        return GitHubConnections(scope: current, call: { bound, op, params, mutationKey in
+        let call: Call = { bound, op, params, mutationKey in
             let access = try await auth.tokens().access
             guard current() == bound else { throw GitHubFailure.changedAccount }
             var body: [String: JSONValue] = ["op": .string(op), "params": params]
@@ -37,6 +44,7 @@ extension GitHubConnections {
             let reply = try JSONValue.parse(response.body)
             guard (reply["error"] == nil || reply["error"] == .null), reply["ok"] != .bool(false), let value = reply["value"] else { throw GitHubFailure.refused }
             return value
-        }, open: { url in LinkRouter.shared.open(url) })
+        }
+        return (current, call)
     }
 }
