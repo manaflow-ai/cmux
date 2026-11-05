@@ -209,7 +209,7 @@ no fixture or earlier run can show the expected text) and `${prompt}` (`J> `).
 | `{"app_text_lacks": "TEXT"}` | app | negative: the pane's viewport text does not contain TEXT |
 | `{"daemon_history": {...}}` | daemon | the daemon's scrollback (`terminal ID history read`): `rows` `oldest`/`newest`, `count`; `contains`, `lacks` (negative) TEXT; `pattern` (one group: a row number) with `contiguous` and `last` N |
 | `{"app_rows": {...}}` | app | the numbered rows the viewport shows (after any scroll): `pattern`, `min_rows`, `contiguous`; `top`/`last`: `{eq\|ne\|gt\|lt\|ge\|le: N, a bound NAME, or "daemon_oldest"}`; `bind` NAME (sets `${NAME_top}`, `${NAME_mid}`); `hold` makes it negative-style (read every poll and through `settle`) |
-| `{"frame_screen": {"shows": [...], "lacks": [...]}}` | frame | one fresh frame shows every `shows` text and none of `lacks` (a negative read only on a frame that shows the run's own text) |
+| `{"frame_screen": {"shows": [...], "lacks": [...]}}` | frame | one fresh frame shows every `shows` text and none of `lacks` (a negative read only on a frame that shows the run's own text); a `lacks` check is not judged on a band read in which a band that shows ink read no text (`driver.lacks_not_judged`); a `lacks` text that the read finds fails it; a band with no ink is blank and does not make the read partial |
 | `{"clipboard": "TEXT"}` | clipboard | the general pasteboard is exactly TEXT (`pbpaste`) |
 | `{"quit_leftovers": {"allow": [{"match": RE, "why": TEXT}]}}` | process | every process a `relaunch` with `leftovers_after` found after the quit matches an `allow` entry; the others are listed with their RSS |
 
