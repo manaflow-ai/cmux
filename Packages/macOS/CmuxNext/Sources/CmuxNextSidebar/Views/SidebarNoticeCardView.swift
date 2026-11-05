@@ -156,7 +156,13 @@ final class SidebarNoticeCardView: NSView {
         closeButton.label = notice.dismissLabel ?? ""
         dismissButton.isHidden = notice.dismissTitle == nil
         dismissButton.configure(title: notice.dismissTitle ?? "", help: notice.dismissLabel)
-        if previous?.actions != notice.actions { rebuildButtons(notice.actions) }
+        if previous?.actions != notice.actions {
+            rebuildButtons(notice.actions)
+            // New buttons under the pointer (Checking… turning into the found update's Update): a
+            // click meant for what was there must not press them, above all an Update that, with
+            // `updates.oneClickInstall`, restarts cmux. Keys and VoiceOver still press them.
+            actionButtons.forEach { $0.ignorePointer() }
+        }
         trailingButton.isHidden = notice.trailing == nil
         if let trailing = notice.trailing {
             trailingButton.setSymbol(trailing.symbol)

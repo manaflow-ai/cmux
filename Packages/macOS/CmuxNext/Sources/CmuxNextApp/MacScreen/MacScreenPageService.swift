@@ -174,7 +174,10 @@ extension AppServices {
         let account = DeviceHubService.Account(awaitRestored: { await auth.awaitRestored() },
                                                 userID: { auth.isSignedIn ? (auth.user?.id ?? "") : nil },
                                                 accessToken: { try await auth.tokens().access })
-        return DeviceHubService(pages: services.macScreenPages, account: account, bundleIdentifier: services.environment.launch.bundleID, loginKeychain: services.loginKeychain)
+        let selection = services.cloud.configuration.runtimeSelection
+        let hubBundle = selection?.storageNamespace.map { "\(selection?.bundleId ?? "cmux").cloud.\($0)" } ?? services.environment.launch.bundleID
+        return DeviceHubService(pages: services.macScreenPages, account: account, bundleIdentifier: hubBundle,
+                                loginKeychain: services.loginKeychain, selectedBaseURL: selection?.deviceHubOrigin)
     }
 
     /// Mac Screen follows its settings (Send System Shortcuts; DEV: Relay Only).

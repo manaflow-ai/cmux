@@ -3,7 +3,7 @@ public import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDevices
 public import CmuxNextSettings
-import Foundation
+public import Foundation
 import os
 
 /// The device hub for this app (docs/device-hub/PROTOCOL.md): made when
@@ -37,6 +37,7 @@ public final class DeviceHubService {
     private let pages: MacScreenPages
     private let account: Account
     private let bundleIdentifier: String
+    private let selectedBaseURL: URL?
     /// The app's one guard of the Keychain UI switch (the hub's identity and relay secrets).
     private let loginKeychain: LoginKeychain
     /// Settings > Devices (the React page's `devices` card).
@@ -58,7 +59,8 @@ public final class DeviceHubService {
     private var loadingFor: (url: URL, user: String)?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "device-hub")
 
-    public init(pages: MacScreenPages, account: Account, bundleIdentifier: String?, loginKeychain: LoginKeychain) {
+    public init(pages: MacScreenPages, account: Account, bundleIdentifier: String?, loginKeychain: LoginKeychain, selectedBaseURL: URL? = nil) {
+        self.selectedBaseURL = selectedBaseURL
         self.pages = pages
         self.account = account
         self.loginKeychain = loginKeychain
@@ -81,12 +83,12 @@ public final class DeviceHubService {
     /// Follows the hub address and the account from now on.
     public func start(settings: SettingsController) {
         guard watch == nil else { return }
-        let account = account
+        let account = account, selectedBaseURL = selectedBaseURL
         // task-owner: DeviceHubService.watch: follows deviceHub.url and sign-in for the app's life
         watch = Task { [weak self] in
             await account.awaitRestored()
             await self?.pages.store.load()
-            for await (address, user) in ObservationStream({ (Self.address(settings), account.userID()) }) {
+            for await (address, user) in ObservationStream({ (selectedBaseURL ?? Self.address(settings), account.userID()) }) {
                 guard let self else { return }
                 url = address
                 self.user = user

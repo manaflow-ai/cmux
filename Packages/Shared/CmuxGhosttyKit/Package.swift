@@ -111,6 +111,13 @@ import PackageDescription
 // embedder mode committed under the lock and deadlocked against main's
 // commit (cmux S4 films with the switch on, STATUS 9732).
 //
+// Since 7d43bb68b..6cc749a8a (release/cmux-9ce9b7d0-e2, fork PRs #72, #73 and #75):
+// the host-frame present's lock-span rule in ghostty.h (#72), each surface's
+// thread wakes counted by source in ghostty_surface_render_counters (#73), and,
+// with the embedder presenting host sizes, a frame kept for its present that
+// the layer cannot show in its bounds wakes no main-queue block (#75; cmux
+// FRAME OWNER S4's held-key cost: one main wake per moving terminal and frame).
+//
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
 // a7c40619a or 3e9dfca98 (apple-v6 without the lib prefix on the macOS
@@ -134,8 +141,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-7d43bb68b05e1bad433267fe28cd7205041fc4f5-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "12f7ac05eec4a0e0a47daef29545cdaba102e4b02ecafcc825d898ff71f4be2f"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-6cc749a8a53b1d62465e0faf848e430a82f690aa-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "018d2bdb8b7f26c9e97ff6732b4e80e52f24ca3086e456efe0fb6d8aa38f4a40"
         ),
     ]
 )
