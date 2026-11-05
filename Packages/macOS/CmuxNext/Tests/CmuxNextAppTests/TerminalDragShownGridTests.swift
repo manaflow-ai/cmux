@@ -28,10 +28,19 @@ struct TerminalDragShownGridTests {
         let start = handle.convert(CGPoint(x: handle.bounds.midX, y: handle.bounds.midY), to: nil)
         let before = screen.ios.map { $0.resizes.count }
         var shown = Array(repeating: Set<String>(), count: screen.sessions.count)
+        var seen = before, unseen: [String] = []
+        // Per commit: the grids each shown frame fits so far, then each PTY grid that arrived since the last commit must be
+        // one of them (frame-owner-s4: a drag step that asks a new size in the turn of a landing must send the landed grid,
+        // not the new ask, which no commit has shown yet).
         func record() {
             for (index, session) in screen.sessions.enumerated() {
                 let sample = Rig.GridSample(session)
                 if sample.showsItsOwnFrame, let fits = sample.fits { shown[index].insert(Rig.text(fits)) }
+                let resizes = screen.ios[index].resizes
+                for grid in resizes.dropFirst(seen[index]).map({ "\($0.columns)x\($0.rows)" }) where !shown[index].contains(grid) {
+                    unseen.append("p\(index + 1): \(grid) before any commit showed it (shown: \(shown[index].sorted().prefix(6)))")
+                }
+                seen[index] = resizes.count
             }
         }
         record()
@@ -60,12 +69,6 @@ struct TerminalDragShownGridTests {
         await Rig.settle(screen)
         record()
 
-        var unseen: [String] = []
-        for (index, io) in screen.ios.enumerated() {
-            for grid in io.resizes.dropFirst(before[index]).map({ "\($0.columns)x\($0.rows)" }) where !shown[index].contains(grid) {
-                unseen.append("p\(index + 1): \(grid) (shown: \(shown[index].sorted().prefix(6)))")
-            }
-        }
         let rested = zip(screen.sessions, screen.ios).map { session, io in
             (fits: session.surfaceView.fittedGrid.map { "\($0.columns)x\($0.rows)" }, newest: io.resizes.last.map { "\($0.columns)x\($0.rows)" })
         }
