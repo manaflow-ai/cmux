@@ -68,10 +68,20 @@ extension CloudStartChat {
                                        machines: machines.cloud.filter { listed.contains($0.machineID) }, local: start.home ? nil : start.uploadRoot ?? start.cwd,
                                        stored: machines.cloud.map(\.machine).keptForPin(listed: listed), environment: start.environment, access: access != nil,
                                        reservationKey: start.reservationKey, platform: cloud.configuration.artifactsAPIBaseURL()?.absoluteString, team: team, ensureProject: ensureProject)
-        let plan = try Self.checked(await cli.startChatPlan(request: request, access: access))
+        var plan = try Self.checked(await cli.startChatPlan(request: request, access: access))
         var invocation = invocation
+        if let id = plan.machine, !listed.contains(id) {
+            await cloud.refresh() // List a platform-reserved or project machine before attaching.
+            // A remembered machine that is gone (deleted, or of another backend) is dropped, never
+            // shown: the send makes a new machine instead (DEV 9fa9b1c3: "No Cloud machine has the
+            // id vm_c813daded688a74e806f." on a first send).
+            if machines.session(id) == nil {
+                cloud.logger.info("cloud start chat: the planned machine \(id, privacy: .public) is gone; making a new one")
+                plan.machine = nil
+                plan.createSent = false
+            }
+        }
         if let id = plan.machine {
-            if !listed.contains(id) { await cloud.refresh() } // List a platform-reserved or project machine before attaching.
             invocation.arguments["machine"] = .string(id)
         } else {
             if cloud.configuration.linkSource == .appServer, !plan.createSent {
