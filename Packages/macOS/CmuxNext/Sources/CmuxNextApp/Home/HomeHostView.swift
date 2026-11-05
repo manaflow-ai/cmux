@@ -23,6 +23,7 @@ import ImageIO
 @MainActor
 final class HomeHostView: NSView {
     let transcript: HomeNativeTranscriptView
+    var fastRebuildProbe1 = 1
     private let message = ChromeLabel(labelWithString: "")
     private var availability: Task<Void, Never>?
     /// The Chief's settings, a popover under the header's name pill, which
