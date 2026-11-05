@@ -19,6 +19,33 @@ import Testing
         let params: [String: String]
     }
 
+    /// Holds each usage read until released, and says when the first one started.
+    actor UsageGate {
+        private var held = true
+        private var started = false
+        private var starting: [CheckedContinuation<Void, Never>] = []
+        private var waiting: [CheckedContinuation<Void, Never>] = []
+
+        func pass() async {
+            started = true
+            starting.forEach { $0.resume() }
+            starting = []
+            guard held else { return }
+            await withCheckedContinuation { waiting.append($0) }
+        }
+
+        func untilStarted() async {
+            guard !started else { return }
+            await withCheckedContinuation { starting.append($0) }
+        }
+
+        func release() {
+            held = false
+            waiting.forEach { $0.resume() }
+            waiting = []
+        }
+    }
+
     private nonisolated static let accountsReply = Data("""
     {"accounts":[
       {"id":"codex-login","family":"codex","name":"ChatGPT","home":null,"shadowOf":null,"signedIn":true,
@@ -33,7 +60,7 @@ import Testing
       {"id":"weekly","usedPercent":41,"windowMins":10080,"resetsAt":1790500000}],"plan":"pro"}}
     """.utf8)
 
-    private func make(missing: Bool = false) async -> (harnesses: SettingsHarnesses, terminal: Terminal,
+    private func make(missing: Bool = false, usageGate: UsageGate? = nil, refresh: Bool = true) async -> (harnesses: SettingsHarnesses, terminal: Terminal,
                                                        calls: OSAllocatedUnfairLock<[Call]>) {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cn-settings-accounts-\(UUID().uuidString)")
         let environment = AcpmuxEnvironment(executable: directory.appending(path: "acpmux"), home: directory,
@@ -55,12 +82,14 @@ import Testing
                 if missing { throw AcpmuxRPCError(code: -32601, message: "method not found") }
                 switch method {
                 case .accounts: return Self.accountsReply
-                case .accountUsage: return Self.usageReply
+                case .accountUsage:
+                    await usageGate?.pass()
+                    return Self.usageReply
                 default: return Data("{}".utf8)
                 }
             },
             userHome: URL(fileURLWithPath: "/Users/alex", isDirectory: true))
-        await harnesses.refresh()
+        if refresh { await harnesses.refresh() }
         return (harnesses, terminal, calls)
     }
 
@@ -95,6 +124,23 @@ import Testing
         #expect(usage["windows"]?.arrayValue?.last?["resetsAt"] == .number(1_790_500_000))
         #expect(accounts[1]["usage"] == .null)
         #expect(SettingsHarnesses.usageLimits(Data(#"{"id":"x","usageLimits":null,"skipped":"keychain"}"#.utf8)) == .null)
+    }
+
+    /// A refresh while an account's usage read runs starts no second one (the daemon caches only
+    /// a finished read), and the running read still shows its answer when it ends.
+    @Test func aRefreshDuringAUsageReadStartsNoSecondReadForThatAccount() async throws {
+        let gate = UsageGate()
+        let h = await make(usageGate: gate, refresh: false)
+        let first = Task { await h.harnesses.refresh() }
+        await gate.untilStarted()
+        await h.harnesses.refresh()
+        await gate.release()
+        await first.value
+        let asked = h.calls.withLock { $0 }.filter { $0.method == "_acpmux/account/usage" }
+        #expect(asked.map { $0.params } == [["id": "codex-login"]])
+        let accounts = try #require(h.harnesses.state["accounts"]?.arrayValue)
+        #expect(accounts[0]["usage"]?["plan"] == .string("pro"))
+        #expect(h.harnesses.usageReading.isEmpty)
     }
 
     @Test func aDaemonWithoutAccountsLeavesThemOut() async {

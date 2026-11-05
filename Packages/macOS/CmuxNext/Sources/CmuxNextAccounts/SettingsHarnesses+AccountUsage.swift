@@ -23,30 +23,29 @@ extension SettingsHarnesses {
         return limits
     }
 
-    /// Reads every signed-in Codex account's usage at once. A read that fails (an older daemon, a
-    /// Codex that did not answer) keeps what is shown for that account; only the newest refresh writes.
+    /// Reads every signed-in Codex account's usage at once, but not one whose read is still
+    /// running (the daemon caches an answer only once it has it). A read that fails (an older
+    /// daemon, a Codex that did not answer) keeps what is shown for that account; the newest
+    /// refresh drops accounts no longer listed.
     func readAccountUsage(_ environment: AcpmuxEnvironment, generation mine: Int) async {
         let ids = Self.usageAccounts(accounts ?? [])
-        guard !ids.isEmpty else {
-            accountUsage = [:]
-            return
-        }
+        let start = ids.filter { !usageReading.contains($0) }
+        usageReading.formUnion(start)
         let read = await withTaskGroup(of: (String, JSONValue?).self) { group in
-            for id in ids {
+            for id in start {
                 group.addTask { [self] in
                     let data = try? await callAccounts(environment, .accountUsage, ["id": id])
                     return (id, data.map(Self.usageLimits))
                 }
             }
-            var read: [String: JSONValue?] = [:]
+            var read: [String: JSONValue] = [:]
             for await (id, limits) in group { read[id] = limits }
             return read
         }
-        guard mine == generation else { return }
-        var next: [String: JSONValue] = [:]
-        for id in ids {
-            if let limits = read[id] ?? nil { next[id] = limits } else if let shown = accountUsage[id] { next[id] = shown }
-        }
-        accountUsage = next
+        usageReading.subtract(start)
+        // One read per account at a time, so a read that outlived its refresh is still the newest.
+        let listed = Set(Self.usageAccounts(accounts ?? []))
+        for (id, limits) in read where listed.contains(id) { accountUsage[id] = limits }
+        if mine == generation { accountUsage = accountUsage.filter { listed.contains($0.key) } }
     }
 }

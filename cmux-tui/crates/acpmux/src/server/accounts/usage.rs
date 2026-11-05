@@ -57,7 +57,7 @@ pub(super) async fn handle(
         .to_owned();
     let (dir, configured) = {
         let config = hub.config.read().await;
-        (routes::places(&config).0, codex_path(&config.harnesses))
+        (routes::places(&config).0, codex_path(&config))
     };
     let lookup = id.clone();
     let target = tokio::task::spawn_blocking(move || target(dir.as_deref(), &lookup))
@@ -123,18 +123,24 @@ fn readable(home: &Path) -> Target {
     }
 }
 
-/// The Codex a Codex harness profile runs (`CODEX_PATH`, as its launch and its model list pick
-/// it; the `codex` profile first), or None for the one on PATH.
-fn codex_path(harnesses: &BTreeMap<String, crate::config::HarnessProfile>) -> Option<String> {
-    let own = |profile: &crate::config::HarnessProfile| {
-        let path = profile.env.get("CODEX_PATH")?;
+/// The Codex a Codex harness profile runs (`CODEX_PATH` of the profile, else of its defaults
+/// (`defaults.codex.env`), as its launch and its model list pick it; the `codex` profile first),
+/// or None for the one on PATH.
+fn codex_path(config: &crate::config::Config) -> Option<String> {
+    let own = |name: &str, profile: &crate::config::HarnessProfile| {
+        let defaults = config.defaults_for(name).env;
+        let path = profile.env.get("CODEX_PATH").or_else(|| defaults.get("CODEX_PATH"))?;
         (!path.is_empty() && !path.contains("${")).then(|| path.clone())
     };
-    let codex = harnesses.iter().filter(|(name, profile)| {
+    let mut codex = config.harnesses.iter().filter(|(name, profile)| {
         profile.kind == crate::config::HarnessKind::Acp
             && crate::config::derive_family(name, profile) == "codex"
     });
-    harnesses.get("codex").and_then(own).or_else(|| codex.filter_map(|(_, p)| own(p)).next())
+    config
+        .harnesses
+        .get("codex")
+        .and_then(|p| own("codex", p))
+        .or_else(|| codex.find_map(|(name, p)| own(name, p)))
 }
 
 /// One `account/rateLimits/read` in `home` with `configured` Codex (else the one on PATH): its
@@ -213,22 +219,33 @@ mod tests {
             effort: None,
             policy: None,
         };
-        let mut harnesses = BTreeMap::new();
-        assert_eq!(codex_path(&harnesses), None, "no profile: the one on PATH");
-        harnesses.insert(
+        let mut config = crate::config::Config::default();
+        assert_eq!(codex_path(&config), None, "no profile: the one on PATH");
+        config.harnesses.insert(
             "codex-work".into(),
             acp(&["codex", "app-server"], &[("CODEX_PATH", "/opt/b")]),
         );
-        assert_eq!(codex_path(&harnesses).as_deref(), Some("/opt/b"));
-        harnesses
+        assert_eq!(codex_path(&config).as_deref(), Some("/opt/b"));
+        config
+            .harnesses
             .insert("codex".into(), acp(&["codex", "app-server"], &[("CODEX_PATH", "/opt/a")]));
-        assert_eq!(codex_path(&harnesses).as_deref(), Some("/opt/a"), "the codex profile first");
-        harnesses.insert("codex".into(), acp(&["codex", "app-server"], &[("CODEX_PATH", "${X}")]));
+        assert_eq!(codex_path(&config).as_deref(), Some("/opt/a"), "the codex profile first");
+        config
+            .harnesses
+            .insert("codex".into(), acp(&["codex", "app-server"], &[("CODEX_PATH", "${X}")]));
         assert_eq!(
-            codex_path(&harnesses).as_deref(),
+            codex_path(&config).as_deref(),
             Some("/opt/b"),
             "an unresolved one is not a path"
         );
+        // The family's defaults fill in a profile without its own, as a chat launch merges them.
+        config.harnesses.insert("codex".into(), acp(&["codex", "app-server"], &[]));
+        let mut family = crate::config::SessionDefaults::default();
+        family.env.insert("CODEX_PATH".into(), "/opt/family".into());
+        config.defaults.insert("codex".into(), family);
+        assert_eq!(codex_path(&config).as_deref(), Some("/opt/family"), "defaults.codex.env");
+        config.harnesses.remove("codex");
+        assert_eq!(codex_path(&config).as_deref(), Some("/opt/b"), "the profile's own wins");
     }
 
     #[cfg(unix)]

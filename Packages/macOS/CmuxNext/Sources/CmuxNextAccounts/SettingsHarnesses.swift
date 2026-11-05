@@ -33,6 +33,8 @@ public final class SettingsHarnesses {
     var accounts: [SettingsProviderAccount]?
     /// Each account's plan usage limits read at rest, by id (SettingsHarnesses+AccountUsage.swift).
     var accountUsage: [String: JSONValue] = [:]
+    /// Accounts whose usage read is running: a refresh meanwhile starts no second Codex for one.
+    @ObservationIgnored var usageReading: Set<String> = []
     /// Claude logins' plans by account id, from `claude auth status` (SettingsHarnesses+ClaudePlan.swift).
     var claudePlans: [String: String] = [:]
     @ObservationIgnored let environment: @MainActor () -> AcpmuxEnvironment?
