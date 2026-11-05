@@ -936,7 +936,10 @@ fn a_harness_sign_in_failure_is_not_the_cmux_account_signed_out() {
         json!({"code": "cloud_signed_out", "message": "x"}),
     ] {
         assert!(signed_out(&error), "{error}");
+    }
+}
 
+#[test]
 fn a_relay_login_refusal_is_the_answer_and_nothing_else_runs_or_sends() {
     // A fresh machine with nothing inherited, and each login refusal the app types: no start-session, no exec, no send.
     for (code, exit) in [
@@ -958,4 +961,18 @@ fn a_relay_login_refusal_is_the_answer_and_nothing_else_runs_or_sends() {
         assert_eq!(fake.ran.len(), 3, "{code}: ran after the refusal: {:?}", fake.ran);
         assert_eq!(fake.ran[2][1], "relay-chat");
     }
+}
+
+#[test]
+fn a_relay_turn_error_keeps_the_machines_type() {
+    let relayed = json!({"machine_id": "vm-1", "session_id": "s-1", "ended": true, "delivered": true,
+        "error_code": "chat.failed", "error_message": "daemon connection closed", "error_detail": "daemon_closed",
+        "error_cause": "panicked", "error_kind": "auth.signed_out", "error_retryable": true, "error_recovery": "Run acpmux again.", "reply": ""});
+    let typed = typed_error(&relayed);
+    assert_eq!(
+        typed,
+        json!({"detail": "daemon_closed", "cause": "panicked", "kind": "auth.signed_out", "recovery": "Run acpmux again.", "retryable": true})
+    );
+    // An older app's answer has none: nothing is made up.
+    assert_eq!(typed_error(&json!({"error_code": "chat.failed"})), json!({}));
 }

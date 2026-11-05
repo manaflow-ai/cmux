@@ -899,7 +899,7 @@ fn relay_chat(runner: &mut dyn Runner, request: &Request, listed: &Value) -> Rel
         return Relayed::Answered(failed(
             &code,
             message,
-            json!({"machine_id": machine_id, "relay": relayed}),
+            json!({"machine_id": machine_id, "relay": relayed, "error": typed_error(&relayed)}),
             exit,
         ));
     };
@@ -938,7 +938,32 @@ fn relay_chat(runner: &mut dyn Runner, request: &Request, listed: &Value) -> Rel
         _ => 1,
     };
     let message = at(&relayed, "error_message").as_str().unwrap_or("the turn failed").to_owned();
-    Relayed::Answered(failed(code, message, json!({"answer": answer}), exit))
+    Relayed::Answered(failed(
+        code,
+        message,
+        json!({"answer": answer, "error": typed_error(&relayed)}),
+        exit,
+    ))
+}
+
+/// The machine's typed error the app relayed (`CloudStartSession.relayFields`): acpmux's detail, a closed
+/// daemon's cause, the error's kind, what to do and whether a retry may work; only the fields the app sent.
+fn typed_error(relayed: &Value) -> Value {
+    let mut typed = serde_json::Map::new();
+    for (from, to) in [
+        ("error_detail", "detail"),
+        ("error_cause", "cause"),
+        ("error_kind", "kind"),
+        ("error_recovery", "recovery"),
+    ] {
+        if let Some(text) = at(relayed, from).as_str() {
+            typed.insert(to.to_owned(), json!(text));
+        }
+    }
+    if let Some(retryable) = at(relayed, "error_retryable").as_bool() {
+        typed.insert("retryable".to_owned(), json!(retryable));
+    }
+    Value::Object(typed)
 }
 
 /// The app's `cloud relay-chat` refusals about the machine's harness login (refused, missing, declined, failed,
