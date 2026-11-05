@@ -3135,8 +3135,7 @@ button.cv-video-frames__frame:focus-visible {
    the steps' glyphs and a quiet guide between the icon and text columns, kept inside the
    transcript row because paint containment clips any outside guide. */
 :root:not([data-tool-steps-look="card"]):not([data-tool-steps-look="tree"]):not([data-tool-steps-look="zebra"]):not([data-tool-steps-look="guide"])
-  .cv-steps
-  > .cv-step
+  :is(.cv-steps > .cv-step, .cv-steps > .cv-step > .cv-tool-with-visual)
   > .cv-tool
   > .cv-tool__icon {
   visibility: hidden;
@@ -3158,11 +3157,11 @@ button.cv-video-frames__frame:focus-visible {
    A focused or opened row stays revealed and lifted while its menu or body is open. Hover only
    reveals the chevron: a step's words and glyph keep their tone under the pointer, as a lone tool
    row's do (#20330: tool rows "no longer change on hover"; agent-pane-step-rows.test.ts). */
-.cv-steps > .cv-step > .cv-tool > .cv-tool__chevron {
+:is(.cv-steps > .cv-step, .cv-steps > .cv-step > .cv-tool-with-visual) > .cv-tool > .cv-tool__chevron {
   opacity: 0;
   transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
 }
-.cv-steps > .cv-step > .cv-tool:is(
+:is(.cv-steps > .cv-step, .cv-steps > .cv-step > .cv-tool-with-visual) > .cv-tool:is(
   :focus-within,
   [aria-expanded="true"],
   [data-popup-open],
@@ -3171,7 +3170,7 @@ button.cv-video-frames__frame:focus-visible {
 ) {
   color: var(--cv-text);
 }
-.cv-steps > .cv-step > .cv-tool:is(
+:is(.cv-steps > .cv-step, .cv-steps > .cv-step > .cv-tool-with-visual) > .cv-tool:is(
   :focus-within,
   [aria-expanded="true"],
   [data-popup-open],
@@ -3181,9 +3180,9 @@ button.cv-video-frames__frame:focus-visible {
   > :is(.cv-tool__icon, .cv-tool__text, .cv-command__text, .cv-tool__chevron) {
   color: var(--cv-text);
 }
-.cv-steps > .cv-step > .cv-tool:hover > .cv-tool__chevron,
-.cv-steps > .cv-step > .cv-tool:has([data-popup-open]) > .cv-tool__chevron,
-.cv-steps > .cv-step > .cv-tool:is(:focus-within, [aria-expanded="true"], [data-popup-open], :has([aria-expanded="true"]))
+:is(.cv-steps > .cv-step, .cv-steps > .cv-step > .cv-tool-with-visual) > .cv-tool:hover > .cv-tool__chevron,
+:is(.cv-steps > .cv-step, .cv-steps > .cv-step > .cv-tool-with-visual) > .cv-tool:has([data-popup-open]) > .cv-tool__chevron,
+:is(.cv-steps > .cv-step, .cv-steps > .cv-step > .cv-tool-with-visual) > .cv-tool:is(:focus-within, [aria-expanded="true"], [data-popup-open], :has([aria-expanded="true"]))
   > .cv-tool__chevron {
   opacity: 1;
   transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
@@ -4906,18 +4905,20 @@ a.cv-sha:focus-visible {
   outline-offset: 2px;
 }
 
-/* The image viewer: one image over the whole pane, a bar with its name, position, copy and close,
-   and arrows through the chat's images at the sides. */
+/* The image viewer: one image over the pane below its tab row (ImageViewer.tsx), a bar with its name,
+   position, copy and close, and arrows through the chat's images at the sides. */
 .acpmux-image-viewer {
   position: fixed;
-  inset: 0;
+  inset: var(--acpmux-image-viewer-top, 0px) 0 0;
   z-index: var(--layer-modal);
   width: auto;
   margin-inline: 0;
   display: flex;
   flex-direction: column;
-  /* Mixed from the opaque surface: the page color is clear in a translucent window. */
-  background: color-mix(in srgb, var(--cmux-surface-solid, var(--agent-page-bg)) 94%, transparent);
+  /* Mixed from the opaque surface (the page color is clear in a translucent window), light enough that
+     the pane reads behind it as a backdrop under the blur (Leo, 2026-11-05: "this screenshot preview has
+     too much opacity"). */
+  background: color-mix(in srgb, var(--cmux-surface-solid, var(--agent-page-bg)) 72%, transparent);
   -webkit-backdrop-filter: blur(24px);
   backdrop-filter: blur(24px);
   color: var(--agent-text);
@@ -4926,6 +4927,19 @@ a.cv-sha:focus-visible {
    * stage immediately. The dialog's close transition still uses its own token. */
   --ui-popup-open: 0s;
   --ui-dialog-open: 0s;
+}
+/* Reduce Transparency: the opaque surface with no blur, never the lighter mix above. */
+@media (prefers-reduced-transparency: reduce) {
+  .acpmux-image-viewer {
+    background: var(--cmux-surface-solid, var(--agent-page-bg));
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+:root[data-reduce-transparency] .acpmux-image-viewer {
+  background: var(--cmux-surface-solid, var(--agent-page-bg));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 .acpmux-image-viewer-backdrop {
   position: fixed;

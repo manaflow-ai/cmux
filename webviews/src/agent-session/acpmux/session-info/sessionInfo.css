@@ -478,8 +478,11 @@
   display: none;
 }
 /* A lifted section (held, or settling after the drop) floats over its neighbours as they slide: it
-   carries no hairline, and only while held does it take a raised surface and a shadow, so it reads over
-   the rows it passes. At rest no section is a box (session-panel.md). */
+   carries no hairline, and only while held does it take a shadow and its head's hover tint, so it reads
+   as picked up. At rest no section is a box (session-panel.md). It stands on the panel's glass as the
+   sidebar's picked-up row stands on the window's (#32330): a tint over the glass, never the page color,
+   which drew a near-opaque slab (Leo, 2026-11-05: "it becomes opaque"). Its neighbours make way before it
+   covers half of one (heldPlace.ts). */
 .acpmux-session-info-sections[data-dragging] {
   cursor: grabbing;
   user-select: none;
@@ -494,10 +497,8 @@
   visibility: hidden;
 }
 .acpmux-session-info-slot[data-lifted] > .acpmux-session-info-section {
-  background: color-mix(in srgb, var(--cmux-elevated-background, #1e1e1e) 94%, transparent);
-  box-shadow:
-    var(--elevation-2),
-    0 0 0 var(--cmux-hairline, 0.5px) var(--agent-border);
+  background: var(--acpmux-session-info-row-hover);
+  box-shadow: var(--elevation-2);
 }
 /* Gallery alternative (rules): a hairline over every section but the first. */
 .acpmux-session-info__body:is([data-layout="rules"], [data-layout="groups"]) .acpmux-session-info-sections {
