@@ -60,6 +60,28 @@ struct ChatOpenTraceTests {
         #expect(!trace.isTraced(page: traced))
     }
 
+    /// #36060: under load, a spare page warming during the open marked first and latched the trace, so
+    /// the opened pane's bind was refused: no `pane_made`, no frame sampled, no first content (the
+    /// subagent case's load arm, 0/5 valid). The first pane to bind is the open's, and its page with it.
+    @Test func theOpenedPanesPageTakesOverFromAPageThatMarkedBeforeIt() {
+        let trace = ChatOpenTrace()
+        #expect(trace.begin())
+        let spare = NSObject()
+        let opened = NSObject()
+        trace.mark(.navigationStart, page: spare)
+        trace.mark(.pagePainted, page: spare)
+        let pane = NSView()
+        #expect(trace.bind(view: pane, page: opened, surface: { .cover }, engine: { "test" }), "the opened pane's bind was refused")
+        #expect(trace.has(.paneMade))
+        #expect(trace.isTraced(page: opened))
+        #expect(!trace.isTraced(page: spare), "the spare stayed the traced page")
+        #expect(!trace.has(.pagePainted), "the spare's paint counted as the opened chat's")
+        #expect(!trace.has(.navigationStart), "the spare's navigation counted as the opened chat's")
+        trace.mark(.pagePainted, page: opened)
+        #expect(trace.has(.pagePainted))
+        _ = trace.finish(timedOut: false)
+    }
+
     @Test func aHeldOpenHasNoEmptyStretch() {
         var record = ChatOpenTrace.Record(id: 1, launch: false, armedAt: 0)
         record.marks[ChatOpenTrace.Mark.action.rawValue] = 0
