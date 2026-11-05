@@ -66,6 +66,7 @@ import {
   type CmuxTuiSource,
 } from "../../services/vms/drivers/cmuxTuiDaemon";
 import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER, devboxWorkUserSetupCommand } from "../../services/vms/images/workUser";
+import { npmCachePrefillCommand } from "./dep-cache";
 import {
   cmuxTuiWebsocketSmokeCommand,
   DEVBOX_INSTANCE_ID_COMMAND,
@@ -692,6 +693,12 @@ async function installAgentTools(ctx: Ctx): Promise<void> {
   await L.step(vm, "agent-tools-desktop", rdSetupCommand());
 }
 
+/** The npm cache a first `npm install` finds (dep-cache.ts); its size goes in the image record. */
+async function prefillDepCaches(ctx: Ctx): Promise<void> {
+  const out = await ctx.L.step(ctx.vm, "npm-cache-prefill", npmCachePrefillCommand(), 290_000);
+  ctx.result.npmCacheMb = Number(/npm-cache-mb (\d+)/.exec(out)?.[1] ?? Number.NaN);
+}
+
 /**
  * Role desktop in the image record (the platform's desktop capability): an --agent-tools image carries the
  * cmux-rd host. Recorded by bake() from the lock, so a layered bake whose agents layer came from cache records
@@ -825,6 +832,7 @@ async function baseSteps(ctx: Ctx): Promise<void> {
   if (options.teamVm) ctx.result.teamFilesRoot = (await L.step(ctx.vm, "team-files-root", teamVmDirsCommand())).trim();
   await configureRoles(ctx);
   if (options.agentTools) await installAgentTools(ctx);
+  await prefillDepCaches(ctx);
   if (options.devTree) await installDevTree(ctx);
   await installMachineHealth(ctx);
   await installHostConfig(ctx);
@@ -849,6 +857,7 @@ async function overlaySteps(ctx: Ctx, layer: "agents" | "app"): Promise<void> {
   if (layer === "agents") {
     await configureRoles(ctx);
     if (ctx.options.agentTools) await installAgentTools(ctx);
+    await prefillDepCaches(ctx);
     await L.step(vm, "agents-done", "rm -rf /tmp/cmux-dl && echo agents-layer-ok");
     return;
   }
