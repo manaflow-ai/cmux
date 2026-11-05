@@ -38,7 +38,7 @@ reads its output with the new code.
 
 ## Numbers (fleet)
 
-One `cmux-ci test` run (Linux x86_64 fleet runner, release build, 3000 interleaved calls per case;
+Two `cmux-ci test` runs agreed within a few percent; the first run's numbers (Linux x86_64 fleet runner, release build, 3000 interleaved calls per case;
 `bench.sh`, report `hot-bench.json`). The guest is 69 KB.
 
 Per call, p50 (p99), native against the module with fuel metering on (the daemon's setting) and off:
@@ -62,7 +62,7 @@ Swap and rollback, with a second thread calling the module in a loop the whole t
 |---|---|
 | Compile on load (the watcher thread, never a caller) | 40 to 86 ms |
 | Probe (instantiate once and ask `abi-version`) | 0.07 to 0.13 ms |
-| Publish (the pointer store) | see `first_load.publish_us` in the report; well under 1 µs of work under a lock no caller takes |
+| Publish (the pointer store, under a lock no caller takes) | 0.23 to 0.35 µs |
 | A thread's first call on a new module (its own instance) | 18 to 144 µs |
 | File written to the first call the new module answers | 62 ms (5 ms poll in the bench, 100 ms in the daemon) |
 | Worst call during that swap | 55 µs; 0 calls fell back to native |
