@@ -436,7 +436,7 @@
 {"file":"agent-session/acpmux/summary/WorkflowSideTab.css","kind":"spacing","property":"top","values":{"10px":1}}
 {"file":"agent-session/acpmux/threadMinimap/threadMinimap.css","kind":"easing","property":"animation","values":{"acpmux-minimap-in var(--cmux-motion-micro) cubic-bezier(0.23, 1, 0.32, 1)":1,"acpmux-minimap-tick-in var(--cmux-motion-micro) cubic-bezier(0.25, 1, 0.5, 1) var(--acpmux-minimap-stagger) backwards":1,"acpmux-minimap-dot-in var(--cmux-motion-micro) ease-out var(--acpmux-minimap-stagger) backwards":1,"acpmux-minimap-in var(--cmux-motion-micro) ease-out":1}}
 {"file":"agent-session/acpmux/threadMinimap/threadMinimap.css","kind":"easing","property":"transition","values":{"transform var(--cmux-motion-micro) cubic-bezier(0.25, 1, 0.5, 1)":1,"color var(--cmux-motion-micro) ease-out":1,"transform var(--cmux-motion-micro) var(--acpmux-minimap-spring), opacity var(--cmux-motion-micro) ease-out":1}}
-{"file":"agent-session/acpmux/threadMinimap/threadMinimap.css","kind":"height","property":"height","values":{"10px":2,"2px":2,"1px":1}}
+{"file":"agent-session/acpmux/threadMinimap/threadMinimap.css","kind":"height","property":"height","values":{"2px":2,"1px":1}}
 {"file":"agent-session/acpmux/threadMinimap/threadMinimap.css","kind":"spacing","property":"left","values":{"2px":1}}
 {"file":"agent-session/acpmux/threadMinimap/threadMinimap.css","kind":"spacing","property":"top","values":{"4.5px":1}}
 {"file":"agent-session/acpmux/turnChanges/turnChanges.css","kind":"height","property":"height","values":{"22px":3}}
