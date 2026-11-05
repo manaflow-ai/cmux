@@ -19,9 +19,10 @@ enum CEFAgentURLGuard {
     }
 
     /// Applied when the browser attaches (before any pending load) and when
-    /// the tab becomes agent-driven.
+    /// the tab becomes agent-driven, with the tab's passkey mode (``CEFWebAuthnMode``).
     static func applyShimGuard(_ tab: CEFTab) {
         guard let browser = tab.browserID else { return }
+        CEFWebAuthnMode.apply(tab, browser: browser)
         let mode = shimGuardMode(tab.navigationGuard, agentDriven: tab.isAgentDriven)
         if mode != 0 { tab.runtime.shim?.setNavigationGuard(browser, mode) }
     }

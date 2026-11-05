@@ -345,6 +345,7 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(browser_drag_target_enter_source, "cmux_browser_drag_target_enter_source");
   CMUX_BIND(set_webauthn_delegate, "cmux_set_webauthn_delegate");
   CMUX_BIND(webauthn_complete, "cmux_webauthn_complete");
+  CMUX_BIND(set_webauthn_mode, "cmux_tab_set_webauthn_mode");
 #undef CMUX_BIND
 }
 

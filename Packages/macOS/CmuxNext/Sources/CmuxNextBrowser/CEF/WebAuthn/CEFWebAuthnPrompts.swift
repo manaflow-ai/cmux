@@ -12,8 +12,8 @@ import Security
 /// page through `cmux_webauthn_complete`, which checks it against the request first. The engine
 /// owns the one instance (`CEFEngine.webAuthn`).
 ///
-/// A fork without the two calls (API 30) gets no delegate: its detached pages keep refusing with
-/// NotAllowedError, as before. Conditional (autofill) requests stay refused
+/// A fork without the two calls (API 30), or a build without the browser passkey entitlement (DEV
+/// builds), gets no delegate: its detached pages keep refusing with NotAllowedError, as before. Conditional (autofill) requests stay refused
 /// (`conditional_mediation` 0) until cmux offers passkeys in its own autofill.
 @MainActor
 final class CEFWebAuthnPrompts {
@@ -36,7 +36,14 @@ final class CEFWebAuthnPrompts {
         let runtime = CEFRuntime.shared
         guard !installed, runtime.state == .ready, let set = runtime.shim?.webAuthnSetDelegate else { return }
         installed = true
-        let platform: Int32 = Self.entitled && WebKitPasskeyAuthorization.shared.state != .denied ? 1 : 0
+        // AuthenticationServices' browser requests (both providers) need the browser passkey
+        // entitlement, which only signed release builds carry. Without it cmux sets no delegate:
+        // pages nobody sees refuse with NotAllowedError as before, and agent tabs keep Chromium's
+        // own WebAuthn UI (`CEFWebAuthnMode`), instead of a prompt whose ceremony always fails.
+        guard Self.entitled else {
+            return runtime.logger.notice("WebAuthn delegate not set: this build lacks \(Self.entitlement, privacy: .public)")
+        }
+        let platform: Int32 = WebKitPasskeyAuthorization.shared.state != .denied ? 1 : 0
         let context = Unmanaged.passRetained(self).toOpaque()
         let result = set(CEFWebAuthnCallbacks.request, CEFWebAuthnCallbacks.cancel, context, platform)
         runtime.logger.notice("WebAuthn delegate \(result == 1 ? "set" : "not available (fork without API 33)", privacy: .public) platform=\(platform)")

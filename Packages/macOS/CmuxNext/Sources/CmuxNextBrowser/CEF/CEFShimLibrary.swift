@@ -26,9 +26,6 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     ) -> Int32
     /// `cmux_shim_focus_request_fn`: ctx, browser, source -> 1 allow.
     typealias FocusRequestFn = @convention(c) (UnsafeMutableRawPointer?, Int32, Int32) -> Int32
-    /// `cmux_shim_webauthn_request_fn` (ctx, request JSON) and `cmux_shim_webauthn_cancel_fn` (ctx, id, reason).
-    typealias WebAuthnRequestFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<CChar>?) -> Void
-    typealias WebAuthnCancelFn = @convention(c) (UnsafeMutableRawPointer?, Int32, Int32) -> Void
 
     let abiIDFn: @convention(c) () -> UnsafePointer<CChar>?
     let load: @convention(c) (UnsafePointer<CChar>?, UnsafeMutablePointer<CChar>?, Int) -> Int32
@@ -186,9 +183,11 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let passkeysAvailable: @convention(c) () -> Int32
     let passkeysList: @convention(c) (UnsafePointer<CChar>?, Int32) -> Int32
     let passkeyDelete: @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, Int32) -> Int32
-    /// WebAuthn in the embedder (fork API 33, `CEFWebAuthnPrompts`): set the delegate, answer a request.
+    /// WebAuthn in the embedder (fork API 33, `CEFWebAuthnPrompts`): set the delegate, answer a request,
+    /// send an agent tab's requests to it (`CEFWebAuthnMode`).
     let webAuthnSetDelegate: (@convention(c) (WebAuthnRequestFn?, WebAuthnCancelFn?, UnsafeMutableRawPointer?, Int32) -> Int32)?
     let webAuthnComplete: (@convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32)?
+    let webAuthnDelegateTab: (@convention(c) (Int32) -> Int32)?
     /// Password manager core (fork API 18; see CEFEngine+Passwords). The reveal callback gets
     /// the bytes in a shim buffer that is zeroed after it returns.
     typealias PasswordRevealCallback = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<CChar>?, Int) -> Void
@@ -441,6 +440,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         passkeyDelete = try r("cmux_shim_passkey_delete")
         webAuthnSetDelegate = r.optional("cmux_shim_webauthn_set_delegate")
         webAuthnComplete = r.optional("cmux_shim_webauthn_complete")
+        webAuthnDelegateTab = r.optional("cmux_shim_webauthn_delegate_tab")
         passwordCoreAvailable = try r("cmux_shim_password_core_available")
         passwordList = try r("cmux_shim_password_list")
         passwordRemove = try r("cmux_shim_password_remove")

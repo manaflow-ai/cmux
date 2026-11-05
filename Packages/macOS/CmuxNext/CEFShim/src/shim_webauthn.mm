@@ -146,6 +146,15 @@ int cmux_shim_webauthn_set_delegate(cmux_shim_webauthn_request_fn on_request, cm
   return result;
 }
 
+int cmux_shim_webauthn_delegate_tab(int browser_id) {
+  // CMUX_WEBAUTHN_MODE_DELEGATE (cef_cmux.h). Only while cmux's delegate is
+  // set: without one the fork refuses every request of a DELEGATE tab, and a
+  // fork before API 33 does not know the mode (it returns 0).
+  constexpr int kWebAuthnModeDelegate = 2;
+  if (!fork_api().set_webauthn_mode || !webauthn_host().request) return 0;
+  return fork_api().set_webauthn_mode(browser_id, kWebAuthnModeDelegate);
+}
+
 int cmux_shim_webauthn_complete(int request_id, const char* response_json, const char* error_name,
                                 const char* error_message) {
   if (!fork_api().webauthn_complete) return 0;

@@ -122,6 +122,8 @@ struct ForkApi {
   // cmux_webauthn_delegate_t.
   int (*set_webauthn_delegate)(const void*) = nullptr;
   int (*webauthn_complete)(int, const char*, const char*, const char*) = nullptr;
+  // API 23 (mode DELEGATE from API 33): cmux_tab_set_webauthn_mode.
+  int (*set_webauthn_mode)(int, int) = nullptr;
 };
 
 struct Host {

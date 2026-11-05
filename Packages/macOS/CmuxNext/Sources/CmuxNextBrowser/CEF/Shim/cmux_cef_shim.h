@@ -951,6 +951,12 @@ CMUX_SHIM_EXPORT int cmux_shim_webauthn_set_delegate(cmux_shim_webauthn_request_
 // (the page got NotAllowedError), 0 unknown or ended request, or no fork call.
 CMUX_SHIM_EXPORT int cmux_shim_webauthn_complete(int request_id, const char* response_json, const char* error_name,
                                                  const char* error_message);
+// Sends every WebAuthn request of tab `browser_id` to the delegate, also while
+// the page shows (CMUX_WEBAUTHN_MODE_DELEGATE: an agent drives the tab, so the
+// person answers in cmux's prompt, never in a sheet the agent's input could
+// click through). Returns 1 when set; 0 when no delegate is set (the tab keeps
+// its mode), the fork lacks the mode, or the tab is unknown. UI thread.
+CMUX_SHIM_EXPORT int cmux_shim_webauthn_delegate_tab(int browser_id);
 
 #ifdef __cplusplus
 }
