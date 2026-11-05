@@ -55,6 +55,11 @@ export type AppState = {
    * swapped in one commit (`replace-items`), so the reader is never sent back to the top.
    */
   reconciling: boolean;
+  /**
+   * The render generation whose reconcile failed: the precomputed diff is still on screen, so the
+   * freshness check compares against its fingerprint again (and shows the notice), not the tree's.
+   */
+  reconcileFailedGeneration: number | null;
   /** Bumped by each `replace-items`; the viewer puts the reader's place back after it. */
   replaceCount: number;
   status: DiffViewerStatus;
@@ -156,6 +161,7 @@ export function initialAppState(config: DiffViewerConfig, initialStatus: DiffVie
     optionsOpen: false,
     renderGeneration: 0,
     reconciling: false,
+    reconcileFailedGeneration: null,
     replaceCount: 0,
     status: initialStatus,
     streamComplete: false,
@@ -360,11 +366,17 @@ export function reducer(state: AppState, action: AppAction): AppState {
     case "reconcile":
       return { ...state, reconciling: true, renderGeneration: state.renderGeneration + 1 };
     case "end-reconcile":
-      return state.reconciling ? { ...state, reconciling: false } : state;
+      return state.reconciling
+        ? { ...state, reconciling: false, reconcileFailedGeneration: state.renderGeneration }
+        : state;
     case "replace-items": {
       // The new diff's files in one commit, prepared as appended ones; the reader's file stays active
       // when it is still in the diff (ids come from paths, so an unchanged file keeps its id).
-      const next = reducer({ ...state, items: [], languages: ["text"] }, { type: "append-items", items: action.items });
+      // The inner append starts with no active file, so a reader's file that left the diff yields to the first.
+      const next = reducer(
+        { ...state, activeItemId: "", items: [], languages: ["text"] },
+        { type: "append-items", items: action.items },
+      );
       const kept = next.items.some((item) => item.id === state.activeItemId);
       return {
         ...next,

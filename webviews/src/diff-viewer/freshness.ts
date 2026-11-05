@@ -47,14 +47,16 @@ export function diffFingerprintReader(
 /// `precomputed`: the fingerprint of a diff the host computed before the page asked (an agent's turn
 /// ended; DiffPageRuntime+Warm.swift), the baseline instead of the first read. When the files changed
 /// since, the first check runs `reconcile` (when `canRefresh`), which swaps the new diff in without
-/// moving the reader, instead of showing the notice.
+/// moving the reader, instead of showing the notice. `failedGeneration`: the generation whose
+/// reconcile failed; the precomputed diff is still shown, so it is the baseline again (no second
+/// reconcile), and a tree that differs shows the notice.
 export function useDiffFreshness(
   read: (() => Promise<string | undefined>) | undefined,
   generation: number,
   canRefresh: () => boolean,
   refresh: () => void,
   onUnavailable?: (reason: string | undefined) => void,
-  precomputed?: { fingerprint: string | undefined; reconcile: () => void },
+  precomputed?: { fingerprint: string | undefined; reconcile: () => void; failedGeneration?: number | null },
 ): boolean {
   const [stale, setStale] = useState<number>();
   const baseline = useRef<string | undefined>(undefined);
@@ -63,9 +65,11 @@ export function useDiffFreshness(
   const consumed = useRef<string | undefined>(undefined);
   const latest = useSyncedRef({ canRefresh, refresh, onUnavailable, reconcile: precomputed?.reconcile });
   const precomputedFingerprint = precomputed?.fingerprint;
+  const reconcileFailed = precomputed?.failedGeneration === generation;
   useEffect(() => {
     let first = precomputedFingerprint !== undefined && consumed.current !== precomputedFingerprint;
-    baseline.current = first ? precomputedFingerprint : undefined;
+    baseline.current = first || reconcileFailed ? precomputedFingerprint : undefined;
+    if (reconcileFailed) first = false;
     latest.current.onUnavailable?.(undefined);
     if (!read) return;
     let current = true;
@@ -83,7 +87,7 @@ export function useDiffFreshness(
         if (baseline.current === undefined) baseline.current = now;
         else if (now !== baseline.current) {
           if (reconcile && latest.current.canRefresh()) {
-            baseline.current = now;
+            // The reconcile's render is a new generation, whose first read is its baseline.
             reconcile();
           } else if (returning && latest.current.canRefresh()) latest.current.refresh();
           else setStale(generation);
@@ -127,6 +131,6 @@ export function useDiffFreshness(
       window.removeEventListener("blur", blur);
       document.removeEventListener("visibilitychange", visible);
     };
-  }, [read, generation, latest, precomputedFingerprint]);
+  }, [read, generation, latest, precomputedFingerprint, reconcileFailed]);
   return stale === generation;
 }

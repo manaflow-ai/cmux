@@ -815,7 +815,11 @@ export function App({ config, initialStatus }: ConfigProps) {
     () => latestState.current.draft == null && !commitOpenRef.current,
     () => refreshRef.current(),
     setMachineUnavailable,
-    { fingerprint: precomputedFingerprint, reconcile: () => dispatch({ type: "reconcile" }) },
+    {
+      fingerprint: precomputedFingerprint,
+      reconcile: () => dispatch({ type: "reconcile" }),
+      failedGeneration: state.reconcileFailedGeneration,
+    },
   );
 
   return (
