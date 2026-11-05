@@ -6,13 +6,6 @@
 // subagent ends it leaves one quiet line where it ended, "Subagent finished: Explore the daemon ·
 // 1m 20s" (SubagentDoneLine.tsx), as a background shell's end does
 // (conversation/BackgroundTaskNote.tsx).
-//
-// Debug Settings `agentPane.debug.subagentTray` (AgentPaneTunables+SubagentTray.swift) turns it off:
-// the transcript then draws the old group card where the subagents started (SubagentGroup.tsx) and
-// the running turn's line counts the work (conversation/WorkingFor.tsx). The separate running
-// activity pill above the composer is intentionally not rendered. The host sends the setting with
-// the theme (`subagentTray`); absent means on.
-import { useSyncExternalStore } from "react";
 import type { AcpmuxRow } from "../model";
 import type { StartedSession } from "../started/startedSessions";
 import type { BackgroundCommand } from "../session-info/processes";
@@ -21,26 +14,6 @@ import { isRunGroup, isSubagentGroup, SUBAGENT_DONE, WORKFLOW_CARD } from "./sub
 import { awaitsOwnWork, type Subagent } from "./subagentFold";
 import { retrying, retryKey, sessionRetry, type RetryState } from "./retryState";
 import { BACKGROUND_TURN } from "../conversation/backgroundTurns";
-
-let trayOn = true;
-const listeners = new Set<() => void>();
-
-/// The host pushed the theme: anything but `false` keeps the tray.
-export function configureSubagentTray(value: unknown): void {
-  const next = value !== false;
-  if (next === trayOn) return;
-  trayOn = next;
-  for (const listener of listeners) listener();
-}
-
-const subscribe = (listener: () => void) => {
-  listeners.add(listener);
-  return () => void listeners.delete(listener);
-};
-const snapshot = () => trayOn;
-
-/// Whether running subagents show in the tray (the default) rather than as a transcript card.
-export const useSubagentTray = (): boolean => useSyncExternalStore(subscribe, snapshot, snapshot);
 
 /// One running thing in the tray: a subagent (nested ones moved in under their parent), a
 /// background command, or a chat the agent started.

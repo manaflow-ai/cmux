@@ -616,12 +616,6 @@ test("a usage record's reported setup reaches the context summary while the tool
 
 const status: AcpmuxRow = { id: "working", kind: "working", version: 1, at: START };
 const counts = (extra: Partial<WorkingCounts> = {}): WorkingCounts => ({
-  agents: 0,
-  commands: 0,
-  sessions: 0,
-  openAgents: () => {},
-  openCommands: () => {},
-  openSessions: () => {},
   ...extra,
 });
 const drawn = (row: AcpmuxRow, value: WorkingCounts) =>
@@ -640,8 +634,6 @@ test("the line reads the time, then the turn's output, after the working dots", 
   // Before the first call reports, or with no token data, the time stands alone.
   expect(drawn(status, counts())).toBe("Working for 5m 54s");
   expect(drawn(status, counts({ tokens: 0 }))).toBe("Working for 5m 54s");
-  // The background counts follow the tokens.
-  expect(drawn(status, counts({ tokens: 2_140_000, agents: 2 }))).toBe("Working for 5m 54s · 2.1M out · 2 subagents");
 });
 
 test("tokens are compact in the pane's language", () => {

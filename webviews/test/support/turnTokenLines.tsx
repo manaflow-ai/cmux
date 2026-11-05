@@ -14,12 +14,6 @@ import type { AcpmuxRow, TurnTokenSplit } from "../../src/agent-session/acpmux/m
 const START = Date.UTC(2026, 9, 21, 9, 0, 0);
 const now = () => START + 35_000;
 const counts: WorkingCounts = {
-  agents: 0,
-  commands: 0,
-  sessions: 0,
-  openAgents: () => {},
-  openCommands: () => {},
-  openSessions: () => {},
   tokens: 679_900,
 };
 const working: AcpmuxRow = { id: "working", kind: "working", version: 1, at: START };

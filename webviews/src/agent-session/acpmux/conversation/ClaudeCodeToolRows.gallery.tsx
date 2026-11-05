@@ -24,12 +24,6 @@ type Props = { look: Look; mode: "light" | "dark" };
 const START = Date.UTC(2026, 10, 3, 6, 0, 0);
 const now = () => START + 182_000;
 const counts: WorkingCounts = {
-  agents: 0,
-  commands: 0,
-  sessions: 0,
-  openAgents: () => {},
-  openCommands: () => {},
-  openSessions: () => {},
   tokens: 47_400,
   split: { output: 47_400, input: 9_000, cacheRead: 2_650_000, cacheWrite: 41_000 },
 };

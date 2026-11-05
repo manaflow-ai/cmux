@@ -10,7 +10,6 @@ import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/mode
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
 import { SUBAGENTS } from "../src/agent-session/acpmux/subagents/subagentFold";
 import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
-import { WorkingCountsContext } from "../src/agent-session/acpmux/conversation/WorkingFor";
 import { THINKING, trayWaitAgents, turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { withSubagentLines } from "../src/agent-session/acpmux/subagents/runningTray";
 import longWait from "../src/agent-session/acpmux/conversation/LongSubagentWait.gallery";
@@ -225,15 +224,12 @@ test("a running call reads the turn's clock as its total, never a clock that sta
   expect(html).toContain('<span class="cv-worked__time">13s</span>');
 });
 
-test("waiting on subagents, the line does not count them a second time", () => {
+test("waiting on subagents, the line names them once, with no count after its time", () => {
   const start = 1_000_000;
-  const counts = { agents: 2, commands: 1, sessions: 0, openAgents() {}, openCommands() {}, openSessions() {} };
   const html = renderToStaticMarkup(
-    <WorkingCountsContext.Provider value={counts}>
-      <Thinking since={start} liveState="subagents" liveAgents={2} turnTotal now={() => start + 60_000} />
-    </WorkingCountsContext.Provider>,
+    <Thinking since={start} liveState="subagents" liveAgents={2} turnTotal now={() => start + 60_000} />,
   );
-  expect(words(html)).toBe("Waiting on 2 subagents 1m · 1 command");
+  expect(words(html)).toBe("Waiting on 2 subagents 1m");
 });
 
 test("Thinking past the first step shows only the thoughts' streamed time, the waits go to the total", () => {

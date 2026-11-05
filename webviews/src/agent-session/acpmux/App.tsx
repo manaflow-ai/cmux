@@ -334,14 +334,7 @@ import { settleTrayExit, TRAY_GHOST } from "./subagents/trayMotion";
 import { SubagentDoneLine } from "./subagents/SubagentDoneLine";
 import { runRetry, type RetryTarget } from "./subagents/retryState";
 import { configureWorkflowCardOpen, configureWorkflowCardSideTab, WorkflowCard } from "./summary/WorkflowCard";
-import {
-  type DoneLineCache,
-  configureSubagentTray,
-  finishedTrayItems,
-  trayItems,
-  useSubagentTray,
-  withSubagentLines,
-} from "./subagents/runningTray";
+import { type DoneLineCache, finishedTrayItems, trayItems, withSubagentLines } from "./subagents/runningTray";
 import { configureSubagentTrayPlacement, useSubagentTrayPlacement } from "./subagents/subagentTrayPlacement";
 import { configureSelectionReply, SelectionReplyChip, setQuoteReplySink } from "./conversation/SelectionReply";
 import { AgentTonesContext, agentTone, agentTones } from "./subagents/agentTones";
@@ -2034,8 +2027,6 @@ const NO_SESSION_IDS: ReadonlySet<string> = new Set();
 const NO_ROWS: readonly AcpmuxRow[] = [];
 const NO_EXPANDED: ReadonlySet<string> = new Set();
 const NO_SPAWNED: readonly AcpmuxSessionEntry[] = [];
-const NO_COMMANDS: readonly BackgroundCommand[] = [];
-const NO_AGENTS: readonly Subagent[] = [];
 const sameItems = <T,>(a: readonly T[], b: readonly T[]) =>
   a.length === b.length && a.every((item, index) => item === b[index]);
 
@@ -6418,7 +6409,6 @@ export function applyPaneTheme(theme: Record<string, unknown>): void {
   configureMessageLineLook(theme.messageLineLook);
   configureNoticeLook(theme.noticeLook);
   configureTurnActionsPlacement(theme.turnActionsPlacement);
-  configureSubagentTray(theme.subagentTray);
   configureSubagentTrayPlacement(theme.subagentTrayPlacement);
   configureSelectionReply(theme.selectionReply);
 }
@@ -7434,9 +7424,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // name (`claude-2`), and "New chat" before it has a title, never nothing.
   const chatName = snapshot.summary ? sessionTitle(snapshot.summary, t) : t("sidebar.newChat");
   // Running subagents sit in the tray above the composer, and one that ended leaves a line where it
-  // ended (subagents/runningTray.ts); Debug Settings agentPane.debug.subagentTray off keeps the
-  // transcript's group cards and the agents pill.
-  const subagentTray = useSubagentTray();
+  // ended (subagents/runningTray.ts).
   const trayPlacement = useSubagentTrayPlacement();
   const doneLines = useRef<DoneLineCache>(new Map());
   const childDoneLines = useRef<DoneLineCache>(new Map());
@@ -7538,19 +7526,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const childRows = useMemo(() => {
     if (workflowTranscript.rows) return workflowTranscript.rows;
     if (!subagentView) return undefined;
-    if (!subagentTray) return childView(subagentView, snapshot.rows, snapshot.subagentViews, folds, chatName);
     const view = childView(subagentView, snapshot.rows, snapshot.subagentViews, NO_EXPANDED, chatName);
     return view && (withSubagentLines(view, childDoneLines.current, workflowLabsEnabled) as AcpmuxRow[]);
-  }, [
-    subagentView,
-    snapshot.rows,
-    snapshot.subagentViews,
-    folds,
-    chatName,
-    subagentTray,
-    workflowLabsEnabled,
-    workflowTranscript.rows,
-  ]);
+  }, [subagentView, snapshot.rows, snapshot.subagentViews, chatName, workflowLabsEnabled, workflowTranscript.rows]);
   // The session's edit rows for the edited-files card, the same array while they are the same rows.
   const lastEditRows = useRef<SessionEdits | undefined>(undefined);
   const editRows = useMemo(() => {
@@ -7703,9 +7681,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     }
     const startedRows = withStartedSessions(sourceRows, started, startedCache.current);
     // Labs: a Claude workflow is a card where it started (summary/WorkflowCard.tsx), not a tray line.
-    const rows = subagentTray ? withSubagentLines(startedRows, doneLines.current, workflowLabsEnabled) : startedRows;
+    const rows = withSubagentLines(startedRows, doneLines.current, workflowLabsEnabled);
     // The tray takes the running groups out of the rows, so the live line's wait is counted first.
-    const trayAgents = subagentTray ? trayWaitAgents(startedRows) : 0;
+    const trayAgents = trayWaitAgents(startedRows);
     return acpmuxPerf.timed("app.rows", () => {
       const last = lastTurns.current;
       if (heldCalls.current.session !== shownSessionId)
@@ -7795,7 +7773,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     messageBreaks,
     chatShellRuns,
     panelAsks,
-    subagentTray,
     workflowLabsEnabled,
     shownSessionId,
     callRelease,
@@ -7817,8 +7794,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // none in a run come back as they are.
   // The running turn's todo list shows in the hat over the composer (subagents/SubagentTray.tsx
   // `plan`), not pinned in the transcript (Leo, 2026-11-03: "we said earlier the composer hat is kinda
-  // ok?"), unless Settings > Agent Chat > Pin Task List in Chat is on, or there is no hat (the tray off
-  // in Debug Settings, the Quick Composer, a subagent's own view). Once the turn ends its list folds
+  // ok?"), unless Settings > Agent Chat > Pin Task List in Chat is on, or there is no hat (the Quick
+  // Composer, a subagent's own view). Once the turn ends its list folds
   // in the transcript, as before.
   const pinnedPlan = useChatPinnedPlan();
   // The hat tucked away to its pull tab (chatDisplay.ts TRAY_TUCKED_KEY; Leo, 2026-11-04).
@@ -7826,7 +7803,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Where its tuck chevron and pull tab sit along the composer's top edge (chatDisplay.ts TRAY_HANDLE_KEY).
   const trayHandle = useTrayHandle();
   // Debug Settings agent.sessionStatus draws its activity line under the pinned list, so it pins it.
-  const planInHat = subagentTray && !pinnedPlan && !sessionStatus && !quick && !childRows && snapshot.isWorking;
+  const planInHat = !pinnedPlan && !sessionStatus && !quick && !childRows && snapshot.isWorking;
   const hatPlanRow = useMemo(() => (planInHat ? liveTurnPlan(turnRowsShown) : undefined), [planInHat, turnRowsShown]);
   // The list's entries hold while a step's state does not change, so streamed text never redraws the hat.
   const hatPlanKept = useRef<readonly AcpmuxPlanEntry[] | undefined>(undefined);
@@ -8246,10 +8223,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const cardBackground = useMemo(
     () => ({ ...processRegistry, running: transcriptRunning, onStop: stopProcess }),
     [processRegistry, transcriptRunning, stopProcess],
-  );
-  const runningChildSessions = useMemo(
-    () => childSessions.filter((child) => child.state === "running"),
-    [childSessions],
   );
   const cardSessions = useMemo(() => ({ list: childSessions, onOpen: openOfferChat }), [childSessions]);
   // The Background tasks panel's commands, the ended ones too, and its groups: only while it is open.
@@ -9667,17 +9640,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     configureWorkflowCardSideTab(workflowLabsEnabled ? openWorkflowSideTab : undefined);
     return () => configureWorkflowCardSideTab(undefined);
   }, [openWorkflowSideTab, workflowLabsEnabled]);
-  // The running line's counts (conversation/WorkingFor.tsx), with the tray off (Debug Settings):
-  // the subagents still running, the background commands that have not ended and the started chats
-  // that run. A count of one opens its subagent, the command's row or the chat; of several, the
-  // Inspector's section that lists them all (the summary card with the Inspector off). With the tray
-  // on (the default) the tray is the count, in a turn and between turns, so the line counts nothing.
   const [revealRow, setRevealRow] = useState<{ rowId: string; key: number; toolId: string }>();
-  const counting = snapshot.isWorking && !subagentTray;
-  // chatAgents already lists every subagent and changes when one's state does.
-  const runningAgents = useMemo(() => (counting ? chatAgents.filter(running) : NO_AGENTS), [counting, chatAgents]);
-  const runningCommands = counting ? runningCommandList : NO_COMMANDS;
-  const runningSessions = counting ? runningChildSessions : NO_STARTED;
   // The tray's lines (subagents/runningTray.ts): the subagents, the background commands
   // (session-info/processes.ts `backgroundCommands`, the registry's merged with the transcript's) and
   // the started chats that run. A new list only when what it shows changes, so streamed text never redraws the tray.
@@ -9699,15 +9662,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [workflowLabsEnabled, chatAgents],
   );
   const trayList = useMemo(
-    () => (subagentTray ? trayItems(trayAgents, runningCommandList, childSessions, snapshot.isWorking) : []),
+    () => trayItems(trayAgents, runningCommandList, childSessions, snapshot.isWorking),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runningCommandList is new on every snapshot; its key is not
-    [subagentTray, trayAgents, commandsKey, childSessions, snapshot.isWorking],
+    [trayAgents, commandsKey, childSessions, snapshot.isWorking],
   );
   // What ended, behind the tray's bounded status cards; never in its count.
-  const trayFinished = useMemo(
-    () => (subagentTray ? finishedTrayItems(trayAgents, childSessions) : []),
-    [subagentTray, trayAgents, childSessions],
-  );
+  const trayFinished = useMemo(() => finishedTrayItems(trayAgents, childSessions), [trayAgents, childSessions]);
   // The turn's generated output tokens so far, said after its time (direct.ts `turnTokens`).
   const turnTokens = snapshot.isWorking ? snapshot.turnTokens : undefined;
   // Its output apart from what it read, when every call carried the split; held by its numbers, as
@@ -9716,9 +9676,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const splitKey = split ? `${split.output}/${split.input}/${split.cacheRead}/${split.cacheWrite}` : "";
   const counted = useRef({
     summary: snapshot.summary,
-    runningAgents,
-    runningCommands,
-    runningSessions,
     sourceRows,
     transcriptRows,
     summaryCard,
@@ -9727,9 +9684,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   });
   counted.current = {
     summary: snapshot.summary,
-    runningAgents,
-    runningCommands,
-    runningSessions,
     backgroundCommandList: runningCommandList,
     sourceRows,
     transcriptRows,
@@ -9817,49 +9771,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     }),
     [openWorkflowTranscript, stopSubagent, t, showWorkflowAgent, readWorkflowAgent],
   );
-  const workingCounts = useMemo<WorkingCounts>(() => {
-    return {
-      agents: runningAgents.length,
-      commands: runningCommands.length,
-      sessions: runningSessions.length,
-      tokens: turnTokens,
-      split,
-      openAgents: () => {
-        const {
-          runningAgents: agents,
-          runningSessions: sessions,
-          summaryCard: card,
-          sessionInfo: panel,
-        } = counted.current;
-        // One count with the chats it started (WorkingFor.tsx `workingParts`): one subagent alone opens.
-        if (agents.length === 1 && sessions.length === 0) showSubagent(agents[0]!.id);
-        // The Inspector takes the summary card's place while it is on (its panel is never drawn).
-        else if (panel.reveal) panel.reveal("subagents");
-        else card.show();
-      },
-      openCommands: () => {
-        const { runningCommands: commands, summaryCard: card, sessionInfo: panel } = counted.current;
-        if (commands.length === 1 && showToolRow(commands[0]!.toolCallId)) return;
-        if (panel.reveal) panel.reveal(backgroundSection(commands));
-        else card.show();
-      },
-      openSessions: () => {
-        const { runningSessions: sessions, summaryCard: card, sessionInfo: panel } = counted.current;
-        if (sessions.length === 1) openOfferChat(sessions[0]!.sessionId);
-        else if (panel.reveal) panel.reveal("subagents");
-        else card.show();
-      },
-    };
+  // The turn's output tokens after the live line's time (conversation/Thinking.tsx).
+  const workingCounts = useMemo<WorkingCounts>(
+    () => ({ tokens: turnTokens, split }),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the split is new on every snapshot; its key is not
-  }, [
-    runningAgents.length,
-    runningCommands.length,
-    runningSessions.length,
-    turnTokens,
-    splitKey,
-    showSubagent,
-    showToolRow,
-  ]);
+    [turnTokens, splitKey],
+  );
   // A tray command opens its terminal beside the chat; where none opens (a peer's or Cloud chat, or
   // a command only the transcript knows), the Bash call that started it in the transcript; with no
   // call loaded either, the summary card, which lists it, or, while the Inspector takes the card's

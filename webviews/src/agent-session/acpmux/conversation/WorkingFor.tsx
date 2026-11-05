@@ -1,17 +1,11 @@
 // The older "Working for" line over a running turn's work (a `working` row; the transcript now
-// draws the turn's one live line at its bottom instead, Thinking.tsx, with the same counts): "Working for 42s", ticking each second from the prompt,
+// draws the turn's one live line at its bottom instead, Thinking.tsx): "Working for 42s", ticking each second from the prompt,
 // or held at `durationMs` while text streams. While a call runs (`row.doing`, turns.ts) it names
 // that call beside the time instead, as Claude desktop's line does, after the terminal glyph when
 // the call is a command; not while the call's own tool row is on screen, which names it already.
-// No mark blinks before it; the ticking time says the turn is alive. After
-// that it counts the work still going in the background, as Claude's phone app does ("Working… · 5
-// running tasks"): "· 3 subagents · 1 command", only subagents and chats the agent started still
-// running (one word, subagents, as the tray says), and background commands that have not ended
-// (the process registry's and the transcript's, session-info/processes.ts `backgroundCommands`). Each count opens what it
-// counts. The counts follow on the same fixed-height line, so one that comes or goes moves neither
-// the label nor the rows below. With the running tray on (the default, subagents/runningTray.ts)
-// the tray above the composer is the count, and App.tsx counts nothing here. Before them, as Claude
-// desktop's line does, it says the turn's generated output so far
+// No mark blinks before it; the ticking time says the turn is alive. The running tray above the
+// composer counts the work still going in the background (subagents/runningTray.ts), never this
+// line. After the time, as Claude desktop's line does, it says the turn's generated output so far
 // ("5m 54s · 2.1M out") when the harness reports it (direct.ts `turnTokens`). When the turn
 // ends, the "Worked for" disclosure takes its place. While the turn waits on the person (an ask
 // above the composer, waitingOn.ts), the line says so in place of the time and the call: the clock
@@ -36,15 +30,9 @@ import { StatusVerb } from "./StatusVerb";
 export const workingLabel = (t: Translate, at: number, now: number) =>
   t("turn.working", { time: formatDuration(Math.max(0, now - at)) });
 
-/// What the running turn's line counts (App.tsx): the subagents, background commands and started
-/// chats still running, and what opens each.
+/// What the running turn's line says after its time (App.tsx). The running subagents, background
+/// commands and started chats are the tray's to count (subagents/runningTray.ts), never the line's.
 export type WorkingCounts = {
-  agents: number;
-  commands: number;
-  sessions: number;
-  openAgents: () => void;
-  openCommands: () => void;
-  openSessions: () => void;
   /// The turn's generated output tokens so far (snapshot `turnTokens`), when the harness reports them.
   tokens?: number;
   /// Those tokens split into output and what the calls read (snapshot `turnTokenSplit`), when known.
@@ -52,26 +40,6 @@ export type WorkingCounts = {
 };
 
 export { workingTokens } from "./TurnTokens";
-
-/// The running line's counts, each opening what it counts: the subagents and the chats the agent
-/// started are one count, "3 subagents" (the tray's word, subagents/SubagentTray.tsx), then the
-/// commands.
-export function workingParts(t: Translate, counts: WorkingCounts): { key: string; label: string; open: () => void }[] {
-  const subagents = counts.agents + counts.sessions;
-  const parts = [
-    subagents > 0 && {
-      key: "agents",
-      label: t("subagents.count", { n: subagents }),
-      open: counts.agents > 0 ? counts.openAgents : counts.openSessions,
-    },
-    counts.commands > 0 && {
-      key: "commands",
-      label: t("turn.working.commands", { n: counts.commands }),
-      open: counts.openCommands,
-    },
-  ];
-  return parts.filter((part) => part !== false);
-}
 
 export const WorkingCountsContext = createContext<WorkingCounts | undefined>(undefined);
 
@@ -91,7 +59,6 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
   const sendName = useSubsessionInfo(row.doingSendSession)?.name ?? row.doingSendTo;
   const sending = shown !== undefined && sendName !== undefined;
   const doing = sending ? t("send.sending", { target: sendName }) : shown;
-  const parts = counts ? workingParts(t, counts) : [];
   return (
     // Find counts and visits transcript rows only (chatFind.ts findMatches skips this row), so the
     // line is not painted either: the call it names is matched on its own tool row.
@@ -126,16 +93,6 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
           <TurnTokens total={counts.tokens} split={counts.split} />
         </span>
       ) : null}
-      {parts.map((part) => (
-        <span key={part.key} className="cv-worked__count">
-          <span className="cv-worked__sep" aria-hidden="true">
-            ·
-          </span>
-          <button type="button" className="cv-worked__open" onClick={part.open}>
-            {part.label}
-          </button>
-        </span>
-      ))}
       {/* A running command's ⌃B hint (BackgroundHint.tsx): on the line, never on its row. Keyed by
           the call, so each command's hint waits its moment again. */}
       {!waiting && row.doingCommand && !row.doingDraft && <BackgroundHint key={row.doing} />}

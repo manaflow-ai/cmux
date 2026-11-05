@@ -966,7 +966,6 @@ CmuxNextAgentPane	extension	AgentPaneTunables	0	LOGIC	100	0	Packages/macOS/CmuxN
 CmuxNextAgentPane	extension	AgentPaneTunables	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTunables+NewTabWidgets.swift	Debug-settings tunable key and default
 CmuxNextAgentPane	extension	AgentPaneTunables	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTunables+OutsideChats.swift	Debug-settings tunable key and default
 CmuxNextAgentPane	extension	AgentPaneTunables	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTunables+PointerInspector.swift	Debug-settings tunable key and default
-CmuxNextAgentPane	extension	AgentPaneTunables	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTunables+SubagentTray.swift	Debug-settings tunable key and default
 CmuxNextAgentPane	extension	AgentPaneTunables	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTunables+SuggestedTasks.swift	Debug-settings tunable key and default
 CmuxNextAgentPane	extension	AgentPaneTunables	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTunables+SystemDictation.swift	Debug-settings tunable key and default
 CmuxNextAgentPane	enum	AgentPaneHarnessPlacement	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTunables.swift	from enum AgentPaneTopStripStyle:8: Debug-settings tunable choices and defaults

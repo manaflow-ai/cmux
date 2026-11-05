@@ -157,19 +157,12 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     return `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${session}`;
   };
-  /// The older presentation: transcript group cards and the agents pill (Debug Settings
-  /// agentPane.debug.subagentTray off, which the host sends with the theme).
-  const trayOff = (page: Page) =>
-    page.evaluate(() =>
-      (window as any).cmuxAcpmuxBridge.applyTheme({ isDark: true, subagentTray: false }),
-    ) as Promise<void>;
-  const open = async (session: string, shown = "Read app.ts", tray = false) => {
+  const open = async (session: string, shown = "Read app.ts") => {
     sockets.clear();
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.goto(url(session));
     // The read in flight draws no row of its own: the turn's live line names it by its file (Thinking.tsx).
     await page.getByText(shown).first().waitFor({ timeout: 25_000 });
-    if (!tray) await trayOff(page);
     return page;
   };
   const tray = (page: Page) => page.locator(".acpmux-running-tray");
@@ -230,7 +223,7 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
   });
 
   test("by default the running agents sit in the tray above the composer, not in the transcript", async () => {
-    const page = await open(BUSY, "Read app.ts", true);
+    const page = await open(BUSY, "Read app.ts");
     await tray(page).waitFor({ timeout: 5_000 });
     // It starts folded to its header (cmux#28875); the person opens it.
     await openRunningTray(page);
@@ -266,7 +259,7 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
     await page.close();
     // An agent spawned by another sits right under it in the tray, and moves with it: the newer
     // Tester is on top, then Reviewer with its Scout (#33364).
-    const nested = await open(NESTED, "Read app.ts", true);
+    const nested = await open(NESTED, "Read app.ts");
     await tray(nested).waitFor({ timeout: 5_000 });
     await openRunningTray(nested);
     expect(await tray(nested).locator(".acpmux-summary-agent__name").allTextContents()).toEqual([
@@ -277,7 +270,7 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
     await nested.close();
     // The turn is over: an agent left "running" by a cancel or a reconnect pins no running row; the
     // tray keeps it only as a stopped card (49acdd1d589d keeps ended cards).
-    const stale = await open(STUCK, "Review the branch with a few agents", true);
+    const stale = await open(STUCK, "Review the branch with a few agents");
     expect(await tray(stale).locator("li:not([data-finished])").count()).toBe(0);
     expect(await tray(stale).locator('li[data-finished] .acpmux-agent-line[data-status="stopped"]').count()).toBe(1);
     await stale.close();
