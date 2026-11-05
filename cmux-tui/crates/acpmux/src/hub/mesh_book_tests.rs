@@ -39,7 +39,13 @@ fn book() -> AddressBook {
         sessions: vec![
             session("0198f2a4-0000-7000-8000-00000000000a", "here", "machine-a", "d-a", "ready"),
             session(B_ID, "fix-login", "machine-b", "d-b", "running"),
-            session("0198f2a4-0000-7000-8000-00000000000c", "theirs", "teammate-box", "d-t", "ready"),
+            session(
+                "0198f2a4-0000-7000-8000-00000000000c",
+                "theirs",
+                "teammate-box",
+                "d-t",
+                "ready",
+            ),
             session("0198f2a4-0000-7000-8000-00000000000d", "linked", "ssh-box", "d-s", "ready"),
         ],
     }
@@ -102,9 +108,10 @@ async fn only_a_change_is_announced_and_a_stop_empties_the_list() {
     let hub = hub();
     let mut events = hub.events.subscribe();
     hub.apply_mesh_book(book(), "person-1", Some("d-a"));
+    // No ssh peer here, so ssh-box is listed through the hub too.
     let first = notices(&mut events);
-    assert_eq!(first.len(), 1, "{first:?}");
-    assert_eq!(first[0].0, "status");
+    assert_eq!(first.len(), 2, "{first:?}");
+    assert!(first.iter().all(|(kind, _)| kind == "status"), "{first:?}");
     let writes = hub.remote_sessions.lock().unwrap().writes;
 
     hub.apply_mesh_book(book(), "person-1", Some("d-a"));
