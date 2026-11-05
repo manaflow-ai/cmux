@@ -324,7 +324,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         manualMirrorSurfaceIDsSocketPath = nil
         // A restored terminal has no session yet to carry this stop. Its attach
         // ends here, and the next reprojection after a resume starts it again.
-        showRestoredTerminalsUnavailable(detail: stopReason.endedPresentation?.detail ?? "", retry: nil)
+        // A provider already out of the catalog no longer speaks for these panes.
+        if catalog.provider(for: machine).map({ ObjectIdentifier($0) == ObjectIdentifier(self) }) == true {
+            showRestoredTerminalsUnavailable(detail: stopReason.endedPresentation?.detail ?? "", retry: nil)
+        }
         for task in restoredAttachTasks.values { task.cancel() }
         materializedPanels.subtract(restoredAttachTasks.keys)
         restoredAttachTasks.removeAll()
