@@ -68,11 +68,6 @@ impl Client {
         reply["result"].clone()
     }
 
-    async fn err(&mut self, m: &str, params: Value) -> Value {
-        let (reply, _) = self.call_text(m, params).await;
-        reply.get("error").cloned().unwrap_or_else(|| panic!("{m} did not fail: {reply}"))
-    }
-
     async fn env_of(&mut self, session: &str, name: &str) -> String {
         let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": format!("env: {name}")}]});
         let (reply, mut text) = self.call_text("session/prompt", prompt).await;
