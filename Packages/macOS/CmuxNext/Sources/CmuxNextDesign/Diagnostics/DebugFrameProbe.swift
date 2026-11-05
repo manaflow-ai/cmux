@@ -50,6 +50,11 @@ public final class DebugFrameProbe {
     /// `action`: "start", "stop", "reset", or anything else to read the record; `raw` adds the per-frame arrays.
     public func handle(action: String?, raw: Bool) -> [String: Any] {
         switch action ?? "read" {
+        case "pages_start": // SCRATCH (never merge, m20 item 6): per-commit page geometry (`PageCommitProbe`)
+            pageCommits.start()
+            return ["started": true]
+        case "pages_stop":
+            return pageCommits.stopAndRead()
         case "start":
             start()
         case "stop":
@@ -63,6 +68,8 @@ public final class DebugFrameProbe {
         }
         return stats(raw: raw)
     }
+
+    private let pageCommits = PageCommitProbe()
 
     private func start() {
         clear()

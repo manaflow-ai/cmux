@@ -90,6 +90,8 @@ parser.add_argument("--key-settle-s", type=float, default=0.6, help="after the l
 parser.add_argument("--set", action="append", default=[], help="KEY=true|false: a boolean tunable set after launch")
 parser.add_argument("--held-repeat", type=int, default=0, help="keys layouts: also measure a held key (this many presses)")
 parser.add_argument("--xctrace-rounds", type=int, default=0, help="Time Profiler (attached to the app pid) on this many rounds per layout")
+parser.add_argument("--page-commits", action="store_true",
+                    help="SCRATCH (m20 item 6): record debug.page_commits (per CA commit page geometry) in each round")
 parser.add_argument("--pages-mix", action="store_true",
                     help="SCRATCH (SMOOTH-PAGES-PROFILE): in STRESS, every other pane of each column shows a Chromium page")
 parser.add_argument("--devtools-docked", action="store_true",
@@ -389,9 +391,13 @@ def measure(name):
             recording = profile_start(name, index)
             background = main_profile.background_cpu()
             rpc("debug.terminal_display", {"action": "start"})
+            if opts.page_commits:
+                rpc("debug.frames", {"action": "pages_start"})
             rpc("debug.frames", {"action": "start"})
             drag(x0, y0, refresh_ms / 1000)
             frames = rpc("debug.frames", {"action": "stop", "raw": True}) or {}
+            if opts.page_commits:
+                entry["page_commits"] = rpc("debug.frames", {"action": "pages_stop"}, timeout=120) or {}
             display = rpc("debug.terminal_display", {"action": "stop"}) or {}
             entry["background_cpu"] = main_profile.background_delta(background)
             profile_stop(recording, entry)
@@ -427,6 +433,8 @@ def measure_keys(name, repeat=None):
             recording = profile_start(name, index)
             background = main_profile.background_cpu()
             rpc("debug.terminal_display", {"action": "start"})
+            if opts.page_commits:
+                rpc("debug.frames", {"action": "pages_start"})
             rpc("debug.frames", {"action": "start"})
             presses = []
             for number, action in enumerate(plan):
@@ -447,6 +455,8 @@ def measure_keys(name, repeat=None):
                     press["refused"] = json.dumps(reply)[:200]
                 presses.append(press)
             frames = rpc("debug.frames", {"action": "stop", "raw": True}) or {}
+            if opts.page_commits:
+                entry["page_commits"] = rpc("debug.frames", {"action": "pages_stop"}, timeout=120) or {}
             display = rpc("debug.terminal_display", {"action": "stop"}) or {}
             entry["background_cpu"] = main_profile.background_delta(background)
             profile_stop(recording, entry)
