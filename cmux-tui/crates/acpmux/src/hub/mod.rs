@@ -1212,7 +1212,9 @@ impl Hub {
     }
 
     fn catch_up_locked(&self, session: &Session) {
-        if session.caught_up.swap(true, Ordering::SeqCst) {
+        // Once: every caller holds `append_lock`. Marked only once the tail is counted, since
+        // `scan_events` reads the mark without that lock (review of #36022).
+        if session.caught_up.load(Ordering::SeqCst) {
             return;
         }
         let after =
@@ -1253,6 +1255,7 @@ impl Hub {
             meta.available_commands = None;
             session.seq.fetch_max(last, Ordering::SeqCst);
         }
+        session.caught_up.store(true, Ordering::SeqCst);
         // Kept, so the next start scans only past what this one read.
         if rebuilt {
             self.save_meta(session);
