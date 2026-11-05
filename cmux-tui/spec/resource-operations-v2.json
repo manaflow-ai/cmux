@@ -3860,7 +3860,7 @@
               "gone"
             ]
           },
-          "description": "claimed: messages leased to the caller; timeout: nothing to claim before the deadline; superseded: a newer poller took the recipient; stale: the agent's process is gone; gone: the terminal is not in this session."
+          "description": "claimed: messages leased to the caller; timeout: nothing to claim before the deadline; superseded: a newer poller took the recipient; stale: the agent's process is gone (reason agent_exited) or the terminal's hooks name another session (reason session_replaced); gone: the terminal is not in this session."
         },
         "lease_id": {
           "required": false,
@@ -15148,7 +15148,8 @@
         "constraints": [
           "A claim leases the oldest queued deliveries that fit one prompt batch for 30 seconds; another claim of the same recipient skips them. The claimer shows them, then marks them delivered (agent.message.mark), which ends the lease. A lease that lapses, a lost response or a daemon restart leaves them queued to be offered again: delivery is at least once, and delivered means the text was handed to the agent's process, not that the model read or acted on it.",
           "A wait blocks without polling: a send, a release, the agent's state change, the terminal's close, a newer poller or a lease's end wakes it. It blocks only on a cmux.protocol/2 socket connection, whose close or request.cancel ends it.",
-          "A wait claims nothing while the agent waits on the person (with respect_hold), while agent_session_id has ended on the terminal, or once agent_pid is gone."
+          "A wait claims nothing while the agent waits on the person (with respect_hold), while agent_session_id has ended on the terminal, or once agent_pid is gone.",
+          "A wait that names agent_session_id is bound to it before it registers its poller or claims: until the terminal's hook fence names that session it neither registers nor claims, and after 30 seconds (or its timeout, if sooner) it answers stale with reason session_replaced. A replaced session's wait, even from the same live process, therefore never supersedes the live session's poller."
         ]
       },
       "result": {

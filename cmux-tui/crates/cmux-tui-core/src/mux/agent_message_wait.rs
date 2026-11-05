@@ -27,6 +27,13 @@
 //! agent's process is gone. Each recipient has one poller: a newer one
 //! supersedes the older, which then answers `superseded`, so repeated
 //! `Stop` hooks or a replaced session never leave two wake hooks claiming.
+//!
+//! A wait that names its agent session is bound to it before it registers
+//! or claims anything: the terminal's hook fence must name that session. A
+//! wait for another session (a replaced one, or the old session of a Claude
+//! process that resumed another, which keeps its process id) neither
+//! registers nor claims; it answers `stale` once [`SESSION_GRACE`] passes,
+//! which also lets a new session's start reach the fence first.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, PoisonError, Weak};
@@ -46,6 +53,10 @@ pub(crate) const LEASE: Duration = Duration::from_secs(30);
 pub(crate) const WAIT_TIMEOUT_MAX: Duration = Duration::from_secs(15 * 60);
 /// Queued deliveries one claim reads, oldest first, before the batch cut.
 const CLAIM_PAGE: usize = 50;
+/// How long a wait whose session the terminal's hooks have not confirmed
+/// holds (a new session's start may still be on its way into the fence)
+/// before it answers `stale`.
+pub(crate) const SESSION_GRACE: Duration = Duration::from_secs(30);
 
 /// One claim's messages, kept from other claimers until it ends.
 #[derive(Debug, Clone)]
@@ -291,6 +302,17 @@ impl AgentMessageWait {
     }
 }
 
+/// Whether the terminal's hooks name the session a wait runs in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Binding {
+    /// The wait names no session (an older hook, a one-shot claim).
+    Unbound,
+    /// The fence names the wait's session.
+    Bound,
+    /// The fence names another session, or none yet.
+    Unconfirmed,
+}
+
 /// Why a wait claims nothing now, if it does not.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Holdback {
@@ -342,11 +364,13 @@ impl Mux {
                 "agent.message.wait blocks for at most 900000 ms; wait again after it answers",
             ));
         }
-        let deadline = Instant::now() + request.timeout;
+        let started = Instant::now();
+        let deadline = started + request.timeout;
+        let unconfirmed_until = (started + SESSION_GRACE).min(deadline);
         let waits = self.agent_message_waits();
-        if let Some(poller) = &request.poller {
-            waits.register_poller(recipient, poller, request.register);
-        }
+        // A poller registers only once its session is bound: a stale wait
+        // must never supersede the live session's poller.
+        let mut registered = request.poller.is_none();
         loop {
             if stopped() {
                 return Ok(None);
@@ -356,16 +380,28 @@ impl Mux {
             if stopped() {
                 return Ok(None);
             }
-            if let Some(poller) = &request.poller
-                && !waits.is_current_poller(recipient, poller)
-            {
-                return Ok(Some(json!({"status":"superseded"})));
-            }
             if self.resource_surface_for_terminal(&terminal).is_none() {
                 return Ok(Some(json!({"status":"gone"})));
             }
             if request.agent_pid.is_some_and(|pid| !process_alive(pid)) {
                 return Ok(Some(json!({"status":"stale","reason":"agent_exited"})));
+            }
+            if self.agent_message_binding(&terminal, request) == Binding::Unconfirmed {
+                if Instant::now() >= unconfirmed_until {
+                    return Ok(Some(json!({"status":"stale","reason":"session_replaced"})));
+                }
+                // The fence's change wakes this (agent_roster_fold.rs).
+                subscription.wait_until(Some(unconfirmed_until));
+                continue;
+            }
+            if !registered && let Some(poller) = &request.poller {
+                waits.register_poller(recipient, poller, request.register);
+                registered = true;
+            }
+            if let Some(poller) = &request.poller
+                && !waits.is_current_poller(recipient, poller)
+            {
+                return Ok(Some(json!({"status":"superseded"})));
             }
             let holdback = self.agent_message_holdback(&terminal, request);
             if holdback.is_none()
@@ -388,6 +424,20 @@ impl Mux {
                 .filter(|at| *at > now)
                 .map_or(deadline, |at| at.min(deadline));
             subscription.wait_until(Some(wake_at));
+        }
+    }
+
+    /// Whether the terminal's hook fence names the wait's session.
+    fn agent_message_binding(
+        &self,
+        terminal: &TerminalPublicId,
+        request: &AgentMessageWait,
+    ) -> Binding {
+        let Some(session) = request.agent_session_id.as_deref() else { return Binding::Unbound };
+        let fences = self.agent_hook_fences.lock().unwrap_or_else(PoisonError::into_inner);
+        match fences.get(terminal) {
+            Some(fence) if fence.session_id == session => Binding::Bound,
+            _ => Binding::Unconfirmed,
         }
     }
 

@@ -86,42 +86,69 @@ pub(super) fn print_nothing(delivery: Option<Delivery>) {
 }
 
 fn print_output(value: &Value) {
-    let mut stdout = io::stdout().lock();
-    let _ = writeln!(stdout, "{value}");
-    let _ = stdout.flush();
+    let _ = write_output(&mut io::stdout().lock(), value);
+}
+
+fn write_nothing(out: &mut dyn Write, delivery: Delivery) {
+    let _ = write_output(out, &delivery.output(None));
+}
+
+/// One JSON line, flushed: whether the agent can have read it.
+fn write_output(out: &mut dyn Write, value: &Value) -> io::Result<()> {
+    writeln!(out, "{value}")?;
+    out.flush()
 }
 
 pub(super) fn deliver(delivery: Delivery, socket: &Path, terminal: Option<&str>) {
-    let Some(terminal) = terminal.filter(|terminal| terminal.starts_with("term_")) else {
-        print_nothing(Some(delivery));
-        return;
-    };
     let claude = delivery == Delivery::PromptContext { via: "claude.prompt-submit" };
-    if claude && !claude_owns_terminal(|name| env::var_os(name)) {
-        print_nothing(Some(delivery));
-        return;
+    let owns = !claude || claude_owns_terminal(|name| env::var_os(name));
+    deliver_to(&mut io::stdout().lock(), delivery, socket, terminal, owns);
+}
+
+/// [`deliver`], writing the hook's output to `out`. `owns` is false for a
+/// Claude hook that must take nothing (headless or nested).
+fn deliver_to(
+    out: &mut dyn Write,
+    delivery: Delivery,
+    socket: &Path,
+    terminal: Option<&str>,
+    owns: bool,
+) {
+    let Some(terminal) = terminal.filter(|terminal| terminal.starts_with("term_")) else {
+        return write_nothing(out, delivery);
+    };
+    if !owns {
+        return write_nothing(out, delivery);
     }
+    let claude = delivery == Delivery::PromptContext { via: "claude.prompt-submit" };
     let deadline = Instant::now() + DEADLINE;
     if delivery == Delivery::ContinueTurn {
         let _ = acknowledge_delivered(socket, terminal, "codex.stop", deadline);
     }
     // Claude's prompt hook claims under the daemon's lease, as its wake hook
-    // does; an older daemon without the claim lists the queue instead.
-    let claimed = if claude { claim_once(socket, terminal, deadline) } else { None };
-    let messages = match claimed.map_or_else(|| queued(socket, terminal, deadline), Ok) {
-        Ok(messages) => messages,
-        Err(_) => {
-            print_nothing(Some(delivery));
-            return;
+    // does. Only a daemon that does not know the claim (an older one) lets it
+    // list the queue instead; any other failure takes nothing, so a message a
+    // wake hook holds is never handed over twice. It stays queued.
+    let listed = if claude {
+        match claim_once(socket, terminal, deadline) {
+            Claim::Claimed(messages) => Ok(messages),
+            Claim::Unsupported => queued(socket, terminal, deadline),
+            Claim::Failed => return write_nothing(out, delivery),
         }
+    } else {
+        queued(socket, terminal, deadline)
     };
+    let Ok(messages) = listed else { return write_nothing(out, delivery) };
     let batch = cmux_tui_core::agent_message_prompt::batch(messages);
     if batch.is_empty() {
-        print_nothing(Some(delivery));
-        return;
+        return write_nothing(out, delivery);
     }
     let text = cmux_tui_core::agent_message_prompt::render(&batch);
-    print_output(&delivery.output(Some(&text)));
+    // Marked only once the agent can have read it; an output that failed
+    // leaves the messages queued (a claim's lease lapses and offers them again).
+    if write_output(out, &delivery.output(Some(&text))).is_err() {
+        return;
+    }
     let ids: Vec<&str> = batch.iter().filter_map(|message| message["id"].as_str()).collect();
     let _ = request(
         socket,
@@ -203,13 +230,35 @@ fn alive(_pid: u32) -> bool {
     false
 }
 
+/// What a one-shot claim got.
+#[derive(Debug, PartialEq)]
+enum Claim {
+    Claimed(Vec<Value>),
+    /// The daemon does not know `agent.message.wait` (an older daemon).
+    Unsupported,
+    /// No answer, a refusal or a busy daemon: nothing is known to be free.
+    Failed,
+}
+
 /// One claim that does not wait (`timeout_ms` 0) and ignores the person
-/// hold: the person just submitted a prompt. `None` when the daemon has no
-/// claim (an older one) or did not answer.
-fn claim_once(socket: &Path, terminal: &str, deadline: Instant) -> Option<Vec<Value>> {
+/// hold: the person just submitted a prompt.
+fn claim_once(socket: &Path, terminal: &str, deadline: Instant) -> Claim {
     let params = json!({"recipient": terminal, "respect_hold": false});
-    let answer = exchange(socket, "agent.message.wait", params, false, deadline).ok()?.ok()?;
-    Some(answer["messages"].as_array().cloned().unwrap_or_default())
+    match exchange(socket, "agent.message.wait", params, false, deadline) {
+        Ok(Ok(answer)) => {
+            Claim::Claimed(answer["messages"].as_array().cloned().unwrap_or_default())
+        }
+        Ok(Err(error)) if unknown_operation(&error) => Claim::Unsupported,
+        _ => Claim::Failed,
+    }
+}
+
+/// A daemon older than an operation refuses the whole request envelope
+/// (`resource_router::malformed_resource_response`): `validation.invalid`,
+/// "invalid request envelope". A request this helper builds is otherwise
+/// well formed, so that answer means the operation is unknown there.
+fn unknown_operation(error: &Value) -> bool {
+    error["code"] == "validation.invalid" && error["message"] == "invalid request envelope"
 }
 
 /// How long one daemon wait blocks before the hook asks again (below the
@@ -229,28 +278,38 @@ const BACKOFF_MAX: Duration = Duration::from_secs(30);
 /// gone, superseded by a newer wake hook, or the daemon unreachable for
 /// [`UNREACHABLE_BUDGET`]).
 pub(super) fn wake(payload: &Value) -> ExitCode {
-    let getenv = |name: &str| env::var_os(name).filter(|value| !value.is_empty());
+    let getenv = |name: &str| env::var_os(name);
+    ExitCode::from(wake_with(&getenv, payload, &mut io::stderr()))
+}
+
+/// [`wake`] with its environment and its stderr given; the exit status.
+fn wake_with(
+    getenv: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+    payload: &Value,
+    err: &mut dyn Write,
+) -> u8 {
+    const NOTHING: u8 = 0;
+    let getenv = |name: &str| getenv(name).filter(|value| !value.is_empty());
     let text = |name: &str| getenv(name).and_then(|value| value.into_string().ok());
     if getenv(CLAUDE_WAKE_DISABLED_ENV).is_some_and(|value| value == "1")
         || getenv(CLAUDE_PID_ENV).is_none()
         || !claude_owns_terminal(getenv)
     {
-        return ExitCode::SUCCESS;
+        return NOTHING;
     }
     let (Some(socket), Some(terminal), Some(pid)) = (
         text("CMUX_TUI_SOCKET").map(PathBuf::from),
         text("CMUX_TUI_TERMINAL_ID").filter(|terminal| terminal.starts_with("term_")),
         text(CLAUDE_PID_ENV).and_then(|pid| pid.parse::<u32>().ok()),
     ) else {
-        return ExitCode::SUCCESS;
+        return NOTHING;
     };
-    let Ok((poller, _)) = random_identifiers() else { return ExitCode::SUCCESS };
+    let Ok((poller, _)) = random_identifiers() else { return NOTHING };
     let session = payload["session_id"].as_str().filter(|id| !id.is_empty() && id.len() <= 256);
-    // A turn that ended normally saw what was delivered in it; one that died
-    // on an API error (StopFailure) did not, so its messages stay delivered.
-    if payload["hook_event_name"] == "Stop" {
-        let _ = acknowledge_delivered(&socket, &terminal, "claude.stop", Instant::now() + DEADLINE);
-    }
+    // No acknowledgement at Stop: an earlier wake hook may still hand a
+    // message over after this Stop and before any listing of delivered
+    // messages, and nothing tells which turn saw it. A wake's messages stay
+    // `delivered` (handed to Claude's process), never claimed as read.
     let started = Instant::now();
     let mut register = true;
     let mut unreachable_since: Option<Instant> = None;
@@ -269,11 +328,11 @@ pub(super) fn wake(payload: &Value) -> ExitCode {
         let deadline = Instant::now() + WAIT + Duration::from_secs(30);
         match exchange(&socket, "agent.message.wait", params, false, deadline) {
             // The daemon refused the wait (an older daemon has none).
-            Ok(Err(_)) => return ExitCode::SUCCESS,
+            Ok(Err(_)) => return NOTHING,
             Ok(Ok(answer)) => {
                 register = false;
                 match answer["status"].as_str() {
-                    Some("claimed") => return hand_over(&socket, &terminal, &answer),
+                    Some("claimed") => return hand_over(&socket, &terminal, &answer, err),
                     Some("timeout") => {
                         unreachable_since = None;
                         backoff = BACKOFF_FIRST;
@@ -283,7 +342,7 @@ pub(super) fn wake(payload: &Value) -> ExitCode {
                     // brings it back; a closed one ends Claude too.
                     Some("gone") => {}
                     // Superseded, stale or unknown: another hook or nobody.
-                    _ => return ExitCode::SUCCESS,
+                    _ => return NOTHING,
                 }
             }
             Err(_) => {}
@@ -296,7 +355,7 @@ pub(super) fn wake(payload: &Value) -> ExitCode {
         std::thread::sleep(backoff);
         backoff = (backoff * 2).min(BACKOFF_MAX);
     }
-    ExitCode::SUCCESS
+    NOTHING
 }
 
 /// Writes a claim's messages to stderr, then marks them delivered. A write
@@ -304,18 +363,16 @@ pub(super) fn wake(payload: &Value) -> ExitCode {
 /// messages are offered again. A lost mark leaves them queued, so they may
 /// be shown twice; `delivered` says the hook handed them to Claude's
 /// process, not that the model read them.
-fn hand_over(socket: &Path, terminal: &str, answer: &Value) -> ExitCode {
+fn hand_over(socket: &Path, terminal: &str, answer: &Value, err: &mut dyn Write) -> u8 {
     let messages = answer["messages"].as_array().cloned().unwrap_or_default();
     let ids: Vec<&str> = messages.iter().filter_map(|message| message["id"].as_str()).collect();
     if ids.is_empty() {
-        return ExitCode::SUCCESS;
+        return 0;
     }
     let text = cmux_tui_core::agent_message_prompt::render(&messages);
-    let mut stderr = io::stderr().lock();
-    if writeln!(stderr, "{text}").and_then(|()| stderr.flush()).is_err() {
-        return ExitCode::SUCCESS;
+    if writeln!(err, "{text}").and_then(|()| err.flush()).is_err() {
+        return 0;
     }
-    drop(stderr);
     let _ = request(
         socket,
         "agent.message.mark",
@@ -323,7 +380,7 @@ fn hand_over(socket: &Path, terminal: &str, answer: &Value) -> ExitCode {
         true,
         Instant::now() + DEADLINE,
     );
-    ExitCode::from(2)
+    2
 }
 
 fn queued(socket: &Path, terminal: &str, deadline: Instant) -> anyhow::Result<Vec<Value>> {
@@ -439,7 +496,7 @@ mod tests {
     use super::*;
     use std::ffi::OsString;
 
-    fn env(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<OsString> {
+    fn env(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<OsString> + use<> {
         let pairs: Vec<(String, OsString)> =
             pairs.iter().map(|(name, value)| ((*name).to_owned(), OsString::from(value))).collect();
         move |name| pairs.iter().find(|(key, _)| key == name).map(|(_, value)| value.clone())
@@ -468,5 +525,200 @@ mod tests {
         // This test's own parent is within the hook's reach of it.
         let parent = std::os::unix::process::parent_id().to_string();
         assert!(claude_owns_terminal(env(&[(CLAUDE_PID_ENV, parent.as_str())])));
+    }
+
+    const TERMINAL: &str = "term_0123456789abcdef0123456789abcdef";
+
+    /// A daemon on a Unix socket that logs each request and answers it with
+    /// `answer` (`None`: close without answering).
+    #[cfg(unix)]
+    struct FakeDaemon {
+        _dir: tempfile::TempDir,
+        socket: PathBuf,
+        log: std::sync::Arc<std::sync::Mutex<Vec<Value>>>,
+    }
+
+    #[cfg(unix)]
+    impl FakeDaemon {
+        fn start(answer: impl Fn(&Value) -> Option<Value> + Send + 'static) -> Self {
+            let dir = tempfile::tempdir().unwrap();
+            let socket = dir.path().join("daemon.sock");
+            let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+            let log = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+            let seen = log.clone();
+            std::thread::spawn(move || {
+                for stream in listener.incoming() {
+                    let Ok(mut stream) = stream else { return };
+                    let mut line = String::new();
+                    if BufReader::new(&stream).read_line(&mut line).is_err() {
+                        continue;
+                    }
+                    let Ok(request) = serde_json::from_str::<Value>(&line) else { continue };
+                    seen.lock().unwrap().push(request.clone());
+                    if let Some(mut reply) = answer(&request) {
+                        reply["id"] = request["id"].clone();
+                        let _ = writeln!(stream, "{reply}");
+                    }
+                }
+            });
+            Self { _dir: dir, socket, log }
+        }
+
+        fn operations(&self) -> Vec<String> {
+            let log = self.log.lock().unwrap();
+            log.iter().map(|request| request["operation"].as_str().unwrap().to_owned()).collect()
+        }
+
+        fn requests(&self) -> Vec<Value> {
+            self.log.lock().unwrap().clone()
+        }
+    }
+
+    fn ok(result: Value) -> Option<Value> {
+        Some(
+            json!({"protocol": "cmux.protocol/2", "type": "response", "ok": true, "result": result}),
+        )
+    }
+
+    fn refused(code: &str, message: &str) -> Option<Value> {
+        Some(json!({
+            "protocol": "cmux.protocol/2", "type": "response", "ok": false,
+            "error": {"code": code, "message": message, "details": {}, "retryable": false},
+        }))
+    }
+
+    fn queued_message() -> Value {
+        json!({"id": "msg_1", "thread_id": "msg_1", "sender": "cli", "body": "rebase when free"})
+    }
+
+    /// Review P2: only a daemon that does not know the claim lets Claude's
+    /// prompt hook list the queue; a refusal, a busy daemon or a dropped
+    /// connection takes nothing, so a message a wake hook leased is not
+    /// handed over beside it.
+    #[cfg(unix)]
+    #[test]
+    fn the_prompt_hook_lists_the_queue_only_when_the_daemon_does_not_know_the_claim() {
+        let old = FakeDaemon::start(|request| match request["operation"].as_str() {
+            Some("agent.message.wait") => refused("validation.invalid", "invalid request envelope"),
+            Some("agent.message.list") => ok(json!([queued_message()])),
+            _ => ok(json!({"value": []})),
+        });
+        let claude = Delivery::for_event("claude", "UserPromptSubmit").unwrap();
+        let mut out = Vec::new();
+        deliver_to(&mut out, claude, &old.socket, Some(TERMINAL), true);
+        assert_eq!(
+            old.operations(),
+            ["agent.message.wait", "agent.message.list", "agent.message.mark"]
+        );
+        assert!(String::from_utf8(out).unwrap().contains("rebase when free"));
+
+        for failure in [
+            refused("operation.failed", "agent message wait capacity exceeded"),
+            refused("validation.invalid", "agent.message.wait claims for a terminal agent"),
+            None,
+        ] {
+            let daemon = FakeDaemon::start(move |request| match request["operation"].as_str() {
+                Some("agent.message.wait") => failure.clone(),
+                _ => ok(json!([queued_message()])),
+            });
+            let mut out = Vec::new();
+            deliver_to(&mut out, claude, &daemon.socket, Some(TERMINAL), true);
+            assert_eq!(daemon.operations(), ["agent.message.wait"], "listed beside a lease");
+            assert_eq!(String::from_utf8(out).unwrap().trim(), "{}");
+        }
+    }
+
+    struct FailingWriter;
+
+    impl Write for FailingWriter {
+        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+            Err(io::Error::new(io::ErrorKind::BrokenPipe, "the agent closed its end"))
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Err(io::Error::new(io::ErrorKind::BrokenPipe, "the agent closed its end"))
+        }
+    }
+
+    /// Review P2: a hook output the agent cannot have read (stdout write or
+    /// flush failed) marks nothing delivered; the messages stay queued.
+    #[cfg(unix)]
+    #[test]
+    fn a_prompt_hook_whose_output_failed_marks_nothing_delivered() {
+        let daemon = FakeDaemon::start(|request| match request["operation"].as_str() {
+            Some("agent.message.wait") => ok(
+                json!({"status": "claimed", "lease_id": "lease_0", "messages": [queued_message()]}),
+            ),
+            Some("agent.message.list") => ok(json!([queued_message()])),
+            _ => ok(json!({"value": []})),
+        });
+        for event in ["UserPromptSubmit", "Stop"] {
+            let source = if event == "Stop" { "codex" } else { "claude" };
+            let delivery = Delivery::for_event(source, event).unwrap();
+            deliver_to(&mut FailingWriter, delivery, &daemon.socket, Some(TERMINAL), true);
+        }
+        let marks: Vec<Value> = daemon
+            .requests()
+            .into_iter()
+            .filter(|request| request["operation"] == "agent.message.mark")
+            .filter(|request| request["params"]["state"] == "delivered")
+            .collect();
+        assert!(marks.is_empty(), "{marks:?}");
+    }
+
+    /// Review P2 (interleaving): a wake hook that starts at a Stop while an
+    /// earlier wake may still be handing messages over acknowledges nothing.
+    /// It claims, writes the messages, marks them delivered via claude.wake
+    /// and exits 2; no request ever marks a delivery acknowledged.
+    #[cfg(unix)]
+    #[test]
+    fn a_wake_hook_started_at_stop_acknowledges_nothing() {
+        let daemon = FakeDaemon::start(|request| match request["operation"].as_str() {
+            Some("agent.message.wait") => ok(
+                json!({"status": "claimed", "lease_id": "lease_0", "messages": [queued_message()]}),
+            ),
+            Some("agent.message.list") => ok(json!([queued_message()])),
+            _ => ok(json!({"value": []})),
+        });
+        let parent = std::os::unix::process::parent_id().to_string();
+        let socket = daemon.socket.to_str().unwrap().to_owned();
+        let getenv = env(&[
+            ("CMUX_TUI_SOCKET", socket.as_str()),
+            ("CMUX_TUI_TERMINAL_ID", TERMINAL),
+            (CLAUDE_PID_ENV, parent.as_str()),
+        ]);
+        let payload = json!({"hook_event_name": "Stop", "session_id": "s1"});
+        let mut err = Vec::new();
+        assert_eq!(wake_with(&getenv, &payload, &mut err), 2);
+        assert!(String::from_utf8(err).unwrap().contains("rebase when free"));
+        let requests = daemon.requests();
+        assert_eq!(daemon.operations(), ["agent.message.wait", "agent.message.mark"]);
+        assert_eq!(requests[0]["params"]["agent_session_id"], "s1");
+        assert_eq!(requests[1]["params"]["state"], "delivered");
+        assert_eq!(requests[1]["params"]["via"], "claude.wake");
+        assert!(requests.iter().all(|request| request["params"]["state"] != "acknowledged"));
+    }
+
+    /// A wake hook whose stderr is gone (Claude exited) marks nothing and
+    /// exits 0; its claim lapses and the messages are offered again.
+    #[cfg(unix)]
+    #[test]
+    fn a_wake_hook_that_cannot_write_marks_nothing() {
+        let daemon = FakeDaemon::start(|request| match request["operation"].as_str() {
+            Some("agent.message.wait") => ok(
+                json!({"status": "claimed", "lease_id": "lease_0", "messages": [queued_message()]}),
+            ),
+            _ => ok(json!({"value": []})),
+        });
+        let parent = std::os::unix::process::parent_id().to_string();
+        let socket = daemon.socket.to_str().unwrap().to_owned();
+        let getenv = env(&[
+            ("CMUX_TUI_SOCKET", socket.as_str()),
+            ("CMUX_TUI_TERMINAL_ID", TERMINAL),
+            (CLAUDE_PID_ENV, parent.as_str()),
+        ]);
+        let payload = json!({"hook_event_name": "SessionStart", "session_id": "s1"});
+        assert_eq!(wake_with(&getenv, &payload, &mut FailingWriter), 0);
+        assert_eq!(daemon.operations(), ["agent.message.wait"]);
     }
 }

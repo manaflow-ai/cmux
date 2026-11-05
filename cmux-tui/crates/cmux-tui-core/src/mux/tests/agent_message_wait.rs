@@ -239,34 +239,41 @@ fn a_lapsed_claim_offers_its_messages_again() {
     assert_eq!(state_of(&mux, &terminal, &id), "queued");
 }
 
-/// A wait names the agent's session; once the hooks report it ended there,
-/// it claims nothing (a replaced session's late hook takes nothing). A gone
-/// agent process answers stale, a terminal not in the session gone.
-#[test]
-fn a_wait_for_an_ended_session_a_dead_agent_or_a_closed_terminal_claims_nothing() {
-    let mux = test_mux();
-    let (_, terminal) = terminal_of(&mux);
-    let terminal_id = TerminalPublicId::parse(&terminal).unwrap();
-    send(&mux, "send-1", &terminal, "for the live session");
+fn fence(mux: &Arc<Mux>, terminal: &str, session: &str, ended: bool) {
+    let terminal_id = TerminalPublicId::parse(terminal).unwrap();
     mux.agent_hook_fences.lock().unwrap().insert(
-        terminal_id.clone(),
+        terminal_id,
         crate::journal_reducers::HookFence {
-            session_id: "old-session".into(),
+            session_id: session.into(),
             sequence: 7,
-            ended: true,
-            ended_at_ms: Some(1),
+            ended,
+            ended_at_ms: ended.then_some(1),
         },
     );
-    let ended =
-        AgentMessageWait { agent_session_id: Some("old-session".into()), ..once(&terminal) };
-    let answer = wait(&mux, &ended);
+    // The roster fold wakes the waits after it moves a fence.
+    mux.agent_message_waits().notify(terminal);
+}
+
+fn bound(request: AgentMessageWait, session: &str) -> AgentMessageWait {
+    AgentMessageWait { agent_session_id: Some(session.into()), ..request }
+}
+
+/// A wait names the agent's session; once the hooks report it ended there,
+/// it claims nothing. A gone agent process answers stale, a terminal not in
+/// the session gone.
+#[test]
+fn a_wait_for_an_ended_session_a_dead_agent_or_a_missing_terminal_claims_nothing() {
+    let mux = test_mux();
+    let (_, terminal) = terminal_of(&mux);
+    send(&mux, "send-1", &terminal, "for the live session");
+    fence(&mux, &terminal, "old-session", true);
+    let answer = wait(&mux, &bound(once(&terminal), "old-session"));
     assert_eq!(
         (answer["status"].as_str(), answer["held"].as_str()),
         (Some("timeout"), Some("session_ended"))
     );
-    // The session that replaced it claims.
-    let live = AgentMessageWait { agent_session_id: Some("new-session".into()), ..once(&terminal) };
-    assert_eq!(wait(&mux, &live)["status"], "claimed");
+    fence(&mux, &terminal, "new-session", false);
+    assert_eq!(wait(&mux, &bound(once(&terminal), "new-session"))["status"], "claimed");
 
     // pid 0 is never a live agent.
     let dead = AgentMessageWait { agent_pid: Some(0), ..once(&terminal) };
@@ -275,6 +282,84 @@ fn a_wait_for_an_ended_session_a_dead_agent_or_a_closed_terminal_claims_nothing(
     // A terminal not in the session (closed, or another session's).
     let missing = "term_0123456789abcdef0123456789abcdef";
     assert_eq!(wait(&mux, &once(missing))["status"], "gone");
+}
+
+/// Review P1: the fence moved to a live replacement session. A wait of the
+/// old session, from the same live Claude process (`/resume` keeps the pid),
+/// registers nothing, claims nothing and answers stale; the replacement's
+/// poller keeps its place.
+#[test]
+fn a_wait_of_a_replaced_session_from_the_same_live_process_is_stale_and_supersedes_nothing() {
+    let mux = test_mux();
+    let (_, terminal) = terminal_of(&mux);
+    fence(&mux, &terminal, "s2", false);
+    let live_pid = std::process::id();
+    let current = AgentMessageWait {
+        agent_pid: Some(live_pid),
+        ..bound(waiting(&terminal, "new", true, 0), "s2")
+    };
+    assert_eq!(wait(&mux, &current)["status"], "timeout");
+    send(&mux, "send-1", &terminal, "for s2 only");
+    let old = AgentMessageWait {
+        agent_pid: Some(live_pid),
+        ..bound(waiting(&terminal, "old", true, 0), "s1")
+    };
+    let answer = wait(&mux, &old);
+    assert_eq!(
+        (answer["status"].as_str(), answer["reason"].as_str()),
+        (Some("stale"), Some("session_replaced"))
+    );
+    assert!(mux.agent_message_waits().is_current_poller(&terminal, "new"));
+    assert_eq!(
+        mux.agent_message_waits().lease_count_for_test(&terminal),
+        0,
+        "the stale wait claimed"
+    );
+    assert_eq!(wait(&mux, &bound(waiting(&terminal, "new", false, 0), "s2"))["status"], "claimed");
+}
+
+/// Review P1: an old session's registration that arrives late, while the
+/// live session's wake sleeps, neither supersedes nor wakes it into a claim.
+#[test]
+fn a_delayed_old_session_registration_leaves_the_live_poller_waiting() {
+    let mux = test_mux();
+    let (_, terminal) = terminal_of(&mux);
+    fence(&mux, &terminal, "s2", false);
+    let live = {
+        let (mux, terminal) = (mux.clone(), terminal.clone());
+        std::thread::spawn(move || {
+            wait(&mux, &bound(waiting(&terminal, "new", true, 60_000), "s2"))
+        })
+    };
+    until("the live wait did not register", || {
+        mux.agent_message_waits().is_current_poller(&terminal, "new")
+    });
+    let late = wait(&mux, &bound(waiting(&terminal, "old", true, 0), "s1"));
+    assert_eq!(late["status"], "stale", "{late}");
+    assert!(mux.agent_message_waits().is_current_poller(&terminal, "new"));
+    let id = send(&mux, "send-1", &terminal, "the live session takes it");
+    assert_eq!(claimed_ids(&live.join().unwrap()), [id]);
+}
+
+/// A new session's wake may start before its start event reaches the fence:
+/// it holds, unregistered, and binds when the fence names it.
+#[test]
+fn a_new_sessions_wait_binds_once_the_fence_names_it() {
+    let mux = test_mux();
+    let (_, terminal) = terminal_of(&mux);
+    fence(&mux, &terminal, "s1", false);
+    let id = send(&mux, "send-1", &terminal, "for s2");
+    let waiter = {
+        let (mux, terminal) = (mux.clone(), terminal.clone());
+        std::thread::spawn(move || wait(&mux, &bound(waiting(&terminal, "p2", true, 60_000), "s2")))
+    };
+    until("the new wait did not subscribe", || {
+        mux.agent_message_waits().waiter_count_for_test(&terminal) == 1
+    });
+    assert!(!mux.agent_message_waits().is_current_poller(&terminal, "p2"), "registered unbound");
+    assert_eq!(mux.agent_message_waits().lease_count_for_test(&terminal), 0);
+    fence(&mux, &terminal, "s2", false);
+    assert_eq!(claimed_ids(&waiter.join().unwrap()), [id]);
 }
 
 /// A canceled request or a closed connection ends a wait with no answer,

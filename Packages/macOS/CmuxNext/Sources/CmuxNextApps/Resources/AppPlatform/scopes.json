@@ -1984,6 +1984,7 @@
     "agent.message.release",
     "agent.message.send",
     "agent.message.unsend",
+    "agent.message.wait",
     "automation.delete",
     "automation.settings.set",
     "automation.webhook.get",
