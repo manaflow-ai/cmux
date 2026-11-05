@@ -1525,6 +1525,7 @@ jobs:
           python3 tests/test_ci_nightly_off_blacksmith.py
           python3 tests/test_classic_nightly_build_runner.py
           python3 tests/test_classic_nightly_one_mini.py
+          python3 tests/test_auto_resume_one_mini.py
           python3 tests/test_ci_publisher_mac_jobs_move.py
           python3 tests/test_ci_helper_prebuild_lifecycle.py
 
