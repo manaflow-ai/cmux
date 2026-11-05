@@ -3477,7 +3477,9 @@ jobs:
     # move through an artifact or worker disk.
     # The signer's label is a literal in every signing route: a stale or drifted repository variable must not
     # choose where signing secrets go (test_nightly_signing_on_cmux15.test_no_signing_job_ever_resolves_to_a_shared_label).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned && fromJSON(needs.pick-nightly-sign-runner.outputs.sign_owned) || 'glaeda-trusted-next-signing' }}
+    # The pick comes first on every event: it names only runners that carry exactly that label (signing_runner.py
+    # signer_only), and the literal is the fallback when it picked none.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned && fromJSON(needs.pick-nightly-sign-runner.outputs.sign_owned) || 'glaeda-trusted-next-signing' }}
     # Start the standalone Computer Use helper submission before Codesign apps
     # so Apple's first wait overlaps useful work; finish it before the final
     # DMG. The job budget covers both waits (see the notarize step).
@@ -4525,7 +4527,7 @@ jobs:
     environment: ${{ needs.decide.outputs.environment }}
     needs: [decide, find-nightly-next-recovery]
     if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.find-nightly-next-recovery.outputs.found == 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && 'glaeda-trusted-next-signing' || needs.find-nightly-next-recovery.outputs.attempt == github.run_attempt && needs.find-nightly-next-recovery.outputs.sign_owned && fromJSON(needs.find-nightly-next-recovery.outputs.sign_owned) || 'glaeda-trusted-next-signing' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.find-nightly-next-recovery.outputs.attempt == github.run_attempt && needs.find-nightly-next-recovery.outputs.sign_owned && fromJSON(needs.find-nightly-next-recovery.outputs.sign_owned) || 'glaeda-trusted-next-signing' }}
     # An accepted continuation builds, signs and notarizes the DMG around the
     # stapled app (notarize-nightly-dmg.sh, CMUX_STAPLE_APP_IN_DMG): a 20m wait
     # and packaging per candidate; a failed one moves on to the next of 3.
@@ -5065,7 +5067,7 @@ jobs:
     # The release App key remains scoped to this protected environment. Publication uploads and writes feeds
     # at about one core (publish-nightly 64 s on 32 vCPU at 1.39 cores, .github/runners.json): with no owned
     # pool it takes the signing picker's Linux label, as keep-published-dsyms does, else the Linux 4 vCPU pool.
-    runs-on: &pub-runner ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || 'glaeda-trusted-next-signing' }}
+    runs-on: &pub-runner ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || 'glaeda-trusted-next-signing' }}
     # 120 for the work (an hour of it for API rate-limit waits) plus the lease's 60-minute wait.
     timeout-minutes: 180
     env:
@@ -5571,8 +5573,8 @@ jobs:
     environment: ${{ needs.decide.outputs.environment }}
     permissions:
       contents: write
-    # No nightly-next push branch: an upload holds the release App key but signs nothing, and as an exclusive
-    # publisher on the one signer's mini it held the whole Mac while the next signs waited (run 41900945757).
+    # An upload holds the release App key but signs nothing. As an exclusive publisher on the one signer's mini it
+    # holds the whole Mac while the next signs wait (run 41900945757); it still has nowhere safer to run.
     runs-on: &pub-next-runner ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || 'glaeda-trusted-next-signing' }}
     timeout-minutes: 150
     outputs:
@@ -5979,7 +5981,7 @@ jobs:
     # whole for this job (the claim step below), else the signer's label alone: only a trusted-only mini that runs
     # no pull request job carries it, never a label nightly builds or PR side lanes share (signing_runner.py
     # SIGNER_LABEL).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned && fromJSON(needs.pick-nightly-sign-runner.outputs.sign_owned) || 'glaeda-trusted-next-signing' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned && fromJSON(needs.pick-nightly-sign-runner.outputs.sign_owned) || 'glaeda-trusted-next-signing' }}
     # Apple's wait is 20 min, as for cmux NEXT (#20518). A submission still in
     # Apple's queue is kept (artifacts cmux-nightly-identity-pending-meta and
     # -bundle) and a later run continues that exact submission
@@ -6603,7 +6605,7 @@ jobs:
       actions: read
     # Never Blacksmith (Lawrence, 2026-10-30). A Sparkle key: placed and held whole as the legacy sign. Optional:
     # a failed or refused delta never fails the run or holds the feed. NIGHTLY_DELTAS=off skips them.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned && fromJSON(needs.pick-nightly-sign-runner.outputs.sign_owned) || 'glaeda-trusted-next-signing' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned && fromJSON(needs.pick-nightly-sign-runner.outputs.sign_owned) || 'glaeda-trusted-next-signing' }}
     continue-on-error: true
     strategy:
       fail-fast: false

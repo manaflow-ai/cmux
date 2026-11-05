@@ -8,12 +8,12 @@ glaeda's runner.trustedNextSigning gives its trusted main runners the label
 glaeda-trusted-next-signing and admits exactly nightly.yml's signing jobs on the nightly-next push
 there (teamleaderleo/glaeda scripts/glaeda-cmux-runner-hook TRUSTED_NEXT_SIGNING).
 
-1. On a nightly-next push, every nightly.yml signing job (signing_runner.SIGNING_JOBS) routes to the signer's
-   label, glaeda-trusted-next-signing, whatever the pickers say. The label is a literal: no repository variable
-   chooses where signing secrets go, so a stale or drifted CI_NIGHTLY_SIGN_RUNNER cannot move them.
-2. Any other event or ref (a dispatch, main's schedule) skips the push branch and takes the job's own route,
-   which also ends on the signer's label: glaeda admits only the exact nightly-next push there, so such a job is
-   refused and fails closed rather than reaching a shared mini.
+1. On a nightly-next push, every nightly.yml signing job (signing_runner.SIGNING_JOBS) takes its pick's pin on
+   the pick's attempt, which names only the signer's runners, and otherwise the signer's label,
+   glaeda-trusted-next-signing. The label is a literal: no repository variable chooses where signing secrets go,
+   so a stale or drifted CI_NIGHTLY_SIGN_RUNNER cannot move them.
+2. Any other event or ref (a dispatch, main's schedule) takes the same route: glaeda admits only the exact
+   nightly-next push on the signer, so such a job is refused and fails closed rather than reaching a shared mini.
 3. One-mini mode (vars.CI_NIGHTLY_MINI set, tests/test_nightly_one_mini.py) overrides 2: Lawrence,
    2026-11-04, the whole nightly builds on one Mac mini, so every event signs on the signer's label.
 4. No signing job, the GitHub-release uploads (publish-nightly-next-github and its -names twin) included, ever
@@ -26,6 +26,7 @@ there (teamleaderleo/glaeda scripts/glaeda-cmux-runner-hook TRUSTED_NEXT_SIGNING
 
 from __future__ import annotations
 
+import json
 import random
 import re
 import sys
@@ -48,7 +49,9 @@ UPLOADS = ("publish-nightly-next-github", "publish-nightly-next-github-names")
 # signing_runner.SIGNING_JOBS names the keychain jobs; promote-nightly-next keeps its earlier route
 # (test_promote_keeps_its_earlier_route)
 JOBS = tuple(name for name in SIGNING_JOBS["nightly.yml"] if name not in UPLOADS)
-PREFIX = "github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && 'glaeda-trusted-next-signing' || "
+# The push branch these routes had: it came before the pick, so a push never used the pick's pin.
+PREFIX = "github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && "
+PIN = '["glaeda-trusted-next-signing","glaeda-runner-cmux15-glaeda-2"]'
 
 
 def route(name: str, context: dict) -> object:
@@ -57,19 +60,31 @@ def route(name: str, context: dict) -> object:
 
 
 class SigningOnCmux15Test(unittest.TestCase):
-    def test_a_nightly_next_push_signs_on_cmux15_first(self) -> None:
+    def test_a_nightly_next_push_takes_the_pick_then_the_signer(self) -> None:
         self.assertEqual(len(JOBS), 5)
         rng = random.Random(15)
         for name in JOBS:
             source = manaflow_route(name)
-            self.assertIn(PREFIX, source, name)
+            self.assertNotIn(PREFIX, source, name)
             for _ in range(200):
                 context = never_blacksmith.sample(source, rng)
                 context.update({"github.event_name": "push", "github.ref": "refs/heads/nightly-next",
-                                "github.ref_name": "nightly-next"})
-                # whatever the variable holds, unset or drifted to a shared label
-                context["vars.CI_NIGHTLY_SIGN_RUNNER"] = rng.choice((LABEL, "", *DRIFTED))
-                with self.subTest(job=name, context=context):
+                                "github.ref_name": "nightly-next", "vars.CI_NIGHTLY_MINI": "",
+                                "vars.CI_NIGHTLY_SIGN_RUNNER": rng.choice((LABEL, "", *DRIFTED)), "github.run_attempt": 1})
+                outputs = [ref for ref in context if ref.endswith((".outputs.sign_owned", ".outputs.sign_owned_pool"))]
+                for ref in context:
+                    if ref.endswith(".outputs.attempt"):
+                        context[ref] = 1
+                # The pick's pin wins: it names only the signer's runners.
+                for ref in outputs:
+                    context[ref] = PIN if ref.endswith(".outputs.sign_owned") else LABEL
+                expected = json.loads(PIN) if any(ref.endswith(".outputs.sign_owned") for ref in outputs) else LABEL
+                with self.subTest(job=name, picked=True):
+                    self.assertEqual(route(name, context), expected)
+                # No pick: the signer's label.
+                for ref in outputs:
+                    context[ref] = ""
+                with self.subTest(job=name, picked=False):
                     self.assertEqual(route(name, context), LABEL)
 
     def test_other_events_keep_their_earlier_route(self) -> None:
@@ -109,7 +124,6 @@ class SigningOnCmux15Test(unittest.TestCase):
         # empty; every shared variable holds a shared label, and CI_NIGHTLY_SIGN_RUNNER and CI_NIGHTLY_SIGNING_POOL may
         # have drifted to one. Every event, ref and attempt still ends on the signer.
         shared = re.compile(r"glaeda-(?:aws-)?(?:nightly|side|root|gui|session|fast|dev)-|glaeda-(?:xl|std|light)-xcode-")
-        pin = '["glaeda-trusted-next-signing","glaeda-runner-cmux15-glaeda-2"]'
         rng = random.Random(20261104)
         for name in SIGNING_JOBS["nightly.yml"]:
             with self.subTest(job=name):
@@ -123,7 +137,7 @@ class SigningOnCmux15Test(unittest.TestCase):
                 context = never_blacksmith.sample(source, rng)
                 for ref in context:
                     if ref.endswith(".outputs.sign_owned"):
-                        context[ref] = rng.choice((pin, ""))
+                        context[ref] = rng.choice((PIN, ""))
                     elif ref.endswith(".outputs.sign_owned_pool"):
                         context[ref] = rng.choice((LABEL, ""))
                 # A stale or drifted variable must not choose the label: both may hold a shared one.
