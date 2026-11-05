@@ -256,6 +256,8 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
             cwd: "/home/dev/atlas",
             harness: "claude",
             peer: "build-box",
+            // Kept while it ran: the pane must not read the unlisted chat as working.
+            status: "running",
           },
         };
         const host = {
@@ -296,8 +298,9 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     const drawnMs = Date.now() - started;
     console.log(`chat-unavailable: kept rows of a chat whose machine is connecting drawn ${drawnMs} ms after open`);
     expect(drawnMs).toBeLessThan(3_000);
-    // Still loading: no line over the rows, and no centered state in their place.
+    // Still loading: no line over the rows, and no centered state in their place. Nothing runs.
     expect(await page.locator("[data-unavailable]").count()).toBe(0);
+    expect((await state(page)).isWorking).toBe(false);
     // The machine connects and acpmux lists the chat: it opens live, continuing the kept rows.
     scenario.peers = [{ name: "build-box", transport: "ssh", connected: true, state: "connected" }];
     const listed = summary("chat-on-box", { peer: "build-box" });
@@ -336,6 +339,7 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     // One state: the line over the rows, never the centered state as well.
     expect(await page.locator("[data-unavailable]").count()).toBe(1);
     expect(await line.innerText()).toContain("Reconnecting…");
+    expect((await state(page)).isWorking).toBe(false);
     for (const action of ["reconnect", "resume", "close"])
       expect(await line.locator(`[data-action="${action}"]`).count()).toBe(1);
     await page.close();

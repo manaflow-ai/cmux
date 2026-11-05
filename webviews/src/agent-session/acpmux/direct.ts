@@ -3432,8 +3432,10 @@ export class AcpmuxDirectClient {
     const kept = keptTail(sessionId);
     if (!kept || kept.events.length === 0) return false;
     // The tail alone, not the Mac's copy's provenance: no attach of it is out while it is unlisted.
+    // Nor what its summary said the chat was doing: a chat kept while running would read as working
+    // (`workingNow`), with a Stop for a chat this pane has not opened.
     const { peerCopy: _copy, ...rows } = kept;
-    this.drawKeptTail(sessionId, rows);
+    this.drawKeptTail(sessionId, { ...rows, summary: rows.summary && { ...rows.summary, status: undefined } });
     this.copyLive = undefined;
     this.turnOpen = false;
     this.drewKeptTail = true;
