@@ -614,6 +614,48 @@ def owned_from_slots(env: Mapping[str, str], classes: set[str]) -> tuple[simple_
     return tuple(pools)
 
 
+def free_now(runners: Sequence[Mapping[str, Any]] | None, snapshot: Mapping[str, Any] | None, *,
+             owned_slots: str | None, xcode_app: str | None, classes: set[str]) -> tuple[str, str]:
+    """An owned label a one-job run starts on now, and why: (label, reason), the label "" when there is none.
+
+    The candidates are the class pools CI_OWNED_POOL_SLOTS configures for the Xcode pin (and `classes`, when
+    given), each followed by its root label. A label is free now when one of its runners is online and idle and
+    the janitor snapshot shows no job queued on any label that runner carries, so no queued job takes it first.
+    simple_pool_picker.state_from() counts every job queued on a pool's family against each runner of that
+    family, which reads an idle runner that carries none of the queued labels as taken: on 2026-11-04 the DEV
+    publisher's verify waited 67 min on glaeda-std-xcode-26.6 (0 runners online, 22 jobs queued; run
+    41814294095) while three glaeda-root-std-xcode-26.6 runners on another Mac sat idle with nothing queued
+    on their labels. Without a runners read or a readable snapshot nothing is free now."""
+    if runners is None:
+        return "", "no runners read"
+    pools = (snapshot or {}).get("pools") if isinstance(snapshot, Mapping) else None
+    if not isinstance(pools, Mapping):
+        return "", "no readable pool snapshot"
+
+    def queued(label: str) -> int:
+        entry = pools.get(label)
+        try:
+            return max(0, int(entry.get("queued", 0))) if isinstance(entry, Mapping) else 0
+        except (TypeError, ValueError):
+            return 0
+
+    candidates: list[str] = []
+    for label in sorted(simple_pool_picker._slots(owned_slots), key=simple_pool_picker.owned_order):
+        if not simple_pool_picker.owned_matches_xcode(label, xcode_app or ""):
+            continue
+        if classes and simple_pool_picker.owned_class(label) not in classes:
+            continue
+        candidates += [name for name in (label, pr_runner_pool.root_label(label)) if name and name not in candidates]
+    for label in candidates:
+        for runner in runners:
+            names = [str(item.get("name", "")) for item in runner.get("labels", ()) if isinstance(item, Mapping)]
+            if runner.get("status") != "online" or runner.get("busy") or label not in names:
+                continue
+            if not any(queued(name) for name in names):
+                return label, f"{runner.get('name') or 'a runner'} is idle with no job queued on its labels"
+    return "", f"no idle runner on {', '.join(candidates) or 'no configured owned label'} without a queue"
+
+
 def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None) -> int:
     env = os.environ if env is None else env
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -645,6 +687,10 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     parser.add_argument("--owned-classes", default="",
                         help="comma-separated owned classes (std, light, xl) an auto pick may name or wait on "
                              "(default: all); cmux-next-dev-daily.yml keeps its download-bound jobs off light")
+    parser.add_argument("--free-now", action="store_true",
+                        help="print an owned label (a configured class pool for the Xcode pin and --owned-classes, "
+                             "or its root label) with an idle runner no queued job waits for, or nothing; "
+                             "cmux-next-dev-daily.yml's verify takes it before it waits on the fleet")
     args = parser.parse_args(argv)
     classes = {name.strip() for name in args.owned_classes.split(",") if name.strip()}
     unknown = sorted(classes - set(simple_pool_picker.RUN_CLASSES))
@@ -656,6 +702,30 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         fleet = () if (args.owned or "").strip() != "1" else owned_from_slots(
             {"CI_OWNED_POOL_SLOTS": args.owned_slots, "CMUX_CI_XCODE_APP_PR": args.pr_xcode_app}, classes)
         print(fleet[0].label if fleet else "")
+        return 0
+
+    if args.free_now:
+        label, reason = "", "owned pools are off"
+        if (args.owned or "").strip() == "1":
+            repository = env.get("GH_REPO") or env.get("GITHUB_REPOSITORY") or ""
+            runners = snapshot = None
+            # The runners need the routing App (ROUTE_TOKEN); the janitor snapshot is a repository artifact
+            # the job's own token reads.
+            if (env.get("ROUTE_TOKEN") or "").strip() and repository:
+                try:
+                    runners = simple_pool_picker.LiveState(env["ROUTE_TOKEN"].strip(), repository).runners()
+                except Exception as error:  # noqa: BLE001 - nothing is free now
+                    print(f"could not list runners ({error})", file=sys.stderr)
+            token = (env.get("GH_TOKEN") or env.get("ROUTE_TOKEN") or "").strip()
+            if runners is not None and token:
+                try:
+                    snapshot = simple_pool_picker.LiveState(token, repository).snapshot()
+                except Exception as error:  # noqa: BLE001 - nothing is free now
+                    print(f"could not read the pool snapshot ({error})", file=sys.stderr)
+            label, reason = free_now(runners, snapshot, owned_slots=args.owned_slots,
+                                     xcode_app=args.pr_xcode_app, classes=classes)
+        print(f"free now: {label or 'nothing'} ({reason})", file=sys.stderr)
+        print(label)
         return 0
 
     # Auto choices use the shared live rule. Explicit labels retain the

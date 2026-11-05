@@ -710,6 +710,10 @@ path = "tests/test_classic_nightly_build_runner.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_classic_nightly_one_mini.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_publisher_mac_jobs_move.py"
 lane = "linux-guard"
 
@@ -731,6 +735,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_defaults_guard_review_rerun.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_intent_familiar_review_git.py"
 lane = "linux-guard"
 
 [[test]]
@@ -851,6 +859,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_cli_contract_verb_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cli_contract_vm_options.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1582,6 +1594,10 @@ path = "tests/test_triage_rules.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_auto_triage_event.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_tui_focused_filter_guard.py"
 lane = "linux-guard"
 
@@ -2152,6 +2168,10 @@ path = "tests/test_verify_signed_dev_app.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_diff_sidecar_handshake_runnable_arch.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_workflow_scripts_are_executable.py"
 lane = "linux-guard"
 
@@ -2207,3 +2227,20 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_signing_runner_claim.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_test_integrity.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_hosted_light_rescue.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_classic_api_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_no_bundled_webpki_roots.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks that cmux-tui compiles in no webpki root list (#25452); run python3 tests/test_cmux_tui_no_bundled_webpki_roots.py yourself after changing a cmux-tui Cargo.toml, Cargo.lock or TLS setup (about 1 s, no build)."

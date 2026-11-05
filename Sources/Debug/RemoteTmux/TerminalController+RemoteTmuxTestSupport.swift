@@ -155,6 +155,28 @@ extension TerminalController {
                 + "\"$(printf '%s %03dx%03d %s' \"$id\" \"$c\" \"$r\" \"$base\" | cut -c1-\"$c\")\"; "
                 + "i=$((i+1)); done; printf 'END %s %03dx%03d' \"$id\" \"$c\" \"$r\"; sleep 2; done"
             return ["send-keys", "-t", args[2], ruler, "Enter"]
+        case "set-history-limit":
+            // Applies to panes created afterward; the full-history test needs more
+            // rows than tmux's default 2,000.
+            guard args.count == 2, let rows = Int(args[1]), (1...200_000).contains(rows) else { return nil }
+            return ["set-option", "-g", "history-limit", String(rows)]
+        case "print-history":
+            // `print-history -t <pane> <rows> plain|dense`: types an app-owned loop
+            // that prints numbered rows. `dense` gives every cell its own 24-bit
+            // foreground and ends each row with ` L<n>`.
+            guard args.count == 5, args[1] == "-t", isAtom(args[2]),
+                  let rows = Int(args[3]), (1...100_000).contains(rows) else { return nil }
+            switch args[4] {
+            case "plain":
+                return ["send-keys", "-t", args[2], "clear; seq 1 \(rows)", "Enter"]
+            case "dense":
+                let script = "perl -e 'for $i (1..\(rows)) { $s = \"\"; for $c (1..60) { "
+                    + "$s .= sprintf(\"\\e[38;2;%d;%d;%dm%s\", $c, $i % 256, ($c * $i) % 256, "
+                    + "chr(97 + ($c + $i) % 26)) } print \"$s\\e[0m L$i\\n\" }'"
+                return ["send-keys", "-t", args[2], "clear; " + script, "Enter"]
+            default:
+                return nil
+            }
         case "list-panes":
             let allowed = args.count == 5 && args[1] == "-t" && isAtom(args[2]) && args[3] == "-F"
                 && ["#{pane_width}", "#{pane_id}", "#{pane_width} #{pane_top}"].contains(args[4])
@@ -165,7 +187,8 @@ extension TerminalController {
             return allowed ? args : nil
         case "display-message":
             let allowed = args.count == 5 && args[1] == "-p" && args[2] == "-t"
-                && isAtom(args[3]) && args[4] == "#{window_width}x#{window_height}"
+                && isAtom(args[3])
+                && ["#{window_width}x#{window_height}", "#{history_size}"].contains(args[4])
             return allowed ? args : nil
         default:
             return nil

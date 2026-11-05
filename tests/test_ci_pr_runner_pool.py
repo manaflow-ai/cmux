@@ -370,7 +370,8 @@ class JanitorSnapshot(unittest.TestCase):
                          {"queued": 2, "running": 1, "reserved_queued": 0, "oldest_queued_minutes": 90})
         self.assertEqual(snap["pools"][LARGE]["reserved_queued"], 1)
         self.assertNotIn(OLD, snap["pools"])
-        self.assertNotIn("blacksmith-4vcpu-ubuntu-2404", snap["pools"])
+        self.assertEqual(snap["pools"]["blacksmith-4vcpu-ubuntu-2404"],
+                         {"queued": 1, "running": 0, "reserved_queued": 0, "oldest_queued_minutes": 90})
         # The picker reads what the janitor writes.
         # 12vcpu is reserved by the queued nightly job and 6vcpu 26 has jobs
         # queued, so the run rolls over to the idle macOS 15 pool.
@@ -407,7 +408,9 @@ class JanitorSnapshot(unittest.TestCase):
                     self.job("glaeda-mini", "queued"), self.job("blacksmith-4vcpu-ubuntu-2404", "queued")]}
         snap = janitor.pool_load_snapshot(runs, jobs, now=NOW)
         self.assertEqual((snap["pools"][mini]["running"], snap["pools"][mini]["queued"]), (2, 1))
-        self.assertEqual(set(snap["pools"]), {mini})
+        self.assertEqual(set(snap["pools"]), {mini, "blacksmith-4vcpu-ubuntu-2404"})
+        self.assertEqual(snap["pools"]["blacksmith-4vcpu-ubuntu-2404"],
+                         {"queued": 1, "running": 0, "reserved_queued": 0, "oldest_queued_minutes": 90})
 
     def test_the_snapshot_says_what_each_owned_runner_is_running(self):
         # pr_runner_pool.py's warm routing estimates a busy warm runner's wait from it.
@@ -2179,6 +2182,72 @@ class RootRunners(unittest.TestCase):
         self.assertIn("CLOUD_DEAD: ${{ steps.cloud.outputs.dead }}", step)
         self.assertIn('label="$owned"', step)
         self.assertIn('echo "owned=$owned" >> "$GITHUB_OUTPUT"', step)
+
+    def test_free_now_finds_an_idle_runner_no_queued_job_waits_for(self):
+        """DEV publisher run 41814294095 (2026-11-04): verify waited 67 min on glaeda-std-xcode-26.6 (0 runners
+        online, 22 jobs queued) while three glaeda-root-std-xcode-26.6 runners on another Mac, which carry no
+        label with a queue, sat idle. --free-now names that root label; a runner whose labels have a queue, a
+        busy or offline runner, another class or Xcode pin, or a missing read names nothing."""
+        std, root = "glaeda-std-xcode-26.6", "glaeda-root-std-xcode-26.6"
+        slots = json.dumps({std: 42, "glaeda-light-xcode-26.6": 4, root: 19, "glaeda-root-light-xcode-26.6": 2,
+                            "glaeda-ios-sim": 8, "glaeda-gui-std-xcode-26.6": 9, "glaeda-std-xcode-26.3": 5})
+
+        def runner(name, *labels, busy=False, status="online"):
+            return {"name": name, "status": status, "busy": busy, "labels": [{"name": label} for label in labels]}
+
+        mini = runner("cmux14-glaeda", std, root, "glaeda-ios-sim")
+        ultra = runner("ultra2-glaeda", root, "glaeda-root-xl-xcode-26.6", "glaeda-xl-xcode-26.6")
+        light = runner("cmux-austin-mini-0-glaeda-1", "glaeda-light-xcode-26.6")
+        incident = {"pools": {std: {"queued": 22}, "glaeda-side-std-xcode-26.6": {"queued": 61}}}
+
+        def free(runners, snapshot=incident, classes=frozenset({"std"}), xcode=PR_XCODE):
+            return e2e_pool.free_now(runners, snapshot, owned_slots=slots, xcode_app=xcode, classes=set(classes))[0]
+
+        self.assertEqual(free([mini, ultra, light]), root)
+        # The idle mini carries the queued std label: the queue takes it first.
+        self.assertEqual(free([mini, light]), "")
+        # With no queue anywhere the pool's own label comes first.
+        self.assertEqual(free([mini, ultra], snapshot={"pools": {}}), std)
+        # A queue on any label the idle runner carries (here its xl label) means it is not free.
+        self.assertEqual(free([ultra], snapshot={"pools": {"glaeda-xl-xcode-26.6": {"queued": 1}}}), "")
+        self.assertEqual(free([dict(ultra, busy=True)]), "")
+        self.assertEqual(free([dict(ultra, status="offline")]), "")
+        # Light is not a class verify takes; another Xcode pin matches nothing.
+        self.assertEqual(free([light], snapshot={"pools": {}}), "")
+        self.assertEqual(free([ultra], xcode="/Applications/Xcode_26.3.app"), "")
+        # No runners read or no snapshot: nothing is free now.
+        self.assertEqual(free(None), "")
+        self.assertEqual(free([ultra], snapshot=None), "")
+
+        def main(*argv, env):
+            with unittest.mock.patch("sys.stdout", io.StringIO()) as output, \
+                 unittest.mock.patch("sys.stderr", io.StringIO()):
+                e2e_pool.main(["--free-now", "--owned-slots", slots, "--pr-xcode-app", PR_XCODE,
+                               "--owned-classes", "std", *argv], env=env)
+            return output.getvalue().strip()
+
+        live = unittest.mock.Mock()
+        live.runners.return_value = [mini, ultra]
+        live.snapshot.return_value = incident
+        env = {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "ROUTE_TOKEN": "route", "GH_TOKEN": "job"}
+        with unittest.mock.patch.object(e2e_pool.simple_pool_picker, "LiveState", return_value=live) as state:
+            self.assertEqual(main("--owned", "1", env=env), root)
+            self.assertEqual([call.args[0] for call in state.call_args_list], ["route", "job"])
+            # Owned pools off, or no routing token to list runners with: nothing, and no read.
+            state.reset_mock()
+            self.assertEqual(main("--owned", "0", env=env), "")
+            self.assertEqual(main("--owned", "1", env={**env, "ROUTE_TOKEN": ""}), "")
+            state.assert_not_called()
+        live.runners.side_effect = urllib.error.URLError("403")
+        with unittest.mock.patch.object(e2e_pool.simple_pool_picker, "LiveState", return_value=live):
+            self.assertEqual(main("--owned", "1", env=env), "")
+
+        dev = (ROOT / ".github/workflows/cmux-next-dev-daily.yml").read_text()
+        step = dev[dev.index("Pick the macOS pool"):dev.index("Mark a run on a persistent")]
+        self.assertIn('free="$(pick 1 --free-now)"', step)
+        self.assertLess(step.index('free="$(pick 1 --free-now)"'), step.index('echo "label=$label"'))
+        self.assertIn('label="$free"', step)
+        self.assertNotIn('dmg_label="$free"', step)
 
     def test_ui_auto_route_skips_simple_picker_and_uses_gui_label(self):
         """A media tour's auto pick must reach the UI-aware E2E picker."""

@@ -2667,6 +2667,8 @@ struct ContentView: View {
 
         view = AnyView(view.onAppear {
             ChiefHomeNavigation.restoreConversations(in: tabManager)
+            // A session saved with Chief on restores its Home; with Chief off, drop it.
+            ChiefHomeNavigation.removeHome(in: tabManager)
             sidebarState.installVisibilityWillChangeHandler(ownerId: windowId) { isVisible in
                 if !isVisible {
                     restoreMainPanelFocusAfterAppKitSidebarHiddenIfNeeded()
@@ -2812,12 +2814,15 @@ struct ContentView: View {
             ChiefHomeNavigation.restoreConversations(in: tabManager)
         })
 
-        view = AnyView(view.onChange(of: chiefEnabled) { _, enabled in
+        view = AnyView(view.onChange(of: chiefEnabled && CmuxFeatureFlags.shared.isChiefAvailable) { _, enabled in
             if enabled {
                 AppDelegate.shared?.startChiefIfEnabled()
                 _ = ChiefHomeNavigation.ensureHome(in: tabManager)
             } else {
                 ChiefHomeNavigation(sidebarSelectionState: sidebarSelectionState, tabManager: tabManager).leave()
+                ChiefService.shared.stopBecauseDisabled()
+                ChiefHomeNavigation.removeHome(in: tabManager)
+                AppDelegate.shared?.existingWindowDock(forWindowId: windowId)?.removeChiefPanels()
             }
         })
 
@@ -6082,7 +6087,7 @@ struct ContentView: View {
         return TerminalDirectoryOpenTarget.availableTargets()
     }
 
-    private nonisolated static func resolveCommandPaletteAgentLauncherProviders(
+    nonisolated static func resolveCommandPaletteAgentLauncherProviders(
         environment: [String: String],
         bundleResourceURL: URL?,
         configuredExecutablePaths: [AgentSessionProviderID: String]
@@ -6092,7 +6097,7 @@ struct ContentView: View {
             bundleResourceURL: bundleResourceURL,
             configuredExecutablePaths: configuredExecutablePaths
         )
-        return Set([AgentSessionProviderID.claude, .codex].filter {
+        return Set(AgentSessionProviderID.allCases.filter {
             (try? resolver.resolve($0)) != nil
         })
     }
