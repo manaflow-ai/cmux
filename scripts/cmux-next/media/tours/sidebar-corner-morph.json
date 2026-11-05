@@ -1,9 +1,9 @@
 {
-  "title": "Sidebar corner morph (Debug sidebar.cornerMorph): off, shell, bridge and both, comfortable sidebar density, light and dark",
+  "title": "Sidebar corner morph (Debug sidebar.cornerMorph): off, shell, bridge and both on the showcase window, comfortable sidebar density, light and dark",
   "steps": [
     {
       "title": "Launch",
-      "wait": 3,
+      "wait": 2,
       "shot": false
     },
     {
@@ -18,69 +18,15 @@
       "shot": false
     },
     {
-      "title": "Workspace Fix split node parity",
-      "cmux": [
-        "workspace",
-        "new",
-        "--name",
-        "Fix split node parity"
-      ],
-      "shot": false,
-      "wait": 0.5
-    },
-    {
-      "title": "Workspace Speed up parity gates",
-      "cmux": [
-        "workspace",
-        "new",
-        "--name",
-        "Speed up parity gates"
-      ],
-      "shot": false,
-      "wait": 0.5
-    },
-    {
-      "title": "Workspace Window tiling support",
-      "cmux": [
-        "workspace",
-        "new",
-        "--name",
-        "Window tiling support"
-      ],
-      "shot": false,
-      "wait": 0.5
-    },
-    {
-      "title": "Workspace Review two pull requests",
-      "cmux": [
-        "workspace",
-        "new",
-        "--name",
-        "Review two pull requests"
-      ],
-      "shot": false,
-      "wait": 0.5
-    },
-    {
-      "title": "Workspace Casual check-in",
-      "cmux": [
-        "workspace",
-        "new",
-        "--name",
-        "Casual check-in"
-      ],
-      "shot": false,
-      "wait": 0.5
-    },
-    {
-      "title": "A second tab, so the tab row has a selected tab beside another",
-      "cmux": [
-        "action",
-        "run",
-        "tab.new"
-      ],
-      "shot": false,
-      "wait": 1
+      "title": "The showcase window: real panes, an Agent tab, Home selected",
+      "rpc": {
+        "method": "debug.scene.render",
+        "params": {
+          "scene": "main-showcase"
+        }
+      },
+      "wait": 2,
+      "shot": false
     },
     {
       "title": "Light",
@@ -104,7 +50,7 @@
           "value": "off"
         }
       },
-      "wait": 2
+      "wait": 1.5
     },
     {
       "title": "Light, sidebar.cornerMorph shell: the titlebar row and the tabs are one band",
@@ -116,7 +62,7 @@
           "value": "shell"
         }
       },
-      "wait": 2
+      "wait": 1.5
     },
     {
       "title": "Light, sidebar.cornerMorph bridge: the selected workspace joins the card",
@@ -128,7 +74,7 @@
           "value": "bridge"
         }
       },
-      "wait": 2
+      "wait": 1.5
     },
     {
       "title": "Light, sidebar.cornerMorph both: shell and bridge",
@@ -140,7 +86,7 @@
           "value": "both"
         }
       },
-      "wait": 2
+      "wait": 1.5
     },
     {
       "title": "Dark",
@@ -164,7 +110,7 @@
           "value": "off"
         }
       },
-      "wait": 2
+      "wait": 1.5
     },
     {
       "title": "Dark, sidebar.cornerMorph shell: the titlebar row and the tabs are one band",
@@ -176,7 +122,7 @@
           "value": "shell"
         }
       },
-      "wait": 2
+      "wait": 1.5
     },
     {
       "title": "Dark, sidebar.cornerMorph bridge: the selected workspace joins the card",
@@ -188,7 +134,7 @@
           "value": "bridge"
         }
       },
-      "wait": 2
+      "wait": 1.5
     },
     {
       "title": "Dark, sidebar.cornerMorph both: shell and bridge",
@@ -200,7 +146,7 @@
           "value": "both"
         }
       },
-      "wait": 2
+      "wait": 1.5
     },
     {
       "title": "Back to the system appearance",
