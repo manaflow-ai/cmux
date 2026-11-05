@@ -28,6 +28,19 @@ test("plain lines start at the line the read asked for, else 1; numbers that do 
   expect(readPeek("/w/a.ts", "3\tc\n1\ta\n2\tb")).toBeUndefined();
 });
 
+test("only Claude's own Read loses tab numbers: another harness's TSV keeps its first column", () => {
+  expect(readPeek("/w/a.tsv", "1\tfoo\n2\tbar", 1, false)).toMatchObject({ start: 1, code: "1\tfoo\n2\tbar" });
+  const pi = fileCard({ ...HARNESS_CALLS.pi.read, output: "1\tfoo" }, "1\tfoo");
+  expect(pi).toMatchObject({ read: { code: "1\tfoo" } });
+  const claude = fileCard({ ...HARNESS_CALLS.claude.read, output: "1\tfoo" }, "1\tfoo");
+  expect(claude).toMatchObject({ read: { code: "foo" } });
+});
+
+test("a files-only Grep's root names without an extension read as files", () => {
+  const card = fileCard(HARNESS_CALLS.claude.search, "Found 2 files\nLICENSE\nsrc/a.ts");
+  expect(card).toMatchObject({ kind: "search", result: { files: [{ path: "LICENSE" }, { path: "src/a.ts" }] } });
+});
+
 test("every harness's read draws a file card; Codex's sed range sets its first line", () => {
   for (const harness of ["claude", "codex", "opencode", "pi", "gemini"] as const) {
     const card = fileCard(with_(HARNESS_CALLS[harness].read, "1\timport x from 'y';"), "1\timport x from 'y';");

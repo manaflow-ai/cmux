@@ -33,8 +33,11 @@ export type FileCard =
   | { kind: "read"; read: ReadPeek }
   | { kind: "search"; tool: "search" | "glob" | "list"; result: SearchResult };
 
-/// Claude Code numbers a Read's lines `     1→text` or `1\ttext` (cat -n).
-const NUMBERED = /^\s*(\d+)(?:→|\t)(.*)$/;
+/// Claude Code numbers a Read's lines `     1→text`, or `1\ttext` (cat -n). The tab form is read only
+/// from Claude's own Read (`file_path` in its input): another harness's read of a TSV file keeps its
+/// first column.
+const NUMBERED = /^\s*(\d+)→(.*)$/;
+const TAB_NUMBERED = /^\s*(\d+)\t(.*)$/;
 /// `sed -n 120,160p file`, as Codex reads a range.
 const SED_RANGE = /\bsed\s+-n\s+['"]?(\d+)(?:,(\d+))?p/;
 
@@ -45,11 +48,14 @@ export function fileCard(tool: Tool, text: string | undefined, cwd?: string): Fi
   const call = canonicalCall(tool);
   if (!call) return undefined;
   if (call.tool === "read") {
-    const read = call.input.path ? readPeek(call.input.path, text, startOf(tool, call.input.command)) : undefined;
+    const tabs = /"file_path"\s*:/.test(tool.inputSummary ?? "");
+    const read = call.input.path ? readPeek(call.input.path, text, startOf(tool, call.input.command), tabs) : undefined;
     return read && { kind: "read", read };
   }
   if (call.tool === "search" || call.tool === "glob" || call.tool === "list") {
-    const result = searchResult(text, inputCwd(tool) ?? cwd, call.tool !== "search");
+    // A Glob or listing prints only paths, as does a Grep that says "Found N files" (Claude's default).
+    const filesOnly = call.tool !== "search" || FOUND_FILES.test(text.trimStart());
+    const result = searchResult(text, inputCwd(tool) ?? cwd, filesOnly);
     return result && { kind: "search", tool: call.tool, result };
   }
   return undefined;
@@ -57,9 +63,9 @@ export function fileCard(tool: Tool, text: string | undefined, cwd?: string): Fi
 
 /// A read's lines: numbered lines lose their numbers and start where they say; plain lines start at
 /// the line the call asked for (Claude's `offset`, Codex's `sed -n A,Bp`), else 1.
-export function readPeek(path: string, text: string, from = 1): ReadPeek | undefined {
+export function readPeek(path: string, text: string, from = 1, tabs = true): ReadPeek | undefined {
   const lines = text.replace(/\n+$/, "").split("\n");
-  const numbered = lines.map((line) => line.match(NUMBERED));
+  const numbered = lines.map((line) => line.match(NUMBERED) ?? (tabs ? line.match(TAB_NUMBERED) : null));
   if (numbered.every(Boolean)) {
     const start = Number(numbered[0]![1]);
     // Numbers that skip or repeat are not a file's lines but text that happens to start with digits.
