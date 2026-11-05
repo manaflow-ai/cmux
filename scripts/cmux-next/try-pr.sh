@@ -183,10 +183,14 @@ live_swift() {
   drop
   echo "$patch"
   patch="$(sed -n 's/.*\/\(patch-[0-9]*-[0-9]*\.dylib\) .*/\1/p' <<<"$patch")"
-  if line="$(await_line "$log" "$offset" "(applied ${patch}|${patch} refused)" 30)"; then
+  # CMUX_TRY_PR_LIVE_WAIT: seconds to wait for the app's answer (tests shorten it).
+  local wait="${CMUX_TRY_PR_LIVE_WAIT:-30}"
+  if line="$(await_line "$log" "$offset" "(applied ${patch}|${patch} refused)" "$wait")"; then
     echo "$line"; [[ "$line" == *applied* ]] || return 1
   else
-    echo "live code: no word from the app on $patch in 30 s (${here:+is Labs > Live Code on in your live code build?}${here:-$log})"; return 1
+    # Gone before the dev build is taken, so a watcher that starts late never loads it after all.
+    rm -f "$live_dir/$patch"
+    echo "live code: no word from the app on $patch in $wait s, so it was removed (${here:+is Labs > Live Code on in your live code build?}${here:-$log})"; return 1
   fi
 }
 

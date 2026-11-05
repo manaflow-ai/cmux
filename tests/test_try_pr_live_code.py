@@ -161,6 +161,14 @@ class TryPrLiveCodeTests(unittest.TestCase):
         self.assertIn("so a dev build", out.stdout)
         self.assertIn("run again without --no-build", out.stdout)
 
+    def test_no_answer_removes_the_patch_and_takes_the_dev_build(self):
+        self.push_pr(lambda w: (w / APP_FILE).write_text(BASE_SWIFT.replace('"hello"', '"hi"')))
+        self.env["CMUX_TRY_PR_LIVE_WAIT"] = "1"
+        out = self.try_pr("--no-build")
+        self.assertIn("so it was removed", out.stdout)
+        self.assertIn("so a dev build", out.stdout)
+        self.assertEqual(list(self.live.glob("patch-*.dylib")), [], "no patch is left for a late watcher")
+
     def test_a_new_file_takes_the_dev_build(self):
         def edit(w):
             (w / APP_FILE).write_text(BASE_SWIFT.replace('"hello"', '"hi"'))
