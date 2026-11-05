@@ -992,9 +992,25 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     // A later turn in the same session. With the stub, a request's step is the number of tool results already in the
     // conversation: the first request of this turn at step >= 1 proves the session still holds turn 1 (its tool
     // result), where a fresh conversation would start at step 0.
+    // `send --no-wait` returns once the prompt is queued, so `acp wait` right after it can still see the session idle
+    // and `acp last` would read the previous turn's reply. Each later turn carries its own marker, and its reply is
+    // read only once that marker is in the session's transcript (the turn started).
+    let turns = 0;
+    const turnStarted = async (marker: string) => {
+      const t0 = Date.now();
+      while (Date.now() - t0 < chatBudget) {
+        const r = await exec(`${GUEST}"$c" acp wait ${shq(session)} --match ${shq(marker)} --timeout 20 >/dev/null 2>&1; echo "@@match $?"`, 45_000);
+        const code = /@@match (\d+)/.exec(r.stdout)?.[1];
+        if (code === "0") return;
+        if (code && code !== "3") throw new Error(`acp wait --match exit ${code}: the turn's prompt never reached the session`);
+      }
+      throw new Error(`the turn's prompt did not reach the session within ${chatBudget / 1000} s`);
+    };
     const laterTurn = async (text: string): Promise<{ value: null; detail: string }> => {
       const before = modelStub ? (await stubTurns()).length : 0;
-      await send(text);
+      const marker = `[journey turn ${tag}-${++turns}]`;
+      await send(`${text} ${marker}`);
+      await turnStarted(marker);
       const last = await awaitReply();
       if (!modelStub) return { value: null, detail: last.slice(0, 280) };
       if (!last.includes(`Stub reply ${nonce}.`)) throw new Error(`the reply does not carry the stub's nonce ${nonce}: ${last.slice(-200)}`);
