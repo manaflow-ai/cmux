@@ -167,7 +167,12 @@ impl HotModule {
         if !path.is_absolute() {
             return Err(format!("{} is not an absolute path", path.display()));
         }
-        let path = if path.exists() { crate::trust::check(path)? } else { path.to_path_buf() };
+        // Off Unix the trust check refuses every path, so a missing one is refused here too.
+        let path = if path.exists() || cfg!(not(unix)) {
+            crate::trust::check(path)?
+        } else {
+            path.to_path_buf()
+        };
         let mut config = Config::new();
         // On by default with the `component-model` feature; said here so a default change in a
         // later wasmtime cannot turn every load into a refusal.
@@ -257,6 +262,10 @@ impl HotModule {
         let publishing = Instant::now();
         {
             let mut writer = lock(&shared.writer);
+            // A stale call may have trapped on these bytes and refused them while they compiled.
+            if writer.refused.contains(&sha256) {
+                return Ok(None);
+            }
             writer.previous = shared.current.swap(Some(loaded));
         }
         let publish = publishing.elapsed();
