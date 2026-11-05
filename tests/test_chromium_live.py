@@ -275,6 +275,26 @@ class ReviewFixesTest(unittest.TestCase):
             self.assertTrue(seen["locked"], "a stop or second start waits while start writes the pid")
             self.assertTrue(cl.pid_file(state).read_text().startswith("4242 "))
 
+    def test_start_puts_back_what_a_dead_watcher_left_before_its_new_session(self):
+        with tempfile.TemporaryDirectory() as d, mock.patch.dict(os.environ,
+                                                                {"CMUX_CHROMIUM_LIVE_STATE_DIR": d}):
+            state = Path(d)
+            app = state / "x.app"
+            binary = app / cl.FRAMEWORK_REL / cl.BINARY_NAME
+            binary.parent.mkdir(parents=True)
+            binary.write_bytes(b"")
+            old = {"build_host": "h", "src": "/s", "out": "out/R", "target": "libcef", "session": "old"}
+            (state / "config.json").write_text(json.dumps(old))
+            restored = []
+            with mock.patch.object(cl.Builder, "restore", lambda self, rels=None: restored.append(
+                    self._keep) or 2), \
+                    mock.patch.object(cl.subprocess, "Popen", lambda *a, **k: mock.Mock(pid=4242)):
+                rc = cl.main(["start", "--build-host", "h", "--src", "/s", "--app", str(app),
+                              "--worktree", d, "--edits", str(state / "edits")])
+            self.assertEqual(rc, 0)
+            self.assertEqual(restored, ["~/.cmux-chromium-live/old"])
+            self.assertNotEqual(json.loads((state / "config.json").read_text())["session"], "old")
+
 
 if __name__ == "__main__":
     unittest.main()

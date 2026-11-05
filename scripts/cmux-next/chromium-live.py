@@ -528,6 +528,11 @@ def start_locked(args, state: Path) -> dict:
     """Write the config and the watcher's pid together (the caller holds the lock); returns the config."""
     if running_pid(state):
         raise LiveError("already watching; `chromium-live.py stop` first")
+    stale = state / "config.json"
+    if stale.is_file():  # a watcher that died without `stop`: its kept copies go back before a new session
+        n = Builder(json.loads(stale.read_text()), state).restore()
+        log(f"put back {n} file(s) an earlier session left in the build host's tree")
+        stale.unlink()
     tree = checkout(args.worktree)
     app = Path(args.app).resolve() if args.app else running_app()
     framework_binary(app)
