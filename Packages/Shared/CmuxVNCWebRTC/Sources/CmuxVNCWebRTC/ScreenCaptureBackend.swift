@@ -241,8 +241,11 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         }
         if let previous {
             try? await previous.stopCapture()
-            // The old stream's last frames may have set it while this one started.
-            lock.withLock { lastDelivered = nil }
+            // The old stream's last frames may have set these while this one started.
+            lock.withLock {
+                lastDelivered = nil
+                held = nil
+            }
         }
         input.display = display.frame
         log("capturing display \(display.displayID) at \(Int(size.width))x\(Int(size.height)), \(rate) fps")
