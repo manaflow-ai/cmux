@@ -116,7 +116,10 @@ export function devServerProof(token: string, nonce: string): string {
   return createHmac("sha256", token).update(nonce).digest("hex");
 }
 
-export function devServerTokenFrom(env: NodeJS.ProcessEnv, read: (file: string) => string | undefined): string | undefined {
+export function devServerTokenFrom(
+  env: NodeJS.ProcessEnv,
+  read: (file: string) => string | undefined,
+): string | undefined {
   const fromEnv = env.CMUX_WEB_DEV_TOKEN?.trim();
   if (fromEnv) return fromEnv;
   const config = env.CMUX_NEXT_CONFIG_FILE ?? path.join(os.homedir(), ".config", "cmux", "cmux-next.json");

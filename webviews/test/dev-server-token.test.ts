@@ -1,18 +1,20 @@
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it } from "bun:test";
 import { devServerProof, devServerTokenFrom } from "../dev-server/plugins";
 
-// The app loads its pages from this server only when its answers carry web-dev.json's token
+// The app loads its pages from this server only when its answers prove web-dev.json's token
 // (PageDevServer.token), so the server has to find the same token the app reads.
 describe("dev server token", () => {
   const file = (body: string) => (name: string) => (name.endsWith("/cfg/web-dev.json") ? body : undefined);
   const env = { CMUX_NEXT_CONFIG_FILE: "/cfg/cmux-next.json" };
 
   it("reads the token from web-dev.json next to the config file", () => {
-    expect(devServerTokenFrom(env, file(JSON.stringify({ server: "http://127.0.0.1:4200/", token: "abc" })))).toBe("abc");
+    const body = JSON.stringify({ server: "http://127.0.0.1:4200/", token: "abc" });
+    expect(devServerTokenFrom(env, file(body))).toBe("abc");
   });
 
   it("prefers CMUX_WEB_DEV_TOKEN", () => {
-    expect(devServerTokenFrom({ ...env, CMUX_WEB_DEV_TOKEN: "env" }, file(JSON.stringify({ token: "abc" })))).toBe("env");
+    const withEnv = { ...env, CMUX_WEB_DEV_TOKEN: "env" };
+    expect(devServerTokenFrom(withEnv, file(JSON.stringify({ token: "abc" })))).toBe("env");
   });
 
   it("proves the token as HMAC-SHA256 of the nonce, the same answer the app computes", () => {
