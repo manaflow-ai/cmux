@@ -42,6 +42,7 @@ recorded on merged PRs. Test: tests/test_ci_affected_tests.py.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -70,6 +71,11 @@ SELF_INPUTS = (
     RUST_SCRIPT, SWIFT_SCRIPT, WEB_SCRIPT, PYTHON_RUNNER, "tests/test-execution.toml",
 )
 MAX_FILES = 400
+# The controller takes at most 64 CMUX_WEB_TEST_FILES per step, each `(src|test)/....test.<ext>`
+# (ci_step.go validCIStepWebTestFiles). A larger or other selection runs as one whole-lane step.
+WEB_FILES_PER_STEP = 64
+WEB_LISTED_MAX = 4 * WEB_FILES_PER_STEP
+WEB_FILE_OK = re.compile(r"^(src|test)/[A-Za-z0-9._/-]+\.test\.(ts|tsx|js|jsx|mjs)$")
 # Tests that drive a phone or simulator rig; they run on their own hardware, never in a fast check.
 DEVICE_ONLY = ("cmux-next-ios/verify/",)
 DEFAULT_SHARDS = 4
@@ -107,6 +113,13 @@ def web_tests(root: Path) -> list[str]:
                   if focused_tests.WEB_TEST.search(p) and "/node_modules/" not in p)
 
 
+def is_browser_test(root: Path, test: str) -> bool:
+    """A test that launches a browser engine (requireBrowserLane, playwright) skips unless CMUX_BROWSER_TESTS=1."""
+    path = root / focused_tests.WEB / test
+    text = path.read_text(encoding="utf-8", errors="replace") if path.is_file() else ""
+    return "requireBrowserLane" in text or "playwright" in text
+
+
 def webviews_source_changed(files: list[str]) -> list[str]:
     """Non-test webviews sources a change touches. Browser and gallery tests render the whole app
     through vite or read sources by path, so no import edge links them to what they load: any such
@@ -121,27 +134,31 @@ def web_workflow_python_tests(root: Path) -> list[str]:
     return sorted({t for t in found if (root / t).is_file()})
 
 
-def tests_naming(root: Path, paths: list[str]) -> tuple[dict[str, list[str]], list[str]]:
-    """Swift test targets and webviews tests whose source names one of `paths` (a docs or plans file a
-    test reads by path, such as plans/cmux-next/actions.md): ({package: [targets]}, [web tests])."""
+def tests_naming(root: Path, paths: list[str]) -> tuple[dict[str, list[str]], list[str], list[str]]:
+    """Swift test targets, webviews tests and lane Python tests whose source names one of `paths` (a
+    docs or plans file a test reads by path, such as plans/cmux-next/actions.md):
+    ({package: [targets]}, [web tests], [Python tests])."""
     # Not a conventional name many directories share (AGENTS.md, README.md, SKILL.md, index.json).
     names = sorted({Path(p).name for p in paths if len(Path(p).name) >= 8 and Path(p).name not in focused_tests.COMMON
                     and not re.fullmatch(r"[A-Z0-9_-]+\.md", Path(p).name)})
     swift: dict[str, set[str]] = {}
     web: set[str] = set()
+    python: set[str] = set()
     if not names:
-        return {}, []
+        return {}, [], []
     args = ["grep", "-l", "-F"] + [x for n in names for x in ("-e", n)]
-    out = subprocess.run(["git", "-C", str(root), *args, "--", "Packages/**/Tests/**/*.swift", focused_tests.WEB + "test"],
+    out = subprocess.run(["git", "-C", str(root), *args, "--", "Packages/**/Tests/**/*.swift", focused_tests.WEB + "test", "tests"],
                          capture_output=True, text=True).stdout.split()
     for path in out:
-        if path.startswith(focused_tests.WEB):
+        if path.startswith("tests/") and path.endswith(".py"):
+            python.add(path)
+        elif path.startswith(focused_tests.WEB):
             if focused_tests.WEB_TEST.search(path):
                 web.add(path[len(focused_tests.WEB):])
         elif "/Tests/" in path:
             package, rest = path.split("/Tests/", 1)
             swift.setdefault(package, set()).add(rest.split("/", 1)[0])
-    return {k: sorted(v) for k, v in swift.items()}, sorted(web)
+    return {k: sorted(v) for k, v in swift.items()}, sorted(web), sorted(python)
 
 
 def unregistered_python_tests(root: Path) -> list[str]:
@@ -173,12 +190,16 @@ class Planner:
         self.units: list[dict] = []
         self.not_run: list[dict] = []
 
-    def key(self, name: str) -> str:
-        return f"affected-{self.head[:12]}-{name}"
+    def key(self, name: str, what: object) -> str:
+        """Per head, unit and exact request: a rerun with another base, shard count or selection is
+        never answered from an earlier step's result."""
+        digest = hashlib.sha256(json.dumps([self.base, what], sort_keys=True).encode()).hexdigest()[:8]
+        return f"affected-{self.head[:12]}-{name}-{digest}"
 
     def run_step(self, name: str, kind: str, why: str, script: str, cls: str, args: list[str],
                  env: dict[str, str] | None = None, extra: list[str] | None = None) -> None:
-        argv = ["run", "--class", cls, "--script", script, "--ref", self.head, "--key", self.key(name)]
+        key = self.key(name, [script, cls, args, env or {}, extra or []])
+        argv = ["run", "--class", cls, "--script", script, "--ref", self.head, "--key", key]
         for arg in args:
             argv.append(f"--arg={arg}")
         for k, v in (env or {}).items():
@@ -199,24 +220,25 @@ class Planner:
                 name = f"swift-{label}" + (f"-{i}of{len(parts)}" if len(parts) > 1 else "")
                 self.run_step(name, "swift", why, SWIFT_SCRIPT, "light", ["suite", package, ",".join(part)])
 
-    def web(self, files: list[dict] | None) -> None:
-        if files is None:
-            # A browser test (requireBrowserLane, playwright) skips unless CMUX_BROWSER_TESTS=1: it goes
-            # to the browser units, the rest to the plain ones.
-            plain, browser = [], []
-            for test in web_tests(self.root):
-                text = (self.root / focused_tests.WEB / test).read_text(encoding="utf-8", errors="replace")
-                (browser if "requireBrowserLane" in text or "playwright" in text else plain).append(test)
-        else:
-            plain = [f["path"] for f in files if not f.get("browser")]
-            browser = [f["path"] for f in files if f.get("browser")]
-        for label, chosen, env in (("web", plain, {}), ("web-browser", browser, {"CMUX_BROWSER_TESTS": "1"})):
-            if not chosen:
+    def web(self, files: list[str] | None) -> None:
+        """Webviews test files in steps of at most 64 (the controller's bound), browser tests in
+        CMUX_BROWSER_TESTS=1 steps. None, a selection over WEB_LISTED_MAX or a file the controller's
+        pattern refuses runs every webviews test in one step with the browser lane on."""
+        chosen = sorted(set(files or []))
+        if files is None or len(chosen) > WEB_LISTED_MAX or not all(WEB_FILE_OK.match(f) for f in chosen):
+            self.run_step("web", "web", "every webviews test, browser lane included (one step)", WEB_SCRIPT, "light", [],
+                          env={"CMUX_BROWSER_TESTS": "1"})
+            return
+        browser = [f for f in chosen if is_browser_test(self.root, f)]
+        plain = [f for f in chosen if f not in browser]
+        for label, picked, env in (("web", plain, {}), ("web-browser", browser, {"CMUX_BROWSER_TESTS": "1"})):
+            if not picked:
                 continue
-            parts = split(chosen, self.shards)
+            n = max(min(self.shards, len(picked)), -(-len(picked) // WEB_FILES_PER_STEP))
+            parts = split(picked, n)
             for i, part in enumerate(parts, 1):
                 name = label + (f"-{i}of{len(parts)}" if len(parts) > 1 else "")
-                self.run_step(name, "web", f"{len(chosen)} webviews test files", WEB_SCRIPT, "light", [],
+                self.run_step(name, "web", f"{len(picked)} webviews test files", WEB_SCRIPT, "light", [],
                               env={**env, "CMUX_WEB_TEST_FILES": "\n".join(part)})
 
     def python(self, paths: list[str] | None) -> None:
@@ -289,6 +311,14 @@ def extra_python(root: Path, files: list[str]) -> list[str]:
     return out
 
 
+def rust_may_read(files: list[str], focused: dict) -> bool:
+    """cmux-tui crates also read files outside cmux-tui/ (include_str! targets, cmux-tui-tree-inputs.txt):
+    a changed path outside the docs, webviews, Swift packages and Native workspaces sends the Rust step,
+    whose own cargo_affected.py says which crates (none: it passes with a notice)."""
+    docs = set(focused.get("docs", []))
+    return any(f not in docs and not f.startswith((focused_tests.WEB, "Packages/", "Native/")) for f in files)
+
+
 def everything_reasons(files: list[str], focused: dict) -> list[str]:
     reasons = []
     if len(files) > MAX_FILES:
@@ -305,8 +335,8 @@ def plan(root: Path, base: str, head: str, files: list[str] | None, shards: int,
     focused = focused_tests.plan(root, files)
     reasons = ["--all"] if everything else everything_reasons(files, focused)
     p = Planner(root, base, head, shards)
-    if reasons or set(files) - set(focused.get("docs", [])):
-        p.guards()
+    if files or reasons:
+        p.guards()  # docs too: guards read docs (plans/*.md ratchets) as much as code
     if reasons:
         p.rust(everything=True)
         p.swift({pkg: swift_test_targets(root, pkg) for pkg in swift_packages(root)}, "every Swift package test target")
@@ -315,7 +345,7 @@ def plan(root: Path, base: str, head: str, files: list[str] | None, shards: int,
         p.python_extra(unregistered_python_tests(root), "every Python test outside the lane registry")
         p.native(sorted({focused_tests.native_manifest(root, m.as_posix()) or "" for m in root.glob("Native/**/Cargo.lock")} - {""}))
     else:
-        if focused["cargo"]["changed"]:
+        if focused["cargo"]["changed"] or rust_may_read(files, focused):
             p.rust(everything=False)
         targets: dict[str, list[str]] = {}
         for item in focused["swift"]:
@@ -328,7 +358,7 @@ def plan(root: Path, base: str, head: str, files: list[str] | None, shards: int,
                 if pkg:
                     targets[pkg] = swift_test_targets(root, pkg)
         web_python: list[str] = []
-        named_swift, named_web = tests_naming(root, focused.get("docs", []))
+        named_swift, named_web, named_python = tests_naming(root, focused.get("docs", []))
         for pkg, names in named_swift.items():
             targets.setdefault(pkg, []).extend(names)
         p.swift({k: sorted(set(v)) for k, v in targets.items() if v}, focused["swift_deferred"] or "test targets that import a changed target")
@@ -336,11 +366,10 @@ def plan(root: Path, base: str, head: str, files: list[str] | None, shards: int,
             p.web(None)
             web_python = web_workflow_python_tests(root)
         elif focused["web"] or named_web:
-            p.web(focused["web"] + [{"path": t, "why": "names a changed file"} for t in named_web
-                                    if t not in {f["path"] for f in focused["web"]}])
+            p.web([f["path"] for f in focused["web"]] + named_web)
         lanes = python_lane_tests(root)
         lane_paths = [item["path"] for item in focused["python"]]
-        lane_paths += [t for t in web_python if lanes.get(t) == LINUX_PYTHON_LANE and t not in lane_paths]
+        lane_paths += [t for t in web_python + named_python if lanes.get(t) == LINUX_PYTHON_LANE and t not in lane_paths]
         p.python(lane_paths)
         extra = extra_python(root, files)
         extra += [t for t in web_python if t not in lanes and t not in extra]
@@ -369,9 +398,15 @@ def main(argv: list[str]) -> int:
         parser.error(f"--shards must be 1..{MAX_SHARDS}")
     root = Path(args.root).resolve()
     head = resolve(root, args.head)
-    base = args.base or git(root, "merge-base", head, "origin/feat-cmux-next")
-    base = resolve(root, base)
     files = sorted(set(args.files)) if args.files is not None else None
+    try:
+        base = resolve(root, args.base or git(root, "merge-base", head, "origin/feat-cmux-next"))
+    except subprocess.CalledProcessError:
+        # No merge base (or an unknown --base): nothing says what changed, so every suite runs.
+        result = plan(root, head, head, files or [], args.shards, True)
+        result["reasons"] = [f"no merge base with {args.base or 'origin/feat-cmux-next'}"]
+        print(json.dumps(result, indent=2))
+        return 0
     print(json.dumps(plan(root, base, head, files, args.shards, args.all), indent=2))
     return 0
 

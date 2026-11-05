@@ -238,9 +238,11 @@ def selected(plan: dict) -> dict:
             if "--path" not in argv:
                 sel["python"].add("*")
         elif unit["kind"] == "web":
-            for a in argv:
-                if a.startswith("CMUX_WEB_TEST_FILES="):
-                    sel["web"] |= set(a.split("=", 1)[1].splitlines())
+            listed = [a for a in argv if a.startswith("CMUX_WEB_TEST_FILES=")]
+            for a in listed:
+                sel["web"] |= set(a.split("=", 1)[1].splitlines())
+            if not listed:
+                sel["web"].add("*")  # the whole-lane step
         elif unit["kind"] == "swift":
             args = [a.removeprefix("--arg=") for a in argv if a.startswith("--arg=")]
             sel["swift"] |= {(args[1], t) for t in args[2].split(",")}
@@ -297,13 +299,12 @@ def check(path: Path, metadata: Path, out: Path | None) -> int:
             lane = lanes.get(test, "")
             if "guard_tests" not in p:
                 p["guard_tests"] = affected_tests.guard_tests(replay_worktree())
-            hit = (test in sel["python"] or "*" in sel["python"] or any(n["what"] == test for n in plan["not_run"])
-                   or (sel["guards"] and test in p["guard_tests"]))
+            hit = test in sel["python"] or "*" in sel["python"] or (sel["guards"] and test in p["guard_tests"])
             why = f"lane {lane or 'unregistered'}" + (" (listed as not run)" if any(n["what"] == test for n in plan["not_run"]) else "")
         elif kind == "guard":
             hit, why = sel["guards"], "the ci-guards.yml guards"
         elif kind == "web":
-            hit, why = test in sel["web"], f"{len(sel['web'])} web files selected"
+            hit, why = test in sel["web"] or "*" in sel["web"], f"{len(sel['web'])} web files selected"
         elif kind in ("swift-file", "swift-suite"):
             if p["tree"] is None:
                 p["tree"] = tree_files(head)

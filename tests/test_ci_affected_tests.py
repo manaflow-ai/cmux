@@ -47,10 +47,18 @@ class AffectedTests(unittest.TestCase):
         argv = next(u for u in units if u["kind"] == "rust")["argv"]
         self.assertNotIn("--shards", argv)
 
-    def test_docs_select_nothing(self):
+    def test_docs_run_only_the_guards(self):
         result = plan(["cmux-tui/AGENTS.md"])
         self.assertFalse(result["all"])
-        self.assertEqual(result["units"], [])
+        self.assertEqual(names(result), ["guards"])
+
+    def test_nothing_changed_runs_nothing(self):
+        self.assertEqual(plan([])["units"], [])
+
+    def test_a_doc_a_python_test_names_selects_it(self):
+        # tests/test_base_red_excuse.py reads plans/cmux-next/rust-panic-free.md.
+        argv = [a for u in plan(["plans/cmux-next/rust-panic-free.md"])["units"] for a in u["argv"]]
+        self.assertIn("tests/test_base_red_excuse.py", argv)
 
     def test_every_code_change_runs_the_whole_tree_guards(self):
         # Guards such as the short-timeout ratchet read every file, so no path map can skip them.
@@ -64,26 +72,47 @@ class AffectedTests(unittest.TestCase):
 
     def test_webviews_source_change_runs_every_web_test_with_the_browser_lane(self):
         # Browser and gallery tests load the whole app through vite, not through imports.
-        result = plan(["webviews/src/agent-session/acpmux/App.tsx"])
-        browser = [u for u in result["units"] if u["name"].startswith("web-browser")]
-        plain = [u for u in result["units"] if u["kind"] == "web" and not u["name"].startswith("web-browser")]
-        self.assertTrue(browser and plain)
-        self.assertTrue(all("--env" in u["argv"] and "CMUX_BROWSER_TESTS=1" in u["argv"] for u in browser))
-        sent = set()
-        for u in browser + plain:
+        web = [u for u in plan(["webviews/src/agent-session/acpmux/App.tsx"])["units"] if u["kind"] == "web"]
+        self.assertEqual(len(web), 1)
+        self.assertIn("CMUX_BROWSER_TESTS=1", web[0]["argv"])
+        self.assertFalse(any(a.startswith("CMUX_WEB_TEST_FILES=") for a in web[0]["argv"]))
+
+    def test_web_lists_stay_within_the_controllers_bound(self):
+        files = [t for t in affected_tests.web_tests(ROOT) if affected_tests.WEB_FILE_OK.match(t)][:200]
+        p = affected_tests.Planner(ROOT, BASE, HEAD, 2)
+        p.web(files)
+        sent = []
+        for u in p.units:
             env = next(a for a in u["argv"] if a.startswith("CMUX_WEB_TEST_FILES="))
-            sent |= set(env.split("=", 1)[1].splitlines())
-        self.assertEqual(sent, set(affected_tests.web_tests(ROOT)))
+            part = env.split("=", 1)[1].splitlines()
+            self.assertLessEqual(len(part), affected_tests.WEB_FILES_PER_STEP)
+            self.assertTrue(all(affected_tests.WEB_FILE_OK.match(f) for f in part))
+            sent += part
+        self.assertEqual(sorted(sent), sorted(files))
+        self.assertEqual(len({u["name"] for u in p.units}), len(p.units))
+
+    def test_unit_keys_change_with_the_request(self):
+        a = affected_tests.plan(ROOT, BASE, HEAD, ["cmux-tui/crates/cmux-config/src/lib.rs"], 4, False)
+        b = affected_tests.plan(ROOT, "c" * 40, HEAD, ["cmux-tui/crates/cmux-config/src/lib.rs"], 2, False)
+        key = lambda r: next(u["argv"][u["argv"].index("--key") + 1] for u in r["units"] if u["kind"] == "rust")
+        self.assertNotEqual(key(a), key(b))
+
+    def test_a_cmux_tui_tree_input_outside_cmux_tui_sends_the_rust_step(self):
+        self.assertIn("rust", names(plan(["scripts/ci/macos_stubs.py"])))
+
+    def test_no_merge_base_runs_everything(self):
+        out = subprocess.run([sys.executable, str(ROOT / "scripts/ci/affected_tests.py"), "--base", "no-such-ref-zz", "--head", "HEAD",
+                              "--files", "cmux-tui/AGENTS.md"], cwd=ROOT, check=True, capture_output=True, text=True).stdout
+        data = json.loads(out)
+        self.assertTrue(data["all"])
+        self.assertIn("no merge base", data["reasons"][0])
 
     def test_an_unmapped_webviews_file_runs_every_web_test_not_every_suite(self):
         result = plan(["webviews/scripts/" + "zz-unmapped-baseline.jsonl"])
         self.assertFalse(result["all"], result["reasons"])
-        sent = set()
-        for u in result["units"]:
-            for a in u["argv"]:
-                if a.startswith("CMUX_WEB_TEST_FILES="):
-                    sent |= set(a.split("=", 1)[1].splitlines())
-        self.assertEqual(sent, set(affected_tests.web_tests(ROOT)))
+        web = [u for u in result["units"] if u["kind"] == "web"]
+        self.assertEqual(len(web), 1)
+        self.assertFalse(any(a.startswith("CMUX_WEB_TEST_FILES=") for a in web[0]["argv"]))
         self.assertNotIn("rust", names(result))
 
     def test_unit_names_are_unique_and_web_plans_take_the_web_workflows_python_tests(self):
@@ -171,7 +200,7 @@ class AffectedTests(unittest.TestCase):
         out = subprocess.run([sys.executable, str(ROOT / "scripts/ci/affected_tests.py"), "--base", "HEAD", "--head", "HEAD",
                               "--files", "cmux-tui/AGENTS.md"], cwd=ROOT, check=True, capture_output=True, text=True).stdout
         data = json.loads(out)
-        self.assertEqual(data["units"], [])
+        self.assertEqual([u["name"] for u in data["units"]], ["guards"])
         self.assertRegex(data["head"], r"^[0-9a-f]{40}$")
 
 
