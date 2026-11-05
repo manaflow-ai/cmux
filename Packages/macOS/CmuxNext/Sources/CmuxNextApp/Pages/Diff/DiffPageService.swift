@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextCompat
+import struct CmuxNextControl.LaunchIdentity
 import CmuxNextDesign
 import enum CmuxNextDaemon.DaemonError
 import typealias CmuxNextDaemon.SurfaceID
@@ -80,6 +81,8 @@ final class DiffPageService: InternalPageProvider {
     /// The folder picker of `cmux.diff.chooseFolder`.
     var chooser: any DiffFolderChoosing = OpenPanelFolderChooser()
     private var tabs: [String: Tab] = [:]
+    /// The diff tabs' open timeline (the instant-surfaces bench's `diff_right`).
+    let timeline = DiffOpenTimeline()
     /// Teardowns still closing sessions (tests wait on them).
     private(set) var closing: [Task<Void, Never>] = []
 
@@ -423,7 +426,8 @@ final class DiffPageService: InternalPageProvider {
         }
         native.anchor = { [weak page] in page }
         provider.confirmRevert = { [weak page] prompt in await DiffPageService.confirmRevert(prompt, over: page) }
-        page.fileDrop = Self.folderDrop(provider: provider, page: page)
+        page.fileDrop = provider.folderDrop(page: page)
+        provider.timeline = timeline
         tab.page = page
         tab.provider = provider
         tab.host = host
@@ -439,22 +443,6 @@ final class DiffPageService: InternalPageProvider {
                                   identifier: "cmux.dialog.diffRevert")
         let scope: CmuxDialogScope = page.map { .tab($0) } ?? .app
         return await CmuxDialogCenter.shared.present(spec, in: scope).button == "revert"
-    }
-
-    /// An empty diff tab opens a folder dropped from Finder (the page cannot
-    /// read its path): a dropped file opens its folder. The page reloads to
-    /// show the repository.
-    static func folderDrop(provider: DiffPageProvider, page: PageWebView) -> PageFileDrop {
-        PageFileDrop(accepts: { [weak provider] url in url.isFileURL && provider?.isPicking == true }, open: { [weak provider, weak page] url in
-            let folder = url.hasDirectoryPath ? url : url.deletingLastPathComponent()
-            // task-owner: one open of the dropped folder; ends when the tab shows it or refuses it
-            Task {
-                guard let provider, (try? await provider.open(folder: folder, source: .default)) != nil else {
-                    return NSSound.beep()
-                }
-                page?.reload()
-            }
-        })
     }
 
     func tabClosed(_ key: String) {
@@ -513,4 +501,10 @@ final class DiffTabHost: DiffTabHosting {
         service?.openFile(file, line: line, target: target, from: key) ?? false
     }
     func turn(for repository: String) -> DiffTurn? { service?.turn(for: key, in: repository) }
+}
+
+extension DiffRecents {
+    /// Beside the build's daemon state, as SidebarSnapshotFile does (per-build isolation S5): never
+    /// another build's tag folder.
+    static func standardURL(launch: LaunchIdentity) -> URL { SidebarSnapshotFile.buildDirectory(launch: launch).appending(path: fileName) }
 }

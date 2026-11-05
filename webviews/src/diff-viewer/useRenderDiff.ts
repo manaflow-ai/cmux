@@ -25,6 +25,7 @@ import {
 import { type AppAction, type AppState } from "./state";
 import { getInitialFileTreeRowCount } from "./FilesSidebar";
 import { withoutImportOnlyHunks } from "./importHunks";
+import { markDiffOpen } from "./openTiming";
 
 const registeredCustomThemeNames = new Set<string>();
 /** Errors of a repository on another machine (a Cloud workspace's): `message` is the host's reason. */
@@ -111,6 +112,7 @@ export function useRenderDiff(
             opened = adopted.session;
           } else {
             opening = true;
+            markDiffOpen("sessionOpen");
             const result = await transport!
               .request({ method: "sessionOpen", params: session! })
               .finally(() => (opening = false));
@@ -119,6 +121,7 @@ export function useRenderDiff(
             }
             opened = result.value;
           }
+          markDiffOpen("sessionOpened");
           const result = { value: opened };
           const openedSession = {
             sessionId: opened.sessionId,
@@ -164,6 +167,7 @@ export function useRenderDiff(
           signal: streamAbortController.signal,
           onBatch: (items) => {
             if (cancelled) return;
+            if (items.length > 0) markDiffOpen("firstBatch");
             streamedItems.push(...items);
             dispatch({ type: "append-items", items });
           },
