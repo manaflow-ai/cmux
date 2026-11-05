@@ -340,7 +340,7 @@ fn check_inner(paths: &Paths) -> Outcome {
         &plan.cmux_tui.sha256[..12],
         &plan.commit[..12]
     ));
-    restart_after_flip(&store_binary(&plan.old_cmux_tui));
+    restart_after_flip();
     Outcome::Updating(plan.commit)
 }
 
@@ -612,7 +612,7 @@ fn rollback(paths: &Paths, pending: &Pending, why: &str, in_host: bool) {
     if in_host {
         disarm_guard();
     }
-    restart_after_flip(&store_binary(&pending.cmux_tui));
+    restart_after_flip();
 }
 
 fn systemctl(args: &[&str]) -> bool {
@@ -675,47 +675,77 @@ fn disarm_guard() {
     let _ = systemctl(&["reset-failed", &format!("{GUARD_UNIT}.timer")]);
 }
 
-/// Restarts what runs `old` (the binary just replaced): the work user's
-/// acpmux, the other `cmux-*` system services, and last `cmux-host.service`.
-fn restart_after_flip(old: &Path) {
+/// Restarts what runs cmux-tui: the work user's acpmux, the other `cmux-*`
+/// system services whose `ExecStart` program is a cmux-tui, and last
+/// `cmux-host.service`. systemd says which units run and what each starts,
+/// so nothing lists processes (plans/cmux-next/pty-holder.md section 4).
+fn restart_after_flip() {
     if !user_systemctl(&["restart", ACPMUX_UNIT]) {
         log("restarting the work user's acpmux.service failed (none on this image?)");
     }
-    for unit in services_running(old) {
+    let listed = systemctl_stdout(&[
+        "list-units",
+        "--type=service",
+        "--state=running",
+        "--plain",
+        "--no-legend",
+        "--no-pager",
+        "cmux-*.service",
+    ]);
+    for unit in running_units(listed.as_deref().unwrap_or_default()) {
         // Only the image's own cmux units: a provider agent or an operator's
         // shell that happens to run the binary (`cmux host update check`) stays.
-        if unit.starts_with("cmux-") && unit != HOST_UNIT && !unit.starts_with(GUARD_UNIT) {
+        if unit == HOST_UNIT || unit.starts_with(GUARD_UNIT) {
+            continue;
+        }
+        let exec = systemctl_stdout(&["show", "--property=ExecStart", "--value", &unit]);
+        if exec.as_deref().is_some_and(starts_cmux_tui) {
             let _ = systemctl(&["restart", "--no-block", &unit]);
         }
     }
     let _ = systemctl(&["restart", "--no-block", HOST_UNIT]);
 }
 
-/// The system services (`/system.slice/<unit>.service`) with a process
-/// whose executable is `binary`. Terminal hosts (their own scopes) and the
-/// user's units are not services here.
-fn services_running(binary: &Path) -> Vec<String> {
-    let mut units = Vec::new();
-    for entry in fs::read_dir("/proc").into_iter().flatten().flatten() {
-        let dir = entry.path();
-        if !entry.file_name().to_str().is_some_and(|n| n.bytes().all(|b| b.is_ascii_digit())) {
-            continue;
-        }
-        if fs::read_link(dir.join("exe")).ok().as_deref() != Some(binary) {
-            continue;
-        }
-        let Ok(cgroup) = fs::read_to_string(dir.join("cgroup")) else { continue };
-        for line in cgroup.lines() {
-            if let Some(unit) = line.strip_prefix("0::/system.slice/")
-                && unit.ends_with(".service")
-                && !unit.contains('/')
-                && !units.iter().any(|u| u == unit)
-            {
-                units.push(unit.to_owned());
-            }
+/// `systemctl …`'s standard output, at most 60 s; `None` when it fails.
+fn systemctl_stdout(args: &[&str]) -> Option<String> {
+    let output = Command::new("timeout")
+        .arg("60")
+        .arg("systemctl")
+        .args(args)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    output.status.success().then(|| String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// The `cmux-*` service names in `systemctl list-units --plain --no-legend`
+/// output (the first word of each line).
+pub(super) fn running_units(listed: &str) -> Vec<String> {
+    let mut units: Vec<String> = Vec::new();
+    for line in listed.lines() {
+        let Some(unit) = line.split_whitespace().next() else { continue };
+        if unit.starts_with("cmux-")
+            && unit.ends_with(".service")
+            && !unit.contains('/')
+            && !units.iter().any(|u| u == unit)
+        {
+            units.push(unit.to_owned());
         }
     }
     units
+}
+
+/// Whether a unit's `ExecStart` (`systemctl show --property=ExecStart
+/// --value`: `{ path=/x/cmux-tui ; argv[]=… }`, one per command) starts a
+/// program named cmux-tui.
+pub(super) fn starts_cmux_tui(exec_start: &str) -> bool {
+    exec_start.split(';').any(|field| {
+        let field = field.trim().trim_start_matches('{').trim();
+        field
+            .strip_prefix("path=")
+            .is_some_and(|path| Path::new(path.trim()).file_name().is_some_and(|n| n == CMUX_TUI))
+    })
 }
 
 /// `cmux host update status [--json] | check | guard --to N`.

@@ -51,3 +51,4 @@ cmux-tui/crates/cmux-pty/src/macos.rs	2	keep	this process only: PROC_PIDLISTFDS 
 cmux-tui/crates/acpmux/src/agent_host/scope.rs	1	keep	one held child: the agent host this daemon just spawned, read only for its own cgroup to confirm systemd moved it into its scope before it starts its harness (#24858)
 cmux-tui/crates/acpmux/src/linux_sandbox/supervisor.rs	2	keep	seccomp supervisor resolves its own sandboxed child's /proc/<pid>/fd aliases (one held child)
 Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/TakeoverBench.swift	1	keep	measurement tool only (cmux-cua-helper --takeover-bench, never in the app): looks up Finder once as the pid target of its harmless synthetic events; no process is classified or tracked
+cmux-tui/crates/cmux-host/src/updater/role.rs	1	keep	one pid each, read from the session host's pid file and from acpmux's own status (the Cloud self-update health check, #36185): which executable it runs; no enumeration

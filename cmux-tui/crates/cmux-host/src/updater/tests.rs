@@ -279,3 +279,32 @@ fn state_and_pending_round_trip() {
     clear_pending(&paths);
     assert_eq!(load_pending(&paths), None);
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn restart_reads_the_running_cmux_units_from_systemd() {
+    let listed = "cmux-host.service loaded active running cmux host\n\
+                  cmux-app-server@a.service loaded active running app\n\
+                  cmux-host.service loaded active running cmux host\n\
+                  ssh.service loaded active running OpenSSH\n\
+                  \n";
+    assert_eq!(
+        role::running_units(listed),
+        vec!["cmux-host.service".to_owned(), "cmux-app-server@a.service".to_owned()]
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn restart_picks_units_whose_exec_start_runs_cmux_tui() {
+    assert!(role::starts_cmux_tui(
+        "{ path=/home/cmux/.cmux/bin/cmux-tui ; argv[]=/home/cmux/.cmux/bin/cmux-tui host app-server a ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }"
+    ));
+    assert!(!role::starts_cmux_tui(
+        "{ path=/usr/bin/cmux-tui-hook ; argv[]=/usr/bin/cmux-tui-hook ; ignore_errors=no }"
+    ));
+    assert!(!role::starts_cmux_tui(
+        "{ path=/bin/sh ; argv[]=/bin/sh -c cmux-tui ; ignore_errors=no }"
+    ));
+    assert!(!role::starts_cmux_tui(""));
+}
