@@ -1050,6 +1050,17 @@ pub fn open(config: &StoreConfig, root: &Path) -> Result<Box<dyn Store>> {
     })
 }
 
+/// Writes the event journal a run left in `home`, if any, into that home's logs and
+/// `session.json` files, checkpoints it and retires its records: afterwards the home's `sessions/`
+/// hold every acknowledged change on their own. For code that moves or merges a home's chat
+/// folders without a daemon (the build adoption, `cmux-tui`'s `build_adopt`): a daemon that
+/// stopped without a shutdown leaves changes only its journal holds (a new chat's `session.json`
+/// is written by a checkpoint). Nothing to do without a journal. No daemon may run in `home`: the
+/// caller holds its `daemon.lock`.
+pub fn catch_up_journal(config: &StoreConfig, home: &Path) -> Result<()> {
+    journal_store::catch_up(config, home)
+}
+
 mod durability;
 pub use durability::Durability;
 pub(crate) use durability::streamed;
