@@ -36,7 +36,8 @@ import Testing
             }
             #expect(Metrics.tabStripHeight == (Metrics.compactTabs ? 26 : 28))
             // Panels and items are levels of the one corner radius now (`Metrics.corners`), not tunables of their own.
-            #expect(Metrics.panelCornerRadius == 10 && Metrics.itemCornerRadius == 6, "Compact keeps its 10 pt panels and 6 pt items")
+            // Lawrence 2026-11-05: the one radius defaults to the omnibar's 8 pt, so panels are 8 pt and items 4 pt.
+            #expect(Metrics.panelCornerRadius == 8 && Metrics.itemCornerRadius == 4, "Compact's 8 pt panels and 4 pt items")
             #expect(Self.typeSizes() == [12, 12, 10.5, 11, 16, 10.5, 20, 13])
             #expect(Metrics.tokens.resolve(compact: 2, comfortable: 4, token: "panePadding") == 2, "the density's pane padding")
             #expect(Metrics.space1 == ChromeTunables.space1.value && Metrics.space3 == ChromeTunables.space3.value
