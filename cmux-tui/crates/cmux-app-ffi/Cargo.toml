@@ -23,6 +23,12 @@ cmux-palette-ranker = { path = "../cmux-palette-ranker" }
 # passes its own settings per call, so no AppKit or env reading here.
 cmux-motion = { path = "../cmux-motion", default-features = false }
 
+# Generates include/cmux_motion_ffi.h (cbindgen.toml); tests/c_header.rs fails
+# when the committed header differs. A test, not a build.rs: no build rewrites
+# a tracked file.
+[dev-dependencies]
+cbindgen = { version = "=0.29.2", default-features = false }
+
 [profile.release]
 opt-level = 3
 codegen-units = 1

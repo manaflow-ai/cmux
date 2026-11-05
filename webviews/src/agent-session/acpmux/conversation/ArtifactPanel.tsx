@@ -282,7 +282,7 @@ export function ArtifactPanel({
   );
 }
 
-function ArtifactFrame({
+export function ArtifactFrame({
   html,
   code,
   lang,
@@ -404,12 +404,15 @@ function JsxFrame({ code, title, render }: { code: string; title: string; render
 
 function RunningFrame({ html, title, render }: { html: string; title: string; render: boolean }) {
   const { frame } = useRenderFrame(html);
+  // A trusted native origin always uses its endpoint, even on a URL that looks like the gallery's.
+  const endpoint = render ? (canRender() ? RENDER_FRAME_URL : undefined) : artifactFrameURL();
+  const gallery = !endpoint && artifactGallery();
   return (
     <iframe
       ref={frame}
       className="acpmux-artifact-frame"
-      src={artifactGallery() ? undefined : render ? RENDER_FRAME_URL : artifactFrameURL()}
-      srcDoc={artifactGallery() ? galleryArtifactDocument(html, renderFrameCSS()) : undefined}
+      src={gallery ? undefined : endpoint}
+      srcDoc={gallery ? galleryArtifactDocument(html, renderFrameCSS()) : undefined}
       title={title}
       sandbox="allow-scripts"
       referrerPolicy="no-referrer"

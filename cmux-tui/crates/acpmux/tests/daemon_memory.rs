@@ -9,9 +9,10 @@
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 const HERMETIC: daemon_env::Process = daemon_env::Process::deny().keep(BENCH_VARS);
-/// The benchmarks' bounds and sizes: numbers, no credential. The hermetic re-start
-/// keeps only these, so `env_or` refuses any other name.
+/// The benchmarks' bounds, sizes and optional executable path, never credentials.
+/// The hermetic re-start keeps only these, so `env_or` refuses any other name.
 const BENCH_VARS: &[&str] = &[
+    "ACPMUX_MEMORY_BENCH_BINARY",
     "ACPMUX_MEMORY_BENCH_LEFTOVERS",
     "ACPMUX_MEMORY_BENCH_CHATS",
     "ACPMUX_MEMORY_BUDGET_MB",
@@ -92,7 +93,15 @@ impl Daemon {
     fn start_inner(scratch: &Path, home: &Path, log: Option<&Path>, peer_listener: bool) -> Self {
         let socket = scratch.join("s.sock");
         let level = if log.is_some() { "warn,acpmux::list_cost=debug" } else { "warn" };
-        let mut child = daemon_env::acpmux(scratch)
+        let mut command = match std::env::var_os("ACPMUX_MEMORY_BENCH_BINARY") {
+            Some(binary) => {
+                let binary = PathBuf::from(binary);
+                assert!(binary.is_absolute(), "ACPMUX_MEMORY_BENCH_BINARY must be absolute");
+                daemon_env::command_at(&binary, scratch, daemon_env::Agents::Deny, &[])
+            }
+            None => daemon_env::acpmux(scratch),
+        };
+        let mut child = command
             .args(["daemon", "run", "--ready-fd", "1", "--log", level])
             .args(
                 peer_listener
@@ -343,6 +352,152 @@ fn a_chief_home_of_purged_leftovers_and_chats_stays_within_the_memory_budget() {
     assert!(rss_mb <= budget_mb, "the daemon holds {rss_mb} MB (budget {budget_mb} MB)");
     drop(daemon);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Real-daemon retained-state measurement, run unchanged on base and head on the same host:
+/// `cargo test -p acpmux --test daemon_memory idle_session_resident_memory_benchmark --
+/// --ignored --exact --nocapture --test-threads=1`.
+/// `ACPMUX_MEMORY_BENCH_BINARY=/absolute/path/to/acpmux` selects another build while the
+/// harness and its fixture stay identical. The environment remains hermetic and denies agents.
+///
+/// This restores 200 worked-chat metadata records, half with the durable hibernation mark.
+/// It uses the built-in Claude translator's actual option and mode catalogs, with four tools
+/// and varied model/effort/mode selections. Sharing
+/// a catalog must not merge their current values. No live harness, large transcript, or tool
+/// output is simulated: RSS is the daemon's own resident memory, including allocator retention
+/// after detail/list requests, not the total process tree or a claimed heap-allocation count.
+/// Three fresh-process pairs give a bounded median without waiting on an arbitrary timer.
+#[cfg(target_os = "linux")]
+#[test]
+#[ignore = "same-host resident-memory benchmark; run explicitly on fleet Linux"]
+fn idle_session_resident_memory_benchmark() {
+    const CHATS: u64 = 200;
+    const REPEATS: usize = 3;
+    const AT: u64 = 1_791_000_000_000;
+
+    fn id(i: u64) -> String {
+        format!("01a15906-0000-7000-8000-{i:012}")
+    }
+
+    fn metadata(i: u64, catalogs: &[(Value, Value)]) -> Value {
+        let models = [
+            ("claude-opus-5-5", "Claude Opus 5.5"),
+            ("claude-sonnet-5-5", "Claude Sonnet 5.5"),
+            ("claude-haiku-5-5", "Claude Haiku 5.5"),
+        ];
+        let selected = models[i as usize % models.len()].0;
+        let mut meta = chief_meta(&id(i), "idle", AT);
+        let (options, modes) = &catalogs[i as usize % catalogs.len()];
+        meta["configOptions"] = options.clone();
+        meta["models"] = json!({
+            "availableModels": models.iter().map(|(id, name)| {
+                json!({"modelId": id, "name": name})
+            }).collect::<Vec<_>>(),
+            "currentModelId": selected,
+        });
+        meta["modes"] = modes.clone();
+        meta["hibernatedMs"] = json!(if i.is_multiple_of(2) { AT + 5_000 } else { 0 });
+        meta
+    }
+
+    fn sample(repeat: usize, chats: u64, catalogs: &[(Value, Value)]) -> (u64, u64) {
+        let dir = scratch(&format!("idle-resident-{repeat}-{chats}"));
+        let home = dir.join("home");
+        private_dir(&home);
+        private_dir(&home.join("sessions"));
+        for i in 0..chats {
+            write_session(&home, &id(i), "idle", true);
+            private_file(
+                &home.join("sessions").join(id(i)).join("session.json"),
+                &metadata(i, catalogs).to_string(),
+            );
+        }
+        let daemon = Daemon::start(&dir, &home);
+        let mut rpc = Rpc::connect(&daemon.socket);
+        // The initial list waits for the restored session index before resolving ids.
+        assert_eq!(listed(&mut rpc), (0..chats).map(id).collect::<Vec<_>>());
+        for i in 0..chats {
+            // Ready precedes deferred log loading. Info waits for this chat's log;
+            // it does not open the chat on screen or wake a hibernated harness.
+            let detail = rpc.call("_acpmux/info", json!({"sessionId": id(i)}));
+            let expected = metadata(i, catalogs);
+            assert_eq!(detail["sessionId"], id(i));
+            assert_eq!(detail["logsLoading"], false);
+            assert_eq!(detail["status"], "idle");
+            assert_eq!(detail["queued"], 0);
+            assert!(detail["turn"].is_null());
+            assert_eq!(detail["configOptions"], expected["configOptions"], "options of {}", id(i));
+            assert_eq!(detail["models"], expected["models"], "models of {}", id(i));
+            assert_eq!(detail["modes"], expected["modes"], "modes of {}", id(i));
+            assert_eq!(detail["tools"], expected["tools"]["rows"], "tools of {}", id(i));
+        }
+        // Health's first check waits on startup's readiness watch. That watch precedes
+        // the end of all startup work, so one final status check refuses an incomplete
+        // sample instead of estimating completion with a sleep or polling for it.
+        rpc.call("_acpmux/harness/health", json!({}));
+        let status = rpc.call("_acpmux/status", json!({}));
+        let loading = &status["loading"];
+        assert!(
+            loading["phase"] == "ready" && loading["startupDone"] == true,
+            "refusing RSS sample before startup and log loading finish ({chats} sessions): {loading}"
+        );
+        assert_eq!(loading["sessionsLoaded"], chats, "incomplete session index: {loading}");
+        assert_eq!(loading["sessionsTotal"], chats, "unexpected session count: {loading}");
+        let loaded_rss = daemon.rss_bytes();
+        assert_eq!(listed(&mut rpc), (0..chats).map(id).collect::<Vec<_>>());
+        let listed_rss = daemon.rss_bytes();
+        drop(rpc);
+        drop(daemon);
+        std::fs::remove_dir_all(dir).unwrap();
+        (loaded_rss, listed_rss)
+    }
+
+    // Use production catalogs rather than multiplying synthetic select choices. Building
+    // fixtures happens in this test process, never in the daemon whose RSS is measured.
+    let runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
+    let catalogs = runtime.block_on(async {
+        let mut catalogs = Vec::new();
+        for i in 0..21 {
+            let translator = acpmux::claude_stdio::Translator::new(
+                id(i),
+                if i.is_multiple_of(3) { "plan" } else { "default" },
+                ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"][i as usize % 3],
+                ["low", "medium", "high", "xhigh"][i as usize % 4],
+            );
+            catalogs
+                .push((translator.config_options_value().await, translator.modes_value().await));
+        }
+        catalogs
+    });
+    let mut empty_rss = [0u64; REPEATS];
+    let mut full_rss = [0u64; REPEATS];
+    let mut per_session = [0i64; REPEATS];
+    let mut samples = Vec::new();
+    for repeat in 0..REPEATS {
+        // Alternate pair order so startup/host drift does not always favor one size.
+        let sizes = if repeat % 2 == 0 { [0, CHATS] } else { [CHATS, 0] };
+        for chats in sizes {
+            let (loaded_rss, listed_rss) = sample(repeat, chats, &catalogs);
+            if chats == 0 {
+                empty_rss[repeat] = listed_rss;
+            } else {
+                full_rss[repeat] = listed_rss;
+            }
+            samples.push(json!({"repeat": repeat, "sessions": chats,
+                "loaded_rss_bytes": loaded_rss, "listed_rss_bytes": listed_rss}));
+        }
+        per_session[repeat] = (full_rss[repeat] as i64 - empty_rss[repeat] as i64) / CHATS as i64;
+    }
+    empty_rss.sort_unstable();
+    full_rss.sort_unstable();
+    per_session.sort_unstable();
+    println!(
+        "acpmux-idle-resident: {}",
+        json!({"sessions": CHATS, "hibernated_sessions": CHATS / 2, "repeats": REPEATS,
+            "binary_override": std::env::var("ACPMUX_MEMORY_BENCH_BINARY").ok(),
+            "rss_0_bytes": empty_rss[REPEATS / 2], "rss_200_bytes": full_rss[REPEATS / 2],
+            "resident_bytes_per_idle_session": per_session[REPEATS / 2], "samples": samples})
+    );
 }
 
 /// CPU time the process `pid` has used, in ms: `/proc/<pid>/stat` on Linux, `ps` elsewhere.

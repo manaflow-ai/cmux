@@ -121,10 +121,12 @@ public final class AgentPaneLaunchImages {
     }
 
     /// Holds `image` as tab `key`'s frame until ``take(_:size:appearance:)`` or ``drop(_:)``.
-    public func hold(_ key: String, _ frame: CGImage, size: NSSize, appearance: NSAppearance.Name?) async {
-        guard size.width > 0 else { return }
+    @discardableResult
+    public func hold(_ key: String, _ frame: CGImage, size: NSSize, appearance: NSAppearance.Name?) async -> Bool {
+        guard size.width > 0, size.height > 0 else { return false }
         let data = await Task.detached(priority: .utility) { frame.pageImageData() }.value
         held[key] = data.map { ($0, size, appearance) }
+        return data != nil
     }
 
     /// The tab closed or showed its live page: its held frame goes.

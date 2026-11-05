@@ -420,9 +420,8 @@ class WorkflowTests(unittest.TestCase):
         tags = re.findall(r"^\s+SPARKLE_CHANNEL: (.*)$", text, re.MULTILINE)
         # First publication, its deltas and a recovered build follow the switch;
         # the old cmux NIGHTLY-identity feed's item starts on cmux-next and is
-        # retagged from its verdict (nightly_next_ring.py legacy). The release-pool
-        # path's appcast (signer-dmg) follows the switch too.
-        self.assertEqual(sum(ring_expr in tag for tag in tags), 4, tags)
+        # retagged from its verdict (nightly_next_ring.py legacy).
+        self.assertEqual(sum(ring_expr in tag for tag in tags), 3, tags)
         self.assertEqual(tags.count("cmux-next"), 1, tags)
 
     def test_the_delta_feed_is_retagged_from_verdicts_before_it_is_published(self):
@@ -594,7 +593,10 @@ class LegacyPublishedTests(unittest.TestCase):
         self.assertIn("always() && !cancelled()", condition)
         self.assertNotIn("publish-nightly", condition)
         self.assertIn("NEXT_OK: ${{ needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.refused != 'true' }}", body)
-        self.assertIn("SOURCE_RUN: ${{ needs.legacy-identity-target.outputs.source_run }}", body)
+        # The main job's own decision when it signed the copy (legacy_ran), else the target job's.
+        self.assertIn("SOURCE_RUN: ${{ (needs.build-sign-notarize-nightly.outputs.legacy_ran == 'true' && "
+                      "needs.build-sign-notarize-nightly.outputs.legacy_target_source_run || "
+                      "needs.legacy-identity-target.outputs.source_run) }}", body)
         self.assertNotIn("\n    continue-on-error:", body)
         self.assertNotRegex(body, r"needs\.(?:legacy-identity-target|[a-z-]*identity-legacy)\.result")
         target = self.job("legacy-identity-target")

@@ -238,7 +238,16 @@ fn filled(
         .iter()
         .filter(|m| m.image_syntax.is_some() && !refs.iter().any(|r| r.path == m.path))
         .collect();
-    let mut text = super::media::settled(reply, &refs, &failed);
+    let hash_of = |media: &super::media::MediaRef| {
+        files
+            .iter()
+            .find(|(sent, _)| sent.path == media.path)
+            .and_then(|(_, part)| match part {
+                Part::Attachment { hash, .. } => Some(hash.clone()),
+                _ => None,
+            })
+    };
+    let mut text = super::media::settled(reply, &refs, &failed, &hash_of);
     let explicit_failed: Vec<_> = media
         .iter()
         .filter(|m| m.image_syntax.is_none() && !refs.iter().any(|r| r.path == m.path))
@@ -273,7 +282,7 @@ fn failed_text(reply: &str, files: &[super::media::MediaRef]) -> String {
         .iter()
         .filter(|file| file.image_syntax.is_some())
         .collect();
-    let mut text = super::media::settled(reply, &[], &failed_images);
+    let mut text = super::media::settled(reply, &[], &failed_images, &|_| None);
     for file in files.iter().filter(|file| file.image_syntax.is_none()) {
         let target = url::Url::from_file_path(&file.path)
             .map_or_else(|_| file.path.display().to_string(), |url| url.to_string());

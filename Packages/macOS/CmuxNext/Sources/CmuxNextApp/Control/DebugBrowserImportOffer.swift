@@ -18,14 +18,14 @@ enum DebugBrowserImportOffer {
             guard let entry = target(params["tab"]?.stringValue, services) else { return .object(["error": .string("no browser tab on screen")]) }
             // Shown once the installed browsers are known (at once after the first search).
             offer.findBrowsers { [weak offer, weak entry] found in
-                if let entry { offer?.show(on: entry.chrome, browsers: found) }
+                if let chrome = entry?.chrome { offer?.show(on: chrome, browsers: found) }
             }
         case "answer":
             let choices: [String: BrowserCookieImportChoice] = ["import": .importCookies, "not_now": .notNow, "never": .never]
             guard let choice = params["choice"]?.stringValue.flatMap({ choices[$0] }) else { return .object(["error": .string("choice: import, not_now or never")]) }
             // Answered from the card on screen: Import then targets that tab's profile.
-            let shown = services.cache.browsers.values.first { $0.chrome.showsCookieImportOffer }
-            for entry in services.cache.browsers.values { entry.chrome.hideCookieImportOffer() }
+            let shown = services.cache.browsers.values.first { $0.chrome?.showsCookieImportOffer == true }
+            for entry in services.cache.browsers.values { entry.chrome?.hideCookieImportOffer() }
             offer.answer(choice, profile: shown.map { BrowserProfileRecord.wireID(for: $0.tab.profileID) })
         case "reset": offer.reset()
         default: break
@@ -35,12 +35,12 @@ enum DebugBrowserImportOffer {
 
     private static func target(_ key: String?, _ services: AppServices) -> BrowserEntry? {
         if let key { return services.cache.existingBrowser(key) }
-        return services.cache.browsers.values.first { $0.chrome.window != nil && !$0.chrome.isHiddenOrHasHiddenAncestor }
+        return services.cache.browsers.values.first { $0.chrome.map { $0.window != nil && !$0.isHiddenOrHasHiddenAncestor } == true }
     }
 
     private static func state(_ services: AppServices) -> JSONValue {
         let offer = services.onboarding.browserImportOffer
-        let shownOn = services.cache.browsers.filter { $0.value.chrome.showsCookieImportOffer }.map(\.key).sorted()
+        let shownOn = services.cache.browsers.filter { $0.value.chrome?.showsCookieImportOffer == true }.map(\.key).sorted()
         return .object([
             "dismissed": .bool(services.settings?.snapshot.browserImportCookieBanner == false), "offered": .bool(offer.isOffered), "showing": .bool(!shownOn.isEmpty),
             "imported": .bool(offer.state.imported),

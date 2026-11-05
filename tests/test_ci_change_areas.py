@@ -160,6 +160,21 @@ def test_portable_guard_runner_does_not_hide_a_native_change() -> None:
     assert actual.macos is True, (paths, actual)
 
 
+def test_portable_router_linux_placement_keeps_guard_references_linux_only() -> None:
+    workflow = (ROOT / module.CI_WORKFLOW_PATH).read_text(encoding="utf-8")
+    _, jobs = module.split_workflow_jobs(workflow)
+    router = jobs["changes"]
+    assert module.job_is_plainly_linux(router)
+    references = module.macos_job_test_references("\njobs:\n  " + router)
+    assert references is not None and references[0] == frozenset(), references
+    for unknown in (
+        router.replace("outputs.linux_runner", "outputs.mini_runner"),
+        router.replace("outputs.placed_attempt", "outputs.unchecked_attempt"),
+        router.replace("' changes '", "' other-job '"),
+    ):
+        assert not module.job_is_plainly_linux(unknown), unknown
+
+
 def test_resources_bin_release_neutral_inputs_are_text_scripts() -> None:
     # The Release lane validates compiled binaries' slices; a bundled text
     # script cannot fail it. A binary in this list would skip that check.
@@ -1387,6 +1402,10 @@ def test_linux_registry_changes_skip_native_but_preserve_native_changes() -> Non
     assert module.test_registry_change_is_linux_only(base, base + guard)
     assert module.test_registry_change_is_linux_only(base + guard, base)
     assert module.test_registry_change_is_linux_only(base, base + '\n# comment\n')
+    # The split into area fragments re-ordered the entries; order alone is no native change.
+    two = base + '\n[[test]]\npath = "tests/native2.py"\nlane = "macos-shell"\n'
+    swapped = 'version = 1\n[[test]]\npath = "tests/native2.py"\nlane = "macos-shell"\n' + base.removeprefix('version = 1\n')
+    assert module.test_registry_change_is_linux_only(two, swapped)
     for candidate in (
         base.replace('macos-shell', 'linux-guard'),
         base.replace('native.py', 'other.py'),
@@ -1397,6 +1416,22 @@ def test_linux_registry_changes_skip_native_but_preserve_native_changes() -> Non
     ):
         assert not module.test_registry_change_is_linux_only(base, candidate), candidate
     assert not module.test_registry_change_is_linux_only('invalid TOML', base)
+
+
+def test_workflow_registry_fragment_diff_reaches_normal_and_trusted_router() -> None:
+    """The registry split into tests/test-execution.d/<area>.toml: a fragment edit is judged the same way."""
+    fragment = "tests/test-execution.d/other.toml"
+    base = '[[test]]\npath = "tests/native.py"\nlane = "macos-shell"\n'
+    guard = '\n[[test]]\npath = "tests/guard.py"\nlane = "linux-guard"\n'
+    for policy_change in ([], ["scripts/ci/detect_ci_change_areas.py"]):
+        for candidate, expected in ((base + guard, "false"),
+                                    (base.replace("native.py", "other.py"), "true")):
+            result, outputs = run_detect_step_for_paths(
+                [fragment, *policy_change],
+                base_files={fragment: base}, head_files={fragment: candidate},
+            )
+            assert f"macos={expected}" in outputs, (result.stdout, result.stderr)
+            assert f"release_build={expected}" in outputs, outputs
 
 
 def test_registry_cli_uses_base_and_keeps_mixed_product_changes() -> None:

@@ -66,8 +66,11 @@ public final class AgentUnsentDrafts {
     }
 
     /// Keeps the typed text of `model`'s chat for the tab `key` names when it runs, until the chat
-    /// has a session. Call it after the tab's own `onSessionChange` is set.
+    /// has a session. Call it after the tab's own `onSessionChange` is set. It also hands the model
+    /// its tab (``AgentPaneModel/tabKey``), which what a pane keeps per view is kept by: every tab's
+    /// model is wired here, a spare's when a tab adopts it.
     public func wire(_ model: AgentPaneModel, key: @escaping () -> String) {
+        model.tabKey = { key() }
         model.onUnsentDraft = { [weak self] text in self?.typed(text, for: key()) }
         model.onNewChatLeftover = { [weak self] text in
             guard let self, let window = windowOfTab(key()) else { return }

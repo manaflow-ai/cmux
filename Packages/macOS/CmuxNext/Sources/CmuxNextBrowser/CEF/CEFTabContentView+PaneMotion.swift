@@ -12,7 +12,8 @@ protocol BrowserPagePaneMotionHolding: NSView {
 }
 
 /// A Chromium page draws in another process, some frames after its window takes a size: through a key resize the page
-/// keeps the size it had when the hold began, fixed at the pane edges that do not move, the pane clips it, and this
+/// keeps the size it had when the hold began, never scaled, with its top-left corner on the page area's (cmux-ad m6 1b,
+/// `BrowserResizeTunables.keyResizeTopLeft`; off: fixed at the pane edges that do not move), the pane clips it, and this
 /// view paints the page's own backdrop beside it, never the shell (the drag hold's path, `startPageHold`). It lays out
 /// once when the hold ends, before the pane hears that the motion landed. A page that cannot hold any longer (DevTools
 /// docked, a side panel or a fit came up, the tab was hidden mid-hold) lays out live at the chrome's page area, as a page
@@ -35,7 +36,10 @@ extension CEFTabContentView: BrowserPagePaneMotionHolding {
             return
         }
         // A drag's own hold, or a page that cannot hold (DevTools docked, a side panel, a fit), lays out as before.
-        if pageMotionHold == nil, !startPageHold() { return }
+        if pageMotionHold == nil {
+            guard startPageHold() else { return }
+            pageHoldTopLeft = BrowserResizeTunables.keyResizeTopLeft.value // latched for this hold
+        }
         pageMotionHold = hold
         needsLayout = true
     }

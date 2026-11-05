@@ -99,6 +99,19 @@ enum SidebarStyle {
     /// A workspace row's status mark (the shared indicator, or the agent mark in its place): as
     /// tall as the unread badge beside it (Leo 2026-10-13); both read `Metrics.statusMarkSize`.
     static var statusGlyphSize: CGFloat { badgeHeight }
+    /// Every status mark that is not a dot or a spinner (the red warning, the orange needs-you marks) draws in this
+    /// box, in every row kind: a workspace row's badge (`RowBadgeView`) and a group header's roll-up alike. Leo
+    /// 2026-11-01: "a bigger red warn symbol", like ChatGPT; Leo 2026-11-03: "symbol size discrepancy groups vs
+    /// workspaces" (a header drew its warning in the 10 pt indicator box while the rows under it drew 14 pt).
+    static let statusMarkSide: CGFloat = 14
+    /// A working or loading spinner, in every row kind: the status glyph size, smaller than the warning so it
+    /// never outweighs the 8 pt unread dot (Leo 2026-11-03: "i think the spinners are maybe a bit too big").
+    static var statusSpinnerSide: CGFloat { statusGlyphSize }
+    /// The box a row's status `state` draws in, whatever the row kind: the spinner's for work in flight, the
+    /// warning's otherwise. A dot paints `statusDotSize` centered in whichever box it gets.
+    static func statusMarkSide(for state: StatusIndicatorState) -> CGFloat {
+        state.isWorking || state.isLoading ? statusSpinnerSide : statusMarkSide
+    }
     /// A color swatch or machine dot (not a status): 6 pt at compact.
     static var dotSize: CGFloat { Metrics.space3 }
     /// Every status dot's diameter: blue unread, orange needs attention and any other status dot, in every
@@ -112,7 +125,7 @@ enum SidebarStyle {
     /// glyphs on 32pt tiles), and its tile's rounding.
     static var railIconBox: CGFloat { Metrics.iconSize + Metrics.space3 }
     static var railGlyphSize: CGFloat { Metrics.iconSize + 1 }
-    static var railTileCornerRadius: CGFloat { Metrics.itemCornerRadius + Metrics.space1 }
+    static var railTileCornerRadius: CGFloat { Metrics.surfaceCornerRadius }
     /// The glyph well of a large sidebar-top tile (the tiles arrangement).
     static var favoriteWell: CGFloat { SidebarDensityTokens.rowHeight + Metrics.space1 }
     /// The glyph in that well: a rail button's glyph grown by the row's density and text size step

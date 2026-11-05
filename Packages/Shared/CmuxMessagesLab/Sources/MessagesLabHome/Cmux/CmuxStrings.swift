@@ -140,6 +140,11 @@ enum CmuxStrings {
         String(localized: "home.menu.deleteFailed", defaultValue: "Delete", table: "CmuxHome", bundle: .module)
     }
 
+    /// The context menu item on my message in a Chief chat that deletes it (#36019).
+    static var deleteMessage: String {
+        String(localized: "home.menu.deleteMessage", defaultValue: "Delete", table: "CmuxHome", bundle: .module)
+    }
+
     static var playVideo: String { String(localized: "home.video.play", defaultValue: "Play Video", table: "CmuxHome", bundle: .module) }
     static var viewVideoLarger: String {
         String(localized: "home.video.viewLarger", defaultValue: "View Larger", table: "CmuxHome", bundle: .module)
@@ -162,24 +167,6 @@ enum CmuxStrings {
     static func hideAgentMessages(_ count: Int) -> String {
         String(format: String(localized: "home.agentMessages.hide", defaultValue: "Hide agent messages (%lld)",
                               table: "CmuxHome", bundle: .module), count)
-    }
-    /// A notes row's label: why its `count` agents stopped with no report ("Disconnected (5)");
-    /// nil `reason`: they stopped for different reasons.
-    static func agentNotes(_ reason: HomeAgentMessageRow.StatusNote?, _ count: Int) -> String {
-        let format: String
-        switch reason {
-        case .stopped(let session)? where session == "Disconnected":
-            format = String(localized: "home.agentNotes.disconnected", defaultValue: "Disconnected (%lld)", table: "CmuxHome", bundle: .module)
-        case .stopped(let session)? where session == "Closed":
-            format = String(localized: "home.agentNotes.closed", defaultValue: "Session closed (%lld)", table: "CmuxHome", bundle: .module)
-        case .gone?:
-            format = String(localized: "home.agentNotes.gone", defaultValue: "Gone (%lld)", table: "CmuxHome", bundle: .module)
-        case .unreadable?:
-            format = String(localized: "home.agentNotes.unreadable", defaultValue: "Report unreadable (%lld)", table: "CmuxHome", bundle: .module)
-        default:
-            format = String(localized: "home.agentNotes.stopped", defaultValue: "Stopped without a report (%lld)", table: "CmuxHome", bundle: .module)
-        }
-        return String(format: format, count)
     }
     /// A link's Open Link and Copy Link Address rows (a link in text, a link card, a link preview).
     static var openLink: String {
@@ -234,5 +221,11 @@ enum CmuxStrings {
     /// The card's click menu: a link ("Open #22590", "Open github.com").
     static func planOpenLink(_ name: String) -> String {
         String(format: String(localized: "home.plan.openLink", defaultValue: "Open %@", table: "CmuxHome", bundle: .module), name)
+    }
+
+    /// A table card's menu item that opens a picture of a cell full size (`alt`: its description).
+    static func tableOpenPicture(_ alt: String) -> String {
+        let name = alt.isEmpty ? String(localized: "home.table.picture", defaultValue: "Picture", table: "CmuxHome", bundle: .module) : alt
+        return String(format: String(localized: "home.table.openPicture", defaultValue: "Open Picture: %@", table: "CmuxHome", bundle: .module), name)
     }
 }

@@ -436,6 +436,7 @@ pub(crate) fn platform_origin(
 pub(crate) struct Platform {
     origin: String,
     credential: String,
+    team: Option<String>,
     client: reqwest::Client,
     runtime: tokio::runtime::Runtime,
     timeout: Duration,
@@ -505,7 +506,13 @@ impl Platform {
             .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(|e| internal(&e))?;
-        Ok(Self { origin, credential, client, runtime, timeout })
+        Ok(Self { origin, credential, team: None, client, runtime, timeout })
+    }
+
+    /// Pin session-authenticated requests to the team selected by the native app.
+    pub(crate) fn with_team(mut self, team: Option<String>) -> Self {
+        self.team = team;
+        self
     }
 
     async fn call(
@@ -532,6 +539,9 @@ impl Platform {
             .timeout(timeout);
         if let Some(body) = body {
             request = request.json(&body);
+        }
+        if let Some(team) = &self.team {
+            request = request.header("x-cmux-team", team.as_str());
         }
         let response = request
             .send()
@@ -587,6 +597,10 @@ impl Platform {
     /// `POST path` with a JSON body: the answer, or why it failed (`link start-chat ensure`).
     pub(crate) fn post(&self, path: &str, body: Value) -> Result<Value, CallError> {
         self.runtime.block_on(self.call(reqwest::Method::POST, path, Some(body)))
+    }
+
+    pub(crate) fn delete(&self, path: &str) -> Result<Value, CallError> {
+        self.runtime.block_on(self.call(reqwest::Method::DELETE, path, None))
     }
 
     /// A short telemetry read must not extend the workspace machine admission timeout.
@@ -684,7 +698,14 @@ fn entries(body: Value) -> Option<Vec<Value>> {
 }
 
 /// The platform's machine-join refusal codes. Errors print only these, from this table.
-const KNOWN_CODES: [&str; 37] = [
+const KNOWN_CODES: [&str; 46] = [
+    "lease.not_found",
+    "reservation.expired",
+    "reservation.terminal",
+    "reservation.bound",
+    "reservation.not_ready",
+    "reservation.unavailable",
+    "reservation.owner",
     "auth.unauthenticated",
     "auth.forbidden",
     "auth.sso_required",
@@ -707,6 +728,8 @@ const KNOWN_CODES: [&str; 37] = [
     "vault.not_found",
     "vault.invalid",
     "vault.too_large",
+    "vault.no_entry",
+    "vault.invalid_hosts",
     // A workspace's machine (`POST /v1/workspaces/{w}/machine`, `link start-chat ensure`).
     "cloud_environment.not_found",
     "machine.conflict",

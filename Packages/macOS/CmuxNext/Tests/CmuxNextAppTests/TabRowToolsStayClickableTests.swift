@@ -15,6 +15,7 @@ import Testing
     /// A chat that draws `need` points of tools in the row whenever the pane offers it, as the page does.
     final class RowChat: NSView, PaneTabRowSharing {
         let need: CGFloat
+        var tabRowTakesLoneTab = false
         private(set) var shared: CGFloat = 0
         private(set) var tabsShown = true
         var onTabRowToolsChange: (() -> Void)?
@@ -110,6 +111,45 @@ import Testing
             }
         }
         #expect(frames[0] == frames[1] && frames[1] == frames[2], "the strip moved with its tab count: \(frames)")
+    }
+
+    /// Leo (2026-11-03), after #34327 brought the strip back at one tab: "maybe you can leave it as an optional
+    /// toggle feature for now". With `tabs.hideLoneChatTab` on, a chat alone in its pane hides that tab (the page
+    /// shows through the row, #33132); a second tab, or the setting off, brings the strip back. A view that does not
+    /// take the lone tab (Home's tools) keeps it either way.
+    @Test(arguments: [true, false])
+    func theLoneTabHidesOnlyWithTheSettingOn(takesLoneTab: Bool) {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 500), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let saved = DesignSettings.shared.hideLoneChatTab
+        defer { DesignSettings.shared.hideLoneChatTab = saved; window.orderOut(nil); window.close() }
+        let model = TabStripModel(tabs: [TabItem(id: TabID("t0"), title: "Chat")])
+        let pane = PaneContentView(stripModel: model, reveal: LaunchReveal(deadline: .zero))
+        pane.frame = window.contentLayoutRect
+        window.contentView = pane
+        let chat = RowChat(need: 220)
+        chat.tabRowTakesLoneTab = takesLoneTab
+        _ = pane.show(chat)
+        let settle = {
+            for _ in 0..<4 {
+                pane.needsLayout = true
+                pane.layoutSubtreeIfNeeded()
+            }
+        }
+        DesignSettings.shared.hideLoneChatTab = false
+        settle()
+        #expect(!pane.stripView.isHidden && chat.tabsShown, "the setting off: the lone tab shows")
+
+        DesignSettings.shared.hideLoneChatTab = true
+        settle()
+        #expect(pane.contentHost.frame.minY < pane.stripView.frame.maxY, "the chat shares the row")
+        #expect(pane.stripView.isHidden == takesLoneTab)
+        #expect(chat.tabsShown == !takesLoneTab)
+
+        model.tabs.append(TabItem(id: TabID("t1"), title: "Terminal"))
+        settle()
+        #expect(!pane.stripView.isHidden && chat.tabsShown, "a second tab shows the strip again")
     }
 
     /// Leo (2026-11-03), on the chat's own color (`appearance.surfaces.agentPane`) drawn as a rectangle

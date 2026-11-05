@@ -30,6 +30,16 @@ const expand: Play = async (ctx) => {
   await open(ctx);
   await ctx.click({ selector: ".cv-output-more" });
 };
+/// Opens the call with its output's long lines folded back under their start. Output opens aligned
+/// (blockWrap.ts), so a state about a wrapped line turns Wrap lines on itself instead of leaning on
+/// the default: the one long line wraps past the viewport and still offers its Show all 1 line.
+const openWrapped: Play = async (ctx) => {
+  await open(ctx);
+  const body = () => ctx.document.querySelector(".cv-tool-output");
+  if (body()?.getAttribute("data-wrap") !== "true")
+    await ctx.click({ selector: '.cv-tool-output__actions button[aria-label="Wrap lines"]' });
+  await ctx.waitFor(() => body()?.getAttribute("data-wrap") === "true");
+};
 
 export default componentEntry<Props>({
   id: "agent-pane.tool-output-full-read",
@@ -98,8 +108,8 @@ export default componentEntry<Props>({
     },
     "wrapped-line": {
       props: { output: "Long result: ".repeat(180) },
-      play: open,
-      note: "One source line wraps beyond the viewport; it still offers Show all 1 line.",
+      play: openWrapped,
+      note: "One source line, Wrap lines on, wraps beyond the viewport; it still offers Show all 1 line.",
     },
   },
 });

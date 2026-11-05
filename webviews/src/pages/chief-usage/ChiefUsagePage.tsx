@@ -3,6 +3,7 @@
 // ledgers. The header picks the window and the breakdown's grouping and reads again on Refresh;
 // the body is a design (the shipped one is Ledger; the gallery shows the others).
 import { useSyncExternalStore, type ComponentType } from "react";
+import { Button } from "../../ui/Button";
 import type { Strings } from "../shared/i18n";
 import type { DesignProps } from "./designs/DesignProps";
 import { LedgerDesign } from "./designs/LedgerDesign";
@@ -56,9 +57,9 @@ export function ChiefUsagePage({
               ))}
             </select>
           </label>
-          <button type="button" className="cu-refresh" disabled={snapshot.loading} onClick={() => void store.refresh()}>
+          <Button size="sm" className="cu-refresh" disabled={snapshot.loading} onClick={() => void store.refresh()}>
             {strings.t("chiefUsage.page.refresh")}
-          </button>
+          </Button>
         </div>
       </header>
       {snapshot.failed ? (

@@ -50,8 +50,9 @@
   opacity: 0;
   transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
 }
-/* Its words and mark keep one tone under the pointer (Leo, 2026-11-03: "i dont think this should
-   light up/dim based off if ur hovered onit or otherwise"); hover only reveals the chevron. */
+/* Its words rest in the activity tone and light on hover or focus (AgentMessageRow.css; Leo,
+   2026-11-03: "they should only be this bright when u hover over it"); hover also reveals the
+   chevron. Open, or with its menu open, its words, mark and chevron stay lit. */
 .cv-message-group__head:has([data-popup-open]),
 .cv-message-group__head:is(:focus-visible, [aria-expanded="true"]),
 .cv-message-group__head:hover > .cv-tool__chevron,

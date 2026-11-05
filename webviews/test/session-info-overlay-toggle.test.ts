@@ -511,7 +511,11 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
 
   // Full length (Leo, 2026-10-26) never covers the composer: in a pane too narrow for the panel to
   // float beside the chat, it pushes the chat left (Leo, 2026-11-01), so a busy Session Info meets no
-  // part of the composer and its body scrolls.
+  // part of the composer and its body scrolls. The composer is its card (.acpmux-composer-box: the field,
+  // its pickers and Send). Its band (.acpmux-composer) is the chat's whole width with the card inset by
+  // the column's gutters, and a gradual push draws the panel over the chat's right gutter
+  // (SessionInfo.tsx pushedRoom, sessionInfo.css --acpmux-session-info-overlap), over that empty band
+  // and never over the card: at 1100px the card ends at 764px, the panel starts at 772px.
   // A new chat's dock is `display: contents` (bottomStack.css): its own box is empty, so the card
   // measures its children; the second pass forces that layout on this chat.
   for (const name of browsers.keys())
@@ -531,7 +535,7 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
           const { covers, scrolls } = await panel.evaluate((node) => {
             const body = node.querySelector(".acpmux-session-info__body")!;
             const box = node.getBoundingClientRect();
-            const composer = document.querySelector(".acpmux-composer")!.getBoundingClientRect();
+            const composer = document.querySelector(".acpmux-composer-box")!.getBoundingClientRect();
             return {
               covers:
                 box.left < composer.right &&

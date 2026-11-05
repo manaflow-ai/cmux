@@ -1,5 +1,6 @@
 import { acpmuxPerf } from "./perf";
 import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { ExtraFolderControl } from "./extraFolders";
 import { createPortal } from "react-dom";
 // Send's iMessage colors (--cmux-messages-blue); build-agent-pane-web.sh inlines the sheet.
 import "../../theme/messages.css";
@@ -7,6 +8,7 @@ import type { ConnectKind, OffloadKind } from "./environments";
 import type { RunModeRows } from "./sandboxRun";
 import { useEscapingList } from "../../ui/popupHost";
 import { useScrollEdges } from "../../ui/scrollEdges";
+import { Listbox } from "../../ui/Listbox";
 import { ComposerListLayer, useComposerListBox } from "./backdropLayer";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import {
@@ -24,11 +26,14 @@ import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellR
 import { opensProcessTerminal } from "./processTerminal";
 import type { Project } from "./ProjectChooser";
 import { ComposerContext } from "./ComposerContext";
+import type { CloudMachine } from "./cloudMachines";
 import { showsLocationRow } from "./locationRow";
 import { createUnsentDraftThrottle, type UnsentDraftThrottle } from "./unsentDraftThrottle";
 import { ComposerQueue } from "./ComposerQueue";
 import { ownQueue } from "./conversation/queuedMessages";
 import { ArrowUpIcon, BuildIcon, ContextRing, PlanIcon, ReturnIcon, StopIcon } from "./ComposerPickers";
+import { isActive, type Dictation } from "./dictation";
+import { DictationStrip } from "./DictationListening";
 import { FileSearch } from "./FileSearch";
 import { PromptFocus } from "./promptFocus";
 import { ComposerBox, type ComposerBoxHandle } from "./ComposerBox";
@@ -95,7 +100,7 @@ import {
 import type { MarkdownFieldHandle, MarkdownFieldProps } from "./MarkdownField";
 import { type StringKey, useT } from "./i18n";
 import { remoteComposer } from "./remoteEditing";
-import { useComposerChrome } from "./composerChrome";
+import { UsageRingMenu, useComposerChrome } from "./composerChrome";
 import { useQueueing } from "./queueing";
 import { useMenuPressGuard } from "./menuPressGuard";
 import { setScrollToBottomOnSend, useComposerSettings } from "./composerSettings";
@@ -124,10 +129,27 @@ import { ComposerPlusMenu } from "./ComposerPlusMenu";
 import { loadRecentCommandNames, recentCommands, rememberRecentCommand } from "./recentCommands";
 import { openPicker } from "./pickerOpeners";
 import type { RepickMachine } from "./cloudRepick";
-import { SLASH_MAX_VIEWPORT_PX, slashActiveAfterScroll, slashScrollForActive, slashViewport } from "./slashViewport";
+import {
+  SLASH_MAX_VIEWPORT_PX,
+  SLASH_ROW_PX,
+  slashActiveAfterScroll,
+  slashScrollForActive,
+  slashViewport,
+} from "./slashViewport";
 import { compactingUsage } from "./usageStats";
 import { experimentArm } from "../../experiments/experiment";
 import { promptSuggestionLook } from "./promptSuggestionLook.experiment";
+import { emojiShortcodeLook } from "./emojiShortcodeLook.experiment";
+import { EmojiMenu } from "./EmojiMenu";
+import {
+  emojiMatches,
+  emojiTrigger,
+  loadEmojiShortcodes,
+  loadRecentEmoji,
+  rememberEmoji,
+  type EmojiMatch,
+  type EmojiShortcodes,
+} from "./emojiShortcodes";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -305,6 +327,10 @@ type Props = {
   accessory?: React.ReactNode;
   /// A dictation session is waiting for words: the empty prompt reads "Listening…" in italic.
   dictating?: boolean;
+  /// The pane's dictation. While a session runs the composer draws its strip before Send, and Send
+  /// (or Return) ends the session and sends once its last words land: the one send while
+  /// dictating (Leo 2026-11-05: "The dictate button has its own send button. We don't need that.").
+  dictation?: Dictation;
   /// Also receives the prompt field's handle, for dictation, which writes into it as typing does.
   prompt?: React.RefObject<MarkdownFieldHandle | null>;
   /// Receives the composer's handle, which puts a prompt a harness switch held back (its text
@@ -328,6 +354,12 @@ type Props = {
   /// The person edited the prompt of a chat that has a session: the pane tells acpmux it types
   /// (multiplayer). A draft coming back is not an edit.
   onTyping?(text: string, sessionId?: string): void;
+  /// The person edited the prompt, in any chat (one with no session yet too): the pane wakes a
+  /// paused Cloud machine as they type (cloudWake.ts `cloudTypingWakes`).
+  onPromptEdit?(text: string): void;
+  /** The person took the agent's suggested next prompt into the field (Tab, Right-arrow): acpmux
+   * counts it taken (`suggestion_gate.rs`). */
+  onSuggestionTaken?(): void;
   /// Where the host keeps the chat's unsent chips, so they come back when the chat shows again.
   keptAttachments?: KeptAttachments;
   /// Reads a transcript chosen by the cmux-owned `/import` command.
@@ -360,10 +392,14 @@ type Props = {
   onComputer?(computer: string): void;
   /// A Cloud chat whose first send has not run: another Cloud machine picked moves it there (see ComposerContext).
   onRepick?(machine: RepickMachine): Promise<boolean>;
+  /// Reports a selected account Cloud machine so typing can prewarm it before Send.
+  onCloudMachinePicked?(machine: CloudMachine): void;
   projectChoices?: Project[];
   /// A chat on another machine: that machine's own folders (`project.list`), for its folder menu.
   machineFolders?: Project[];
   onBrowseProject?(): void;
+  /// A new chat's extra folders, in its folder menu (ComposerContext `extraFolders`).
+  extraFolders?: ExtraFolderControl;
   /// New Worktree: a new chat on this Mac starts in a worktree of its folder (cx-lyqio.2).
   onNewWorktree?(cwd: string): void;
   /// A started chat's Choose folder…: the host's folder panel (see ComposerContext).
@@ -446,11 +482,14 @@ export function Composer({
   leading,
   accessory,
   dictating = false,
+  dictation,
   prompt,
   onEdit,
   onCmuxCommand,
   onUnsentDraft,
   onTyping,
+  onPromptEdit,
+  onSuggestionTaken,
   keptAttachments,
   onImportFile,
   importSandboxed,
@@ -463,9 +502,11 @@ export function Composer({
   onProject,
   onComputer,
   onRepick,
+  onCloudMachinePicked,
   projectChoices,
   machineFolders,
   onBrowseProject,
+  extraFolders,
   onNewWorktree,
   onBrowseFolder,
   onConnect,
@@ -635,7 +676,7 @@ export function Composer({
   const locationSlotWasShown = useRef(false);
   const sendButton = useRef<HTMLButtonElement>(null);
   // Whether Esc stops a turn on a double press (escapeStop.ts).
-  const { showContextUsage, spellChecking, escapeDoublePress, scrollToBottomOnSend, plainFooter } =
+  const { showContextUsage, composerRing, spellChecking, escapeDoublePress, scrollToBottomOnSend, plainFooter } =
     useComposerSettings();
   // Both looks put the model in the footer and draw Claude's draft-sensitive Send and Stop slot
   // (composerLook.ts; Leo 2026-11-01: "we already have a good version").
@@ -650,6 +691,8 @@ export function Composer({
   const sending = useRef(false);
   /// The newest submit, for the handle's `send` (rendered after the trust answer lands).
   const submitNow = useRef<(force: boolean, steer?: boolean) => boolean>(() => false);
+  /// Set while the send a finished dictation session waited for goes (send, below).
+  const dictationEnded = useRef(false);
   /// The newest `onOpenInWindow`, for a ⌘Return held until a screenshot's chip is ready.
   const openInWindow = useRef(onOpenInWindow);
   openInWindow.current = onOpenInWindow;
@@ -1213,6 +1256,50 @@ export function Composer({
     !!searchFiles && !!mentionWord?.trim() && (mentionSearch.kind === "idle" || mentionSearch.kind === "searching");
   const mentionSelected = mentionSelection(mentions, mentionActive, mentionPending);
   useEffect(() => setMentionActive(undefined), [mentionWord]);
+  // `:` and two letters at a word start list emoji by shortcode; a text emoticon (`:)`, `:DD`,
+  // `<3`) lists its face with no row chosen, so Return still sends it as typed (emojiShortcodes.ts).
+  // The table loads in its own chunk once the composer is idle after its first paint.
+  const [emojiData, setEmojiData] = useState<EmojiShortcodes | undefined>();
+  // mount-read: the emoji table is a static bundled chunk, cached per page, so a remount reads no data.
+  useEffect(() => {
+    let alive = true;
+    const load = () =>
+      void loadEmojiShortcodes().then(
+        (data) => alive && setEmojiData(data),
+        () => undefined,
+      );
+    const idle = globalThis.requestIdleCallback?.(load, { timeout: 2000 });
+    const timer = idle === undefined ? setTimeout(load, 0) : undefined;
+    return () => {
+      alive = false;
+      if (idle !== undefined) globalThis.cancelIdleCallback?.(idle);
+      if (timer !== undefined) clearTimeout(timer);
+    };
+  }, []);
+  // The row the arrows chose; until then no row is chosen, so Return still sends ("ok :D" ↩ sends it).
+  // Tab takes the chosen row or the first. A hovered row only lights up (emojiHover).
+  const [emojiActive, setEmojiActive] = useState<string | undefined>();
+  const [emojiHover, setEmojiHover] = useState<number | undefined>();
+  const [emojiDismissed, setEmojiDismissed] = useState<string | undefined>();
+  const [emojiRecents, setEmojiRecents] = useState(loadRecentEmoji);
+  const otherMenu = open || Boolean(mentionTyped) || recalling || shell;
+  const emojiTyped = useMemo(
+    () => (!otherMenu && emojiDismissed !== text ? emojiTrigger(text, markdownOffset(text, caret)) : undefined),
+    [otherMenu, emojiDismissed, text, caret],
+  );
+  const emojiKey = emojiTyped ? `${emojiTyped.start}:${emojiTyped.token}` : undefined;
+  const emojiRows = useMemo(
+    () => (emojiTyped && emojiData ? emojiMatches(emojiData, emojiTyped, emojiRecents) : []),
+    [emojiTyped, emojiData, emojiRecents],
+  );
+  const emojiAt = emojiRows.length > 0 ? emojiTyped : undefined;
+  const emojiChosen = emojiActive === undefined ? -1 : emojiRows.findIndex((row) => row.key === emojiActive);
+  const emojiSelected = emojiChosen;
+  useEffect(() => {
+    setEmojiActive(undefined);
+    setEmojiHover(undefined);
+  }, [emojiKey]);
+  const emojiLook = experimentArm(emojiShortcodeLook);
   // A live command update can shrink the list under the selection.
   const selected = Math.min(active, Math.max(matches.length - 1, 0));
   useLayoutEffect(() => {
@@ -1294,6 +1381,20 @@ export function Composer({
     edit(text.slice(0, mentionAt.start) + markdown + after, at);
     field.current?.focus();
   };
+  /// Writes the picked emoji, and a space, over the `:word` or emoticon being typed.
+  const pickEmoji = (match: EmojiMatch) => {
+    if (!emojiAt) return;
+    setEmojiRecents(rememberEmoji(match.emoji));
+    // Markdown doesn't show trailing whitespace, so what follows an end-of-prompt caret is dropped.
+    const after = text.slice(markdownOffset(text, caret)).replace(/^\s+$/, "");
+    // One space after the emoji: the text's own when it already starts with one (a mid-line pick);
+    // a line break is not a space, so a pick at a line's end still adds one.
+    const space = /^[ \t]/.test(after) ? "" : " ";
+    const at = caret - emojiAt.token.length + match.emoji.length + 1;
+    pendingCaret.current = at;
+    edit(`${text.slice(0, emojiAt.start)}${match.emoji}${space}${after}`, at);
+    field.current?.focus();
+  };
   /// Sends the draft; false when there was nothing to send or the host refused it.
   const submit = (event: { preventDefault(): void }): boolean => {
     event.preventDefault();
@@ -1313,6 +1414,20 @@ export function Composer({
     if (sending.current) {
       setAttachError(t("composer.stillSending"));
       return false;
+    }
+    // A dictation session still running ends first, keeping its words, and this send goes once
+    // they are in the prompt (dictation.ts finish), so nothing is sent half-heard.
+    if (dictation && isActive(dictation.state) && !shell && !dictationEnded.current) {
+      dictation.finish(() => {
+        // The session is over even if this render has not heard so yet.
+        dictationEnded.current = true;
+        try {
+          submitNow.current(force, steer);
+        } finally {
+          dictationEnded.current = false;
+        }
+      });
+      return true;
     }
     // The field holds markdown with its typed text escaped; the agent gets the text as typed.
     const draftText = unwrapped();
@@ -1619,6 +1734,7 @@ export function Composer({
   const returnInput = () => {
     if (shell) return;
     if (mentionAt && mentions[mentionSelected]) return pickMention(mentions[mentionSelected]);
+    if (emojiAt && emojiRows[emojiSelected]) return pickEmoji(emojiRows[emojiSelected]);
     if (returnSends()) return void sendOnReturn({ preventDefault() {} });
     if (matches.length > 0) pick(matches[selected].command);
   };
@@ -1633,6 +1749,7 @@ export function Composer({
     // empty while it shows, so the caret is at its end.
     if (suggested && plain && (event.key === "Tab" || (agentSuggestion && event.key === "ArrowRight"))) {
       event.preventDefault();
+      if (agentSuggested) onSuggestionTaken?.();
       if (field.current) field.current.type(suggested);
       else {
         setText(suggested);
@@ -1690,6 +1807,35 @@ export function Composer({
       if ((event.key === "Enter" || event.key === "Tab") && plain && mentions[mentionSelected]) {
         event.preventDefault();
         pickMention(mentions[mentionSelected]);
+        return;
+      }
+    }
+    // The emoji menu owns arrows (and Ctrl-N/P/J/K) and Esc; Return picks only a chosen row (an
+    // emoticon's menu opens with none, so Return sends), Tab the chosen or the first.
+    if (emojiAt) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        setEmojiDismissed(text);
+        return;
+      }
+      const control = event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
+      const step =
+        (event.key === "ArrowDown" && plain) || (control && (event.key === "n" || event.key === "j"))
+          ? 1
+          : (event.key === "ArrowUp" && plain) || (control && (event.key === "p" || event.key === "k"))
+            ? -1
+            : 0;
+      if (step) {
+        event.preventDefault();
+        const next = emojiSelected < 0 ? (step > 0 ? 0 : emojiRows.length - 1) : emojiSelected + step;
+        setEmojiActive(emojiRows[(next + emojiRows.length) % emojiRows.length]!.key);
+        return;
+      }
+      const row = emojiRows[emojiSelected] ?? (event.key === "Tab" ? emojiRows[0] : undefined);
+      if ((event.key === "Enter" || event.key === "Tab") && plain && row) {
+        event.preventDefault();
+        pickEmoji(row);
         return;
       }
     }
@@ -1821,7 +1967,8 @@ export function Composer({
     noteDraftEdited(sessionId);
     // One change per key: what the field does after it (normalizing) is not another.
     typedAt.current = Number.NEGATIVE_INFINITY;
-    if (sessionId && value.trim()) onTyping?.(value, sessionId);
+    if (value.trim()) onTyping?.(value, sessionId);
+    if (value.trim()) onPromptEdit?.(value);
   };
   promptCaret.current = setCaret;
   promptKeyDown.current = (event) => {
@@ -2001,6 +2148,7 @@ export function Composer({
     if (original !== text) edit(original, original.length);
     else if (open) setDismissed(text);
     else if (mentionAt) setMentionDismissed(text);
+    else if (emojiAt) setEmojiDismissed(text);
   };
   // The prompt's context menu, as a text field's (POLISH.md): Undo and Redo, the edit items and
   // Select All, then Attach Files… and Insert Mention. Cut and Copy need a selection in the field,
@@ -2125,6 +2273,7 @@ export function Composer({
       projectChoices={projectChoices}
       machineFolders={machineFolders}
       onBrowseProject={onBrowseProject}
+      {...(extraFolders ? { extraFolders } : {})}
       onNewWorktree={onNewWorktree}
       onBrowseFolder={onBrowseFolder}
       onConnect={onConnect}
@@ -2143,6 +2292,7 @@ export function Composer({
       environments={environments}
       {...(onComputer ? { onComputer } : {})}
       {...(onRepick ? { onRepick } : {})}
+      {...(onCloudMachinePicked ? { onCloudMachinePicked } : {})}
       onProject={
         onProject &&
         ((cwd, peer) => {
@@ -2180,11 +2330,13 @@ export function Composer({
       {stopping ? <Spinner loading size={14} /> : <StopIcon />}
     </button>
   ) : null;
-  // A draft of attachments alone is still a draft: it gets Send, never Stop alone.
+  // A draft of attachments alone is still a draft: it gets Send, never Stop alone. While dictating
+  // the slot is Send, draft or not, as Claude's and ChatGPT's are: it ends the session and sends.
+  const listening = !shell && dictation !== undefined && isActive(dictation.state);
   const sendOrStop =
-    stop && !hasDraft ? (
+    stop && !hasDraft && !listening ? (
       stopButton
-    ) : remote.canSend && (!quietActions || shell || hasDraft) ? (
+    ) : remote.canSend && (!quietActions || shell || hasDraft || listening) ? (
       // One send control in both looks (Leo 2026-10-31: "THE F***ING TWO SEND
       // BUTTONS"): mid-turn the empty prompt's slot is Stop, and the first letter turns it
       // into Send, which does what Return does: it steers an agent that steers, else queues.
@@ -2330,15 +2482,23 @@ export function Composer({
             role: "combobox",
             "aria-label": t(COMPOSER_LABELS.prompt),
             "aria-multiline": "true",
-            "aria-expanded": String(open || Boolean(mentionAt)),
-            "aria-controls": open ? "acpmux-slash-menu" : mentionAt ? "acpmux-mention-menu" : undefined,
+            "aria-expanded": String(open || Boolean(mentionAt) || Boolean(emojiAt)),
+            "aria-controls": open
+              ? "acpmux-slash-menu"
+              : mentionAt
+                ? "acpmux-mention-menu"
+                : emojiAt
+                  ? "acpmux-emoji-menu"
+                  : undefined,
             "aria-autocomplete": "list",
             "aria-activedescendant":
               open && matches.length > 0
                 ? `acpmux-slash-${selected}`
                 : mentionAt && mentionSelected >= 0
                   ? `acpmux-mention-${mentionSelected}`
-                  : undefined,
+                  : emojiAt && emojiSelected >= 0
+                    ? `acpmux-emoji-${emojiSelected}`
+                    : undefined,
             spellcheck: String(spellChecking),
             // WEB-SWAP: the prompt keeps its own draft (composerDraft.ts holds until it is written).
             [WEB_SWAP_KEPT_TEXT]: "",
@@ -2446,6 +2606,19 @@ export function Composer({
                 />
               </ComposerListLayer>
             )}
+            {emojiAt && (
+              <ComposerListLayer>
+                <EmojiMenu
+                  key={emojiAt.start}
+                  look={emojiLook}
+                  matches={emojiRows}
+                  active={emojiSelected >= 0 ? emojiSelected : (emojiHover ?? -1)}
+                  back={emojiAt.token.length}
+                  onHover={setEmojiHover}
+                  onPick={pickEmoji}
+                />
+              </ComposerListLayer>
+            )}
           </>
         }
         onCardPress={focusPrompt}
@@ -2521,20 +2694,37 @@ export function Composer({
         // Claude Code ends the quiet row on the context ring. It keeps its place before the chat
         // reports usage (inert, ContextRing), so the first report moves nothing in the row
         // (hq#1957: the composer holds still while a turn runs); the context-usage setting
-        // hides it (showContextUsage).
+        // hides it (showContextUsage), from its own right-click too, which also picks what it shows:
+        // the context or the plan usage limits (composerRing; UsageRingMenu).
         ring={
           showContextUsage && (
-            <ContextRing
-              used={usage?.used}
-              size={usage?.size}
-              setup={usage?.setup}
-              cacheExpiresAt={usage?.cacheExpiresAt}
-              breakdown={snapshot.summary?.contextBreakdown}
-              onOpenDetails={onOpenContext}
-            />
+            <UsageRingMenu>
+              <ContextRing
+                used={usage?.used}
+                size={usage?.size}
+                setup={usage?.setup}
+                cacheExpiresAt={usage?.cacheExpiresAt}
+                breakdown={snapshot.summary?.contextBreakdown}
+                onOpenDetails={onOpenContext}
+                {...(composerRing === "planUsage"
+                  ? {
+                      plan: {
+                        limits:
+                          typeof snapshot.summary?.usageLimits === "object" ? snapshot.summary.usageLimits : undefined,
+                        family: snapshot.summary?.family ?? snapshot.summary?.harness,
+                      },
+                    }
+                  : {})}
+              />
+            </UsageRingMenu>
           )
         }
-        actionsLead={quietActions ? sendControl : undefined}
+        actionsLead={
+          <>
+            {listening && dictation && <DictationStrip dictation={dictation} />}
+            {quietActions && sendControl}
+          </>
+        }
         accessory={accessory}
         trailing={quietActions ? undefined : sendControl}
         chromeItems={chrome.all}
@@ -2572,10 +2762,9 @@ function SlashMenu({
   const virtual = matches.length > 40;
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportPx, setViewportPx] = useState(SLASH_MAX_VIEWPORT_PX);
-  const wantedTop = virtual ? slashScrollForActive(active, matches.length, scrollTop, viewportPx) : 0;
-  const view = slashViewport(matches.length, wantedTop, viewportPx);
-  const start = virtual ? view.start : 0;
-  const end = virtual ? view.end : matches.length;
+  const [rowPx, setRowPx] = useState(SLASH_ROW_PX);
+  const wantedTop = virtual ? slashScrollForActive(active, matches.length, scrollTop, viewportPx, rowPx) : 0;
+  const view = slashViewport(matches.length, wantedTop, viewportPx, rowPx);
 
   // Above the composer, or past the window's edge when the pane has no room there (cx-6k6cg).
   const listEdges = useScrollEdges();
@@ -2598,13 +2787,20 @@ function SlashMenu({
       const padding = (parseFloat(css?.paddingTop ?? "0") || 0) + (parseFloat(css?.paddingBottom ?? "0") || 0);
       const height = Math.max(1, node.clientHeight - padding);
       setViewportPx((old) => (old === height ? old : height));
+      const row = node.querySelector<HTMLElement>(".acpmux-slash-row");
+      const measuredRow = row?.getBoundingClientRect().height ?? 0;
+      if (measuredRow > 0 && Number.isFinite(measuredRow)) {
+        setRowPx((old) => (Math.abs(old - measuredRow) < 0.5 ? old : measuredRow));
+      }
     };
     measure();
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(measure);
     observer.observe(node);
+    const row = node.querySelector<HTMLElement>(".acpmux-slash-row");
+    if (row) observer.observe(row);
     return () => observer.disconnect();
-  }, [virtual]);
+  }, [virtual, matches.length]);
 
   useLayoutEffect(() => {
     const node = list.current;
@@ -2613,75 +2809,47 @@ function SlashMenu({
       if (Math.abs(node.scrollTop - view.scrollTop) > 0.5) node.scrollTop = view.scrollTop;
       return;
     }
-    // Keep the existing behavior for ordinary short command lists.
-    node.querySelector<HTMLElement>(`#acpmux-slash-${active}`)?.scrollIntoView?.({ block: "nearest" });
-  }, [active, virtual, view.scrollTop]);
+  }, [virtual, view.scrollTop]);
 
   // A native select or datalist cannot hold the matched-name bolding and descriptions.
-  if (matches.length === 0)
-    return (
-      <div
-        className="ui-popup ui-glass acpmux-slash-menu acpmux-slash-empty"
-        id="acpmux-slash-menu"
-        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-        role="listbox"
-        aria-label={t(COMPOSER_LABELS.commands)}
-      >
-        {empty}
-      </div>
-    );
   return (
-    <div
-      ref={setList}
+    <Listbox
+      listRef={setList}
+      items={matches}
+      getKey={(match) => `${match.command.source ?? "agent"}:${match.command.name}`}
+      textValue={(match) => shownName(match.command)}
+      label={t(COMPOSER_LABELS.commands)}
+      autoFocus={false}
+      activeIndex={active}
+      onActiveIndexChange={onHover}
+      onOpen={(match) => onPick(match.command)}
+      getItemId={(_, index) => `acpmux-slash-${index}`}
       className="ui-popup ui-glass acpmux-slash-menu ui-scroll-edge-fade"
       id="acpmux-slash-menu"
-      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-      role="listbox"
-      aria-label={t(COMPOSER_LABELS.commands)}
-      data-matched-count={matches.length}
+      rowClassName="acpmux-slash-row"
+      empty={<div className="acpmux-slash-empty">{empty}</div>}
+      window={virtual ? view : undefined}
+      itemAttributes={(_, index) => ({
+        "aria-posinset": String(index + 1),
+        "aria-setsize": String(matches.length),
+      })}
       onScroll={
         virtual
           ? (event) => {
               const top = event.currentTarget.scrollTop;
               setScrollTop(top);
-              const next = slashViewport(matches.length, top, viewportPx);
+              const next = slashViewport(matches.length, top, viewportPx, rowPx);
               const selected = slashActiveAfterScroll(active, matches.length, next);
               if (selected !== active) onHover(selected);
             }
           : undefined
       }
-    >
-      {/* Keep the full-list scrollbar without creating offscreen options. */}
-      {virtual && <div aria-hidden="true" style={{ height: view.topSpace }} />}
-      {/* Virtual focus: the prompt's aria-activedescendant always names a mounted row. */}
-      {matches.slice(start, end).map((match, offset) => {
-        const index = start + offset;
+      renderItem={(match) => {
         // The harness's /fast reads as ChatGPT's Fast row: bolt, name, current mode.
         const fastRow = isFastCommand(match.command);
         const fastName = t("picker.tierFast");
         return (
-          <div
-            key={`${match.command.source ?? "agent"}:${match.command.name}`}
-            id={`acpmux-slash-${index}`}
-            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-            role="option"
-            tabIndex={-1}
-            aria-selected={index === active}
-            aria-posinset={index + 1}
-            aria-setsize={matches.length}
-            className={
-              (index === active ? "acpmux-slash-row acpmux-slash-active" : "acpmux-slash-row") +
-              (fastRow ? " acpmux-slash-fast" : "")
-            }
-            onMouseMove={() => {
-              if (index !== active) onHover(index);
-            }}
-            onMouseDown={(event) => {
-              if (event.button !== 0) return;
-              event.preventDefault();
-              onPick(match.command);
-            }}
-          >
+          <>
             {fastRow && (
               <span className="acpmux-slash-icon">
                 <BoltIcon size={14} />
@@ -2724,11 +2892,10 @@ function SlashMenu({
                   ? t(match.command.descriptionKey)
                   : match.command.description}
             </span>
-          </div>
+          </>
         );
-      })}
-      {virtual && <div aria-hidden="true" style={{ height: view.bottomSpace }} />}
-    </div>
+      }}
+    />
   );
 }
 

@@ -2,7 +2,7 @@
 // transcript's rules in direct.ts. Its text is a reply, its thoughts and tool calls fold into
 // activity rows, and the subagents it spawned between two pieces of its text draw as one group
 // row, so nesting reads the same at every level.
-import { appendThought, mergeToolItem, textFromContent } from "../direct";
+import { appendThought, backgroundTask, mergeToolItem, textFromContent } from "../direct";
 import { translate } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { hiddenCall } from "../hiddenTools";
@@ -154,6 +154,41 @@ export class ChildRowView {
         tools.set(callId, rowId);
         if (!known) activity = rowId;
         reply = undefined;
+      } else if (kind === "background_task_update") {
+        // A shell it ran in the background ends on the call that started it, as the chat's own do
+        // (direct.ts `markBackgroundCall`): a shell stopped at its time limit, or that finished,
+        // never reads as running in its view, Session Info or the tray. A late `running` leaves an
+        // ended one as it is.
+        const task = backgroundTask(update);
+        const rowId = task ? tools.get(task.toolCallId) : undefined;
+        const existing = rowId ? rows.get(rowId) : undefined;
+        const index = existing?.items?.findIndex((item) => item.tool?.id === task!.toolCallId) ?? -1;
+        const item = index >= 0 ? existing!.items![index]! : undefined;
+        const tool = item?.tool;
+        const ended = task?.state !== "running";
+        if (
+          task &&
+          rowId &&
+          existing &&
+          item &&
+          tool &&
+          (ended || (tool.background?.state ?? "running") === "running")
+        ) {
+          const items = [...existing.items!];
+          items[index] = {
+            ...item,
+            tool: {
+              ...tool,
+              background: {
+                state: task.state,
+                ...(task.reason ? { reason: task.reason } : {}),
+                ...(task.exitCode !== undefined ? { exitCode: task.exitCode } : {}),
+                ...(ended ? { endedAt: event.at } : {}),
+              },
+            },
+          };
+          rows.set(rowId, { ...existing, version: existing.version + 1, items });
+        }
       }
       if (settled) reply = activity = undefined;
     }

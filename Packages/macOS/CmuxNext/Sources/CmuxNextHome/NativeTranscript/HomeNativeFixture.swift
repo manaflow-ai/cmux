@@ -46,6 +46,8 @@ public final class HomeNativeFixture {
     #if DEBUG
     /// DEBUG Agent Messages Playground: the header style, folds open, and the team chat (nil: not a playground).
     private var playground: (style: HomeAgentFoldStyle, expanded: Bool, team: Bool)?
+    /// The playground's click on an agent's pill (the agent's id and its row's message id).
+    var onPill: (@MainActor @Sendable (String, String) -> Void)?
 
     /// The Agent Messages Playground's fixture: it shows `playground`'s header style, folds and chat, with the
     /// playground's run, once it loads (``debugPlayground(style:expanded:team:)`` changes them later).
@@ -80,7 +82,7 @@ public final class HomeNativeFixture {
         if attachments { await addAttachments(in: id) }
         #if DEBUG
         if let playground {
-            view?.transcript.debugSetAgentFoldStyle(playground.style)
+            view?.transcript.debugSetAgentFoldStyle(playground.style, onPill: onPill)
             _ = postAgentRun(Self.agentPlayground, notes: false, team: playground.team, step: 0, expanded: playground.expanded)
         }
         #endif
@@ -228,17 +230,26 @@ public final class HomeNativeFixture {
     /// Home folds into one row under the reply (a click expands it). False before the conversation shows.
     /// With `notes`, the run is instead five agents that stopped with no report (their session
     /// Disconnected, the Chief producer's note) and one real report.
-    /// With `open`, nothing is posted: the fold (or, after a notes run, the notes row) of the last such
-    /// run opens or closes, as a click on it does.
+    /// With `open`, nothing is posted: the agents row of the last such run (its stopped agents are in it
+    /// too) opens or closes, as a click on it does.
     /// With `group`, the run goes to the mock's group with the Chief and two teammates (shown first).
+    /// With `pill`, nothing is posted: agent `pill`'s chat opens in the agent pane, as a click on its pill does;
+    /// with `say` too, the person sends that agent `say` from the pane's composer.
     /// With `step` N, the run brings only its first N messages: step 1 posts the question, the reply and
     /// one message; each next step adds one, as a live run does (0: all at once).
-    public func debugAgentMessages(notes: Bool = false, open: Bool = false, group: Bool = false, step: Int = 0) -> Bool {
+    public func debugAgentMessages(notes: Bool = false, open: Bool = false, group: Bool = false, step: Int = 0, pill: String? = nil,
+                                   say: String? = nil) -> Bool {
         guard let shown else { return false }
+        if let pill {
+            guard let view else { return false }
+            view.debugOpenAgent(pill)
+            if let say { return view.debugSendToAgent(say) }
+            return true
+        }
         if open {
             guard let last = lastAgentRun else { return false }
             let group = HomeAgentMessageRow.groupID(author: shown.chief, anchor: last.turn)
-            store.toggleAgentMessages(last.notes ? HomeAgentMessageRow.notesGroup(group) : group, in: shown.conversation)
+            store.toggleAgentMessages(group, in: shown.conversation)
             return true
         }
         return postAgentRun(notes ? Self.agentNotes : Self.agentMessages, notes: notes, team: group ? true : nil, step: step)
@@ -283,14 +294,14 @@ public final class HomeNativeFixture {
         return true
     }
 
-    /// Opens or closes every agent fold of the last run (its messages and its stopped agents), as a click
-    /// on each does. False before a run.
+    /// Opens or closes the agents row of the last run (its messages and its stopped agents), as a click
+    /// on it does. False before a run.
     @discardableResult
     public func debugAgentFolds(expanded: Bool) -> Bool {
         guard let shown, let last = lastAgentRun else { return false }
         let group = HomeAgentMessageRow.groupID(author: shown.chief, anchor: last.turn)
-        for fold in [group, HomeAgentMessageRow.notesGroup(group)] where store.isAgentMessagesExpanded(fold, in: shown.conversation) != expanded {
-            store.toggleAgentMessages(fold, in: shown.conversation)
+        if store.isAgentMessagesExpanded(group, in: shown.conversation) != expanded {
+            store.toggleAgentMessages(group, in: shown.conversation)
         }
         return true
     }
@@ -303,7 +314,7 @@ public final class HomeNativeFixture {
         let was = playground
         playground = (style, expanded, team)
         guard shown != nil else { return }
-        if was?.style != style { view?.transcript.debugSetAgentFoldStyle(style) }
+        if was?.style != style { view?.transcript.debugSetAgentFoldStyle(style, onPill: onPill) }
         if was?.team != team || lastAgentRun == nil {
             _ = postAgentRun(Self.agentPlayground, notes: false, team: team, step: 0, expanded: expanded)
         } else if was?.expanded != expanded {
@@ -312,14 +323,7 @@ public final class HomeNativeFixture {
     }
 
     /// The playground's run: three agents told, one of them reporting back, and two that stopped with no report.
-    private static let agentPlayground: [(peer: String, outgoing: Bool, text: String)] = [
-        ("a959", true, "Fix the sidebar alignment: the header and the New Workspace row share one left edge."),
-        ("a931", true, "Rebuild the nightly appcast on an owned Mac mini, then plain push."),
-        ("a940", true, "Audit every button for first-click response, active and inactive window."),
-        ("a959", false, "Done: both rows now start at 12 pt. [631d310](https://github.com/manaflow-ai/cmux/commit/631d310)"),
-        ("a933", false, "(stopped without a report: its session is Disconnected)"),
-        ("a936", false, "(stopped without a report: its session is Disconnected)"),
-    ]
+    private static var agentPlayground: [(peer: String, outgoing: Bool, text: String)] { HomeAgentPlaygroundAgent.run }
     #endif
 
     /// The notes fixture run: five status notes in the Chief producer's words, a real report.

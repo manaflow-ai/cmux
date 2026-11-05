@@ -108,6 +108,16 @@ class NewReds(unittest.TestCase):
         self.assertIn("webview test red step (base): test/a.test.ts > x", done.stdout)
         self.assertIn("::error title=Webview test red on this change::test/b.test.ts > y", done.stdout)
 
+    def test_a_named_pass_in_a_failed_rerun_clears_only_that_test(self):
+        done = self.run_rerun(
+            {"test/a.test.ts > passed": False, "test/a.test.ts > remains": False},
+            {"test/a.test.ts": True},
+            {"test/a.test.ts > passed": True, "test/a.test.ts > remains": False},
+        )
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("::warning title=Webview test passed again alone on the head::test/a.test.ts > passed", done.stdout)
+        self.assertIn("::error title=Webview test red on this change::test/a.test.ts > remains", done.stdout)
+
     def test_a_green_head_with_reds_only_on_the_base_is_green(self):
         done = self.run_it({"test/a.test.ts": True, "test/b.test.ts": True}, {"test/a.test.ts": False})
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
@@ -155,6 +165,34 @@ class NewReds(unittest.TestCase):
     def test_no_head_results_fails(self):
         done = self.run_it(None, {"lint": True})
         self.assertEqual(done.returncode, 1)
+
+
+class RedStepsForTheBaseRerun(unittest.TestCase):
+    """cmux-next-guards.yml re-runs on the base only the steps red on the head (--red-steps, then
+    run_ci_guards.py --step): a step green on the head is never the change's, whatever the base says."""
+
+    def red(self, head):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "head.json"
+            if head is not None:
+                path.write_text(json.dumps(head))
+            return subprocess.run([sys.executable, str(SCRIPT), "--red-steps", str(path)], capture_output=True, text=True)
+
+    def test_each_red_step_once_with_its_checks_folded_in(self):
+        done = self.red({"lint": False, "ok": True, "wired :: a": False, "wired :: b": False, "wired": False,
+                         "fleet :: x": True})
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(done.stdout.splitlines(), ["lint", "wired"])
+        self.assertEqual(run_ci_guards.CHECK_SEPARATOR, " :: ")
+
+    def test_a_green_or_missing_head_names_nothing(self):
+        self.assertEqual((self.red({"lint": True}).stdout, self.red(None).stdout), ("", ""))
+
+    def test_steps_the_base_did_not_rerun_are_not_charged_to_the_change(self):
+        # Base results hold only the re-run steps; a head step missing from them passed on the head.
+        done = NewReds.run_it(self, {"lint": False, "ok": True}, {"lint": False})
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("0 guard steps red on this change, 1 red on the base too", done.stdout)
 
 
 class TipAndRedStepLines(unittest.TestCase):

@@ -42,6 +42,7 @@ extension LayoutModel {
         guard let anyPane = screens.lazy.compactMap({ $0.layout.columns.first { $0.id == column }?.root.panes.first }).first else {
             return .unknownColumn
         }
+        expectReply(transaction)
         emit(.setColumnDock(column, anyPane: anyPane, dock: dock, transaction: transaction))
         return nil
     }

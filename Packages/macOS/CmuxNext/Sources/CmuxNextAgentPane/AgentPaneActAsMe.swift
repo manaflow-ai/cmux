@@ -62,8 +62,7 @@ import Security
     /// The person's own click on the card's Allow. Only ``AgentPaneActAsMeCard`` makes one, from the
     /// click itself (``AgentPaneActAsMeCard/takePersonClick(on:up:)``); nothing outside this module can.
     public nonisolated struct PersonClick: Sendable {
-        fileprivate init() {}
-        static func taken() -> PersonClick { PersonClick() }
+        init() {}
     }
 
     /// Where the person's grant is kept. Writes run off main and store the latest value under a lock, so

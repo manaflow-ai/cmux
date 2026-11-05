@@ -279,6 +279,9 @@ public protocol WorkspaceGroupBackend: AnyObject {
     func place(_ workspace: Workspace, in group: MacWorkspaceGroup?) async throws
     /// Move Workspace to New Group: a new group with `name` and `color`, holding the workspace.
     func moveToNewGroup(_ workspace: Workspace, name: String, color: WorkspaceColor) async throws
+    /// New Workspace Group: an empty group with `name` and `color` on `macID`, returned once the
+    /// Mac made it (Duplicate Workspace Group then places each copy in it).
+    func createGroup(named name: String, color: WorkspaceColor, on macID: String) async throws -> MacWorkspaceGroup
     /// Rename Group…, the group's color, Collapse / Expand Workspace Group.
     func updateGroup(_ group: MacWorkspaceGroup, on macID: String, name: String?, color: WorkspaceColor?, collapsed: Bool?) async throws
     /// Ungroup Workspaces / Delete Group: the group goes, its workspaces stay.
@@ -466,6 +469,9 @@ extension MockWorkspaceCreationBackend: WorkspaceGroupBackend {
     public func groups(on macID: String) -> [MacWorkspaceGroup] { [] }
     public func place(_ workspace: Workspace, in group: MacWorkspaceGroup?) async throws { try await rename(workspace, to: workspace.title) }
     public func moveToNewGroup(_ workspace: Workspace, name: String, color: WorkspaceColor) async throws { try await rename(workspace, to: workspace.title) }
+    public func createGroup(named name: String, color: WorkspaceColor, on macID: String) async throws -> MacWorkspaceGroup {
+        MacWorkspaceGroup(id: "mock-\(UUID().uuidString)", name: name, color: color.rawValue)
+    }
     public func updateGroup(_ group: MacWorkspaceGroup, on macID: String, name: String?, color: WorkspaceColor?, collapsed: Bool?) async throws {}
     public func deleteGroup(_ group: MacWorkspaceGroup, on macID: String) async throws {}
 }

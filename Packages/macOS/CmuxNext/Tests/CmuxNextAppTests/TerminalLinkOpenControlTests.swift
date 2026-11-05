@@ -30,7 +30,7 @@ import Testing
         let services = AppServices(environment: AppEnvironment.current([:]))
         var opened: [(URL, String?)] = []
         links.routing = { .fallback }
-        links.appLink = { _ in false }
+        links.appLink = { _, _ in false }
         links.openInCmux = { url, _, source in opened.append((url, source)) }
         try await body(router(services))
         return opened

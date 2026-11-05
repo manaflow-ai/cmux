@@ -39,6 +39,7 @@ RUNTIME_NAMED_REQUEST_REFS = {
     "RowMarkerPoint": "RowMarkerPoint",
     "RowHeight": "RowHeight",
     "ExpectAgent": "SendExpectAgent",
+    "LayoutSizeWire": "LayoutSizeValue",
 }
 
 # Request fields the server takes as raw JSON and then decodes element by

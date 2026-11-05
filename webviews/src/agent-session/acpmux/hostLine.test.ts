@@ -13,14 +13,14 @@ import { PEER_LINK_DEADLINE_MS, hostLineText, isRawDaemonText, peerLinkFailure }
 // acpmux's refusal for a request on a peer that is down, as the daemon words it (peer_link.rs
 // `unreachable_error`) and as direct.ts hands it on (`reason` copied from `data.reason`).
 const LEOS =
-  "peer_unreachable: <host> (reconnecting, last seen 10s ago: WebSocket protocol error: Handshake not finished); the request was not sent; run `acpmux host ls` and retry after the peer reconnects";
+  "peer_unreachable: <host> (reconnecting, last seen 10s ago: WebSocket protocol error: Handshake not finished); the request was not sent; run `acpmux machine ls` and retry after the peer reconnects";
 const rpc = (message: string, data: Record<string, unknown>) =>
   Object.assign(new AcpmuxRpcError({ code: -32603, message, data }), { code: -32603, reason: data.reason });
 const unreachable = (peerState: string) =>
   rpc(LEOS.replace("(reconnecting", `(${peerState}`), {
     reason: "peer_unreachable",
     retryable: true,
-    try: "acpmux host ls",
+    try: "acpmux machine ls",
     detail: "the request was not sent",
     peer: "<host>",
     peerState,
@@ -30,11 +30,11 @@ const unreachable = (peerState: string) =>
 // refusals in its CLI's words.
 const DAEMON_WORDS = [
   LEOS,
-  "peer_unreachable: the link to box took no new request for 30s; the request was not sent; run `acpmux host ls` and retry",
+  "peer_unreachable: the link to box took no new request for 30s; the request was not sent; run `acpmux machine ls` and retry",
   "peer_unreachable: the request was not sent; retry later",
   "peer disconnected",
   "spawn.failed: the agent exited before it answered",
-  'no peer "box"; run `acpmux host ls` and connect it',
+  'no peer "box"; run `acpmux machine ls` and connect it',
 ];
 
 test("a reconnecting, connecting, slow or restarting peer shows no line, however long it lasts", () => {
@@ -108,4 +108,33 @@ test("every HostUnavailableLine in the pane is worded by hostLineText", () => {
     expect(use).toMatch(/detail=\{hostWords\.detail\}/);
   }
   expect(source).toMatch(/const hostWords = hostLineText\(/);
+});
+
+// Cloud machines pause on their own when idle and between tool calls (cmux-platform
+// docs/agent-turn-sleep.md): a paused or resuming machine is never "Can't reach", however long.
+test("a Cloud machine the account says sleeps is never said to be unreachable", () => {
+  const asleep = (peer: string | undefined) => peer === "<host>";
+  expect(hostErrorShows(unreachable("reconnecting"), 10 * PEER_LINK_DEADLINE_MS, asleep)).toBe(false);
+  expect(hostErrorShows(unreachable("offline"), 10 * PEER_LINK_DEADLINE_MS, asleep)).toBe(false);
+  expect(hostErrorShows(unreachable("offline"), PEER_LINK_DEADLINE_MS, () => false)).toBe(true);
+});
+
+test("cloudMachineAsleep: paused and starting stages sleep, ready and failed do not, twins never", async () => {
+  const { cloudMachineAsleep } = await import("./cloudMachines");
+  const list = [
+    { id: "a", name: "Box", stage: "paused" },
+    { id: "b", name: "boot", stage: "connecting" },
+    { id: "c", name: "up", stage: "ready" },
+    { id: "d", name: "bad", stage: "failed" },
+    { id: "e", name: "twin", stage: "paused" },
+    { id: "f", name: "twin", stage: "paused" },
+  ];
+  expect(["box", "boot", "up", "bad", "twin", undefined].map((name) => cloudMachineAsleep(name, list))).toEqual([
+    true,
+    true,
+    false,
+    false,
+    false,
+    false,
+  ]);
 });

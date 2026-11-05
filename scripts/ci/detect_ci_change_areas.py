@@ -267,12 +267,20 @@ _CI_GUARD_ENTRYPOINT = "scripts/ci/workloads/ci-guard.sh"
 # one. That job runs the same Linux guard tests, not the app's macOS lanes, so
 # the term does not make the tests it names macOS-relevant.
 _PORTABLE_RUNNER_TERM = "inputs.guard_tests_runner != '' && inputs.guard_tests_runner ||"
+# The credentialed `changes` router accepts only the current attempt's
+# validated Linux placement. Its test-path references still run on Linux;
+# an unknown needs expression must continue to fail open below.
+_PORTABLE_ROUTER_LINUX_TERM = (
+    "needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && "
+    "contains(needs.portable-placement.outputs.linux_jobs, ' changes ') && "
+    "needs.portable-placement.outputs.linux_runner ||"
+)
 
 
 def is_plainly_linux_runner(runs_on: str) -> bool:
     # Anything else counts as macOS: a matrix or needs expression, a list or
     # group on the following lines, or a label this does not recognize.
-    value = runs_on.strip().replace(_PORTABLE_RUNNER_TERM, "")
+    value = runs_on.strip().replace(_PORTABLE_RUNNER_TERM, "").replace(_PORTABLE_ROUTER_LINUX_TERM, "")
     if not value or re.search(r"macos|matrix\.|needs\.|inputs\.", value, re.IGNORECASE):
         return False
     return bool(re.search(r"LINUX_RUNNER|LINUX_ARM64_RUNNER|ubuntu", value))
@@ -547,6 +555,30 @@ _TEST_PATH_LISTS = _ROUTING_TABLES | frozenset({
 # names (macos-shell, macos-cli-no-socket and their fish variants). Only these
 # lanes run no Mac job; a new lane is run until it is added here.
 _TEST_REGISTRY_PATH = "tests/test-execution.toml"
+# The registry's area fragments, which replaced the single file (scripts/ci/test_execution_registry.py).
+_TEST_REGISTRY_FRAGMENTS = "tests/test-execution.d"
+_TEST_REGISTRY_FRAGMENT_RE = re.compile(r"tests/test-execution\.d/[^/]+\.toml")
+
+
+def is_test_registry_path(path: str) -> bool:
+    return path == _TEST_REGISTRY_PATH or _TEST_REGISTRY_FRAGMENT_RE.fullmatch(path) is not None
+
+
+def _test_registry_text(root: Path) -> str:
+    """The merged registry under `root` as one TOML text: the old single file while it is there,
+    then each fragment by name (a fragment holds only [[test]] entries). Raises OSError with neither."""
+    texts = []
+    legacy = root / _TEST_REGISTRY_PATH
+    if legacy.is_file():
+        texts.append(legacy.read_text(encoding="utf-8"))
+    fragments = root / _TEST_REGISTRY_FRAGMENTS
+    if fragments.is_dir():
+        texts += [path.read_text(encoding="utf-8")
+                  for path in sorted(fragments.glob("*.toml"), key=lambda path: path.name)]
+    if not texts:
+        raise FileNotFoundError(f"{root / _TEST_REGISTRY_FRAGMENTS}: no test registry")
+    body = "\n".join(text.rstrip("\n") + "\n" for text in texts)
+    return body if legacy.is_file() else "version = 1\n\n" + body
 _TEST_REGISTRY_INERT_LANES = frozenset({"linux-guard", "legacy", "manual"})
 _COMMENT_RE = re.compile(r"(?m)(?:^[ \t]*#(?![{!]).*$|[ \t]+#(?![{!]).*$)")
 
@@ -619,7 +651,7 @@ def _nothing_imports_test(root: Path, test: str) -> bool:
     for namer in namers:
         if namer == test or namer in _TEST_PATH_LISTS or namer.endswith(_DOCUMENTATION_SUFFIXES):
             continue
-        if namer == _TEST_REGISTRY_PATH and _registry_lane_is_inert(root, test):
+        if is_test_registry_path(namer) and _registry_lane_is_inert(root, test):
             continue
         if namer.endswith(".py"):
             try:
@@ -791,7 +823,7 @@ def ci_helper_areas(
                         if runner != referrer
                         and runner not in _TEST_PATH_LISTS
                         and not runner.endswith(_DOCUMENTATION_SUFFIXES)
-                        and not (runner == _TEST_REGISTRY_PATH and _registry_lane_is_inert(root, referrer))
+                        and not (is_test_registry_path(runner) and _registry_lane_is_inert(root, referrer))
                         and not (runner.startswith("tests/") and runner.endswith(".py")
                                  and _python_runner_names(root, runner, referrer) is False)
                     ]
@@ -920,7 +952,7 @@ def _registry_lane_is_inert(root: Path, test: str) -> bool:
     entries counts as run (fails open).
     """
     try:
-        entries = _test_registry_entries((root / _TEST_REGISTRY_PATH).read_text(encoding="utf-8"))
+        entries = _test_registry_entries(_test_registry_text(root))
     except (OSError, UnicodeDecodeError, ImportError, ValueError, TypeError, KeyError) as error:
         print(f"Could not read {_TEST_REGISTRY_PATH}: {error}", file=sys.stderr)
         return False
@@ -1611,7 +1643,7 @@ def is_release_build_neutral(path: str) -> bool:
 
 
 def _test_registry_entries(text: str) -> list[dict]:
-    """tests/test-execution.toml's `[[test]]` entries, read with tomllib.
+    """The test registry's `[[test]]` entries (_test_registry_text), read with tomllib.
 
     Raises ValueError (tomllib.TOMLDecodeError is one) for an unknown schema,
     no entries or a non-table entry, and ImportError without tomllib.
@@ -1649,20 +1681,23 @@ def test_registry_change_is_linux_only(base: str, head: str) -> bool:
                     raise ValueError("guard entry with runtime requirements")
             return native
 
-        return native_entries(base) == native_entries(head)
+        # By path, not position: the split re-ordered the entries (by area, then path).
+        def by_path(entries: list[dict]) -> list[dict]:
+            return sorted(entries, key=lambda entry: entry["path"])
+
+        return by_path(native_entries(base)) == by_path(native_entries(head))
     except (ImportError, ValueError, TypeError, KeyError):
         return False
 
 
 def test_registry_linux_only(base_path: Optional[Path]) -> bool:
+    """`base_path` is the base's registry: one file, or a directory holding the base's tests/ registry files."""
     if base_path is None:
         return False
     root = Path(os.environ.get("CMUX_CI_HEAD_TEST_REFERENCE_ROOT") or Path.cwd())
     try:
-        return test_registry_change_is_linux_only(
-            base_path.read_text(encoding="utf-8"),
-            (root / "tests/test-execution.toml").read_text(encoding="utf-8"),
-        )
+        base = _test_registry_text(base_path) if base_path.is_dir() else base_path.read_text(encoding="utf-8")
+        return test_registry_change_is_linux_only(base, _test_registry_text(root))
     except OSError:
         return False
 
@@ -1688,7 +1723,7 @@ def classify_files(paths: Iterable[str], *,
         path = normalize_path(raw_path)
         if not path:
             continue
-        if path == "tests/test-execution.toml":
+        if is_test_registry_path(path):
             # The guard workflow references this registry too, but native
             # Python lanes consume it indirectly through their lane runner.
             # A Linux reference alone cannot prove native execution unchanged.
@@ -1861,7 +1896,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--test-registry-base",
         type=Path,
-        help="Base test registry; Linux-only entry changes do not select native CI.",
+        help="Base test registry (a file, or a directory with the base's tests/ registry files); "
+             "Linux-only entry changes do not select native CI.",
     )
     parser.add_argument(
         "--files-from",

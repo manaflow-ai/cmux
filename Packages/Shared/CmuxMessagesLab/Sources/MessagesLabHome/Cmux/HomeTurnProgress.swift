@@ -32,7 +32,7 @@ struct HomeTurnProgress: Equatable {
     var text: String { rows.joined(separator: "\n") }
 
     /// Lines the owner sends for its own writing, not a step of the turn's work.
-    static let notSteps: Set<String> = ["Thinking", "Writing the reply", "Working"]
+    static var notSteps: Set<String> { HomeLiveActivity.modelLines }
     /// Most characters a narration row keeps.
     static var narrationLimit: Int { String.thoughtHeadlineLimit }
 

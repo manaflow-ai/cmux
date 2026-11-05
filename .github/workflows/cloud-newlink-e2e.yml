@@ -37,19 +37,19 @@ jobs:
 
       - name: Materialize the dedicated dev credentials
         env:
-          CMUX_UITEST_STACK_EMAIL: ${{ secrets.CMUX_UITEST_STACK_EMAIL }}
-          CMUX_UITEST_STACK_PASSWORD: ${{ secrets.CMUX_UITEST_STACK_PASSWORD }}
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
           FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
         run: |
           set -euo pipefail
-          test -n "$CMUX_UITEST_STACK_EMAIL" || { echo "::error::CMUX_UITEST_STACK_EMAIL is missing"; exit 1; }
-          test -n "$CMUX_UITEST_STACK_PASSWORD" || { echo "::error::CMUX_UITEST_STACK_PASSWORD is missing"; exit 1; }
+          test -n "$CMUX_DOGFOOD_STACK_EMAIL" || { echo "::error::CMUX_DOGFOOD_STACK_EMAIL is missing"; exit 1; }
+          test -n "$CMUX_DOGFOOD_STACK_PASSWORD" || { echo "::error::CMUX_DOGFOOD_STACK_PASSWORD is missing"; exit 1; }
           test -n "$FREESTYLE_API_KEY" || { echo "::error::FREESTYLE_API_KEY is missing"; exit 1; }
           mkdir -p "$HOME/.secrets"
-          ( umask 077; printf 'CMUX_DOGFOOD_STACK_EMAIL=%s\nCMUX_DOGFOOD_STACK_PASSWORD=%s\n' "$CMUX_UITEST_STACK_EMAIL" "$CMUX_UITEST_STACK_PASSWORD" > "$HOME/.secrets/cmuxterm-dev.env" )
+          ( umask 077; printf 'CMUX_DOGFOOD_STACK_EMAIL=%s\nCMUX_DOGFOOD_STACK_PASSWORD=%s\n' "$CMUX_DOGFOOD_STACK_EMAIL" "$CMUX_DOGFOOD_STACK_PASSWORD" > "$HOME/.secrets/cmuxterm-dev.env" )
           key="$RUNNER_TEMP/freestyle.key"
           ( umask 077; printf '%s' "$FREESTYLE_API_KEY" > "$key" )
-          unset CMUX_UITEST_STACK_EMAIL CMUX_UITEST_STACK_PASSWORD FREESTYLE_API_KEY
+          unset CMUX_DOGFOOD_STACK_EMAIL CMUX_DOGFOOD_STACK_PASSWORD FREESTYLE_API_KEY
           echo "FREESTYLE_KEY=$key" >> "$GITHUB_ENV"
 
       - name: Run the NEXT new-link create and connect E2E

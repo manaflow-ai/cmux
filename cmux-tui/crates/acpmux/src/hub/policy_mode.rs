@@ -147,7 +147,7 @@ pub(crate) fn bridge_settle_modes(
 
 /// `meta`'s config options with the `mode` option set to `mode`, or `None` when it has none.
 fn with_mode_option(meta: &SessionMeta, mode: &str) -> Option<Value> {
-    let mut options = meta.config_options.clone()?;
+    let mut options = meta.config_options.as_deref()?.clone();
     let option = options
         .as_array_mut()?
         .iter_mut()

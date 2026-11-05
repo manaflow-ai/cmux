@@ -102,7 +102,7 @@ pub fn approval_unsupported(peer: &crate::peer::Peer) -> RpcError {
     let build = peer.remote_build().unwrap_or_else(|| "unknown".into());
     let (name, msg) = (&peer.name, "which does not hold a prompt for the owner");
     let message = format!(
-        "queue.approval_unsupported: peer {name} runs acpmux build {build}, {msg}; run `acpmux host update {name}`"
+        "queue.approval_unsupported: peer {name} runs acpmux build {build}, {msg}; run `acpmux machine update {name}`"
     );
     refusal("queue.approval_unsupported", message)
 }

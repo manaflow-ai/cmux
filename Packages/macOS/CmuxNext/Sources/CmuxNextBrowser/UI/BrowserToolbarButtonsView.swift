@@ -12,7 +12,7 @@ public final class BrowserToolbarButtonsView: NSStackView {
     /// A button was pressed. The App maps it to its action.
     public var onPress: ((BrowserToolbarButton) -> Void)?
     /// The display text of an action's shortcut, for the tooltips.
-    public var shortcutHint: ((BrowserToolbarButton) -> String?)? { didSet { render() } }
+    public var shortcutHint: ((BrowserToolbarButton) -> String?)? { didSet { rebind() } }
     /// The tab's browser profile name, for the profile button's tooltip.
     public var profileName: String? { didSet { render() } }
     /// The App's downloads, read while rendering so an observable list
@@ -24,10 +24,28 @@ public final class BrowserToolbarButtonsView: NSStackView {
     /// The pinned buttons' ids (`browser.toolbarButtons`), read the same way,
     /// so a pin from any window or from cmux.json reaches every toolbar.
     public var pins: (() -> [String])? { didSet { rebind() } }
+    private var batching = false
+    private var batchedChange = false
+    /// Sources set with no render (`batchSources(rendering: false)`): the next `bind` observes them, never skips.
+    private var sourcesPending = false
+    /// Renders so far (tests: a tab switch renders the toolbar once).
+    private(set) var renders = 0
+
+    /// Sets several sources (`shortcutHint`, `downloads`, `media`, `pins`) with one re-observation and render, or
+    /// none when `rendering` is false (a `bind` follows and renders them).
+    func batchSources(rendering: Bool = true, _ set: () -> Void) {
+        batching = true
+        set()
+        batching = false
+        if batchedChange {
+            batchedChange = false
+            if rendering { rebind() } else { sourcesPending = true }
+        }
+    }
     /// The media hub's cards, kept between opens.
     public let mediaRows = BrowserMediaRows()
     /// Design mode and color scheme of the bound tab.
-    public let modes = BrowserPageModes()
+    public private(set) var modes = BrowserPageModes()
     /// 0 shows every button; 1 hides design mode and DevTools; 2 also
     /// media, zoom, Favorites, Downloads, profile and theme (`BrowserToolbarButton.collapseLevel`).
     /// More lists the hidden ones.
@@ -88,21 +106,35 @@ public final class BrowserToolbarButtonsView: NSStackView {
 
     /// Shows `tab`'s states. A new page (another tab, or the chrome's tab
     /// swapped) gets the chosen color scheme and starts with design mode off.
-    func bind(_ tab: any BrowserTab) {
-        observation?.cancel()
-        if self.tab !== tab {
+    func bind(_ tab: any BrowserTab, modes tabModes: BrowserPageModes? = nil) {
+        // The page's attach binds the tab a tab switch bound already (with its modes): it already observes it.
+        if tab === self.tab, tabModes == nil || tabModes === modes, observation != nil, !sourcesPending { return }
+        if let tabModes, tabModes !== modes {
+            // Another tab of the pane: its own modes, as it left them, and the document they were for.
+            modes.pageURL = pageURL
+            modes = tabModes
+            self.tab = tab
+            pageURL = tabModes.pageURL ?? tab.state.url
+        } else if self.tab !== tab {
             self.tab = tab
             pageURL = tab.state.url
             modes.designMode = false
             if modes.colorScheme != .system { (tab as? any BrowserColorSchemeApplying)?.applyColorScheme(modes.colorScheme) }
         }
+        observe()
+    }
+
+    private func observe() {
+        sourcesPending = false
+        observation?.cancel()
         observation = ObservationLoop { [weak self] in self?.render() }
     }
 
     /// An App closure changed after `bind`: observe again so its reads count.
     private func rebind() {
-        guard let tab else { return render() }
-        bind(tab)
+        guard !batching else { return batchedChange = true }
+        guard tab != nil else { return render() }
+        observe()
     }
 
     /// Reads the states again, WebKit's inspector visibility included
@@ -206,6 +238,7 @@ public final class BrowserToolbarButtonsView: NSStackView {
     }
 
     private func render() {
+        renders += 1
         if let pins {
             let next = Set(pins().compactMap(BrowserToolbarButton.init(rawValue:)))
             if next != pinned { pinned = next }

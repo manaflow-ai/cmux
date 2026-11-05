@@ -1,6 +1,7 @@
-// Retry with another model (cx-ncc.62, Claude parity): beside a prompt's Retry, a menu lists the chat
-// harness's models with the current one checked; picking one retries the prompt on that model. A
-// harness with one model has no menu.
+// Retry with another model (cx-ncc.62, Claude parity): beside the last turn's Retry on its reply
+// footer, a menu lists the chat harness's models with the current one checked; picking one retries the
+// turn's prompt on that model. A harness with one model has no menu. Leo, 2026-11-04: "Put it, with
+// the model switch, in the last turn's footer." (TurnRows.tsx TurnFooter).
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -42,7 +43,7 @@ Object.assign(scope, replacements);
 
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { UserBubble } = await import("../src/agent-session/acpmux/conversation/UserBubble");
+const { TurnFooter } = await import("../src/agent-session/acpmux/conversation/TurnRows");
 const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
 
 const host = dom.window.document.getElementById("root")!;
@@ -57,13 +58,18 @@ afterAll(() => {
   }
 });
 
-const prompt: AcpmuxRow = {
-  id: "user-1",
+// The chat's last turn, which turns.ts marks retryable with the prompt it sends again.
+const lastTurn: AcpmuxRow = {
+  id: "summary-1",
   version: 1,
   at: Date.now(),
-  kind: "user",
-  seq: 1,
-  text: "Add retry to the uploader",
+  kind: "turnSummary",
+  status: "completed",
+  text: "Added it.",
+  retryable: true,
+  retryTarget: true,
+  prompt: "Add retry to the uploader",
+  retryRowId: "user-1",
 };
 const button = (label: string) =>
   [...dom.window.document.querySelectorAll("button")].find((element) => element.getAttribute("aria-label") === label);
@@ -88,7 +94,7 @@ test("Retry's model menu retries the prompt on the model picked there", async ()
   await act(async () =>
     root.render(
       <TurnActionsContext.Provider value={actions}>
-        <UserBubble row={prompt} text={prompt.text!} />
+        <TurnFooter row={lastTurn} />
       </TurnActionsContext.Provider>,
     ),
   );
@@ -110,7 +116,7 @@ test("a harness with one model offers Retry alone", async () => {
   await act(async () =>
     root.render(
       <TurnActionsContext.Provider value={actions}>
-        <UserBubble row={prompt} text={prompt.text!} />
+        <TurnFooter row={lastTurn} />
       </TurnActionsContext.Provider>,
     ),
   );
@@ -152,7 +158,7 @@ test("Retry's model menu lists the top models, the rest under More models, one r
   await act(async () =>
     root.render(
       <TurnActionsContext.Provider value={actions}>
-        <UserBubble row={prompt} text={prompt.text!} />
+        <TurnFooter row={lastTurn} />
       </TurnActionsContext.Provider>,
     ),
   );

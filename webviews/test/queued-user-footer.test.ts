@@ -217,8 +217,12 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
                 const buttons = [...element.querySelectorAll(".cv-user__actions .cv-iconbtn")].map((button) =>
                   button.getBoundingClientRect(),
                 );
+                // The row's last control's ink: Send now's words while it waits, else the last glyph.
+                const sendNow = element.querySelector(".cv-user__send-now");
+                const words = sendNow && document.createRange();
+                words?.selectNodeContents(sendNow!);
                 return {
-                  lastGlyphRight: glyphs.at(-1)!.right,
+                  lastGlyphRight: words ? words.getBoundingClientRect().right : glyphs.at(-1)!.right,
                   glyphGap: glyphs[0]!.top - bubble.bottom,
                   glyphSize: glyphs.at(-1)!.width,
                   buttonSizes: buttons.map((box) => [box.width, box.height]),
@@ -252,9 +256,9 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
             // end on it (design/grid.md 5.5).
             const overhang = (gridLength("transcript-action-control") - gridLength("transcript-icon-box")) / 2;
             expect(Math.abs(before.footerRight - overhang - before.bubbleRight)).toBeLessThanOrEqual(1);
-            // Send now, × and Copy sit as the sent prompt's row does (Leo, relayed 2026-11-03: "Send now ×
-            // and the copy icon float loosely under the bubble. Align them to the bubble's edge"): Copy's
-            // glyph ends on the bubble's right edge, the glyphs keep the sent row's gap under the bubble,
+            // Copy, × and Send now sit as the sent prompt's row does (Leo, relayed 2026-11-03: "Send now ×
+            // and the copy icon float loosely under the bubble. Align them to the bubble's edge"): the
+            // last control's ink (Send now's words while it waits) ends on the bubble's right edge, the glyphs keep the sent row's gap under the bubble,
             // and every icon button is the sent row's square.
             const control = gridLength("transcript-action-control");
             expect(Math.abs(before.lastGlyphRight - before.bubbleRight)).toBeLessThanOrEqual(1);
@@ -298,7 +302,7 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
       ).toHaveLength(0);
       expect(await row.locator(".cv-user__send-now").count()).toBe(1);
       expect(await row.locator(".cv-user__take-back").count()).toBe(1);
-      expect(await row.locator(".cv-user__time, .cv-user__read, .cv-user__dot, .cv-message-retry").count()).toBe(0);
+      expect(await row.locator(".cv-user__time, .cv-user__read, .cv-user__dot").count()).toBe(0);
     } finally {
       await page.context().close();
     }
@@ -310,7 +314,7 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
       await capture(page, "unread");
       expect(await row.locator(".cv-user__send-now").count()).toBe(1);
       expect(await row.locator(".cv-user__take-back").count()).toBe(1);
-      expect(await row.locator(".cv-user__read, .cv-user__dot, .cv-user__time, .cv-message-retry").count()).toBe(0);
+      expect(await row.locator(".cv-user__read, .cv-user__dot, .cv-user__time").count()).toBe(0);
       expect(await row.getByRole("button", { name: "Copy", exact: true }).count()).toBe(1);
       const before = await row.evaluate((element) => {
         const bubble = element.querySelector(".cv-user__bubble")!.getBoundingClientRect();
@@ -362,6 +366,58 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
       await page.getByText("Using the cache directory.", { exact: true }).waitFor();
       expect(await row.locator(".cv-user__pending").count()).toBe(0);
       await capture(page, "read");
+    } finally {
+      await page.context().close();
+    }
+  });
+  // Claude desktop's queued row (Leo, 2026-11-03: "the copy is always showing for no reason... plus
+  // the order is wrong"): at rest only Send now; on hover Copy, Retry, Fork and × come first, in the
+  // sent row's order, and Send now stays last without moving.
+  test("a waiting steer shows only Send now at rest and Copy, Retry, × then Send now on hover", async () => {
+    const page = await open();
+    try {
+      const row = footer(page);
+      const read = () =>
+        row.evaluate((element) => {
+          const hover = element.querySelector(".cv-user__queued-hover")!;
+          const send = element.querySelector(".cv-user__send-now")!;
+          const controls = [...element.querySelectorAll(".cv-user__pending button")].map((button) =>
+            button.classList.contains("cv-user__send-now")
+              ? "Send now"
+              : button.classList.contains("cv-user__take-back")
+                ? "×"
+                : (button.getAttribute("aria-label") ?? ""),
+          );
+          return {
+            controls,
+            hoverOpacity: getComputedStyle(hover).opacity,
+            sendOpacity: getComputedStyle(element.querySelector(".cv-user__actions")!).opacity,
+            sendRight: send.getBoundingClientRect().right,
+          };
+        });
+      await page.mouse.move(0, 0);
+      await page.waitForFunction(
+        () => getComputedStyle(document.querySelector(".cv-user__queued-hover")!).opacity === "0",
+      );
+      const rest = await read();
+      expect(rest.hoverOpacity).toBe("0");
+      expect(rest.sendOpacity).toBe("1");
+      await row.locator(".cv-user__bubble").hover();
+      await page.waitForFunction(
+        () => getComputedStyle(document.querySelector(".cv-user__queued-hover")!).opacity === "1",
+      );
+      const hovered = await read();
+      expect(hovered.controls[0]).toBe("Copy");
+      expect(hovered.controls.at(-1)).toBe("Send now");
+      expect(hovered.controls.at(-2)).toBe("×");
+      expect(hovered.controls.indexOf("Copy")).toBeLessThan(hovered.controls.indexOf("×"));
+      expect(Math.abs(hovered.sendRight - rest.sendRight)).toBeLessThanOrEqual(0.5);
+      // Retry is shown but held while the steer waits: a resend would reach the agent twice
+      // (cmux#34613), and it has no model menu in this row (cmux#34614).
+      const retry = row.locator(".cv-user__pending").getByRole("button", { name: "Retry", exact: true });
+      expect(await retry.count()).toBe(1);
+      expect(await retry.isDisabled()).toBe(true);
+      expect(await row.locator(".cv-user__pending .cv-turn-retry-menu").count()).toBe(0);
     } finally {
       await page.context().close();
     }

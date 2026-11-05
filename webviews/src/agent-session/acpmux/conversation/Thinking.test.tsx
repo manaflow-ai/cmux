@@ -1,6 +1,6 @@
 // l10n-allow-file: the status copy is supplied by the pane's string table.
-// The first streamed answer token replaces the live line in the same frame. The line must hide
-// before that frame paints, or "Thinking" flashes underneath the answer for one frame.
+// The first streamed answer token turns the live line to "Writing" in the same frame, before that
+// frame paints, so "Thinking" never flashes under the answer. The line never hides mid-turn.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -8,6 +8,9 @@ import { JSDOM } from "jsdom";
 import type { AcpmuxRow } from "../model";
 import { Thinking } from "./Thinking";
 import { WorkingFor } from "./WorkingFor";
+import { StatusVerbContext } from "../statusVerbs";
+import { WaitingOnContext } from "./waitingOn";
+import { setChatDisplay } from "../chatDisplay";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -34,6 +37,7 @@ beforeEach(() => {
 
 afterEach(() => {
   act(() => root?.unmount());
+  setChatDisplay({});
   root = undefined;
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
@@ -44,12 +48,17 @@ afterEach(() => {
   dom = undefined;
 });
 
-test("hides the live line before the first streamed answer token paints", () => {
-  act(() => root!.render(<Thinking quietKey={undefined} />));
+test("the live line stays shown and reads Writing from the first streamed answer token", () => {
+  act(() => root!.render(<Thinking quietKey={undefined} liveState="writing" />));
   expect(container.querySelector(".cv-worked")?.classList.contains("is-quiet")).toBe(false);
+  expect(container.querySelector(".cv-worked")?.textContent).toContain("Thinking");
 
-  act(() => root!.render(<Thinking quietKey="assistant:1" />));
-  expect(container.querySelector(".cv-worked")?.classList.contains("is-quiet")).toBe(true);
+  act(() => root!.render(<Thinking quietKey="assistant:1" liveState="writing" />));
+  expect(container.querySelector(".cv-worked")?.classList.contains("is-quiet")).toBe(false);
+  expect(container.querySelector(".cv-worked")?.textContent).toContain("Writing");
+
+  act(() => root!.render(<Thinking quietKey="assistant:2" liveState="writing" />));
+  expect(container.querySelector(".cv-worked")?.classList.contains("is-quiet")).toBe(false);
 });
 
 test("a send in flight names who it goes to, on either live line", () => {
@@ -69,4 +78,78 @@ test("a send in flight names who it goes to, on either live line", () => {
   expect(container.querySelector(".cv-worked")?.textContent).toContain("Sending message to coord");
   expect(container.textContent).not.toContain("acpmux send");
   expect(container.querySelector(".cv-worked__glyph")).toBeNull();
+});
+
+test("the live line uses a configured rotating verb", () => {
+  act(() =>
+    root!.render(
+      <StatusVerbContext.Provider value={{ mode: "custom", verbs: ["Planning", "Reading"] }}>
+        <Thinking since={0} now={() => 2_400} />
+      </StatusVerbContext.Provider>,
+    ),
+  );
+  const status = container.querySelector(".cv-thinking")!;
+  expect(status.textContent).toContain("Reading");
+  // Rotating copy is decorative: the implicit output live region keeps one stable accessible name
+  // and never announces every cadence tick. Typed states below keep their factual output.
+  expect(status.getAttribute("aria-label")).toBe("Thinking");
+  expect(status.getAttribute("aria-live")).toBe("off");
+});
+
+test("thinking-only configuration keeps the traditional label", () => {
+  act(() =>
+    root!.render(
+      <StatusVerbContext.Provider value={{ mode: "thinking", verbs: ["Thinking"] }}>
+        <Thinking since={0} now={() => 60_000} />
+      </StatusVerbContext.Provider>,
+    ),
+  );
+  expect(container.querySelector(".cv-thinking")?.textContent).toContain("Thinking");
+  expect(container.querySelector(".cv-thinking")?.textContent).not.toContain("Planning");
+});
+
+test("a typed wait keeps precedence over rotating verbs", () => {
+  act(() =>
+    root!.render(
+      <StatusVerbContext.Provider value={{ mode: "custom", verbs: ["Planning"] }}>
+        <WaitingOnContext.Provider value="permission">
+          <Thinking since={0} now={() => 60_000} />
+        </WaitingOnContext.Provider>
+      </StatusVerbContext.Provider>,
+    ),
+  );
+  expect(container.querySelector("[data-waiting=permission]")).not.toBeNull();
+  expect(container.textContent).not.toContain("Planning");
+});
+
+test("saved display settings update an already mounted live line", () => {
+  act(() => {
+    setChatDisplay({ "agentPane.display.statusVerbs.mode": "rotate" });
+    root!.render(<Thinking since={0} now={() => 2_400} />);
+  });
+  expect(container.querySelector(".cv-thinking")?.textContent).toContain("Thinking");
+  act(() => setChatDisplay({ "agentPane.display.statusVerbs.mode": "thinking" }));
+  expect(container.querySelector(".cv-thinking")?.textContent).toContain("Thinking");
+  act(() =>
+    setChatDisplay({
+      "agentPane.display.statusVerbs.mode": "custom",
+      "agentPane.display.statusVerbs.custom": "Planning, Reading",
+    }),
+  );
+  expect(container.querySelector(".cv-thinking")?.textContent).toContain("Reading");
+});
+
+test("unreachable and subagent states remain factual with custom verbs", () => {
+  act(() =>
+    setChatDisplay({
+      "agentPane.display.statusVerbs.mode": "custom",
+      "agentPane.display.statusVerbs.custom": "Imagining",
+    }),
+  );
+  act(() => root!.render(<Thinking retry={{ attempt: 2, maxRetries: 5, errorStatus: 503 }} />));
+  expect(container.querySelector("[data-retrying]")).not.toBeNull();
+  expect(container.textContent).not.toContain("Imagining");
+  act(() => root!.render(<Thinking liveState="subagents" liveAgents={2} />));
+  expect(container.textContent).toContain("Waiting on 2 subagents");
+  expect(container.textContent).not.toContain("Imagining");
 });

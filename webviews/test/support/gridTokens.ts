@@ -11,3 +11,14 @@ export function gridTokenCss(): string {
   if (start < 0 || end < start) throw new Error("pages/shared/desktop.css has no layout-grid block");
   return css.slice(start, end);
 }
+
+/** Every top-level `:root { ... }` token block of pages/shared/desktop.css (the `--ds-*`, `--grid-*`,
+ *  type and motion tokens), without its element rules, for a browser test that injects a surface's
+ *  sheet (New Tab's screen.css, say) on a bare page: without it the tokenised gaps and insets resolve
+ *  to nothing (#33751). */
+export function designTokenCss(): string {
+  const css = readFileSync(path.resolve(import.meta.dir, "../../src/pages/shared/desktop.css"), "utf8");
+  const blocks = css.match(/^:root \{[\s\S]*?^\}/gm) ?? [];
+  if (blocks.length === 0) throw new Error("pages/shared/desktop.css has no :root token blocks");
+  return blocks.join("\n");
+}

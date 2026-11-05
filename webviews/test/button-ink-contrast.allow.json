@@ -1,0 +1,3 @@
+{
+  "//": "Rules exempt from test/button-ink-contrast.test.ts, as \"<file under webviews/src> <selector>\": \"<why its text still reads>\". Prefer fixing the ink."
+}

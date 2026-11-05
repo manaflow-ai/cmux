@@ -257,20 +257,6 @@ public final class LayoutRootView: NSView {
         return view.navigationFrames
     }
 
-    /// The split ratios and column widths `pane`'s screen can show (``ShownResizeRange``), from the geometry its springs
-    /// head for; nil for a screen not sized yet. A keyboard resize steps inside them (RESIZE KEYS K1).
-    public func shownResizeRange(ofScreenContaining pane: PaneID) -> ShownResizeRange? {
-        guard let screen = model.screen(containing: pane), let view = screenViews[screen.id], view.bounds.width > 0 else { return nil }
-        return ShownResizeRange(geometry: view.baseGeometry, style: context.style, scale: view.reconciledScale ?? view.scale)
-    }
-
-    /// A keyboard resize press (`resizePane*`) is about to move `pane`'s screen: until that spring lands, every pane of
-    /// the screen keeps its content at its size and lays it out once at the landing (RESIZE KEYS K3).
-    public func keyboardResizeWillChange(screenContaining pane: PaneID) {
-        guard let screen = model.screen(containing: pane), let view = screenViews[screen.id], !view.isHidden else { return }
-        view.holdsContentForKeyResize = true
-    }
-
     /// The width `pane`'s content rests at in the layout this view shows: its frame in the geometry its
     /// screen's springs head for (the same geometry ``navigationFrames(ofScreenContaining:)`` reads),
     /// less the pane padding. A split's or a close's panes read their final widths from the turn the
@@ -312,6 +298,26 @@ public final class LayoutRootView: NSView {
     public func syncWithModel() {
         let current = snapshot()
         if current != lastSnapshot { sync(current) }
+    }
+
+    /// Mirrors the model now for the window's next frame tick (a keyboard resize press, FRAME OWNER S1B): the springs
+    /// get their targets in this turn, so the next display frame moves, but nothing is presented, laid out, announced to
+    /// the content or synced to the overlay here. The next tick presents once (`advanceFrame`), and it is asked for.
+    /// The key's own turn stays a model change. A root that runs
+    /// no frames (parked, out of its window) syncs as ``syncWithModel()`` does. A screen the change did not put on a
+    /// spring (Reduce Motion, pane animations off: its frames snapped) presents in this turn: no tick moves it, so it
+    /// must not wait for one.
+    public func syncWithModelForNextFrame() {
+        guard isLive, driver.isAttached else { return syncWithModel() }
+        let held = context.holdsPresentations
+        context.holdsPresentations = true
+        syncWithModel()
+        context.holdsPresentations = held
+        let waiting = screenViews.values.filter(\.frameInput.presentationWaiting)
+        let snapped = waiting.filter { !$0.hasMotion }
+        for view in snapped { view.applyPresentation() }
+        if !snapped.isEmpty { flushOverlaySync() }
+        if waiting.count > snapped.count { driver.start() }
     }
 
     var canAnimate: Bool { window != nil && driver.isAttached && !context.reduceMotion }

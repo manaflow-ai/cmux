@@ -95,7 +95,7 @@ for (const minimal of [false, true])
     const { open, opened, toggle } = await line(`line-${minimal}`);
     // The name and the first line of text, as it reads, and nothing under the line.
     expect(host.querySelector(".cv-received__from")?.textContent).toBe("grid-lane");
-    expect(host.querySelector(".cv-disclosure__below")?.textContent).toBe("Rebased onto main; ready for review.");
+    expect(host.querySelector(".cv-received__preview")?.textContent).toBe("Rebased onto main; ready for review.");
     expect(host.textContent).not.toContain("Received message from");
     expect(host.querySelector(".cv-received__text")).toBeNull();
     expect(host.querySelector(".cv-disclosure__panel")).toBeNull();
@@ -122,7 +122,7 @@ for (const minimal of [false, true])
     await act(async () => toggle().click());
     expect(toggle().getAttribute("aria-expanded")).toBe("false");
     expect(host.querySelector(".cv-received__text")).toBeNull();
-    expect(host.querySelector(".cv-disclosure__below")?.textContent).toBe("Rebased onto main; ready for review.");
+    expect(host.querySelector(".cv-received__preview")?.textContent).toBe("Rebased onto main; ready for review.");
   });
 
 test("switching Minimal Mode leaves a closed message its one line", async () => {
@@ -131,7 +131,7 @@ test("switching Minimal Mode leaves a closed message its one line", async () => 
   expect(host.querySelector(".cv-received__text")).toBeNull();
   await act(async () => setChatDisplay({}));
   expect(host.querySelector(".cv-received__text")).toBeNull();
-  expect(host.querySelector(".cv-disclosure__below")?.textContent).toBe("Rebased onto main; ready for review.");
+  expect(host.querySelector(".cv-received__preview")?.textContent).toBe("Rebased onto main; ready for review.");
 });
 
 test("the reader's toggle plays the fold: the panel's height grows on open and closing fades out", async () => {

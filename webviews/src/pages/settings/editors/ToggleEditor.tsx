@@ -1,3 +1,4 @@
+import { Switch as SharedSwitch } from "../../../ui/Switch";
 import { useStore } from "../context";
 import type { EditorProps } from "./types";
 
@@ -14,17 +15,15 @@ export function Switch({
   onToggle(next: boolean): void;
 }) {
   return (
-    <button
-      type="button"
-      role="switch"
-      className="switch"
-      aria-checked={checked}
+    <SharedSwitch
+      nativeButton
+      render={<button type="button" aria-labelledby={labelId} />}
+      size="sm"
+      checked={checked}
       aria-labelledby={labelId}
       disabled={disabled}
-      onClick={() => onToggle(!checked)}
-    >
-      <span className="knob" />
-    </button>
+      onCheckedChange={onToggle}
+    />
   );
 }
 

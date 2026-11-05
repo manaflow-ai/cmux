@@ -6,7 +6,7 @@ import CoreText
 
 /// DEBUG ONLY: the agent-message header variants of the Agent Messages Playground (user 2026-11-02,
 /// msg 19588: "give me more variations of agent messages ui"; msg 19613: "i want playground in swift,
-/// not html"). Each case draws a fold, notes or note row of `HomeAgentFoldRowProvider` its own way, in
+/// not html"). Each case draws an agents row or a note of `HomeAgentFoldRowProvider` its own way, in
 /// the real transcript; ``current`` is the shipped look. The playground registers a provider with a
 /// style (`MessagesLabHomeView.debugSetAgentFoldStyle(_:)`); release builds always draw ``current``.
 /// Titles and captions are DEV-only English.
@@ -15,7 +15,9 @@ public enum HomeAgentFoldStyle: Int, CaseIterable, Sendable {
          hookUnder, capsuleButton, countBadge, senderLabel, divider, twoLine, progressBar, monoLog,
          // Spacing variants of the shipped line (user 2026-11-02, msg 19733): HomeAgentFoldSpacing.
          tight, airy, hugAbove, textAligned, deepIndent, wideChevronGap, snugChevron, roomyChips, compactChips,
-         namesNoChips, smallCaption, minimal, airyAligned, balanced
+         namesNoChips, smallCaption, minimal, airyAligned, balanced,
+         // ChatGPT-style agent pills (user 2026-11-03, msg 19960): HomeAgentPills.
+         pills, pillsTwoLine, pillChips
 
     /// A short name for the playground's picker.
     public var title: String {
@@ -50,13 +52,16 @@ public enum HomeAgentFoldStyle: Int, CaseIterable, Sendable {
         case .minimal: "Spacing: minimal (tight, aligned, no chips)"
         case .airyAligned: "Spacing: airy and aligned"
         case .balanced: "Spacing: balanced (6 above, 4 below, aligned)"
+        case .pills: "Pills: one per agent (ChatGPT)"
+        case .pillsTwoLine: "Pills: two lines with status"
+        case .pillChips: "Pills: compact chips in a row"
         }
     }
 
     /// What the variant does, one sentence, for the playground's caption.
     public var caption: String {
         switch self {
-        case .current: "The shipped line: chevron, muted label, the agents as gray chips."
+        case .current: "The shipped look: one pill per agent (an agents row); a note keeps the caption line."
         case .avatarStack: "Overlapping agent avatars (initials on a color from the agent's id), then the label."
         case .centeredCaption: "Centered like iMessage's \"Today 5:13 PM\": bold label, then the agents, no chevron."
         case .statusDots: "Each agent with a dot for its state: blue told, green reported, red stopped."
@@ -86,6 +91,9 @@ public enum HomeAgentFoldStyle: Int, CaseIterable, Sendable {
         case .minimal: "16 pt row, aligned with the bubble text, 11 pt type, the agents as text."
         case .airyAligned: "8 pt above and below, aligned with the bubble text, roomy chips."
         case .balanced: "6 pt above, 4 pt below, aligned with the bubble text, 11 pt label, compact chips."
+        case .pills: "A pill per agent: status icon, task title, a blue dot for an unread report, ›. Click one to open its chat."
+        case .pillsTwoLine: "Taller pills with a second line: Working, Reported or Stopped, and the agent's id."
+        case .pillChips: "Small pills side by side in one row (the ones that do not fit are left out)."
         }
     }
 
@@ -119,9 +127,24 @@ public enum HomeAgentFoldStyle: Int, CaseIterable, Sendable {
         return s
     }
 
+    /// True for the pill styles (one pill per agent; a click on a pill opens that agent).
+    public var isPill: Bool { pillShape != nil }
+
+    /// The pill shape of a pill style; nil for the other styles.
+    var pillShape: HomeAgentPills.Shape? {
+        switch self {
+        case .pills: .pill
+        case .pillsTwoLine: .twoLine
+        case .pillChips: .chip
+        default: nil
+        }
+    }
+
     /// The row's height in this style.
     func height(_ p: HomeAgentFoldRowProvider.Payload) -> CGFloat {
         if let spacing { return spacing.height }
+        if let pillShape, p.role != "note" { return HomeAgentPills(p, shape: pillShape, width: .greatestFiniteMagnitude).height }
+        if self == .current, HomeAgentFoldRowProvider.drawsPills(p) { return HomeAgentPills(p, shape: .pill, width: .greatestFiniteMagnitude).height }
         guard p.role != "note" else { return HomeAgentFoldRowProvider.height }
         switch self {
         case .twoLine: return p.open || p.latest == nil ? HomeAgentFoldRowProvider.height : 38
@@ -134,6 +157,7 @@ public enum HomeAgentFoldStyle: Int, CaseIterable, Sendable {
     /// Draws `p` in `rect` (the row; top-left origin, y down).
     func draw(_ p: HomeAgentFoldRowProvider.Payload, in ctx: CGContext, rect: CGRect) {
         if let spacing { spacing.draw(p, in: ctx, rect: rect); return }
+        if let pillShape, p.role != "note" { HomeAgentPills(p, shape: pillShape, width: rect.width).draw(ctx, origin: rect.origin); return }
         let mid = rect.minY + height(p) / 2
         let x0 = rect.minX
         if p.role == "note" { drawNote(p, ctx, x0: x0, mid: mid, width: rect.width); return }
@@ -142,7 +166,11 @@ public enum HomeAgentFoldStyle: Int, CaseIterable, Sendable {
         let peersText = HomeAgentMessageRow.peerPreview(p.peers, separator: ", ")
         switch self {
         case .current:
-            HomeAgentFoldLine(p, width: rect.width).draw(ctx, at: rect.origin)
+            if HomeAgentFoldRowProvider.drawsPills(p) {
+                HomeAgentPills(p, shape: .pill, width: rect.width).draw(ctx, origin: rect.origin)
+            } else {
+                HomeAgentFoldLine(p, width: rect.width).draw(ctx, at: rect.origin)
+            }
         case .avatarStack:
             var x = x0 + 10
             if !p.open {

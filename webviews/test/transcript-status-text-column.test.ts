@@ -1,15 +1,16 @@
-// Every status row's words start on one column, and a session's name reads as the row's words.
+// Every iconed status row's words start on one column, the live line's words start on the icon
+// column, and a session's name reads as the row's words.
 //
-// Leo, 2026-11-03, on a running turn's bottom rows ("Subagent finished: [Push stranded lane ref] ›",
-// "Writing a command 5m 16s · ↓ 7.5K out", "🤖 1 message from 1 session"): "weird indenting /cut off
-// text?". The live line had no icon and started its words on the icon column, 24px left of every
-// other row's words. design/chat-transcript.md "One icon column": the live activity line reserves
-// the shared empty icon slot.
+// Leo, 2026-11-03 22:27Z, on "Thinking · 1m 23s total" set on the text column under "Sent a message,
+// finished 3 background tasks": "the indent looks bad". The live line has no icon slot: its words
+// start where the rows' icons do, as the shimmer stands in the Claude and ChatGPT apps (earlier that
+// day it took the text column, #33157, after "weird indenting /cut off text?").
 //
 // Measured in Chromium on gallery entry agent-pane.transcript-spacing-table (Leo's captures,
 // variants working-bottom and reply-received):
 // - the first glyph of every status row with an icon (a tool run, a finished subagent, a received
-//   line, the waiting messages' head) and of the live line ("Thinking") share one x;
+//   line, the waiting messages' head) shares one x, and the live line's ("Thinking") is the x of
+//   those rows' icon slots;
 // - a session's name (the waiting head's senders, a session chip) takes no tabular figures, so it
 //   is set as the row's words are.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -51,7 +52,7 @@ await requireBrowserLane("transcript-status-text-column.test.ts", async () => {
   });
 
   type Measured = {
-    rows: { kind: string; text: string; x: number }[];
+    rows: { kind: string; text: string; x: number; icon?: number }[];
     names: { text: string; numeric: string }[];
   };
 
@@ -86,7 +87,13 @@ await requireBrowserLane("transcript-status-text-column.test.ts", async () => {
           if (!live && !row.querySelector(":scope .cv-tool__icon, :scope .cv-received__mark")) continue;
           if (row.matches(".acpmux-user:not(.acpmux-row--line), .acpmux-turnSummary")) continue;
           const words = firstWords(row);
-          if (words) rows.push({ kind: live ? "live" : (row.className.split(" ")[1] ?? ""), ...words });
+          const icon = row.querySelector(":scope .cv-tool__icon, :scope .cv-received__mark")?.getBoundingClientRect();
+          if (words)
+            rows.push({
+              kind: live ? "live" : (row.className.split(" ")[1] ?? ""),
+              ...words,
+              ...(icon && icon.width > 0 ? { icon: icon.left } : {}),
+            });
         }
         const names = [...document.querySelectorAll(".acpmux-row :is(.cv-message-group__senders, .cv-agent-tag)")].map(
           (name) => ({
@@ -102,15 +109,16 @@ await requireBrowserLane("transcript-status-text-column.test.ts", async () => {
   };
 
   for (const variant of VARIANTS) {
-    test(`${variant}: the live line's words start on the icon rows' text column`, async () => {
+    test(`${variant}: the iconed rows' words share one column, the live line's start on the icon column`, async () => {
       const { rows } = await measure(variant);
       const live = rows.filter((row) => row.kind === "live");
       const iconed = rows.filter((row) => row.kind !== "live");
       expect(live.length).toBeGreaterThan(0);
       expect(iconed.length).toBeGreaterThan(0);
       const column = iconed[0]!.x;
-      const off = rows.filter((row) => Math.abs(row.x - column) > TOLERANCE);
-      expect(off).toEqual([]);
+      expect(iconed.filter((row) => Math.abs(row.x - column) > TOLERANCE)).toEqual([]);
+      const iconColumn = iconed.find((row) => row.icon !== undefined)!.icon!;
+      expect(live.filter((row) => Math.abs(row.x - iconColumn) > TOLERANCE)).toEqual([]);
     });
     test(`${variant}: a session's name takes no tabular figures`, async () => {
       const { names } = await measure(variant);

@@ -237,7 +237,7 @@ async fn a_socket_that_is_not_a_remote_entry_never_gets_the_peer_stream() {
 }
 
 /// RED (security): the link entry's gate admits exactly the seven `fs-v1`
-/// ops and the two `git-seed-v1` ops; every other frame (identify, admin
+/// ops, the two `fs-symlink-v1` ops and the two `git-seed-v1` ops; every other frame (identify, admin
 /// commands, unknown fs or seed ops) is denied before anything parses it.
 #[test]
 fn the_link_entry_gate_admits_only_the_fs_ops() {
@@ -247,12 +247,17 @@ fn the_link_entry_gate_admits_only_the_fs_ops() {
         user: "42".into(),
         team: "team_a".into(),
     };
-    for cmd in cmux_tui_core::fs_ops::FS_COMMANDS {
+    let fs_ops = cmux_tui_core::fs_ops::FS_COMMANDS;
+    for cmd in fs_ops.iter().chain(&cmux_tui_core::fs_ops::FS_SYMLINK_COMMANDS) {
         let frame = serde_json::json!({ "id": 1, "cmd": cmd, "path": "/home/cmux" }).to_string();
         assert!(gate.admit(&peer, &frame), "{cmd}");
     }
     for cmd in cmux_tui_core::git_seed::GIT_SEED_COMMANDS {
         let frame = serde_json::json!({ "id": 1, "cmd": cmd, "job": "seed_1" }).to_string();
+        assert!(gate.admit(&peer, &frame), "{cmd}");
+    }
+    for cmd in cmux_tui_core::blob_fetch::BLOB_FETCH_COMMANDS {
+        let frame = serde_json::json!({ "id": 1, "cmd": cmd, "job": "fetch_1" }).to_string();
         assert!(gate.admit(&peer, &frame), "{cmd}");
     }
     for frame in [

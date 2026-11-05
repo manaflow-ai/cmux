@@ -142,7 +142,14 @@ test("an earlier turn without a summary draws as it came, its text in place (no 
     row("end-2", "turnSummary", { status: "completed", durationMs: 1_000 }),
   ];
   const shaped = drawn(rows);
-  expect(shaped.slice(0, shaped.indexOf("user:u2"))).toEqual(["user:u1", "assistant:interim", "activity:read"]);
+  // Nothing folds; the next prompt ended the turn, so it ends on its copy row (turns.ts
+  // supersededFooters, #34939).
+  expect(shaped.slice(0, shaped.indexOf("user:u2"))).toEqual([
+    "user:u1",
+    "assistant:interim",
+    "activity:read",
+    "turnSummary:superseded-read",
+  ]);
 });
 
 test("expanding the fold of a turn that ended on a tool shows the interim text and tools in order", () => {

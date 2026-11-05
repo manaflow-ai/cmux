@@ -63,6 +63,7 @@ export function Toolbar({
         activeSessionSource={activeSessionSource}
         hideWhitespace={state.options.hideWhitespace}
         items={state.items}
+        loading={state.items.length === 0 && (state.status.loading || state.status.pending)}
         label={label}
         onNavigate={onNavigate}
         onSelectSessionSource={onSelectSessionSource}
@@ -293,6 +294,7 @@ function SourceControls({
   hideWhitespace,
   items,
   label,
+  loading,
   onNavigate,
   onSelectSessionSource,
   payload,
@@ -305,6 +307,8 @@ function SourceControls({
   hideWhitespace: boolean;
   items: DiffItem[];
   label: DiffViewerLabelResolver;
+  /** No item has arrived yet: the source pill's counts are not known. */
+  loading: boolean;
   onNavigate: (url: string) => void;
   onSelectSessionSource: SelectSessionSource;
   payload: any;
@@ -336,8 +340,8 @@ function SourceControls({
     <div className="toolbar-left flex min-w-0 items-center gap-1.5">
       {showSourceMenu ? (
         <SourceMenu
-          additions={totals.additions}
-          deletions={totals.deletions}
+          additions={loading ? null : totals.additions}
+          deletions={loading ? null : totals.deletions}
           label={label}
           model={sourceModel}
           onSelect={selectSource}

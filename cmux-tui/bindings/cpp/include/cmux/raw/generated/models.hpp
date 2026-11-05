@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "bba25ef6c17ba6206fa161713567d0d998a15d4a2e1103681b3c5badc91feb87";
+inline constexpr std::string_view kProtocolIrSha256 = "4633d08bededb0f16f8bbc5de5cbbeb5f06e9d44a544162fa5efc76c6e47e3f7";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -107,6 +107,9 @@ struct JsonValue;
 struct KittyGraphicsState;
 struct KittyImageAlias;
 struct Layout;
+struct LayoutSizePaneWidth;
+struct LayoutSizeSplitRatio;
+struct LayoutSizeValue;
 struct LayoutUndoConfirmationRequired;
 struct LayoutUndoResult;
 struct LayoutUndoUndone;
@@ -139,6 +142,7 @@ struct ProviderWorkspaceMutationResult;
 struct ReadScreenResult;
 struct ReadScrollbackResult;
 struct ReattachViewResult;
+struct RemoteHostAppResult;
 struct RenderCursor;
 enum class RenderGraphicFormat;
 struct RenderGraphicImage;
@@ -484,6 +488,10 @@ struct ReleaseAttachedViewSizeRequest;
 struct ReleaseSurfaceSizeRequest;
 struct ReloadConfigRequest;
 struct ReloadConfigResult;
+struct RemoteHostAppRequest;
+struct RemoteHostCallRequest;
+struct RemoteHostConfigRequest;
+struct RemoteHostStatusRequest;
 struct RemoteTerminalSnapshotRequest;
 struct RemoveScreensFromScreenGroupRequest;
 struct RemoveTabsFromTabGroupRequest;
@@ -522,6 +530,7 @@ struct SetColumnDockRequest;
 struct SetDefaultColorsRequest;
 struct SetFrontendBrowserHistoryRequest;
 struct SetHostSizePolicyRequest;
+struct SetLayoutSizesRequest;
 struct SetPersonalTerminalRequest;
 struct SetPersonalWorkspaceRequest;
 struct SetProfileFollowsRequest;
@@ -3440,6 +3449,24 @@ struct LayoutChangedEvent {
     friend bool operator==(const LayoutChangedEvent&, const LayoutChangedEvent&) = default;
 };
 
+struct LayoutSizePaneWidth {
+    Id pane{};
+    float width{};
+    friend bool operator==(const LayoutSizePaneWidth&, const LayoutSizePaneWidth&) = default;
+};
+
+struct LayoutSizeSplitRatio {
+    float ratio{};
+    Id split{};
+    friend bool operator==(const LayoutSizeSplitRatio&, const LayoutSizeSplitRatio&) = default;
+};
+
+struct LayoutSizeValue {
+    using Variant = std::variant<LayoutSizeSplitRatio, LayoutSizePaneWidth>;
+    Variant value{};
+    friend bool operator==(const LayoutSizeValue&, const LayoutSizeValue&) = default;
+};
+
 struct LayoutUndoConfirmationRequired {
     std::vector<Id> closes_panes{};
     std::uint64_t revision{};
@@ -4489,6 +4516,34 @@ struct ReloadConfigResult {
     friend bool operator==(const ReloadConfigResult&, const ReloadConfigResult&) = default;
 };
 
+struct RemoteHostAppRequest {
+    friend bool operator==(const RemoteHostAppRequest&, const RemoteHostAppRequest&) = default;
+};
+
+struct RemoteHostAppResult {
+    std::uint32_t host_pid{};
+    std::string secret{};
+    std::string socket{};
+    friend bool operator==(const RemoteHostAppResult&, const RemoteHostAppResult&) = default;
+};
+
+struct RemoteHostCallRequest {
+    std::string method{};
+    Field<JsonValue> params{};
+    friend bool operator==(const RemoteHostCallRequest&, const RemoteHostCallRequest&) = default;
+};
+
+struct RemoteHostConfigRequest {
+    Field<bool> computer_use{};
+    Field<bool> headless{};
+    Field<bool> screen_sharing{};
+    friend bool operator==(const RemoteHostConfigRequest&, const RemoteHostConfigRequest&) = default;
+};
+
+struct RemoteHostStatusRequest {
+    friend bool operator==(const RemoteHostStatusRequest&, const RemoteHostStatusRequest&) = default;
+};
+
 struct RemoteTerminalSnapshotRequest {
     Id surface{};
     friend bool operator==(const RemoteTerminalSnapshotRequest&, const RemoteTerminalSnapshotRequest&) = default;
@@ -5074,7 +5129,10 @@ struct ServerStatsWritePath {
     std::uint64_t effect_intent_batches{};
     std::uint64_t effect_intent_failures{};
     std::uint64_t effect_intents{};
+    std::optional<std::uint64_t> registry_wal_frame_bytes{};
     std::uint64_t request_effect_commits{};
+    std::optional<std::uint64_t> wal_commits{};
+    std::optional<std::uint64_t> wal_synced_commits{};
     std::uint64_t writer_registry_locks{};
     friend bool operator==(const ServerStatsWritePath&, const ServerStatsWritePath&) = default;
 };
@@ -5178,6 +5236,12 @@ struct SetHostSizePolicyRequest {
 struct SetHostSizePolicyResult {
     HostSizePolicy policy{};
     friend bool operator==(const SetHostSizePolicyResult&, const SetHostSizePolicyResult&) = default;
+};
+
+struct SetLayoutSizesRequest {
+    std::uint64_t transaction{};
+    std::vector<LayoutSizeValue> values{};
+    friend bool operator==(const SetLayoutSizesRequest&, const SetLayoutSizesRequest&) = default;
 };
 
 struct SetPersonalTerminalRequest {
@@ -6720,6 +6784,24 @@ struct Codec<Layout> {
 };
 
 template <>
+struct Codec<LayoutSizePaneWidth> {
+    static Result<Json> encode(const LayoutSizePaneWidth& value);
+    static Result<LayoutSizePaneWidth> decode(const Json& value);
+};
+
+template <>
+struct Codec<LayoutSizeSplitRatio> {
+    static Result<Json> encode(const LayoutSizeSplitRatio& value);
+    static Result<LayoutSizeSplitRatio> decode(const Json& value);
+};
+
+template <>
+struct Codec<LayoutSizeValue> {
+    static Result<Json> encode(const LayoutSizeValue& value);
+    static Result<LayoutSizeValue> decode(const Json& value);
+};
+
+template <>
 struct Codec<LayoutUndoConfirmationRequired> {
     static Result<Json> encode(const LayoutUndoConfirmationRequired& value);
     static Result<LayoutUndoConfirmationRequired> decode(const Json& value);
@@ -6909,6 +6991,12 @@ template <>
 struct Codec<ReattachViewResult> {
     static Result<Json> encode(const ReattachViewResult& value);
     static Result<ReattachViewResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<RemoteHostAppResult> {
+    static Result<Json> encode(const RemoteHostAppResult& value);
+    static Result<RemoteHostAppResult> decode(const Json& value);
 };
 
 template <>
@@ -8982,6 +9070,30 @@ struct Codec<ReloadConfigResult> {
 };
 
 template <>
+struct Codec<RemoteHostAppRequest> {
+    static Result<Json> encode(const RemoteHostAppRequest& value);
+    static Result<RemoteHostAppRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<RemoteHostCallRequest> {
+    static Result<Json> encode(const RemoteHostCallRequest& value);
+    static Result<RemoteHostCallRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<RemoteHostConfigRequest> {
+    static Result<Json> encode(const RemoteHostConfigRequest& value);
+    static Result<RemoteHostConfigRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<RemoteHostStatusRequest> {
+    static Result<Json> encode(const RemoteHostStatusRequest& value);
+    static Result<RemoteHostStatusRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<RemoteTerminalSnapshotRequest> {
     static Result<Json> encode(const RemoteTerminalSnapshotRequest& value);
     static Result<RemoteTerminalSnapshotRequest> decode(const Json& value);
@@ -9207,6 +9319,12 @@ template <>
 struct Codec<SetHostSizePolicyRequest> {
     static Result<Json> encode(const SetHostSizePolicyRequest& value);
     static Result<SetHostSizePolicyRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetLayoutSizesRequest> {
+    static Result<Json> encode(const SetLayoutSizesRequest& value);
+    static Result<SetLayoutSizesRequest> decode(const Json& value);
 };
 
 template <>

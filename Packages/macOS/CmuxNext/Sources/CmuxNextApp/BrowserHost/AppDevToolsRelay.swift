@@ -43,7 +43,7 @@ final class AppDevToolsRelay: ProviderDevToolsRelay {
     private func keepRendering(_ targetID: String) {
         guard let services, let renderWindows, let entry = services.cache.existingBrowser(targetID),
               let page = entry.tab as? CEFTab, page.agentRelay.needsRenderWindow else { return }
-        _ = renderWindows.keepRendering(tabID: targetID, chrome: entry.chrome, webView: nil)
+        _ = renderWindows.keepRendering(tabID: targetID, chrome: entry.chrome ?? entry.tab.contentView, webView: nil)
     }
 
     /// The tab's live Chromium page once it is agent-driven, starting it

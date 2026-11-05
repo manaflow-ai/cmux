@@ -3,7 +3,7 @@
  * Machine join end to end on the DEVELOPMENT platform, for .github/workflows/machine-join-e2e.yml.
  *
  *   bun scripts/cmux-next/machine-join-e2e.ts --origin https://cmux-platform-development.debussy.workers.dev \
- *     --acpmux PATH --user USER --home DIR --name NAME --evidence FILE --run ID --sha SHA
+ *     --acpmux PATH --user USER --home DIR --name NAME --evidence FILE --run ID --sha SHA [--bench SCRIPT]
  *
  * The stack account comes only from this process's environment (CMUX_UITEST_STACK_EMAIL and
  * CMUX_UITEST_STACK_PASSWORD, which the workflow maps from the repo's dev stack secrets). This
@@ -31,6 +31,31 @@ const DEV_STACK_PROJECT = "454ecd03-1db2-4050-845e-4ce5b0cd9895"
 const DEV_STACK_CLIENT_KEY = "pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g"
 const USER_AGENT = "cmux-machine-join-e2e/1"
 export const HEARTBEAT_LIMIT_S = 90
+/** The bench's whole run: a cold and two warm installs of each project. */
+export const BENCH_LIMIT_MS = 40 * 60_000
+
+/** The last line of `stdout` that is a JSON object, keeping only numbers, booleans and plain strings. */
+export function benchResult(stdout: string): Record<string, unknown> | null {
+  for (const line of stdout.split("\n").reverse()) {
+    let v: unknown
+    try {
+      v = JSON.parse(line)
+    } catch {
+      continue
+    }
+    if (!v || typeof v !== "object" || Array.isArray(v)) continue
+    const out: Record<string, unknown> = {}
+    for (const [k, x] of Object.entries(v)) {
+      if (!/^[A-Za-z0-9_.-]{1,64}$/.test(k)) continue
+      if (typeof x === "number" || typeof x === "boolean") out[k] = x
+      else if (typeof x === "string" && /^[A-Za-z0-9 _.:/-]{0,128}$/.test(x)) out[k] = x
+    }
+    return out
+  }
+  return null
+}
+/** A CI machine older than this is an interrupted run's: longer than any run lives (12 min, plus the bench). */
+export const STALE_MS = 12 * 60_000 + BENCH_LIMIT_MS + 13 * 60_000
 /** After a cancel: the whole cleanup's deadline, and the part of it kept for the revoke request. */
 export const CANCEL_BUDGET_MS = 7_500
 export const REVOKE_RESERVE_MS = 2_500
@@ -57,6 +82,8 @@ export interface Options {
   evidence: string
   runId: string
   sha: string
+  /** A root-owned script run as the disposable user while the machine is joined (before the revoke), or "". */
+  bench?: string
 }
 
 export interface ChildResult {
@@ -114,6 +141,8 @@ export interface Evidence {
     evidence: { cmj: number; cmm: number }
   }
   revoke: { revokedListed: boolean | null; statusRevoked: boolean | null }
+  /** With --bench: its exit code and the last JSON object it printed (numbers and plain strings only). */
+  bench?: { code: number | null; result: Record<string, unknown> | null }
   result: "pass" | "fail"
   reason: string
 }
@@ -130,6 +159,7 @@ export function refusal(opts: Options): string | undefined {
   if (!opts.home.startsWith("/") || opts.home.includes("..")) return "home must be an absolute path"
   if (!opts.acpmux.startsWith("/")) return "acpmux must be an absolute path"
   if (!opts.evidence.startsWith("/")) return "evidence must be an absolute path"
+  if (opts.bench && (!opts.bench.startsWith("/") || opts.bench.includes(".."))) return "bench must be an absolute path"
   return undefined
 }
 
@@ -406,6 +436,13 @@ export async function runE2E(
     access = { token: tok.json.access_token, expiresAt: Number(tok.json.expires_at) || deps.now() + 300_000 }
     return access.token
   }
+  /** A fresh stack access token from the session's refresh token (kept on any failure). */
+  const refreshStack = async () => {
+    if (!stack?.refresh) return
+    const r = await call(`${STACK_API}/auth/sessions/current/refresh`, { method: "POST", headers: { ...stackHeaders(), "x-stack-refresh-token": stack.refresh } })
+    if (typeof r.json?.access_token === "string") hold(r.json.access_token)
+    if (r.status === 200 && typeof r.json?.access_token === "string") stack.access = r.json.access_token
+  }
   const platform = async (method: string, path: string, body?: unknown) =>
     call(`${opts.origin}${path}`, { method, headers: { authorization: `Bearer ${await accessToken()}` }, ...(body === undefined ? {} : { body }) })
   const listEntry = async () => {
@@ -431,7 +468,7 @@ export async function runE2E(
   }
 
   // Self-healing for a run that was killed before its revoke (a runner lost, SIGKILL): revoke this
-  // account's own CI machines (label ci-join-<digits>, minted by this user) still joined 30 minutes
+  // account's own CI machines (label ci-join-<digits>, minted by this user) still joined STALE_MS
   // after they were made. Never fails the run.
   const sweepStale = async () => {
     try {
@@ -442,7 +479,7 @@ export async function runE2E(
         const made = Date.parse(String(m?.createdAt ?? ""))
         if (m?.revoked !== false || m?.mintedBy !== user || !/^ci-join-\d+(?:-\d+)?$/.test(String(m?.label ?? ""))) continue
         const stale = safeId(m.machineId)
-        if (!Number.isFinite(made) || deps.now() - made < 30 * 60_000 || !stale) continue
+        if (!Number.isFinite(made) || deps.now() - made < STALE_MS || !stale) continue
         const done = await platform("POST", `/v1/machines/credentials/${encodeURIComponent(stale)}/revoke`)
         if (done.status >= 200 && done.status < 300) swept += 1
       }
@@ -722,6 +759,19 @@ export async function runE2E(
     evidence.credentialFileMode = now.own ? now.mode : null
     expect(evidence.credentialFileMode === "600", "credential file mode is not 600")
 
+    // 6b. The bench, as the disposable user, while the machine is joined and its daemon runs. Its output
+    // is redacted and scanned like every other child's; only its last JSON line becomes evidence.
+    if (opts.bench) {
+      live()
+      const r = await deps.run(asUserTool(["/bin/bash", opts.bench, opts.acpmux]), { env: childEnv, timeoutMs: BENCH_LIMIT_MS, signal: inFlight.signal })
+      childText.push(r.stdout, r.stderr)
+      // The stack session's access token can expire over a long bench; cleanup's install revoke needs it.
+      await refreshStack().catch(() => undefined)
+      for (const line of r.stdout.split("\n").filter((l) => l.trim()).slice(-60)) say(`  bench: ${redact(plainLine(line), secrets).slice(0, 400)}`)
+      evidence.bench = { code: r.code, result: benchResult(r.stdout) }
+      expect(r.code === 0 && evidence.bench.result !== null, `bench: exit ${r.code}`)
+    }
+
     // 7. Revoke, then status and list say revoked.
     await revokeMachine()
     const after = await status()
@@ -811,7 +861,8 @@ export function parseArgs(argv: string[]): Options {
     name: value("--name"),
     evidence: value("--evidence"),
     runId: value("--run"),
-    sha: value("--sha")
+    sha: value("--sha"),
+    bench: value("--bench")
   }
 }
 
@@ -918,7 +969,7 @@ if (import.meta.main) {
   }
   // A cancel or a step timeout (SIGINT, then SIGTERM about 7.5 s later) stops the run and revokes at
   // once; the run then writes its (failed) evidence and exits. 9 s after the first signal it exits anyway.
-  // The run's own deadline (12 minutes, under the step's 15) cancels the same way.
+  // The run's own deadline (12 minutes, under the step's 15; 40 more with --bench) cancels the same way.
   let cancelNow: (() => Promise<void>) | undefined
   // Handled, not default, for both signals and every repeat: the second one must not kill the cleanup.
   let stopping = false
@@ -929,7 +980,7 @@ if (import.meta.main) {
     setTimeout(() => process.exit(130), 9_000).unref()
   }
   for (const sig of ["SIGINT", "SIGTERM"] as const) process.on(sig, stop)
-  setTimeout(() => cancelNow?.(), 12 * 60_000).unref()
+  setTimeout(() => cancelNow?.(), 12 * 60_000 + (opts.bench ? BENCH_LIMIT_MS : 0)).unref()
   runE2E(opts, env, realDeps(), (cancel) => (cancelNow = cancel)).then(
     (e) => process.exit(e.result === "pass" ? 0 : 1),
     (e) => {

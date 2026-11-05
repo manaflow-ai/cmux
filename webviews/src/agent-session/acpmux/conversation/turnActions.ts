@@ -4,10 +4,14 @@
 /// so the X may be tried again.
 export type TakeBack = "back" | "refused" | "failed";
 
+/// The sent prompt row's Retry and Fork (UserBubble.tsx), each null where that row would not offer
+/// it, handed to a waiting steer's queue row so the two rows draw the same buttons (PendingSteer.tsx).
+export type QueuedActions = { retry?: ReactNode; fork?: ReactNode };
+
 // Actions a turn's footer and edited-files card offer that reach past the transcript (to the
 // client). A context, so a change in what acpmux serves, or in what the reader decided about a
 // turn's hunks, reaches memoized rows without changing their versions.
-import { createContext } from "react";
+import { createContext, type ReactNode } from "react";
 import type { HunkReview } from "../changes/hunkReview";
 import type { AccessOffer } from "../accessOffer";
 import type { ChatAccount } from "../chatAccounts";
@@ -123,6 +127,11 @@ export type TurnActions = {
 };
 
 export const TurnActionsContext = createContext<TurnActions>({});
+
+/// The transcript's one Retry target (turns.ts retryTargetIn), which VirtualTranscript provides
+/// (App.tsx). Unset where a footer or a prompt draws on its own (a test, a gallery entry): a footer
+/// that offers Retry draws it, and a prompt draws none outside the Messages view.
+export const RetryTargetContext = createContext<{ promptId?: string; footerId?: string } | undefined>(undefined);
 
 /// The prompt Continue sends after a stopped turn. Claude Code and Codex both resume on a plain
 /// "continue"; it goes to the agent, never shown as UI. l10n-allow: a prompt to the agent, not UI

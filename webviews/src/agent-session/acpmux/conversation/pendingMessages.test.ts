@@ -10,7 +10,9 @@ import {
   PENDING_MESSAGES_ROW_ID,
   pendingMessagesRow,
   searchablePendingRows,
+  withWaitingRows,
 } from "./pendingMessages";
+import { THINKING } from "./turns";
 import { batchLaneNotices, flattenInboxRows, projectInboxRows } from "./laneNoticeBatches";
 
 let at = 0;
@@ -539,4 +541,22 @@ test("a delivered many-thread notice has one flat fold, independent of the waiti
   expect(streamed[0]).toBe(delivered[0]);
   // The reverse order must not reuse the folded array for Find or the waiting strip either.
   expect(flattenInboxRows(nextSource)).toHaveLength(14);
+});
+
+// The running turn's live line stays the transcript's last row, under the waiting messages' group
+// (Leo, 2026-11-03: "thinking shimmer not being at the bottom looks bad").
+test("the waiting messages draw over the running turn's live line", () => {
+  const reply: AcpmuxRow = { id: "a", version: 1, at: at++, kind: "assistant", text: "hi" };
+  const line: AcpmuxRow = { id: "thinking-live", version: 1, at: at++, kind: THINKING, below: true };
+  const group = pendingMessagesRow([], [queued("p-live", "tests", "done")])!;
+  expect(withWaitingRows([reply, line], [group]).map((row) => row.id)).toEqual([
+    "a",
+    PENDING_MESSAGES_ROW_ID,
+    "thinking-live",
+  ]);
+  // An ended turn has no live line: the group stays at the end.
+  expect(withWaitingRows([reply], [group]).map((row) => row.id)).toEqual(["a", PENDING_MESSAGES_ROW_ID]);
+  // Nothing waits: the same rows back.
+  const rows = [reply, line];
+  expect(withWaitingRows(rows, [])).toBe(rows);
 });

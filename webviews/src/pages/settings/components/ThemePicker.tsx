@@ -11,6 +11,7 @@
 // should also be able to star themes and pick from them"): the starred themes list first, under
 // their own heading. The star, or Cmd-S on the highlighted row, toggles it without picking the row.
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Button } from "../../../ui/Button";
 import { Combobox } from "../../../ui/Combobox";
 import { Popover } from "../../../ui/Popover";
 import { ThemeBall } from "../../../ui/ThemeBall";
@@ -84,7 +85,7 @@ export function ThemePicker({
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   // The right-clicked theme: previewed whenever no row is highlighted.
   const [pinned, setPinned] = useState<string | null>(null);
   // A live preview is showing in the app; it must end even if the picker goes away while open.
@@ -195,7 +196,7 @@ export function ThemePicker({
   };
   return (
     <>
-      <button
+      <Button
         ref={setAnchor}
         type="button"
         className="button theme-button"
@@ -209,7 +210,7 @@ export function ThemePicker({
         <ThemeBall name={value ?? undefined} colors={value ? colors?.get(value) : configColors} />
         <span className="theme-button-name">{value ? label(value) : configLabel}</span>
         <Icon name="chevron" />
-      </button>
+      </Button>
       <Popover
         open={open && !disabled}
         onOpenChange={(next) => (next ? setOpen(true) : close())}

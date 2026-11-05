@@ -1,0 +1,101 @@
+{
+  "title": "Diff files tree",
+  "settings": {
+    "appearance": {
+      "background": "hokusai-great-wave"
+    }
+  },
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 3
+    },
+    {
+      "title": "New workspace",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Diff"
+      ],
+      "shot": false
+    },
+    {
+      "title": "Show the Diff workspace",
+      "cmux": [
+        "workspace",
+        "name:Diff",
+        "focus"
+      ],
+      "shot": false
+    },
+    {
+      "title": "Make the diff's repository",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Diff",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; bash {repo}/scripts/cmux-next/media/fixtures/diff-file-tree-repo.sh /tmp/cmux-tour-diff-file-tree && echo FIXTURE-READY\r"
+      ],
+      "wait": 6,
+      "shot": false
+    },
+    {
+      "title": "Open the diff",
+      "cmux": [
+        "browser",
+        "open-diff-viewer",
+        "--path",
+        "/tmp/cmux-tour-diff-file-tree"
+      ],
+      "wait": 4,
+      "shot": false
+    },
+    {
+      "title": "Show the diff tab",
+      "cmux": [
+        "action",
+        "run",
+        "nextSurface",
+        "--focus"
+      ],
+      "wait": 5,
+      "shot": false
+    },
+    {
+      "title": "Open the source menu",
+      "rpc": {
+        "method": "debug.page",
+        "params": {
+          "page": "cmux.diff",
+          "action": "click",
+          "selector": "#source-menu-button"
+        }
+      },
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "Diff files tree (Unstaged): one tree per folder, whole names, no folder highlight",
+      "rpc": {
+        "method": "debug.page",
+        "params": {
+          "page": "cmux.diff",
+          "action": "click",
+          "selector": ".source-menu .toolbar-menu-section:first-child > .menu-item:nth-child(2)"
+        }
+      },
+      "wait": 8
+    }
+  ]
+}

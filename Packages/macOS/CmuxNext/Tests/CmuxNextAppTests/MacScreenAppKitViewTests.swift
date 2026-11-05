@@ -82,8 +82,8 @@ struct MacScreenAppKitViewTests {
         pages.prepare("home", record: MacScreenRecord(macID: nil), byPerson: true)
         let tab = pages.makeView(for: "home")
         let window = window(tab)
-        let signIn = MacScreenHomeSnapshot.setupNote(configured: true)
-        let invalid = MacScreenHomeSnapshot.setupNote(configured: false)
+        let signIn = (MacScreenHomeSnapshot.setupDevices(configured: true).note ?? "")
+        let invalid = (MacScreenHomeSnapshot.setupDevices(configured: false).note ?? "")
         #expect(texts(under: tab).contains(signIn))
         #expect(texts(under: tab).contains(L.t("macScreen.home.yourDevices", "Your Devices")))
         // A model change redraws the page without a new view.

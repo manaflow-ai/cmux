@@ -39,12 +39,13 @@ public final class AgentLaneStore {
 
     /// Writes one session's lane (nil: it ended), as ``lanes``' setter does for that session, but
     /// in place and keeping ``waiting`` by that session alone: the watch's per-session changes,
-    /// many a second while an agent works, never copy or rescan the map.
+    /// many a second while an agent works, never copy or rescan the map or the other sessions' cells.
     public func set(_ session: String, _ lane: AgentActivityLane?) {
         let ownedBefore = Self.chiefOwnership(storage[session])
         withMutation(keyPath: \.lanes) { storage[session] = lane }
         if lane?.state == .input { waiting.insert(session) } else { waiting.remove(session) }
-        syncCells()
+        // Only this session's cell can change: the others' lanes are as they were.
+        syncCell(session)
         // Rescan only when this session's Chief tags change, not on every step of its output.
         if Self.chiefOwnership(lane) != ownedBefore { syncChiefParticipants() }
     }
@@ -111,5 +112,14 @@ public final class AgentLaneStore {
             if wasLive, lane == nil { ended.append(session) }
         }
         for session in ended { cells[session] = nil }
+    }
+
+    /// ``syncCells()`` for one session, when only its lane changed.
+    private func syncCell(_ session: String) {
+        guard let cell = cells[session] else { return }
+        let lane = storage[session]
+        let wasLive = cell.hasLiveSession
+        cell.update(lane)
+        if wasLive, lane == nil { cells[session] = nil }
     }
 }

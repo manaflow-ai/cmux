@@ -70,4 +70,17 @@ describe("sessionInfoPopover", () => {
     const roomAt = (width: number) => pushedRoom(1400, pushedWidth(1400, width));
     expect(roomAt(pushing[pushing.length - 1])).toBeGreaterThan(roomAt(pushing[0]));
   });
+
+  // The stage at each pane width the browser suites open (thread-minimap-left-rail-stays,
+  // session-info-overlay-toggle), at the panel's default width in a tall pane: by default it floats in
+  // the gutter at 1600px, pushes where that keeps the column's width (1084px and 1100px) and lies over
+  // the chat elsewhere (#33037). Push always takes its whole room, so it lies over the chat at 1600px
+  // too, where that room would narrow the column.
+  test("pins the stage at each width the browser suites open", () => {
+    const widths = [1600, 1200, 1100, 1084, 800, 780, 760];
+    const stages = (placement: "overlay" | "push") =>
+      widths.map((width) => sessionInfoStage(placement, { width, height: 900 }, SESSION_INFO_WIDTH.fallback));
+    expect(stages("overlay")).toEqual(["float", "overlay", "push", "push", "overlay", "overlay", "overlay"]);
+    expect(stages("push")).toEqual(["overlay", "overlay", "push", "push", "overlay", "overlay", "overlay"]);
+  });
 });

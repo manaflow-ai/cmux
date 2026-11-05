@@ -51,10 +51,14 @@ enum SidebarStatesPlaygroundState: String, CaseIterable, Sendable {
     case faviconMono
     /// A browser workspace with a colorful favicon (Google-like).
     case faviconColorful
-    /// A browser workspace whose page has no favicon: the fallback.
+    /// A browser workspace whose page has no favicon: the placeholder globe (``WorkspaceIcon/pagePlaceholder``).
     case faviconMissing
+    /// The pinned row with its real hover card (`WorkspaceHoverCardView`) beside it, as a hover shows it (Lawrence
+    /// 2026-11-03: "make sure size of the pinned summary thing reflect size of ui compactness i chose"). The sheet
+    /// draws it in its own section below the grid, since the card is wider than a sidebar.
+    case pinnedHoverCard
 
-    /// The rows the favicon styles sheet shows (`SidebarStatesPlaygroundColumn.faviconStyles`).
+    /// The rows each favicon styles sheet shows (`SidebarStatesPlaygroundColumn.favicons(_:)`).
     static let favicons: [SidebarStatesPlaygroundState] = [.faviconMono, .faviconColorful, .faviconMissing]
 
     /// The row's caption in the playground.
@@ -88,7 +92,9 @@ enum SidebarStatesPlaygroundState: String, CaseIterable, Sendable {
         case .faviconColorful:
             String(localized: "sidebar.statesPlayground.state.faviconColorful", defaultValue: "Favicon, colorful", bundle: .module)
         case .faviconMissing:
-            String(localized: "sidebar.statesPlayground.state.faviconMissing", defaultValue: "Favicon, missing", bundle: .module)
+            String(localized: "sidebar.statesPlayground.state.faviconPlaceholder", defaultValue: "No favicon, globe placeholder", bundle: .module)
+        case .pinnedHoverCard:
+            String(localized: "sidebar.statesPlayground.state.pinnedHoverCard", defaultValue: "Pinned row and its hover card", bundle: .module)
         }
     }
 }

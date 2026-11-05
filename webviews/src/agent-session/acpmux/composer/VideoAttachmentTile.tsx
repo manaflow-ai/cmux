@@ -101,7 +101,18 @@ export function useAttachedVideoPlayer(path: string | undefined, name: string) {
       onKeyDown={stop}
       onContextMenu={stop}
     >
-      <VideoViewer src={src} name={name} autoPlay onError={() => setSrc(undefined)} onClose={() => setSrc(undefined)} />
+      <VideoViewer
+        src={src}
+        name={name}
+        autoPlay
+        onError={() => {
+          // The pane's player could not play what the host granted: Quick Look plays it, on the
+          // same click, instead of the player closing with nothing shown (Leo, 2026-11-03).
+          setSrc(undefined);
+          if (path) void callChipHost("video.quickLook", { src: path });
+        }}
+        onClose={() => setSrc(undefined)}
+      />
     </span>
   ) : null;
   return { play, viewer };

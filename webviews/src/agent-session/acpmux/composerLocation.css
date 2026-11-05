@@ -194,15 +194,40 @@
 .acpmux-location-label[data-middle] { display: inline-flex; min-width: 0; }
 .acpmux-location-head { flex: 0 1 auto; min-width: 1ch; overflow: hidden; text-overflow: ellipsis; white-space: pre; }
 .acpmux-location-tail { flex: none; white-space: pre; }
-/* The strip's steps (compact-composer verdict 4) are pane widths, at or under. They are literals
-   that match COMPOSER_FIT_STEPS in composerRowFit.ts (machineIconOnly 460, folderMiddleTruncate
-   340) once the footer's fit steps land (#20802); the webview is the pane, so a media query reads
-   its width. test/composer-location-strip.test.ts holds each step at its boundary (461/460,
-   341/340).
-   At 460: the computer shows its laptop icon alone, its name in its tooltip and accessible label,
-   so the folder and the branch keep theirs (never "This…"). */
-@media (max-width: 460px) {
+/* The computer chips give up their names only where the strip runs out of room: a container query
+   on the strip's own width (acpmux-strip, above), not the pane's, so the chat composer and the New
+   Tab answer alike. Each step is the measured width the strip's controls need with the label shown,
+   next to an uncut "Choose folder" (gallery agent-pane.composer-context, strip-where-machine*,
+   Chromium, 2026-11-04). The Machine chip's name goes first, then the Where chip's, so "Cloud" or
+   "This Mac" stays readable longest (Codex desktop's strip names each choice; Leo 2026-11-03:
+   "yeah chatgpt codex has nicer ways to deal with stuff"). A chip without its name keeps its icon,
+   its tooltip and its accessible name. test/composer-location-strip.test.ts holds each step.
+   Without a branch (a new chat with no project, as on a fresh home):
+   - Another machine (Where "Another machine", Machine "gpu-box" and its dot): all named from 396 px,
+     Where named from 340 px.
+   - This Mac and Cloud (no Machine chip beside Where since cmux NEXT's Cloud is one pick), and the
+     one combined control (a started chat's, the combined and cloud-toggle arms): named from 238 px.
+   With the branch chip (a project's chat), each step is 76 px wider, the room a short branch
+   ("main", 70.5 px and the gap) takes; a longer branch takes its extra room from the folder, which
+   cuts in the middle and keeps its last word. */
+@container acpmux-strip (width < 396px) {
+  .acpmux-location-leading:has(> [data-rows="where"]) > .acpmux-location-picker[data-rows="machines"] .acpmux-location-label { display: none; }
+}
+@container acpmux-strip (width < 340px) {
+  .acpmux-location-leading:has(> [data-rows="machines"]) > .acpmux-location-picker[data-rows="where"] .acpmux-location-label { display: none; }
+}
+@container acpmux-strip (width < 238px) {
   .acpmux-location-picker[data-kind="computer"] .acpmux-location-label { display: none; }
+}
+/* The same steps beside the branch (the context's last control, a plain picker with no rows). */
+@container acpmux-strip (width < 472px) {
+  .acpmux-composer-context:has(> .acpmux-location-picker:last-child:not([data-rows])) .acpmux-location-leading:has(> [data-rows="where"]) > .acpmux-location-picker[data-rows="machines"] .acpmux-location-label { display: none; }
+}
+@container acpmux-strip (width < 416px) {
+  .acpmux-composer-context:has(> .acpmux-location-picker:last-child:not([data-rows])) .acpmux-location-leading:has(> [data-rows="machines"]) > .acpmux-location-picker[data-rows="where"] .acpmux-location-label { display: none; }
+}
+@container acpmux-strip (width < 314px) {
+  .acpmux-composer-context:has(> .acpmux-location-picker:last-child:not([data-rows])) .acpmux-location-leading .acpmux-location-picker[data-kind="computer"] .acpmux-location-label { display: none; }
 }
 /* At 340: the folder takes a short cap and cuts in the middle (its head takes the ellipsis, its
    last word stays; splitForMiddleTruncation never splits a character), so the branch keeps its
@@ -1513,6 +1538,15 @@
 }
 .acpmux-location-button .acpmux-env-live[data-connected="true"] { background: var(--agent-success, var(--acpmux-add, currentColor)); }
 .acpmux-location-button .acpmux-env-live[data-connected="false"] { border: 1px solid var(--agent-muted); }
+/* A Cloud machine that is resuming (withCloudSleep): the spinner turns where the dot was, centred on
+   the dot's own 6px box, so the strip never moves as paused turns to resuming and back to live. */
+.acpmux-location-button .acpmux-env-live-spinner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  translate: -50% -50%;
+  color: var(--agent-muted);
+}
 /* The cloud toggle (stripLayout cloud-toggle) stands at the strip's end, before the branch. */
 .acpmux-composer-context > .acpmux-location-picker[data-rows="run"] { flex: none; margin-left: auto; }
 .acpmux-composer-context > .acpmux-location-picker[data-rows="run"] + .acpmux-location-picker:last-child { margin-left: var(--acpmux-location-gap, 4px); }
@@ -1613,3 +1647,18 @@
 .acpmux-env-row:not([data-ready]) .acpmux-env-state { color: var(--agent-muted); }
 /* A ready machine at its CPU or memory budget says so in the warning colour, as the plain menu does. */
 .acpmux-env-row .acpmux-env-state[data-warning="true"] { color: var(--acpmux-warning); }
+/* A new chat's extra folders (ExtraFolderList.tsx), under the folder menu's list: a quiet heading,
+   then one row per folder in the same name column as the folders above, × at the end. */
+.acpmux-extra-folders {
+  margin: var(--ds-space-1) 0 0;
+  padding: 4px 0 0;
+  border-top: 1px solid color-mix(in srgb, var(--agent-text) 12%, transparent);
+}
+.acpmux-extra-folders-heading { padding: 4px 8px; color: var(--agent-muted); font-size: var(--text-detail); line-height: 16px; }
+.acpmux-extra-folders-list { margin: 0; padding: 0; list-style: none; }
+.acpmux-extra-folder { display: flex; align-items: center; gap: var(--cmux-menu-icon-gap); min-width: 0; min-height: var(--ui-row-height); padding: 0 4px 0 8px; }
+.acpmux-extra-folder-icon { flex: none; width: 20px; color: var(--agent-muted); }
+.acpmux-extra-folder-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acpmux-extra-folder-remove { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 20px; height: 20px; padding: 0; color: var(--agent-muted); }
+.acpmux-extra-folder-remove:hover,
+.acpmux-extra-folder-remove:focus-visible { color: var(--agent-text); }

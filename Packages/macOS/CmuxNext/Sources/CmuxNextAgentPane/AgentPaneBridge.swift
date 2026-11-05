@@ -35,10 +35,17 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
            let view {
             return replyHandler(view.popup(method, params: body["params"] as? [String: Any] ?? [:]), nil)
         }
+        // The page's flicker detector (``AgentPageFlickerLog``): short words and numbers for the
+        // ring file, answered at once and not logged here.
+        if let body = message.body as? [String: Any], body["method"] as? String == AgentPageFlickerLog.method, let view {
+            view.flickerLog?.recordPage(body["params"] as? [String: Any], page: AgentPageFlickerLog.pageName(view),
+                                        pid: view.knownWebContentPid)
+            return replyHandler(AgentPaneReply.success(), nil)
+        }
         // Where a chat rests belongs to the chat, so it is answered here from the one store both
         // hosts share and never reaches the model (AgentPaneScrollAnchors+Bridge). Not logged: it
         // names a row of the person's transcript.
-        if let reply = Self.chatPlaceReply(for: message.body) {
+        if let reply = Self.chatPlaceReply(for: message.body, tab: view?.model.tabKey()) {
             return replyHandler(reply, nil)
         }
         // What a page last read of a chat, for the next tab that opens it (``AgentPaneTailCache``):

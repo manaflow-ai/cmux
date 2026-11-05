@@ -931,7 +931,11 @@ export function ModelPicker(props: ModelPickerProps) {
     // opens the full picker, which has no rail either.
     // A folder profile is a machine choice, so its current models stay in the plain compact list
     // while the harness-only rail remains absent.
-    if (!modelsNeeded || !quick || (harnessFixed && !fork) || current?.folder) return undefined;
+    if (!quick || (harnessFixed && !fork) || current?.folder) return undefined;
+    // Keep the columns trigger mounted before its first press. Replacing the list trigger as it
+    // opens loses that press's click, so another popover never receives its outside dismissal.
+    // The rows stay lazy until the picker opens.
+    if (!modelsNeeded) return [];
     const row = (entry: HarnessChoice, model: ModelChoice) => quickRow(entry.id, model);
     // A started chat that forks lists every harness, as a New Tab does; its own stays the chat's.
     const startable = (fork ? allHarnesses : harnesses).filter(

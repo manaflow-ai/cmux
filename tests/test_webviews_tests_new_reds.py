@@ -31,6 +31,7 @@ COLLECT = ROOT / "scripts/ci/webviews_test_results.py"
 COMPARE = ROOT / "scripts/ci/guards_new_reds.py"
 SHARDS = ROOT / "scripts/ci/webviews_test_shards.py"
 HISTORY = ROOT / "scripts/ci/webviews_test_history.py"
+REDS = ROOT / "scripts/ci/test_reds.py"
 WORKFLOW = ROOT / ".github/workflows/ci-web.yml"
 
 FAKE_BUN = """#!/usr/bin/env bash
@@ -283,10 +284,25 @@ class Wrapper(unittest.TestCase):
 
 
 class Collect(unittest.TestCase):
+    def test_a_budget_stopped_retry_retains_only_first_run_failures(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            log = tmp / "stopped"
+            log.write_text("--- retry stopped at shared budget ---\n"
+                           "(pass) transient [1.00ms]\n(fail) partial retry [2.00ms]\n"
+                           "--- first failure retained ---\n"
+                           "(pass) first pass [1.00ms]\n(fail) original [2.00ms]\n"
+                           "Ran 2 tests across 1 files.\n")
+            (tmp / "summary").write_text(f"FAIL f.test.ts {log}\n")
+            subprocess.run([sys.executable, str(COLLECT), str(tmp / "summary"), str(tmp / "out.json")], check=True)
+            self.assertEqual(json.loads((tmp / "out.json").read_text()), {
+                "f.test.ts > original": False,
+            })
+
     def test_a_summary_becomes_per_test_results(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
-            logs = {"pass": "(pass) fine [1.00ms]\n", "fail": "(fail) a > b [2.00ms]\n(fail) a > b [2.00ms]\n",
+            logs = {"pass": "(pass) fine [1.00ms]\n", "fail": "(pass) a > good [1.00ms]\n(fail) a > b [2.00ms]\nRan 2 tests across 1 files.\n",
                     "crash": "error: no module\n", "hang": "(fail) slow [9.00s]\n"}
             for name, text in logs.items():
                 (tmp / name).write_text(text)
@@ -294,8 +310,20 @@ class Collect(unittest.TestCase):
                                          f"FAIL c.test.ts {tmp}/crash\nTIMEOUT h.test.ts {tmp}/hang\n")
             subprocess.run([sys.executable, str(COLLECT), str(tmp / "summary"), str(tmp / "out.json")], check=True)
             self.assertEqual(json.loads((tmp / "out.json").read_text()), {
-                "p.test.ts": True, "f.test.ts > a > b": False, "c.test.ts": False, "h.test.ts": False,
+                "p.test.ts": True, "f.test.ts > a > good": True, "f.test.ts > a > b": False,
+                "c.test.ts": False, "h.test.ts": False,
                 "h.test.ts > slow": False})
+
+    def test_a_cut_short_failed_file_does_not_publish_named_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            log = tmp / "cut-short"
+            log.write_text("(pass) looks-good [1.00ms]\n(fail) still-red [2.00ms]\n")
+            (tmp / "summary").write_text(f"FAIL f.test.ts {log}\n")
+            subprocess.run([sys.executable, str(COLLECT), str(tmp / "summary"), str(tmp / "out.json")], check=True)
+            self.assertEqual(json.loads((tmp / "out.json").read_text()), {
+                "f.test.ts > still-red": False,
+            })
 
 
 class GuardsUnchanged(unittest.TestCase):
@@ -339,7 +367,7 @@ class Workflow(unittest.TestCase):
                 subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
                 subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t",
                                 "commit", "-qm", "fixture"], check=True)
-                for source in (COLLECT, COMPARE, SHARDS, HISTORY):
+                for source in (COLLECT, COMPARE, SHARDS, HISTORY, REDS):
                     shutil.copy(source, repo / "scripts/ci" / source.name)
             runner_temp.mkdir()
             bins.mkdir()
@@ -356,7 +384,7 @@ class Workflow(unittest.TestCase):
             env = {**os.environ, "PATH": f"{bins}:{os.environ['PATH']}", "RUNNER_TEMP": str(runner_temp),
                    "BASE_REF": "", "CMUX_WEB_TEST_RESULTS": str(published / "webviews-head-results.json"),
                    "CMUX_WEB_TEST_MAX_FILE_TIMEOUT": "1", "CMUX_WEB_TEST_RETRIES": "0",
-                   "CMUX_WEB_TEST_JOBS": "1", "GITHUB_ACTIONS": "true"}
+                   "CMUX_WEB_TEST_JOBS": "1", "GITHUB_ACTIONS": "true", "TAP_TESTS_STATE": "off"}
             done = subprocess.run(["bash", "-eu", "-c", command("Test webviews")],
                                   cwd=head / "webviews", env=env, capture_output=True, text=True, timeout=10)
             self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
@@ -463,7 +491,7 @@ class Workflow(unittest.TestCase):
             (bins / "bun").write_text(FAKE_BUN)
             (bins / "bun").chmod(0o755)
             (runner_temp / "head-results/runner").mkdir(parents=True)
-            for runner in (ROOT / "scripts/ci/run-webviews-tests.sh", COLLECT, COMPARE, HISTORY):  # as the head shard publishes them
+            for runner in (ROOT / "scripts/ci/run-webviews-tests.sh", COLLECT, COMPARE, HISTORY, REDS):  # as the head shard publishes them
                 shutil.copy(runner, runner_temp / "head-results/runner")
             head_results = runner_temp / "head-results/webviews-head-results.json"
             head_results.write_text(json.dumps({f"{red} > received preview opens": False}))
@@ -471,7 +499,7 @@ class Workflow(unittest.TestCase):
             env.update(PATH=f"{bins}:{os.environ['PATH']}", RUNNER_TEMP=str(runner_temp), TMPDIR=str(tmp),
                        HEAD_RESULTS=str(head_results), BASE_RESULTS=str(runner_temp / "base-results.json"),
                        CMUX_NEXT_STYLE_GUARDS="warn", CMUX_WEB_TEST_JOBS="1", CMUX_WEB_TEST_RETRIES="0",
-                       CMUX_WEB_TEST_FILE_TIMEOUT="10")
+                       CMUX_WEB_TEST_FILE_TIMEOUT="10", TAP_TESTS_STATE="off")
 
             def replay(checkout_step):
                 git("checkout", "-q", "--detach", merge)
@@ -493,16 +521,23 @@ class Workflow(unittest.TestCase):
             self.assertEqual(done.returncode, 1, out)
             self.assertIn(f"::error title=Webview test red on this change::{red} > received preview opens", out)
 
-    def run_verdict(self, change_breaks_it):
+    def run_verdict(self, change_breaks_it, files=1):
         """The base job's steps on a real merge commit: a head shard red the base replay passes is re-run
-        alone on the head, and is the change's only if it fails there again."""
+        alone on the head, and is the change's only if it fails there again. FILES head-red files: the
+        first is the one the change may break, the rest pass everywhere but ran out of the head shard's budget."""
         tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
         repo, runner_temp, bins = tmp / "repo", tmp / "temp", tmp / "bin"
         git = lambda *args: subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t",
                                             *args], check=True, capture_output=True, text=True).stdout.strip()
         red = "test/reasoning-own-control.test.ts"
+        others = [f"test/budget-gone-{i:02d}.test.ts" for i in range(1, files)]
         (repo / "webviews/test").mkdir(parents=True)
+        (repo / "scripts/ci").mkdir(parents=True)
+        for source in (COLLECT, COMPARE):
+            shutil.copy(source, repo / "scripts/ci" / source.name)
         (repo / "webviews" / red).write_text(body([]))
+        for other in others:
+            (repo / "webviews" / other).write_text(body([]))
         git("init", "-q", "-b", "base")
         git("add", "-A")
         git("commit", "-qm", "base: the file passes")
@@ -520,11 +555,14 @@ class Workflow(unittest.TestCase):
         (bins / "bun").write_text(FAKE_BUN)
         (bins / "bun").chmod(0o755)
         (runner_temp / "head-results/runner").mkdir(parents=True)
-        for runner in (ROOT / "scripts/ci/run-webviews-tests.sh", COLLECT, COMPARE, HISTORY):
+        for runner in (ROOT / "scripts/ci/run-webviews-tests.sh", COLLECT, COMPARE, HISTORY, REDS):
             shutil.copy(runner, runner_temp / "head-results/runner")
         head_results = runner_temp / "head-results/webviews-head-results.json"
         # The head shard's first run timed out on the frame and its retry budget was gone: the file is red unnamed.
-        head_results.write_text(json.dumps({red: False}))
+        # #35163 (run 41890002293, shard 8): a shard out of budget keeps 13 files red at once, some
+        # file-level and some `> (unnamed)`.
+        head_results.write_text(json.dumps({red: False, **{f"{o} > (unnamed)": False for o in others[::2]},
+                                            **{o: False for o in others[1::2]}}))
         output = runner_temp / "github-output"
         output.touch()
         env = {k: v for k, v in os.environ.items() if k not in ("CMUX_BROWSER_TESTS", "GITHUB_ACTIONS")}
@@ -532,14 +570,15 @@ class Workflow(unittest.TestCase):
                    GITHUB_SHA=merge, GITHUB_OUTPUT=str(output), HEAD_RESULTS=str(head_results),
                    BASE_RESULTS=str(runner_temp / "base-results.json"),
                    HEAD_RERUN=str(runner_temp / "head-rerun-results.json"), CMUX_NEXT_STYLE_GUARDS="warn",
-                   CMUX_WEB_TEST_JOBS="1", CMUX_WEB_TEST_RETRIES="0", CMUX_WEB_TEST_FILE_TIMEOUT="10")
+                   CMUX_WEB_TEST_JOBS="1", CMUX_WEB_TEST_RETRIES="0", CMUX_WEB_TEST_FILE_TIMEOUT="10",
+                   TAP_TESTS_STATE="off")
         run = lambda name, cwd: subprocess.run(["bash", "-eu", "-c", command(name)], cwd=cwd, env=env,
                                                capture_output=True, text=True, timeout=60)
         self.assertEqual(run("Use the merge parent as the base", repo).returncode, 0)
         base = run("Run base reds and compare", repo / "webviews")
         self.assertEqual(base.returncode, 1, base.stdout + base.stderr)
         self.assertIn("rerun=true", output.read_text())
-        self.assertEqual((runner_temp / "head-rerun-files").read_text(), f"{red}\n")
+        self.assertEqual((runner_temp / "head-rerun-files").read_text(), "".join(f"{f}\n" for f in sorted([red, *others])))
         self.assertEqual(run("Check out the head again", repo).returncode, 0)
         self.assertEqual(git("rev-parse", "HEAD"), merge)
         return run("Re-run the change's reds alone on the head", repo / "webviews")
@@ -549,6 +588,16 @@ class Workflow(unittest.TestCase):
         out = done.stdout + done.stderr
         self.assertEqual(done.returncode, 0, out)
         self.assertIn("passed again alone on the head::test/reasoning-own-control.test.ts", out)
+        self.assertNotIn("red on this change::", out)
+
+    def test_a_shard_out_of_budget_with_many_file_reds_is_still_rerun_on_the_head(self):
+        # #35163: 13 files red at the end of an out-of-budget head shard all passed on the base; the head re-run
+        # was skipped for having more than 10, so all 13 were charged to the change.
+        done = self.run_verdict(change_breaks_it=False, files=13)
+        out = done.stdout + done.stderr
+        self.assertEqual(done.returncode, 0, out)
+        self.assertIn("passed again alone on the head::test/budget-gone-01.test.ts > (unnamed)", out)
+        self.assertIn("passed again alone on the head::test/budget-gone-02.test.ts", out)
         self.assertNotIn("red on this change::", out)
 
     def test_a_head_red_the_change_causes_stays_red_after_the_head_rerun(self):

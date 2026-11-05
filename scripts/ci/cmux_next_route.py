@@ -142,6 +142,7 @@ SWIFT_JOB_INPUTS = (
     "cmux-tui/crates/cmux-app-ffi/",
     "cmux-tui/crates/cmux-focus-core/",
     "cmux-tui/crates/cmux-cloud-start-core/",
+    "cmux-tui/crates/cmux-cloud-config/",
     "cmux-tui/crates/cmux-imessage/",
     "cmux-tui/crates/cmux-layout-reducer/",
     "cmux-tui/crates/cmux-layout-reducer-ffi/",
@@ -241,6 +242,8 @@ BUNDLE_INPUTS = (
     "schemas/sync-motion/*", "schemas/agent-pane/*",
     # The layout grid the transcript imports (src/agent-session/acpmux/transcriptGrid.ts).
     "schemas/layout-grid/layout-grid.json",
+    # The design scale the shared tooltip tokens import (src/ui/tooltipTokens.ts).
+    "schemas/design-scale/design-scale.json",
     # The UI font the gallery frame imports (src/gallery/frame/uiFont.ts).
     "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts/InterVariable.woff2",
 )
@@ -318,14 +321,16 @@ def ci_only(path: str) -> bool:
 # never from a list here: a file moved to a macOS lane routes to the Mac tiers again. No cmux-next
 # Mac tier reads the registry itself.
 REGISTRY = "tests/test-execution.toml"
+# The registry's area fragments (scripts/ci/test_execution_registry.py), which replaced REGISTRY.
+REGISTRY_FRAGMENT = re.compile(r"tests/test-execution\.d/[^/]+\.toml")
 LINUX_LANE = "linux-guard"
 
 
 def linux_guard_tests(root: Path) -> frozenset[str]:
     """The registry's linux-guard test files; none when it or its reader cannot be read, so they keep their tiers."""
     try:
-        from test_execution_registry import load_registry  # noqa: PLC0415 - a copied router may come without it
-        entries = load_registry(root / REGISTRY)
+        from test_execution_registry import load_tree  # noqa: PLC0415 - a copied router may come without it
+        entries = load_tree(root)
     except (ImportError, OSError, ValueError, SyntaxError):
         return frozenset()
     return frozenset(str(entry.get("path")) for entry in entries
@@ -333,7 +338,8 @@ def linux_guard_tests(root: Path) -> frozenset[str]:
 
 
 def linux_only_test(path: str, linux_tests: frozenset[str]) -> bool:
-    return path in linux_tests or (path == REGISTRY and bool(linux_tests))
+    registry = path == REGISTRY or REGISTRY_FRAGMENT.fullmatch(path) is not None
+    return path in linux_tests or (registry and bool(linux_tests))
 
 
 # A test target's "reads" (ci-target-graph.py) are the repository paths its sources name in string

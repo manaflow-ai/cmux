@@ -8,6 +8,7 @@
 //! timeout only to keep the one-second spacing. It exits when the last subscriber leaves.
 
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, PoisonError, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -35,9 +36,37 @@ struct State {
     mux: Weak<Mux>,
 }
 
+/// The stream's state behind its lock, the worker's wake, and the two facts a person's key writes with no lock
+/// (R-DAEMON-STATE stage S1).
+#[derive(Default)]
+struct Shared {
+    state: Mutex<State>,
+    wake: Condvar,
+    /// A person's last input time in Unix milliseconds (0: none) on the lock-free arm; `State::user_input_ms` stays
+    /// `None` there.
+    user_input_ms: AtomicU64,
+    /// Whether the stream has subscribers; written under `state`'s lock.
+    subscribed: AtomicBool,
+    /// A key already asked the worker for an event that is not out yet; cleared by the worker under the lock.
+    wake_pending: AtomicBool,
+}
+
+impl Shared {
+    /// A person's last input time from either arm.
+    fn user_input_ms(&self, state: &State) -> Option<u64> {
+        let atomic = Some(self.user_input_ms.load(Ordering::SeqCst)).filter(|ms| *ms != 0);
+        match (state.user_input_ms, atomic) {
+            (Some(locked), Some(atomic)) => Some(locked.max(atomic)),
+            (locked, atomic) => locked.or(atomic),
+        }
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct ActivityStream {
-    shared: Arc<(Mutex<State>, Condvar)>,
+    shared: Arc<Shared>,
+    /// The mux's stage S1 switch: a person's key notes its input time with no lock.
+    lock_free: AtomicBool,
 }
 
 fn now_ms() -> u64 {
@@ -45,14 +74,58 @@ fn now_ms() -> u64 {
 }
 
 impl ActivityStream {
-    /// Input from a person's attached client (callers filter unattached one-shot sends).
+    /// A stream whose person input notes take no lock when `lock_free` (the mux's stage S1 switch).
+    pub(crate) fn new(lock_free: bool) -> Self {
+        Self { shared: Arc::default(), lock_free: AtomicBool::new(lock_free) }
+    }
+
+    /// Turns stage S1 on or off (tests).
+    #[cfg(test)]
+    pub(crate) fn set_lock_free_for_test(&self, on: bool) {
+        self.lock_free.store(on, Ordering::Relaxed);
+    }
+
+    /// Input from a person's attached client (callers filter unattached one-shot sends). On the lock-free arm the
+    /// time is an atomic; only while a subscriber exists does a key take the lock, once per event the worker sends.
     pub(crate) fn note_user_input(&self) {
-        self.update(|state| state.user_input_ms = Some(now_ms()));
+        if !self.lock_free.load(Ordering::Relaxed) {
+            self.update(|state| state.user_input_ms = Some(now_ms()));
+            return;
+        }
+        // SeqCst: either this key sees the subscriber, or the subscriber's first snapshot sees this time. A key
+        // preempted after its clock read never moves the time back.
+        self.shared.user_input_ms.fetch_max(now_ms(), Ordering::SeqCst);
+        if self.shared.subscribed.load(Ordering::SeqCst)
+            && !self.shared.wake_pending.swap(true, Ordering::SeqCst)
+        {
+            self.update(|_| {});
+        }
     }
 
     /// An agent hook commit or an agent state report.
     pub(crate) fn note_agent_action(&self) {
         self.update(|state| state.agent_action_ms = Some(now_ms()));
+    }
+
+    /// The agent roster changed. Its owner folds after the request that
+    /// changed it answered (mux/agent_roster_worker.rs), so an event sent in
+    /// between counted the old live agents: the next event counts again.
+    pub(crate) fn note_roster_changed(&self) {
+        self.update(|_| {});
+    }
+
+    /// Runs `hold` while this thread holds the stream's lock (tests: a person's key must not wait for it).
+    #[cfg(test)]
+    pub(crate) fn hold_for_test(&self, hold: &dyn Fn()) {
+        let _held = self.shared.state.lock().unwrap_or_else(PoisonError::into_inner);
+        hold();
+    }
+
+    /// The last person's input time, in Unix milliseconds (tests).
+    #[cfg(test)]
+    pub(crate) fn user_input_ms_for_test(&self) -> Option<u64> {
+        let state = self.shared.state.lock().unwrap_or_else(PoisonError::into_inner);
+        self.shared.user_input_ms(&state)
     }
 
     /// Mux events that change the counts or mean an agent acted.
@@ -65,12 +138,11 @@ impl ActivityStream {
     }
 
     fn update(&self, change: impl FnOnce(&mut State)) {
-        let (lock, wake) = &*self.shared;
-        let mut state = lock.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut state = self.shared.state.lock().unwrap_or_else(PoisonError::into_inner);
         change(&mut state);
         if !state.subscribers.is_empty() {
             state.dirty = true;
-            wake.notify_one();
+            self.shared.wake.notify_one();
         }
     }
 
@@ -81,8 +153,7 @@ impl ActivityStream {
         writer: &MessageWriter,
     ) -> anyhow::Result<Value> {
         let times = {
-            let (lock, _) = &*self.shared;
-            let mut state = lock.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut state = self.shared.state.lock().unwrap_or_else(PoisonError::into_inner);
             anyhow::ensure!(
                 state.subscribers.len() < MAX_SUBSCRIBERS
                     || state.subscribers.contains_key(&client),
@@ -92,6 +163,9 @@ impl ActivityStream {
             state.subscribers.retain(|_, w| w.is_open());
             state.mux = Arc::downgrade(mux);
             state.subscribers.insert(client, writer.clone());
+            self.shared.subscribed.store(true, Ordering::SeqCst);
+            // A wake a key asked for before any subscriber existed is not pending for this one.
+            self.shared.wake_pending.store(false, Ordering::SeqCst);
             if !state.worker {
                 state.worker = true;
                 let shared = Arc::clone(&self.shared);
@@ -99,16 +173,16 @@ impl ActivityStream {
                     .name("cmux-activity".into())
                     .spawn(move || run_worker(shared))?;
             }
-            (state.user_input_ms, state.agent_action_ms)
+            (self.shared.user_input_ms(&state), state.agent_action_ms)
         };
         Ok(json!({ "activity": snapshot(mux, times) }))
     }
 
     fn disconnect(&self, client: u64) {
-        let (lock, wake) = &*self.shared;
-        let mut state = lock.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut state = self.shared.state.lock().unwrap_or_else(PoisonError::into_inner);
         if state.subscribers.remove(&client).is_some() && state.subscribers.is_empty() {
-            wake.notify_one();
+            self.shared.subscribed.store(false, Ordering::SeqCst);
+            self.shared.wake.notify_one();
         }
     }
 }
@@ -180,12 +254,13 @@ fn snapshot(mux: &Mux, (user_input_ms, agent_action_ms): (Option<u64>, Option<u6
 type Due = (Vec<(u64, MessageWriter)>, (Option<u64>, Option<u64>), Weak<Mux>);
 
 /// Blocks until a change is due; `None` when the last subscriber left.
-fn next_due(shared: &(Mutex<State>, Condvar)) -> Option<Due> {
-    let (lock, wake) = shared;
-    let mut state = lock.lock().unwrap_or_else(PoisonError::into_inner);
+fn next_due(shared: &Shared) -> Option<Due> {
+    let mut state = shared.state.lock().unwrap_or_else(PoisonError::into_inner);
     loop {
         if state.subscribers.is_empty() {
             state.worker = false;
+            shared.subscribed.store(false, Ordering::SeqCst);
+            shared.wake_pending.store(false, Ordering::SeqCst);
             return None;
         }
         if state.dirty {
@@ -195,18 +270,20 @@ fn next_due(shared: &(Mutex<State>, Condvar)) -> Option<Due> {
             if wait.is_zero() {
                 break;
             }
-            state = wake.wait_timeout(state, wait).unwrap_or_else(PoisonError::into_inner).0;
+            state = shared.wake.wait_timeout(state, wait).unwrap_or_else(PoisonError::into_inner).0;
             continue;
         }
-        state = wake.wait(state).unwrap_or_else(PoisonError::into_inner);
+        state = shared.wake.wait(state).unwrap_or_else(PoisonError::into_inner);
     }
     state.dirty = false;
+    // Before the time is read: a key that finds this cleared asks for the next event.
+    shared.wake_pending.store(false, Ordering::SeqCst);
     state.last_emit = Some(Instant::now());
     let writers = state.subscribers.iter().map(|(c, w)| (*c, w.clone())).collect();
-    Some((writers, (state.user_input_ms, state.agent_action_ms), state.mux.clone()))
+    Some((writers, (shared.user_input_ms(&state), state.agent_action_ms), state.mux.clone()))
 }
 
-fn run_worker(shared: Arc<(Mutex<State>, Condvar)>) {
+fn run_worker(shared: Arc<Shared>) {
     while let Some((writers, times, mux)) = next_due(&shared) {
         let Some(mux) = mux.upgrade() else { break };
         let event = json!({ "event": "activity-changed", "activity": snapshot(&mux, times) });

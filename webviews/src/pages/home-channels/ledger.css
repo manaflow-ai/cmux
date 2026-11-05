@@ -11,6 +11,9 @@
   --lg-solid: var(--cmux-surface-solid, Canvas);
   --lg-pad: var(--ds-space-4);
   --lg-mark: var(--ds-control-icon);
+  /* A thread or run status mark (.lg-status) and the thread row's border around it. */
+  --lg-status-dot: 10px;
+  --lg-thread-border: 1px;
   --lg-list: clamp(232px, 27vw, 296px);
   --lg-header: 44px;
   /* The thread and run sheet's widest; a wide pane keeps the conversation beside it. */
@@ -536,7 +539,7 @@
   width: 100%;
   height: var(--ds-control-primary);
   padding: 0 var(--ds-space-3) 0 0;
-  border: 1px solid var(--lg-line);
+  border: var(--lg-thread-border) solid var(--lg-line);
   border-radius: var(--ds-radius-control);
   background: var(--lg-fill);
   color: var(--page-text);
@@ -570,7 +573,7 @@
   font-weight: var(--weight-emphasis);
   /* To the messages' text column: the rest of the mark column after the row's 1 px border, the
      status mark's inset and its 10 px dot. */
-  padding-inline-start: calc(var(--lg-mark) - 10px - var(--ds-space-1) - 1px);
+  padding-inline-start: calc(var(--lg-mark) - var(--lg-status-dot) - var(--ds-space-1) - var(--lg-thread-border));
 }
 .lg-thread-row[data-status="resolved"] .lg-thread-title {
   color: var(--page-text-3);
@@ -624,8 +627,8 @@
 .lg-status {
   display: inline-block;
   flex: none;
-  width: 10px;
-  height: 10px;
+  width: var(--lg-status-dot);
+  height: var(--lg-status-dot);
   border-radius: 50%;
   box-sizing: border-box;
 }
@@ -760,7 +763,7 @@
 }
 @media (prefers-reduced-motion: no-preference) {
   .lg-sheet {
-    animation: lg-sheet-in var(--cmux-motion-micro) cubic-bezier(0.2, 0.8, 0.2, 1);
+    animation: lg-sheet-in var(--cmux-motion-micro) var(--cmux-ease-out);
   }
 }
 @keyframes lg-sheet-in {
@@ -1155,10 +1158,10 @@
   border: 1px solid color-mix(in srgb, var(--page-text-3) 24%, transparent);
   border-radius: var(--ds-radius-popup);
   background: color-mix(in srgb, var(--page-text-3) 8%, transparent);
+  /* A state change (failed, stalled) recolours it over standard; it never moves, so no transform. */
   transition:
-    background-color 180ms ease,
-    border-color 180ms ease,
-    transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+    background-color var(--cmux-motion-standard) var(--cmux-ease-out),
+    border-color var(--cmux-motion-standard) var(--cmux-ease-out);
 }
 .lg-goal-strip.failed {
   border-color: color-mix(in srgb, var(--hc-danger) 48%, transparent);
@@ -1390,6 +1393,40 @@
 .lg-run-block {
   margin: 0 0 var(--ds-space-2);
 }
+.lg-home-tool-group {
+  margin: 0 0 var(--ds-space-2);
+  border-inline-start: var(--lg-run-rail) solid var(--lg-line);
+  padding-inline-start: var(--ds-space-2);
+}
+.lg-home-tool-summary {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-2);
+  cursor: default;
+  color: var(--page-text);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.lg-home-tool-titles {
+  display: inline-flex;
+  min-width: 0;
+  flex: 1;
+  gap: var(--ds-space-2);
+  overflow: hidden;
+  color: var(--page-text-3);
+}
+.lg-home-tool-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lg-home-tool-title + .lg-home-tool-title::before {
+  content: "·";
+  margin-inline-end: var(--ds-space-2);
+}
+.lg-home-tool-details {
+  margin-block-start: var(--ds-space-1);
+}
 .lg-run-block.note {
   color: var(--page-text-2);
   font-size: var(--text-detail);
@@ -1618,14 +1655,9 @@
   border-radius: var(--ds-radius-control);
   background: transparent;
   color: var(--page-text-2);
-  opacity: 0;
-  transition: opacity 120ms ease-out;
 }
-.hc-att-file:hover .hc-att-download,
-.hc-att-video:hover .hc-att-download,
-.hc-att-download:focus-visible {
-  opacity: 1;
-}
+/* Shown on its card's hover or focus, or while it has focus: the shared reveal (ui/motion
+   .ui-reveal on the button, .ui-reveal-host on the card) fades it in over micro and out over quick. */
 .hc-att-download:hover {
   background: var(--lg-fill-strong);
 }
@@ -1738,7 +1770,7 @@
   display: block;
   height: 100%;
   background: var(--page-text-2);
-  transition: width 120ms linear;
+  transition: width var(--cmux-motion-micro) linear;
 }
 .hc-tray-remove {
   position: absolute;

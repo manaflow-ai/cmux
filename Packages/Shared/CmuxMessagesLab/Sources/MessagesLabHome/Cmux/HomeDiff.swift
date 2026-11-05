@@ -45,11 +45,18 @@ struct HomeDiff: Equatable {
     static func plan(old: [TranscriptItem], new: [TranscriptItem], oldSummary: ConversationSummary?,
                      newSummary: ConversationSummary?, aliases: [IdempotencyKey: ID], me: ParticipantID,
                      media: @escaping HomeMapping.Media = { _ in nil }, links: @escaping HomeMapping.Links = { _ in nil },
-                     handOff: Set<IdempotencyKey> = []) -> HomeDiff {
+                     handOff: Set<IdempotencyKey> = [], opening: Bool = false) -> HomeDiff {
         var d = HomeDiff()
         let oldIndex = Dictionary(old.enumerated().map { ($1.key, $0) }, uniquingKeysWith: { a, _ in a })
         let newKeys = Set(new.map(\.key))
         if old.contains(where: { !newKeys.contains($0.key) }) { d.rebuild = true; return d }
+        // The first page of a chat whose view opened before it came (a chat picked in the list) shows at
+        // once at its newest message, as Messages does: as receives its rows slid up into place, which
+        // reads as the chat scrolling to the bottom (the user, 2026-11-03). That holds for messages that
+        // arrive while the page is read too (`opening`). My own sends still fly in.
+        if old.isEmpty || opening, new.contains(where: { oldIndex[$0.key] == nil && aliases[$0.key] == nil }) {
+            d.rebuild = true; return d
+        }
         func id(_ i: TranscriptItem) -> ID { HomeMapping.id(i, aliases: aliases) }
         let roots = HomeMapping.roots(in: new, aliases: aliases, summary: newSummary, media: media, links: links)
         let oldRoots = HomeMapping.roots(in: old, aliases: aliases, summary: oldSummary, media: media, links: links)
@@ -152,7 +159,11 @@ struct HomeDiff: Equatable {
     /// Actions for one shown message; false when MessagesLab cannot express it.
     private static func changes(from o: TranscriptItem, to n: TranscriptItem, oldSummary: ConversationSummary?,
                                 newSummary: ConversationSummary?, me: ParticipantID, id: ID, into d: inout HomeDiff) -> Bool {
-        if !o.isRetracted, n.isRetracted { d.actions.append(.unsend(id)); return true }
+        if !o.isRetracted, n.isRetracted {
+            // A Chief chat drops the row (Delete, #36019); elsewhere Messages' unsend note.
+            d.actions.append(HomeMapping.hidesRetracted(newSummary, me: me) ? .delete(id) : .unsend(id))
+            return true
+        }
         // MessagesLab's `.edit` replaces one text bubble: a text that shows as
         // several (Messages' link rule) before or after the edit is a rebuild.
         // Mapped only for an edit: mapping both sides of every shown row on each store change

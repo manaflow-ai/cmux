@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "bba25ef6c17ba6206fa161713567d0d998a15d4a2e1103681b3c5badc91feb87";
+pub const ir_sha256 = "4633d08bededb0f16f8bbc5de5cbbeb5f06e9d44a544162fa5efc76c6e47e3f7";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1316,6 +1316,36 @@ pub const Layout = union(enum) {
     }
 };
 
+pub const LayoutSizePaneWidth = struct {
+    pane: Id,
+    width: f32,
+};
+
+pub const LayoutSizeSplitRatio = struct {
+    ratio: f32,
+    split: Id,
+};
+
+pub const LayoutSizeValue = union(enum) {
+    layout_size_split_ratio: LayoutSizeSplitRatio,
+    layout_size_pane_width: LayoutSizePaneWidth,
+
+    pub const cmux_wire_custom_union = true;
+
+    pub fn cmuxEncode(self: @This(), allocator: std.mem.Allocator) !wire.Value {
+        return switch (self) {
+            .layout_size_split_ratio => |payload| try wire.encodeValue(allocator, payload),
+            .layout_size_pane_width => |payload| try wire.encodeValue(allocator, payload),
+        };
+    }
+
+    pub fn cmuxDecode(allocator: std.mem.Allocator, value: wire.Value) !@This() {
+        _ = allocator;
+        _ = value;
+        return error.AmbiguousUnion;
+    }
+};
+
 pub const LayoutUndoConfirmationRequired = struct {
     closes_panes: []const Id,
     confirmation_required: bool,
@@ -1672,6 +1702,12 @@ pub const ReadScrollbackResult = struct {
 pub const ReattachViewResult = struct {
     participant: []const u8,
     state: SizeState,
+};
+
+pub const RemoteHostAppResult = struct {
+    host_pid: u32,
+    secret: []const u8,
+    socket: []const u8,
 };
 
 pub const RenderCursor = struct {
@@ -2078,8 +2114,17 @@ pub const ServerStatsWritePath = struct {
     effect_intent_batches: u64,
     effect_intent_failures: u64,
     effect_intents: u64,
+    registry_wal_frame_bytes: ?u64 = null,
     request_effect_commits: u64,
+    wal_commits: ?u64 = null,
+    wal_synced_commits: ?u64 = null,
     writer_registry_locks: u64,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "registry_wal_frame_bytes",
+        "wal_commits",
+        "wal_synced_commits",
+    };
 };
 
 pub const ServerStatsWriterPhase = enum {
@@ -8100,6 +8145,79 @@ pub fn reloadConfig(client: anytype, request: ReloadConfigRequest) !wire.Decoded
     );
 }
 
+pub const RemoteHostAppRequest = struct {};
+
+pub fn remoteHostApp(client: anytype, request: RemoteHostAppRequest) !wire.Decoded(RemoteHostAppResult) {
+    return client.callTyped(
+        RemoteHostAppResult,
+        .{
+            .name = "remote-host-app",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "remote-host-v1",
+        },
+        request,
+    );
+}
+
+pub const RemoteHostCallRequest = struct {
+    method: []const u8,
+    params: wire.Field(JsonValue) = .absent,
+};
+
+pub const RemoteHostCallResult = JsonValue;
+
+pub fn remoteHostCall(client: anytype, request: RemoteHostCallRequest) !wire.Decoded(RemoteHostCallResult) {
+    return client.callTyped(
+        RemoteHostCallResult,
+        .{
+            .name = "remote-host-call",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "remote-host-v1",
+        },
+        request,
+    );
+}
+
+pub const RemoteHostConfigRequest = struct {
+    computer_use: wire.Field(bool) = .absent,
+    headless: wire.Field(bool) = .absent,
+    screen_sharing: wire.Field(bool) = .absent,
+};
+
+pub const RemoteHostConfigResult = JsonValue;
+
+pub fn remoteHostConfig(client: anytype, request: RemoteHostConfigRequest) !wire.Decoded(RemoteHostConfigResult) {
+    return client.callTyped(
+        RemoteHostConfigResult,
+        .{
+            .name = "remote-host-config",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "remote-host-v1",
+        },
+        request,
+    );
+}
+
+pub const RemoteHostStatusRequest = struct {};
+
+pub const RemoteHostStatusResult = JsonValue;
+
+pub fn remoteHostStatus(client: anytype, request: RemoteHostStatusRequest) !wire.Decoded(RemoteHostStatusResult) {
+    return client.callTyped(
+        RemoteHostStatusResult,
+        .{
+            .name = "remote-host-status",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "remote-host-v1",
+        },
+        request,
+    );
+}
+
 pub const RemoteTerminalSnapshotRequest = struct {
     surface: Id,
 };
@@ -8899,6 +9017,26 @@ pub fn setHostSizePolicy(client: anytype, request: SetHostSizePolicyRequest) !wi
             .authority = "control",
             .since = 12,
             .capability = "host-size-policy-v1",
+        },
+        request,
+    );
+}
+
+pub const SetLayoutSizesRequest = struct {
+    transaction: u64,
+    values: []const LayoutSizeValue,
+};
+
+pub const SetLayoutSizesResult = EmptyResult;
+
+pub fn setLayoutSizes(client: anytype, request: SetLayoutSizesRequest) !wire.Decoded(SetLayoutSizesResult) {
+    return client.callTyped(
+        SetLayoutSizesResult,
+        .{
+            .name = "set-layout-sizes",
+            .authority = "control",
+            .since = 12,
+            .capability = "layout-sizes-batch-v1",
         },
         request,
     );
@@ -11822,7 +11960,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 289;
+pub const command_count: usize = 294;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -12022,6 +12160,10 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "release-attached-view-size", .authority = "frontend", .since = 10, .capability = "view-attachment-lease-v1", .stream = null },
     .{ .name = "release-surface-size", .authority = "control", .since = 7, .capability = null, .stream = null },
     .{ .name = "reload-config", .authority = "control", .since = 6, .capability = null, .stream = null },
+    .{ .name = "remote-host-app", .authority = "local-admin", .since = 12, .capability = "remote-host-v1", .stream = null },
+    .{ .name = "remote-host-call", .authority = "local-admin", .since = 12, .capability = "remote-host-v1", .stream = null },
+    .{ .name = "remote-host-config", .authority = "local-admin", .since = 12, .capability = "remote-host-v1", .stream = null },
+    .{ .name = "remote-host-status", .authority = "local-admin", .since = 12, .capability = "remote-host-v1", .stream = null },
     .{ .name = "remote-terminal-snapshot", .authority = "control", .since = 12, .capability = "remote-terminal-tabs-v1", .stream = null },
     .{ .name = "remove-screens-from-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
     .{ .name = "remove-tabs-from-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
@@ -12056,6 +12198,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "set-default-colors", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "set-frontend-browser-history", .authority = "control", .since = 12, .capability = "frontend-browser-history-v1", .stream = null },
     .{ .name = "set-host-size-policy", .authority = "control", .since = 12, .capability = "host-size-policy-v1", .stream = null },
+    .{ .name = "set-layout-sizes", .authority = "control", .since = 12, .capability = "layout-sizes-batch-v1", .stream = null },
     .{ .name = "set-personal-terminal", .authority = "control", .since = 12, .capability = "personal-terminals-v1", .stream = null },
     .{ .name = "set-personal-workspace", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "set-profile-follows", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },

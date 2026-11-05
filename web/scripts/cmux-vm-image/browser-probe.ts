@@ -24,6 +24,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEVBOX_WORK_USER } from "../../services/vms/images/workUser";
+import { aptUpdateCommand } from "./apt-update";
 import { argValue, createVm, deleteVm, firstExec, freestyleClient, Ledger, run, type Vm } from "./guest";
 import { aptClosureProblems, DEFAULT_LOCK_PATH, programInstallCommand, readInputsLock, type RoleManifestEntry, ROLES_MANIFEST_PATH, rolesManifest, type RolesManifest, sq } from "./lock";
 
@@ -57,9 +58,10 @@ function snapshotAptOptions(): string {
 export const EXEC_LIMIT_MS = 290_000;
 
 /**
- * The first-use install of one role (as root), as ordered phases (one exec each): the exact apt
- * closure from the snapshot (prints `ADDED<TAB>name<TAB>version` per package it added), then each
- * first-use program into its store entry.
+ * The first-use install of one role (as root), as ordered phases (one exec each): the apt index
+ * from the snapshot (with the base image's fallback to the public archive when the snapshot mirror
+ * is down, aptUpdateCommand), the exact apt closure (prints `ADDED<TAB>name<TAB>version` per
+ * package it added), then each first-use program into its store entry.
  */
 export function firstUseInstallPhases(manifest: RolesManifest, role: string): Array<{ name: string; command: string }> {
   const entry = manifest.roles[role];
@@ -67,16 +69,19 @@ export function firstUseInstallPhases(manifest: RolesManifest, role: string): Ar
   const pins = Object.entries(closure).sort(([a], [b]) => a.localeCompare(b)).map(([n, v]) => sq(`${n}=${v}`)).join(" ");
   const sources = Buffer.from(manifest.aptSources).toString("base64");
   const dpkg = "dpkg-query -W -f='${Package}\\t${Version}\\n' | LC_ALL=C sort";
-  const apt = [
+  const update = [
     `mkdir -p ${APT_DIR}/lists/partial ${APT_DIR}/parts`,
     `printf '%s' ${sq(sources)} | base64 -d > ${APT_DIR}/snapshot.sources`,
+    `{ ${aptUpdateCommand({ aptArgs: snapshotAptOptions(), log: `${APT_DIR}/update.log`, sources: `${APT_DIR}/snapshot.sources`, saved: `${APT_DIR}/snapshot.sources.unavailable` })}; }`,
+  ].join(" && ");
+  const apt = [
     `${dpkg} > ${APT_DIR}/before.tsv`,
-    `{ apt-get ${snapshotAptOptions()} update -q >${APT_DIR}/update.log 2>&1 || { tail -20 ${APT_DIR}/update.log; false; }; }`,
     `{ DEBIAN_FRONTEND=noninteractive apt-get ${snapshotAptOptions()} install -y --no-install-recommends ${pins} >${APT_DIR}/install.log 2>&1 || { tail -30 ${APT_DIR}/install.log; false; }; }`,
     `${dpkg} > ${APT_DIR}/after.tsv`,
     `LC_ALL=C comm -13 ${APT_DIR}/before.tsv ${APT_DIR}/after.tsv | sed 's/^/ADDED\\t/'`,
   ].join(" && ");
   return [
+    { name: "apt-update", command: update },
     { name: "apt-install", command: apt },
     ...entry.programs.map((p) => ({ name: `program-${p.name}`, command: `{ ${programInstallCommand(p)}; } >/tmp/cmux-dl-${p.name}.log 2>&1 || { tail -20 /tmp/cmux-dl-${p.name}.log; false; }` })),
   ];

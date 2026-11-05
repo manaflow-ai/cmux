@@ -60,9 +60,15 @@ export function peerLinkFailure(error: unknown): PeerLinkFailure | undefined {
 }
 
 /// Whether a failure of the chat's machine link is said after it has lasted `failingForMs`: never
-/// while the machine is slow or restarting, else once it has been unreachable past
+/// while the machine is slow, restarting or asleep, else once it has been unreachable past
 /// ``PEER_LINK_DEADLINE_MS``.
-export function peerLinkFailureShows(failure: PeerLinkFailure, failingForMs: number): boolean {
+///
+/// `asleep`: the account says the machine is a Cloud machine that is paused or resuming
+/// (cloudMachines.ts `cloudMachineAsleep`). That is not a machine that is gone: it is never said,
+/// however long it lasts, since a send wakes it (Cloud machines pause on their own when idle and
+/// between tool calls, cmux-platform docs/agent-turn-sleep.md).
+export function peerLinkFailureShows(failure: PeerLinkFailure, failingForMs: number, asleep = false): boolean {
+  if (asleep) return false;
   if (failure.peerState && SLOW_PEER_STATES.has(failure.peerState)) return false;
   return failingForMs >= PEER_LINK_DEADLINE_MS;
 }

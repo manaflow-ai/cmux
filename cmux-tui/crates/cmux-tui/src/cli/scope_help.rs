@@ -42,11 +42,13 @@ USAGE
   cmux notification list [--limit <1..256>]
   cmux notification create --title <value> --body <value> [--subtitle <value>]
     [--level info|warning|error] [--terminal <term_id> | --workspace <ws_id>]
-  cmux notification clear [--terminal <term_id> | --workspace <ws_id>]
+  cmux notification clear [--terminal <term_id> | --workspace <ws_id> |
+    --notification <notification_id>]
   cmux notification ack --client <id> <notification_id>...
 
-clear without --terminal or --workspace clears every notification of the
-session; --workspace clears that workspace's rows and those of its terminals. `cmux
+clear without a scope clears every notification of the session;
+--workspace clears that workspace's rows and those of its terminals;
+--notification clears that one row. `cmux
 notify` takes the flags of the macOS `cmux notify` (`cmux notify --help`).
 ";
 

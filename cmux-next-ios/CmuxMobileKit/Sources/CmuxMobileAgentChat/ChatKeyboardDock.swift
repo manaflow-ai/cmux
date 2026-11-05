@@ -27,6 +27,9 @@ protocol ChatTranscriptScrolling: AnyObject {
     /// Find in Chat: brings the transcript row that draws the block `findBlock` (an
     /// `AgentChatFind` key) under the header, at `position` (0...1) of its height.
     func revealFindBlock(_ findBlock: String, position: Double, animated: Bool)
+    /// Previous/Next Turn: the turn being read among `turnIDs` (its index) and whether its
+    /// prompt is scrolled above the top of the view.
+    func readingTurn(among turnIDs: [String]) -> (index: Int, aboveTop: Bool)?
 }
 
 /// The agent chat transcript as a UIKit scroll view with a keyboard-docked
@@ -138,7 +141,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         // A tapped disclosure in a row holds its line while it opens or closes (DisclosureReveal).
         list.context.foldHold = TranscriptFoldHold(
             begin: { [weak self] in self?.holdForDisclosure() },
-            end: { [weak self] in self?.endFoldHold() }
+            end: { [weak self] in self?.endFoldHold() },
+            swap: { [weak self] in self?.list.showSettlingRows() },
+            resize: { [weak self] in self?.list.resizeForFold() }
         )
         if let dock {
             dockHost?.rootView = Self.measuring(dock, alignment: .bottom) { _ in }
@@ -206,6 +211,10 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         view.addLayoutGuide(dockGuide)
         view.addLayoutGuide(openArea)
 
+        // The person's own text size changed: a chat's zoom steps from the new size.
+        registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (controller: ChatTranscriptController, _: UITraitCollection) in
+            if let display = controller.appliedDisplay { controller.applyDisplay(display) }
+        }
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.contentInsetAdjustmentBehavior = .never
         scrollView.keyboardDismissMode = .interactive
@@ -777,6 +786,43 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         scroll(to: target, animated: animated)
     }
 
+    /// Text and Width (per chat): the text size the transcript's rows draw at, and its column.
+    /// The size is a trait override on the transcript only, so the rows (native and SwiftUI)
+    /// lay out again at it, and the rest of the app keeps the person's own size.
+    func applyDisplay(_ display: ChatDisplaySettings) {
+        appliedDisplay = display
+        let system = traitCollection.preferredContentSizeCategory
+        // Reading an override that was never set raises (UIKit asserts): the category applied is kept here.
+        let category = display.category(system: system)
+        if category != appliedCategory {
+            appliedCategory = category
+            if let category {
+                scrollView.traitOverrides.preferredContentSizeCategory = category
+            } else if scrollView.traitOverrides.contains(UITraitPreferredContentSizeCategory.self) {
+                scrollView.traitOverrides.remove(UITraitPreferredContentSizeCategory.self)
+            }
+        }
+        list.setColumnCap(display.fullWidth ? nil : ChatDisplaySettings.standardColumn)
+    }
+
+    /// The last display applied, again when the person's own text size changes under it.
+    private var appliedDisplay: ChatDisplaySettings?
+    /// The text size override set on the transcript (nil: none).
+    private var appliedCategory: UIContentSizeCategory?
+
+    /// The prompt row of the turn being read: the last one whose top is at or above the top of
+    /// what shows under the header (the Mac's minimap "current turn"). `turnIDs` in order.
+    func readingTurn(among turnIDs: [String]) -> (index: Int, aboveTop: Bool)? {
+        let headerBottom = topInset ?? view.safeAreaInsets.top
+        let visibleTop = scrollView.contentOffset.y + headerBottom + Self.findBarClearance
+        var found: (Int, Bool)?
+        for (index, id) in turnIDs.enumerated() {
+            guard let top = list.layout.top(of: "u-\(id)") else { continue }
+            if top <= visibleTop + 1 { found = (index, top < visibleTop - 1) } else { break }
+        }
+        return found
+    }
+
     func revealFindBlock(_ findBlock: String, position: Double, animated: Bool) {
         let id = ChatTranscriptList.rowID(findBlock: findBlock)
         list.layOutNow(id)
@@ -951,6 +997,8 @@ struct ChatTranscriptRepresentable: UIViewControllerRepresentable {
         controller.isEmpty = isEmpty
         controller.update(store: store, empty: empty, dock: dock, jump: jump)
         configureRows(controller.rowContext)
+        // Read here so SwiftUI calls update when the chat's Text and Width change.
+        controller.applyDisplay(ChatDisplayPreferences.shared.settings(for: store.summary))
     }
 }
 

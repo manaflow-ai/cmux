@@ -7,7 +7,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity } from "../model";
 import { acpmuxSendCall } from "./acpmuxSends";
-import { toolGroups } from "./toolGroups";
+import { sendEntries, toolGroups } from "./toolGroups";
 import { AcpmuxSendLine, configureSentLook } from "./SentMessageLine";
 import { configureMessageLineLook } from "./messageLineLook";
 import { resetTranscriptDisclosure } from "./transcriptDisclosure";
@@ -101,9 +101,7 @@ test("a sent message reads its target, how it was taken and its first line, and 
     }),
   );
   const row = container.querySelector<HTMLButtonElement>(".cv-sent")!;
-  // Stacked (the default): the line holds who and how; the first line is on its own line under it.
-  expect(row.textContent).toBe("Sent to coord-deputy queued");
-  expect(container.querySelector(".cv-sent__below")?.textContent).toBe("Merged #4182");
+  expect(row.textContent).toBe("Sent to coord-deputy Merged #4182 queued");
   expect(row.dataset.sendState).toBe("sent");
   expect(row.classList.contains("is-live")).toBe(false);
   expect(row.getAttribute("aria-expanded")).toBe("false");
@@ -112,7 +110,7 @@ test("a sent message reads its target, how it was taken and its first line, and 
   expect(container.querySelector(".cv-subsession__under h2")?.textContent).toBe("Merged #4182");
   // Open, the message shows once: under the row, not again as the row's first line.
   expect(row.textContent).toBe("Sent to coord-deputy queued");
-  expect(container.querySelector(".cv-sent__below")).toBeNull();
+  expect(row.querySelector(".cv-sent__preview")).toBeNull();
   // The command stays one more click away, behind Raw.
   expect(container.querySelector(".cv-shell")).toBeNull();
   await act(async () => container.querySelector<HTMLButtonElement>(".cv-subsession__toggle")!.click());
@@ -136,9 +134,9 @@ test("closing the row brings its first line back", async () => {
   const container = await line(bash("acpmux send --no-wait coord-deputy 'Restore base.'", { output: "queued" }));
   const row = container.querySelector<HTMLElement>(".cv-sent")!;
   await act(async () => row.click());
-  expect(container.querySelector(".cv-sent__below")).toBeNull();
+  expect(row.textContent).toBe("Sent to coord-deputy queued");
   await act(async () => row.click());
-  expect(container.querySelector(".cv-sent__below")?.textContent).toBe("Restore base.");
+  expect(row.textContent).toBe("Sent to coord-deputy Restore base. queued");
 });
 
 test("the quote look drops its quoted line while the row is open", async () => {
@@ -157,15 +155,14 @@ test("the quote look drops its quoted line while the row is open", async () => {
 test("in flight it is live, with the spinner", async () => {
   const running = await line(bash("acpmux send lane 'status?'", { status: "in_progress" }));
   const row = running.querySelector<HTMLButtonElement>(".cv-sent")!;
-  expect(row.textContent).toBe("Sending to lane");
-  expect(running.querySelector(".cv-sent__below")?.textContent).toBe("status?");
+  expect(row.textContent).toBe("Sending to lane status?");
   expect(row.classList.contains("is-live")).toBe(true);
   expect(row.querySelector(".cv-tool__icon svg")).not.toBeNull();
 });
 
 test("a send whose text comes from a file names its target and the file", async () => {
   const unknown = await line(bash(`acpmux send reports:leo "$(cat /tmp/summary.md)"`, { output: "" }));
-  expect(unknown.querySelector(".cv-sent")!.textContent).toBe("Sent to reports:leo");
+  expect(unknown.querySelector(".cv-sent")!.textContent).toBe("Sent to reports:leo /tmp/summary.md");
   expect(unknown.querySelector(".cv-sent__file")?.textContent).toBe("/tmp/summary.md");
 });
 
@@ -200,8 +197,7 @@ test("a compound command's send says the other work, which stays behind Raw", as
     }),
   );
   const row = container.querySelector<HTMLElement>(".cv-sent")!;
-  expect(row.textContent).toBe("Sent to coord-deputy · and 2 more commands queued");
-  expect(container.querySelector(".cv-sent__below")?.textContent).toBe("Restore base.");
+  expect(row.textContent).toBe("Sent to coord-deputy · and 2 more commands Restore base. queued");
   await act(async () => row.click());
   await act(async () => container.querySelector<HTMLButtonElement>(".cv-subsession__toggle")!.click());
   expect(container.querySelector(".cv-shell")?.textContent).toContain("git fetch -q");
@@ -255,8 +251,7 @@ test("a send the call does not say went reads only who it was for", async () => 
   );
   const row = container.querySelector<HTMLElement>(".cv-sent")!;
   expect(row.dataset.sendState).toBe("ended");
-  expect(row.textContent).toBe("Message to lane · and 2 more commands");
-  expect(container.querySelector(".cv-sent__below")?.textContent).toBe("Pushed.");
+  expect(row.textContent).toBe("Message to lane · and 2 more commands Pushed.");
 });
 
 test("a batch's message names its recipient and the file its words came from; opening one shows the whole shell body at once", async () => {
@@ -264,7 +259,7 @@ test("a batch's message names its recipient and the file its words came from; op
     'cd /tmp/coord; s(){ acpmux send --no-wait --from coord "$1" "$(cat "$2")" 2>&1 | tail -1; }; s nightly escalate.md; s owner relay.md';
   const tool = bash(command, { output: "queued\nqueued" });
   const groups = toolGroups([{ kind: "tool", text: tool.title, tool }]);
-  const sends = groups.map((group) => (group.type === "send" ? group.send : undefined)!);
+  const sends = sendEntries(groups).map((group) => group.send);
   const container = await render(
     <>
       {sends.map((send) => (
@@ -273,11 +268,11 @@ test("a batch's message names its recipient and the file its words came from; op
     </>,
   );
   const rows = [...container.querySelectorAll<HTMLElement>(".cv-sent")];
-  expect(rows.map((row) => row.textContent)).toEqual(["Sent to nightly queued", "Sent to owner queued"]);
-  expect([...container.querySelectorAll(".cv-sent__below .cv-sent__file")].map((file) => file.textContent)).toEqual([
-    "escalate.md",
-    "relay.md",
+  expect(rows.map((row) => row.textContent)).toEqual([
+    "Sent to nightly escalate.md queued",
+    "Sent to owner relay.md queued",
   ]);
+  expect(rows[0]!.querySelector(".cv-sent__file")?.textContent).toBe("escalate.md");
   // Each message opens on its own.
   await act(async () => rows[1]!.click());
   expect(rows[0]!.getAttribute("aria-expanded")).toBe("false");
@@ -307,8 +302,7 @@ test("a send of a file the agent wrote with Write opens to that message rendered
   const send = groups.flatMap((group) => (group.type === "send" ? [group.send] : []))[0]!;
   const container = await render(<AcpmuxSendLine tool={tool} send={send} />);
   const row = container.querySelector<HTMLElement>(".cv-sent")!;
-  // Shut, the message's first line is its own line under the row (messageLineLook.ts, stacked).
-  expect(container.querySelector(".cv-sent__below")?.textContent).toContain("Composer");
+  expect(row.textContent).toContain("Composer");
   await act(async () => row.click());
   expect(container.querySelector(".cv-subsession__markdown h2")?.textContent).toBe("Composer");
   expect(container.querySelector(".cv-subsession__markdown strong")?.textContent).toBe("ship");
@@ -317,35 +311,20 @@ test("a send of a file the agent wrote with Write opens to that message rendered
   expect(container.querySelector(".cv-subsession__toggle")).not.toBeNull();
 });
 
-test("the chip and count stay on the line and the first line goes under it; opened, Copy and Raw sit under the message", async () => {
-  // Leo said yes (2026-11-02) to splitting "Sent to gcp-codex-swarm-10/spinner-chatgpt · and 5 more
-  // commands claude-sr2-coord: Leo's answer (v…" into the target and count, then the preview below.
-  const container = await line(
-    bash("cd ~/wt && git fetch -q && acpmux send --no-wait coord-deputy 'Restore base, then report.'; date", {
-      output: "queued",
-    }),
-  );
-  const row = container.querySelector<HTMLElement>(".cv-sent")!;
-  expect(row.querySelector(".cv-sent__preview")).toBeNull();
-  // No Copy beside the chevron.
-  expect(row.querySelector(".cv-sent-actions")).toBeNull();
-  const below = container.querySelector<HTMLElement>(".cv-sent__below")!;
-  expect(below.previousElementSibling).toBe(row);
-  // The first line toggles the row as the line does.
-  await act(async () => below.click());
-  expect(row.getAttribute("aria-expanded")).toBe("true");
-  const actions = container.querySelector(".cv-subsession__under .cv-subsession__actions")!;
-  expect(actions.querySelector(".cv-sent-actions")).not.toBeNull();
-  expect(actions.querySelector(".cv-subsession__toggle")?.textContent).toContain("Raw");
-});
-
-test("the single look keeps the one line from before", async () => {
-  configureMessageLineLook("single");
+test("the default keeps the chip, the count and the first line on one line; stacked is a gallery look", async () => {
+  // Leo, 2026-11-03, on the stacked rows (#33249): "i don't think these subtitles are as good as just
+  // doing it directly in the same line".
+  const tell = bash("acpmux send --no-wait coord-deputy 'Restore base, then report.'", { output: "queued" });
+  const inline = await line(tell);
+  const row = inline.querySelector<HTMLElement>(".cv-sent")!;
+  expect(row.textContent).toBe("Sent to coord-deputy Restore base, then report. queued");
+  expect(inline.querySelector(".cv-sent__below")).toBeNull();
+  configureMessageLineLook("stacked");
   try {
-    const container = await line(bash("acpmux send --no-wait coord-deputy 'Restore base.'", { output: "queued" }));
-    expect(container.querySelector(".cv-sent")!.textContent).toBe("Sent to coord-deputy Restore base. queued");
-    expect(container.querySelector(".cv-sent__below")).toBeNull();
+    const stacked = await line(tell);
+    expect(stacked.querySelector(".cv-sent")!.textContent).toBe("Sent to coord-deputy queued");
+    expect(stacked.querySelector(".cv-sent__below")?.textContent).toBe("Restore base, then report.");
   } finally {
-    await act(async () => configureMessageLineLook("stacked"));
+    await act(async () => configureMessageLineLook("single"));
   }
 });

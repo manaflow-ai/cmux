@@ -66,6 +66,11 @@ protocol ChatIntents: AnyObject {
     func retryChiefTurn(_ message: ID)
     /// Delete: the failed send goes (`HomeStore.discardFailed`).
     func deleteFailedSend(_ message: ID)
+    /// My committed message in a Chief chat can be deleted (#36019).
+    func canDeleteMessage(_ message: ID) -> Bool
+    /// Delete: the message leaves the transcript at once and its owner
+    /// retracts it; the Chief's memory keeps only its tombstone.
+    func deleteMessage(_ message: ID)
     /// Forward… is offered (the host routes a bubble's text to another chat).
     var canForward: Bool { get }
     /// Forward…: the bubble's text goes to another chat or agent the host asks for.
@@ -85,7 +90,7 @@ protocol ChatIntents: AnyObject {
     func openVideo(_ ref: PartRef, _ attachment: ID)
     /// A click on an agent-message fold's row: its messages show in full, or fold again.
     func toggleAgentMessages(_ group: String)
-    /// A click on the row of message `message`: an agent-message fold or notes row opens or closes
+    /// A click on the row of message `message`: an agents row opens or closes
     /// (true); false for every other row, which keeps its own click.
     func agentRowClicked(_ message: ID) -> Bool
     /// What a click on the row of message `message` opens when it is a Feed row; nil for every other row.
@@ -110,6 +115,9 @@ extension ChatIntents {
     /// No Forward… unless the host routes it (test hosts, the New Message composer).
     var canForward: Bool { false }
     func forward(_ text: String) {}
+    /// Hosts without a Chief chat delete no committed message.
+    func canDeleteMessage(_ message: ID) -> Bool { false }
+    func deleteMessage(_ message: ID) {}
     /// Hosts without a Chief control path do not expose turn retry.
     func canRetryChiefTurn(_ message: ID) -> Bool { false }
     func retryChiefTurn(_ message: ID) {}

@@ -41,6 +41,7 @@ on:
     paths:
       - "cmux-tui/crates/cmux-app-ffi/**"
       - "cmux-tui/crates/cmux-bookmarks-core/**"
+      - "cmux-tui/crates/cmux-cloud-config/**"
       - "cmux-tui/crates/cmux-cloud-start-core/**"
       - "cmux-tui/crates/cmux-focus-core/**"
       - "cmux-tui/crates/cmux-imessage/**"
@@ -58,9 +59,13 @@ on:
       - ".github/workflows/app-ffi-release.yml"
   workflow_dispatch:
 
-concurrency:
-  group: app-ffi-release-${{ github.ref }}
-  cancel-in-progress: false
+# No run-level group: with one (cancel-in-progress: false) a newer FFI push
+# waited for the whole older run, publish and re-pin included, before its own
+# build started, while the older pin could no longer land (#36262). Now the
+# build job's own group cancels an older build. An older run already past its
+# build still publishes (its tag is its own, never overwritten); its re-pin
+# finishes long before the newer build does, and the app-ffi-repin group runs
+# the re-pins one at a time on the same pull request.
 
 permissions: {}
 
@@ -77,6 +82,12 @@ jobs:
     # variable takes the Blacksmith label as before.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NEXT_PROMOTE_POOL != '' && github.event_name == 'push' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 45
+    # A newer push or dispatch on the same ref cancels this build: its pin
+    # could never land once newer FFI sources are on the base
+    # (check-app-ffi-pin.sh fails it).
+    concurrency:
+      group: app-ffi-release-build-${{ github.ref }}
+      cancel-in-progress: true
     permissions:
       contents: read
     outputs:
@@ -84,10 +95,15 @@ jobs:
       checksum: ${{ steps.assemble.outputs.checksum }}
       workflow_changed: ${{ steps.workflow-delta.outputs.changed }}
     steps:
+      # Treeless: every commit and ref the workflow-delta step needs (merge-base,
+      # tags merged into HEAD), but trees and blobs only for HEAD; the few the
+      # diffs below read are fetched on demand. The full clone of every ref took
+      # 5 to 10 minutes of a 7 to 15 minute build; treeless takes about one.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           fetch-depth: 0
+          filter: tree:0
 
       # A new tag whose tree differs in .github/workflows from what GitHub
       # compares a new ref with needs a token with workflows:write. GitHub
@@ -346,6 +362,12 @@ jobs:
     if: github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 15
+    # Never cancelled. Two runs of one commit (a push and a dispatch, or two
+    # dispatches) publish one at a time, so the second sees the first's
+    # release and checks its checksum instead of losing the create race.
+    concurrency:
+      group: app-ffi-release-publish-${{ github.sha }}
+      cancel-in-progress: false
     # Holds the FFI release App credentials; its deployment policy admits only
     # feat-cmux-next. GITHUB_TOKEN stays read-only: the release create uses
     # the App token below and nothing else does.

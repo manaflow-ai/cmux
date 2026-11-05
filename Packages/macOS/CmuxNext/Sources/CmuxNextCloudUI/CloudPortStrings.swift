@@ -118,4 +118,16 @@ public struct CloudPortStrings {
     public static var noPreviews: String {
         String(localized: "cloud.ports.noPreviews", defaultValue: "No live previews are available yet. Try again when the machine's web server is ready.", table: "CloudPorts", bundle: .module)
     }
+
+    public static var previewLinkCopied: String {
+        String(localized: "cloud.ports.previewLinkCopied", defaultValue: "Preview link copied", table: "CloudPorts", bundle: .module)
+    }
+
+    public static var previewLinkRevoked: String {
+        String(localized: "cloud.ports.previewLinkRevoked", defaultValue: "Preview link revoked", table: "CloudPorts", bundle: .module)
+    }
+
+    public static var previewLinkAlreadyRevoked: String {
+        String(localized: "cloud.ports.previewLinkAlreadyRevoked", defaultValue: "Preview link was already revoked", table: "CloudPorts", bundle: .module)
+    }
 }

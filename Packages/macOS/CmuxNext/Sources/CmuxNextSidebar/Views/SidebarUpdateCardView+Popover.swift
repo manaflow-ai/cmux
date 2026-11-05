@@ -29,7 +29,7 @@ extension SidebarUpdateCardView {
         let host = notesHost
         wireNotes(highlights)
         host.adopt(highlights)
-        host.fit(height: notesHeight(for: highlights.contentHeight))
+        host.fit(height: notesHeight(for: highlights.contentHeight), width: highlights.contentWidth)
         let anchor = window.convertToScreen(convert(bounds, to: nil))
         let body = HoverCardBody(view: host, placement: .beside, themeAnchor: self, applyTheme: {})
         cards.presentOwned(Self.notesID, body: body, anchor: anchor, parent: window, interactive: true) { [weak self] in
@@ -47,7 +47,8 @@ extension SidebarUpdateCardView {
         parkHighlights()
     }
 
-    /// Menu width: the popover type every cmux popover uses (320-360 pt).
+    /// Menu width: the popover type every cmux popover uses (320-360 pt). The most it gets: a short
+    /// popover (no change list) is as wide as its lines (Leo 2026-11-03: "stretched out wasted space").
     static var popoverWidth: CGFloat { 340 }
 
     /// The popup is at most this share of its window's height; the page scrolls inside it.
@@ -81,7 +82,7 @@ extension SidebarUpdateCardView {
         notesDismissedWhileHovered = false
         if notesAreShown, let highlights, highlights.contentHeight > 0 {
             cancelNotesClose()
-            notesHost.fit(height: notesHeight(for: highlights.contentHeight))
+            notesHost.fit(height: notesHeight(for: highlights.contentHeight), width: highlights.contentWidth)
             hoverCards()?.refitOwned(Self.notesID)
         } else {
             showNotes()
@@ -115,7 +116,7 @@ extension SidebarUpdateCardView {
         notesHost.onPointerEnter = { [weak self] in self?.cancelNotesClose() }
         highlights.onHeightChange = { [weak self, weak highlights] in
             guard let self, let highlights, highlights.contentHeight > 0 else { return }
-            self.notesHost.fit(height: self.notesHeight(for: highlights.contentHeight))
+            self.notesHost.fit(height: self.notesHeight(for: highlights.contentHeight), width: highlights.contentWidth)
             self.hoverCards()?.refitOwned(Self.notesID)
         }
     }

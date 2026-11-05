@@ -229,7 +229,10 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 )
                 .with_target(false)
                 .init();
-            crate::qos::enter(crate::qos::Role::Daemon);
+            // With `store.journal` on, an acknowledged reply waits on the journal's sync, which a
+            // utility disk tier throttles 15-30x under another app's disk work (STATUS 11554):
+            // the daemon stays at the default tier, and only its background threads yield.
+            crate::qos::enter_daemon(crate::config::store_journal_enabled());
             let result = crate::daemon::run(DaemonOptions {
                 ws_listen: listen,
                 ws_token: token,
@@ -263,8 +266,9 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             }
             // The daemon has stopped its agents and synced its store. Exit
             // now rather than wait for the runtime to drain blocking tasks
-            // (a launcher `--version` check can take 20 s).
-            std::process::exit(0)
+            // (a launcher `--version` check can take 20 s); 74 when its store
+            // asked for a restart (`daemon::EXIT_REPAIR`).
+            std::process::exit(crate::daemon::exit_status())
         }
         Some(Command::CliAgent {
             last_block,

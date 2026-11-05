@@ -171,17 +171,18 @@ final class BrowserHibernation {
         NeighborTabs.radius(setting: setting.neighborRadius, pressure: pressure, lowPower: lowPower.isEnabled)
     }
 
-    /// Starts following memory pressure (`memoryPressure`; event-driven, no polling). Each level arrives
-    /// on the main actor and `stop()` cancels the registration at once, so none lands after `stop()`.
+    /// Reads the memory pressure level now (the kernel sends no event for the level the app starts under), then
+    /// follows each change (`memoryPressure`; event-driven, no polling). Each level arrives on the main actor and
+    /// `stop()` cancels the registration at once, so none lands after `stop()`.
     func start() {
         guard pressureObservation == nil else { return }
-        pressureObservation = memoryPressure.observe { [weak self] pressure in
-            self?.pressureDidChange(pressure)
-        }
+        pressureObservation = memoryPressure.observe { [weak self] pressure in self?.pressureDidChange(pressure) }
+        memoryPressure.refresh()
         lowPowerObservation = lowPower.observe { [weak self] _ in self?.refreshNeighbors() }
     }
 
     func stop() {
+        agentPages?.pages.stop()
         settingsObservation?.cancel()
         pressureObservation?.cancel()
         pressureObservation = nil

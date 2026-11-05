@@ -45,18 +45,3 @@ public struct CloudMachineLimits: Sendable, Hashable, Decodable {
         lockedMemoryOptionsMb = try? c.decodeIfPresent([Int].self, forKey: .lockedMemoryOptionsMb)
     }
 }
-
-/// `GET /api/vm`'s body. A `limits` this client cannot read drops the cap,
-/// never the machine list.
-struct CloudMachineList: Decodable {
-    var vms: [CloudMachine]
-    var limits: CloudMachineLimits?
-
-    enum CodingKeys: String, CodingKey { case vms, limits }
-
-    init(from decoder: any Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        vms = try c.decode([CloudMachine].self, forKey: .vms)
-        limits = (try? c.decodeIfPresent(CloudMachineLimits.self, forKey: .limits)) ?? nil
-    }
-}

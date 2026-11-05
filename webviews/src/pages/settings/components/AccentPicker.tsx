@@ -2,6 +2,7 @@
 // accent's swatch and name at the theme pickers' one width, and the list shows every choice with the
 // color it gives the current app theme, the checkmark on the right like the theme list's.
 import { useEffect, useState } from "react";
+import { Button } from "../../../ui/Button";
 import { Listbox } from "../../../ui/Listbox";
 import { Popover } from "../../../ui/Popover";
 import { Icon } from "../icons";
@@ -47,7 +48,7 @@ export function AccentPicker({
   onPick(value: string): void | Promise<unknown>;
 }) {
   const [open, setOpen] = useState(false);
-  const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const chosen = choices.find((choice) => choice.value === value) ?? choices[0];
   // Disabled while open (the key became managed, the host disconnected) closes it too.
   useEffect(() => {
@@ -55,7 +56,7 @@ export function AccentPicker({
   }, [disabled, open]);
   return (
     <>
-      <button
+      <Button
         ref={setAnchor}
         type="button"
         className="button theme-button"
@@ -69,7 +70,7 @@ export function AccentPicker({
         {chosen && <Swatch choice={chosen} />}
         <span className="theme-button-name">{chosen?.label ?? value}</span>
         <Icon name="chevron" />
-      </button>
+      </Button>
       <Popover
         open={open && !disabled}
         onOpenChange={setOpen}

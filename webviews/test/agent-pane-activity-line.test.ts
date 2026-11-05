@@ -106,7 +106,8 @@ await requireBrowserLane("agent-pane-activity-line.test.ts", async () => {
   const open = async (statusOn: boolean): Promise<Page> => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.goto(url());
-    await page.locator(".cv-plan").waitFor();
+    // The running list is in the hat by default, pinned once the toggle is on (App.tsx `planInHat`).
+    await page.locator(".cv-plan, .acpmux-running-tray__head").first().waitFor();
     await page.evaluate(
       (on) =>
         (
@@ -145,7 +146,7 @@ await requireBrowserLane("agent-pane-activity-line.test.ts", async () => {
       const warm = await browser.newPage();
       try {
         await warm.goto(url());
-        await warm.locator(".cv-plan").waitFor({ timeout: 25_000 });
+        await warm.locator(".cv-plan, .acpmux-running-tray__head").first().waitFor({ timeout: 25_000 });
         await warm.close();
         break;
       } catch (error) {

@@ -53,9 +53,7 @@ await requireBrowserLane("transcript-system-rows.test.ts", async () => {
     await vite?.close();
   });
 
-  /** `below`: the height of the message's first line under its row (messageLineLook.ts `stacked`,
-   * pinned by rowEstimates.test.ts), which the pitch to the next row adds; 0 for any other row. */
-  type Mark = { name: string; centre: number; left: number; below: number } | null;
+  type Mark = { name: string; centre: number; left: number } | null;
   type Measured = { marks: Mark[]; bare: string[]; rows: string[] };
 
   /** The rows in the capture's order: each mark is the first glyph line of the text named. */
@@ -89,13 +87,7 @@ await requireBrowserLane("transcript-system-rows.test.ts", async () => {
           range.setStart(node, at);
           range.setEnd(node, at + text.length);
           const rect = [...range.getClientRects()].find((each) => each.width > 0 && each.height > 0);
-          if (!rect) continue;
-          const first = node.parentElement
-            .closest(".acpmux-row")
-            ?.querySelector(".cv-msgline__preview")
-            ?.getBoundingClientRect();
-          const below = first && first.top >= rect.bottom - 0.5 ? first.height : 0;
-          return { name: text, centre: (rect.top + rect.bottom) / 2, left: rect.left, below };
+          if (rect) return { name: text, centre: (rect.top + rect.bottom) / 2, left: rect.left };
         }
         return null;
       };
@@ -153,8 +145,7 @@ await requireBrowserLane("transcript-system-rows.test.ts", async () => {
     for (let index = 1; index < ORDER.length; index += 1)
       test(`"${ORDER[index - 1]}" to "${ORDER[index]}" is ${SYSTEM_ROW_PITCH}px centre to centre (${theme.file})`, async () => {
         const { marks } = await of(theme);
-        // A stacked message row adds its first line's own line under it; the row lines stay 22 apart.
-        const gap = marks[index]!.centre - marks[index - 1]!.centre - marks[index - 1]!.below;
+        const gap = marks[index]!.centre - marks[index - 1]!.centre;
         expect(Math.abs(gap - SYSTEM_ROW_PITCH)).toBeLessThanOrEqual(1);
       });
     test(`"Scheduled check" and the compaction start their words on the run's text column (${theme.file})`, async () => {

@@ -99,6 +99,22 @@ fn kind_schema(row: &Row) -> Value {
             });
             return json!({ "type": "array", "items": density });
         }
+        Validation::Domain(DomainKind::CommandLabels) => {
+            let name = json!({ "type": "string", "minLength": 1 });
+            let rule = json!({
+                "type": "object",
+                "required": ["label"],
+                "anyOf": [{ "required": ["program"] }, { "required": ["match"] }],
+                "properties": {
+                    "label": name,
+                    "program": { "anyOf": [name, { "type": "array", "minItems": 1, "items": name }] },
+                    "match": name,
+                    "link": { "type": "string" },
+                    "icon": { "type": "string" },
+                },
+            });
+            return json!({ "type": "array", "items": { "anyOf": [name, rule] } });
+        }
         _ => {}
     }
     match &row.kind {

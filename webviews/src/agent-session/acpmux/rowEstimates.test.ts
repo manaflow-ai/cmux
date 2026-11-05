@@ -26,7 +26,6 @@ import { COLLAPSED_PROMPT_LINES, PASTE_CHIP_HEIGHT, PROMPT_MORE_HEIGHT } from ".
 import { currentChatMetrics } from "./chatDisplay";
 import { gridLength, TRANSCRIPT_FOOTER_CONTROL } from "./transcriptGrid";
 import { BUBBLE } from "./transcriptSpacing";
-import { MESSAGE_PREVIEW_LINE_PT } from "./conversation/messageLineLook";
 
 const reply = (id: string, text: string) => ({ id, version: 1, at: 0, kind: "assistant", text });
 // A footer carries its answer's text, for Copy (conversation/turns.ts), so the estimate never reads it.
@@ -279,9 +278,7 @@ test("a hidden row after the chat's last footer leaves it the last one", () => {
 
 // Every one-line row takes a one-call tool run's frame: 2px over the 22px tool line, the 4px run gap
 // under it (model.ts LINE_ROW, conversation.css `.acpmux-row--line`).
-// Shut, a message row also draws its first line on its own 18px line under it (messageLineLook.ts,
-// stacked, the default): 22 + 18, however long the message.
-test("another agent's message is one 22px tool line and its preview line, however long", () => {
+test("another agent's message is one 22px tool line in the one-line rows' frame, however long", () => {
   const row = (id: string, text: string) => ({
     id,
     version: 1,
@@ -291,11 +288,11 @@ test("another agent's message is one 22px tool line and its preview line, howeve
     incoming: { kind: "message", message: { name: "cmux16/glass-lens", text, raw: text } },
   });
   const [short, long] = heightsOf([row("m1", "Draft is up."), row("m2", "Line of the report.\n".repeat(40))]);
-  expect(short).toBe(22 + MESSAGE_PREVIEW_LINE_PT);
+  expect(short).toBe(22);
   expect(long).toBe(short);
 });
 
-test("a message this agent sent another one is one 22px tool line and its preview line", () => {
+test("a message this agent sent another one is one 22px tool line in the one-line rows' frame", () => {
   const send = {
     kind: "tool",
     text: "SendMessage",
@@ -308,7 +305,7 @@ test("a message this agent sent another one is one 22px tool line and its previe
     },
   };
   const [height] = heightsOf([{ id: "s", version: 1, at: 0, kind: "activity", items: [send] }]);
-  expect(height).toBe(22 + MESSAGE_PREVIEW_LINE_PT);
+  expect(height).toBe(22);
 });
 
 test("a task notice is a tool row's line in the one-line rows' frame", () => {
@@ -495,29 +492,29 @@ test("a folded run with messages to other agents is estimated as the lines it dr
   // A run adds no margin of its own (grid.md 5.5): its lines are flush 22px lines, one apart top to top
   // (design/chat-transcript.md "One-line row pitch", #29965).
   const lines = (n: number) => n * 22;
-  // Each message row also draws its first line under it, on its own 18px line (messageLineLook.ts,
-  // `stacked`, the default; design/chat-transcript.md "Message rows").
-  const preview = MESSAGE_PREVIEW_LINE_PT;
   // Plain work still folds to its one summary line.
   expect(heightsOf(run([shell("a", "git status"), read]))[0]).toBe(lines(1));
   // A send between two commands: a line each.
-  expect(heightsOf(run([shell("a", "git status"), send("b", "lane-b"), shell("c", "cat x")]))[0]).toBe(
-    lines(3) + preview,
-  );
-  // Two sends, as two calls or as one shell batch.
-  expect(heightsOf(run([send("a", "lane-a"), send("b", "lane-b")]))[0]).toBe(lines(2) + 2 * preview);
+  expect(heightsOf(run([shell("a", "git status"), send("b", "lane-b"), shell("c", "cat x")]))[0]).toBe(lines(3));
+  // Two sends, as two calls or as one shell batch: one closed "Sent 2 messages" line
+  // (toolGroups.ts `sendGroup`; Leo, 2026-11-04: "why arent these collapsed/collapsible").
+  expect(heightsOf(run([send("a", "lane-a"), send("b", "lane-b")]))[0]).toBe(lines(1));
   expect(heightsOf(run([shell("a", "acpmux send --no-wait lane-a 'a'; acpmux send --no-wait lane-b 'b'")]))[0]).toBe(
-    lines(2) + 2 * preview,
+    lines(1),
   );
+  // Not folded, two calls that each sent one are that one line too.
+  expect(
+    heightsOf([
+      { id: "two", version: 1, at: 0, kind: "activity", items: [send("a", "lane-a"), send("b", "lane-b")] },
+    ])[0],
+  ).toBe(lines(1));
   // Work folded on each side of the sends: "Ran 2 commands", the send, the fold of the rest, the
   // sub-session message.
   const mixed = [shell("a", "ls"), shell("b", "cat y"), send("s", "lane-a"), shell("d", "git diff"), read, sendMessage];
-  expect(heightsOf(run(mixed))[0]).toBe(lines(4) + 2 * preview);
+  expect(heightsOf(run(mixed))[0]).toBe(lines(4));
   // A sub-session message alone is one tool row, folded or not.
-  expect(heightsOf(run([sendMessage]))[0]).toBe(lines(1) + preview);
-  expect(heightsOf([{ id: "one", version: 1, at: 0, kind: "activity", items: [sendMessage] }])[0]).toBe(
-    lines(1) + preview,
-  );
+  expect(heightsOf(run([sendMessage]))[0]).toBe(lines(1));
+  expect(heightsOf([{ id: "one", version: 1, at: 0, kind: "activity", items: [sendMessage] }])[0]).toBe(lines(1));
 });
 
 test("a turn's end keeps a reply's room: a folded reply to the person keeps it, a folded note does not", () => {

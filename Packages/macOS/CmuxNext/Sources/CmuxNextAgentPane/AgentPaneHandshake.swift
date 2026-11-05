@@ -26,7 +26,7 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case protocolVersion, transport, sessionId, newSession, newTab, cwd, draft, prompt, promptAttachments, promptTicket, harness, model, peer, adopt, surface,
              linkScheme, sessionMustExist, revealTurn, chooseFolder, startKind, folderNeeded, pastTurns, machineName, localMachineName, githubRepository, harnesses, wake,
-             workspaceContext, sandboxState, cloudMachineID, cloudAccount, cloudCredentialRecoveryAvailable, cloudTeamMachine, cloudHandoffs, cloudRepositoryAvailable
+             workspaceContext, sandboxState, tab, cloudMachineID, cloudAccount, cloudCredentialRecoveryAvailable, cloudTeamMachine, cloudHandoffs, cloudRepositoryAvailable
     }
 
     public var protocolVersion: Int
@@ -140,6 +140,10 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// This app answers `sandbox.state` (``AgentPaneSandboxRuns``, hq#3367): the page reads the tab's
     /// Sandboxed send only when it is set. Pages that predate it ignore it.
     public var sandboxState: Bool? = true
+    /// The tab the page is (``AgentPaneModel/tabKey``): the page keeps its Session Info by it, so two
+    /// tabs of one chat keep their own. A page a tab adopts later hears it then (`acpmux-pane-tab`).
+    /// Pages that predate it ignore it and keep it by chat.
+    public var tab: String?
 
     public init(transport: Transport, connection: AcpmuxConnection? = nil, sessionId: String? = nil, newSession: Bool? = nil) {
         protocolVersion = Self.currentVersion

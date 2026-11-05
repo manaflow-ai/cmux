@@ -275,6 +275,13 @@ public final class MessagesLabHomeView: NSView {
         set { controller.onAppLink = newValue }
     }
 
+    /// cmux: a click on an agent's pill in an agents row: the host opens that agent's chat (the agent's
+    /// id, `a12`). Nil: a click on the row opens and closes its messages.
+    public var onAgentPill: ((String) -> Void)? {
+        get { controller.onAgentPill }
+        set { controller.onAgentPill = newValue }
+    }
+
     /// cmux: the pointer moved over the transcript, in screen coordinates (nil: it left). The
     /// host's hover cards for link chips follow it (``linkChip(atScreenPoint:)``).
     public var onPointerMoved: ((CGPoint?) -> Void)? {

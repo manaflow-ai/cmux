@@ -4,6 +4,7 @@
     guards_new_reds.py [--label NAME] [--flaky FILE] [--head-rerun FILE] HEAD_RESULTS BASE_RESULTS
     guards_new_reds.py --new-files [--flaky FILE] HEAD_RESULTS BASE_RESULTS
     guards_new_reds.py [--label NAME] --tip HEAD_RESULTS
+    guards_new_reds.py --red-steps HEAD_RESULTS
 
 Each file is run_ci_guards.py --results output ({step name: passed}) from one runner: the head's
 checkout run on the head, then on the base (--root). A step red on the head that passed on the
@@ -25,11 +26,16 @@ that fails now and then there. A missing or unreadable file lists nothing.
 webview test name before " > "), and exits 0. ci-web.yml re-runs those files alone on the head.
 
 --head-rerun names that re-run's results (webviews_test_results.py, {name: passed}). A red the change would be
-charged with whose file passed there, alone, is a warning (kind `flaky`), never the change's: the head shard
+charged with that explicitly passed there (or whose whole file passed), alone, is a warning (kind `flaky`), never the change's: the head shard
 retries a red file alone and counts its pass, but only while its retry budget lasts, so a late red on a long
 shard was never retried. #27710 (run 41525196343) went red on three gallery-frame timeouts its head shards had no
 budget left to retry; the base push after it merged passed all three. A file that fails again, or is missing from
 the re-run, stays the change's.
+
+--red-steps prints, one a line, each step red on the head (a red "<step> :: <check>" names its step), and exits 0.
+cmux-next-guards.yml re-runs only those steps on the base (run_ci_guards.py --step): a step green on the head is never
+charged to the change whatever the base says, so running it there too bought nothing. With release-notary in the
+compare, the full base pass doubled the job (about 9 minutes a pass, run 42001286004).
 
 --tip judges a branch tip on its own (cmux-next-guards.yml, a push to feat-cmux-next that touches what the guards
 read): there is no base to compare with, so every red step fails. A push judged only against the previous tip stays
@@ -70,7 +76,18 @@ def red_step_line(label: str, kind: str, step: str) -> str:
     return f"{label.lower()} red step ({kind}): {step}"
 
 
+CHECK_SEPARATOR = " :: "  # run_ci_guards.py's "<step> :: <check>" entries
+
+
+def red_steps(head: dict[str, bool]) -> list[str]:
+    return sorted({step.split(CHECK_SEPARATOR, 1)[0] for step, ok in head.items() if not ok})
+
+
 def main(argv: list[str]) -> int:
+    if len(argv) == 2 and argv[0] == "--red-steps":
+        for step in red_steps(load(argv[1]) or {}):
+            print(step)
+        return 0
     label, flaky, tip, new_files, rerun = "Guard", set(), False, False, None
     while argv and (argv[0] in ("--tip", "--new-files")
                     or (len(argv) > 2 and argv[0] in ("--label", "--flaky", "--head-rerun"))):
@@ -115,7 +132,17 @@ def main(argv: list[str]) -> int:
         for file in sorted({test_file(step) for step in new}):
             print(file)
         return 0
-    passed_again = [step for step in new if rerun and rerun.get(test_file(step)) is True]
+    def passed_in_rerun(step: str) -> bool:
+        if not rerun:
+            return False
+        # Newer result files include named outcomes for a failed file.  Respect an
+        # explicit test result first so a named failure cannot be hidden by the
+        # legacy whole-file pass fallback.
+        if step in rerun:
+            return rerun[step] is True
+        return rerun.get(test_file(step)) is True
+
+    passed_again = [step for step in new if passed_in_rerun(step)]
     new = [step for step in new if step not in passed_again]
     flaked = sorted(flaked + passed_again)
     old = sorted(step for step, ok in head.items() if not ok and base.get(step) is False)

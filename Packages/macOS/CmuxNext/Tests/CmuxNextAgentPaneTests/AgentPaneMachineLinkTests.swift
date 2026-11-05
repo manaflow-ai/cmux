@@ -85,6 +85,17 @@ struct AgentPaneMachineLinkTests {
         #expect(ran == ["box", "box"])
         machine.use = .coming
 
+        // A link that read as on its way and turns out down (a Cloud link that ended while the
+        // machine list is read) is reconnected once by the waiting send, not left to the budget.
+        link.budget = .seconds(30)
+        link.reconnect = { id in ran.append(id); machine.use = .coming; Task { machine.use = .up } }
+        let turning = Task { await link.awaitLink("box") }
+        for _ in 0..<10 { await Task.yield() }
+        machine.use = .down
+        #expect(await turning.value)
+        #expect(ran == ["box", "box", "box"], "one Reconnect when the wait saw the link go down")
+        machine.use = .coming
+
         // A send cancelled while it waits stops waiting at once, well inside the budget.
         link.budget = .seconds(30)
         let started = ContinuousClock.now

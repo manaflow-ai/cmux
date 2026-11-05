@@ -1,12 +1,16 @@
 import { expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { inlineToken, promptBlocks, type ComposerAttachment } from "./attachments";
 import type { AcpmuxHostConfig } from "./direct";
 import {
+  cloudFolderGrants,
   cloudPageRefusal,
   cloudRunsHere,
   cloudStartFolder,
   cloudStartKeys,
   cloudStartToasted,
+  grantedCloudStart,
   newTabProjectPick,
   oneCloudStart,
   startCloudChat,
@@ -166,6 +170,27 @@ test("a second Return while a start waits on the host starts nothing; after the 
   expect(calls).toEqual(["one", "three"]);
 });
 
+test("the first message crosses the Cloud handoff exactly once while the shell waits", async () => {
+  const calls: Record<string, unknown>[] = [];
+  let finish!: (answer: { machine: string }) => void;
+  const start = oneCloudStart(async (_method, params) => {
+    calls.push(params);
+    return new Promise<{ machine: string }>((resolve) => {
+      finish = resolve;
+    });
+  });
+  const request = { task: "fix the build", cwd: "/Users/me/paint", harness: "codex" };
+  const first = start(request, "handoff-key");
+  expect(first).toBeDefined();
+  // A second Return while the origin shell is visible is held by the same serialized start;
+  // it cannot issue a second seed/send to the remote chat.
+  expect(start(request, "handoff-key")).toBeUndefined();
+  finish({ machine: "paint-dev" });
+  await expect(first).resolves.toEqual({ ok: true });
+  expect(calls).toHaveLength(1);
+  expect(calls[0]).toMatchObject({ task: request.task, key: "handoff-key" });
+});
+
 test("a Cloud chat copies its project; with none (or home) it starts in the machine's own folder", () => {
   expect(cloudStartFolder("/Users/me/src/paint")).toEqual({ cwd: "/Users/me/src/paint" });
   expect(cloudStartFolder("/Users/me/src/paint/")).toEqual({ cwd: "/Users/me/src/paint" });
@@ -304,4 +329,105 @@ test("the stored entry names the start by a hash, never its prompt", () => {
   const saved = store.getItem("cmux.cloudStart.keys") ?? "";
   expect(saved).not.toContain("secret");
   expect(saved).not.toContain("paint");
+});
+
+test("a New Tab project pick hands its grant over, so a Cloud send can wait for it", async () => {
+  let release: (() => void) | undefined;
+  const native = (method: string) =>
+    method === "workspace.useFolder"
+      ? new Promise((resolve) => (release = () => resolve({ status: "ok" })))
+      : Promise.resolve({});
+  const grants: Promise<unknown>[] = [];
+  const { onProjectPicked } = newTabProjectPick(native, true, (cwd, grant) => {
+    expect(cwd).toBe("/Users/me/src/paint");
+    grants.push(grant);
+  });
+  onProjectPicked!("/Users/me/src/paint");
+  expect(grants).toHaveLength(1);
+  let settled = false;
+  void grants[0]!.then(() => (settled = true));
+  await Promise.resolve();
+  expect(settled).toBe(false);
+  release!();
+  await grants[0];
+  expect(settled).toBe(true);
+  // Home or above is never copied: no grant to wait for.
+  onProjectPicked!("/Users/me");
+  expect(grants).toHaveLength(1);
+});
+
+/// A host whose workspace.useFolder answers only when released, and which records cloud.startChat.
+function grantingHost() {
+  const releases: (() => void)[] = [];
+  const calls: string[] = [];
+  const native = (method: string, params?: Record<string, unknown>): Promise<unknown> => {
+    calls.push(params?.cwd ? `${method} ${String(params.cwd)}` : method);
+    if (method === "workspace.useFolder")
+      return new Promise((resolve) => releases.push(() => resolve({ status: "ok", cwd: params?.cwd })));
+    return Promise.resolve({});
+  };
+  return { native, calls, releases };
+}
+
+const turns = async (count = 5) => {
+  for (let index = 0; index < count; index++) await Promise.resolve();
+};
+
+// The pane's wiring (App.tsx): the New Tab pick hands its grant to cloudFolderGrants, and the Cloud
+// start (grantedCloudStart) holds cloud.startChat until that folder's grant settles.
+test("a Cloud start holds cloud.startChat until the sent folder's grant settles", async () => {
+  const host = grantingHost();
+  const grants = cloudFolderGrants(60_000);
+  const start = grantedCloudStart(host.native, grants);
+  newTabProjectPick(host.native, true, grants.granting).onProjectPicked!("/Users/me/src/paint");
+  const answer = start({ task: "fix it", cwd: "/Users/me/src/paint" }, "key-1");
+  await turns();
+  expect(host.calls).toEqual(["workspace.useFolder /Users/me/src/paint"]);
+  host.releases[0]!();
+  expect(await answer).toEqual({ ok: true });
+  expect(host.calls).toEqual(["workspace.useFolder /Users/me/src/paint", "cloud.startChat /Users/me/src/paint"]);
+});
+
+test("a grant that never answers holds the Cloud start only until the time limit", async () => {
+  const host = grantingHost();
+  const grants = cloudFolderGrants(20);
+  const start = grantedCloudStart(host.native, grants);
+  newTabProjectPick(host.native, true, grants.granting).onProjectPicked!("/Users/me/src/paint");
+  const answer = start({ task: "fix it", cwd: "/Users/me/src/paint" }, "key-1");
+  await turns();
+  expect(host.calls).toEqual(["workspace.useFolder /Users/me/src/paint"]);
+  // Never released: the start goes anyway once the wait runs out, and the host's own refusal covers it.
+  expect(await answer).toEqual({ ok: true });
+  expect(host.calls.at(-1)).toBe("cloud.startChat /Users/me/src/paint");
+});
+
+test("a Cloud start waits only for the grant of the folder it sends", async () => {
+  const host = grantingHost();
+  const grants = cloudFolderGrants(60_000);
+  const start = grantedCloudStart(host.native, grants);
+  const pick = newTabProjectPick(host.native, true, grants.granting).onProjectPicked!;
+  pick("/Users/me/src/paint");
+  pick("/Users/me/src/other");
+  // The last pick's grant (other) is still out, but this send names paint: it waits for paint only.
+  const answer = start({ task: "fix it", cwd: "/Users/me/src/paint" }, "key-1");
+  await turns();
+  expect(host.calls.some((call) => call.startsWith("cloud.startChat"))).toBe(false);
+  host.releases[0]!();
+  expect(await answer).toEqual({ ok: true });
+  expect(host.calls.at(-1)).toBe("cloud.startChat /Users/me/src/paint");
+  // A send with no folder of its own (home) waits for nothing.
+  await turns();
+  expect(await start({ task: "hi", home: true }, "key-2")).toEqual({ ok: true });
+  expect(host.calls.at(-1)).toBe("cloud.startChat");
+});
+
+test("the pane builds its Cloud start from grantedCloudStart and hands every Cloud pick's grant to it", () => {
+  const source = readFileSync(join(import.meta.dir, "App.tsx"), "utf8");
+  expect(source).toMatch(/const \[cloudFolderGrant\] = useState\(\(\) => cloudFolderGrants\(\)\);/);
+  expect(source).toMatch(
+    /const \[startCloud\] = useState\(\(\) =>\s*grantedCloudStart\(reservedCloudCall\(callNative, cloudReservation\), cloudFolderGrant\),?\s*\);/,
+  );
+  expect(source).toMatch(/cloudFolderGrant\.granting\(\s*folder\.cwd,\s*pickFolder\(callNative, folder\.cwd/);
+  expect(source).toMatch(/newTabProjectPick\(callNative, sandboxOfferable, cloudFolderGrant\.granting\)/);
+  expect(source).not.toMatch(/oneCloudStart\(/);
 });

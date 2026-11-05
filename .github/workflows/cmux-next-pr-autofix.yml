@@ -50,6 +50,10 @@ concurrency:
   group: cmux-next-pr-autofix-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
 jobs:
   # Whether the Mac action-exports job runs: decided on Linux, so a pull
   # request that changes neither the catalog nor the settings never takes a Mac.
@@ -67,19 +71,35 @@ jobs:
       settings: ${{ steps.areas.outputs.settings }}
       changed: ${{ steps.changed.outputs.changed }}
     steps:
+      # Only the merge commit and scripts/cmux-next (the fallback copies of the
+      # two scripts below); the next step fetches the history it needs. A
+      # fetch-depth 0 checkout fetched every branch's (about 25,000) commits
+      # and trees and the whole tree's blobs: 3-6 min on 2026-11-03.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.sha }}
-          # The freshness guard needs the true merge base, not a depth-1 head:
-          # the whole commit graph, but no historical blobs (a full clone took
-          # about 280 s here and ran into this job's 5-minute timeout).
-          fetch-depth: 0
           filter: blob:none
-          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
           sparse-checkout: |
-            /*
-            !/cmux-next-ios/verify/
+            scripts/cmux-next
           persist-credentials: false
+
+      # The freshness guard and the changed paths need the true merge base: the
+      # history of the merge commit alone (its parents are the base and the
+      # head), commits and trees but no blobs, instead of every branch's.
+      # Blobs arrive on demand. Like the fetch-depth 0 checkout it replaces, a
+      # fetch that still fails after actions/checkout's three tries fails the
+      # job: the guard and the base's scripts need this history.
+      - name: History of the merge commit
+        run: |
+          set -euo pipefail
+          for try in 1 2 3; do
+            # A try that completed the history before failing needs no other.
+            [ "$(git rev-parse --is-shallow-repository)" = false ] && exit 0
+            git fetch --no-tags --quiet --filter=blob:none --unshallow origin "$GITHUB_SHA" && exit 0
+            echo "::warning::history fetch failed (try $try of 3)"
+            sleep $((try * 10))
+          done
+          exit 1
 
       # The pull request's changed paths from the commit graph this job already
       # fetched, instead of the files API (a call per 100 files, on every push):
@@ -111,7 +131,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/autofix"
-          git archive "$BASE_SHA" scripts/cmux-next | tar -x -C "$RUNNER_TEMP/autofix"
+          # restore, not git archive: archive of a partial clone fetched every
+          # blob under the path one request at a time.
+          git --work-tree="$RUNNER_TEMP/autofix" restore --source="$BASE_SHA" --worktree -- scripts/cmux-next
 
       - name: Refuse stale generator inputs
         env:
@@ -214,7 +236,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/autofix"
-          git archive "$BASE_SHA" scripts/cmux-next | tar -x -C "$RUNNER_TEMP/autofix"
+          # restore, not git archive: archive of a partial clone fetched every
+          # blob under the path one request at a time.
+          git --work-tree="$RUNNER_TEMP/autofix" restore --source="$BASE_SHA" --worktree -- scripts/cmux-next
 
       - name: Refuse stale generator inputs
         env:

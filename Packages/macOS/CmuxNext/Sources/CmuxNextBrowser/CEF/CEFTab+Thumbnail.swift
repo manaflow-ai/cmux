@@ -7,7 +7,7 @@ public import CoreGraphics
 /// viewport PNG of a real page took 80-140 ms there (browser perf report,
 /// root cause R3), once per tab switch. A fast-mode JPEG of the same
 /// pixels takes about a quarter of that and is plenty for a thumbnail that
-/// `TabPreviewFitting` scales down anyway. A clip with a scale is slower
+/// `PreviewImageCache` scales down anyway. A clip with a scale is slower
 /// still: Chromium lays the page out again for it.
 ///
 /// A picture is asked for only while the page's browser lives and the engine is not stopping, and the app's own

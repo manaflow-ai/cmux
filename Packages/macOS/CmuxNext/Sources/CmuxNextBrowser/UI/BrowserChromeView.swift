@@ -99,6 +99,8 @@ public final class BrowserChromeView: NSView {
         return isToolbarHidden ? 0 : currentToolbarHeight
     }
     private var observation: ObservationLoop?
+    var boundState: BrowserChromeTabState?  // the tab state shown now (`bind(_:state:)`); nil: one page only
+    var parksLeavingPage = false  // while `bind(_:state:)` switches: the leaving page stays, hidden
     /// Prompts have their own loop: a state change (a title, progress) does not re-render the prompt
     /// bar, and a new prompt does not re-run the rest of the chrome.
     private var promptObservation: ObservationLoop?
@@ -107,8 +109,8 @@ public final class BrowserChromeView: NSView {
     /// The address a page woken from hibernation slept on, shown until the
     /// woken page reports a real one (`holdAddress(whileWaking:)`).
     var wakingAddress: BrowserTabState?
-    /// A typed https upgrade in flight (Chrome's http fallback).
-    var httpsFallback = HTTPSUpgradeFallback()
+    /// The shown tab's loads (history, finished pages, the https fallback): its own, or the bound tab's (`BrowserPageLoads`).
+    var loads = BrowserPageLoads()
     private var showsStop = false
     var isToolbarHidden = false
     /// The key-resize hold this chrome follows its pane through (FRAME OWNER S3, `BrowserChromeView+PaneMotion`); nil at rest.
@@ -148,8 +150,12 @@ public final class BrowserChromeView: NSView {
     /// A committed URL loads in this tab (a typed navigation).
     public var onTypedCommit: (() -> Void)?
 
-    /// Where finished page loads are recorded (omnibar history suggestions).
-    public var history: (any BrowserHistoryStore)?
+    /// Where finished page loads are recorded (omnibar history suggestions). On a pane's shared chrome this is the
+    /// bound tab's (`BrowserChromeTabState.history`); set a tab's hooks on its state, never here.
+    public var history: (any BrowserHistoryStore)? {
+        get { loads.history }
+        set { loads.history = newValue }
+    }
 
     /// Closing the find bar or ending address bar editing hands the keyboard
     /// back to the page. When set, the host does it (a focus coordinator
@@ -157,11 +163,11 @@ public final class BrowserChromeView: NSView {
     /// page itself.
     public var onReturnFocusToPage: (() -> Void)?
     public var machineBadge: ((URL?) -> (text: String, help: String)?)? { didSet { updateMachineBadge() } } // remote localhost
-    var recordedURL: URL?
-    var recordedTitle: String?
-    /// Each page that finished loading, once per URL (the App's cookie import offer).
-    public var onPageFinished: ((URL) -> Void)?
-    var finishedURL: URL?
+    /// Each page that finished loading, once per URL (the App's cookie import offer); the bound tab's, as `history`.
+    public var onPageFinished: ((URL) -> Void)? {
+        get { loads.onPageFinished }
+        set { loads.onPageFinished = newValue }
+    }
 
     public init(tab: any BrowserTab, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine()) {
         self.tab = tab
@@ -332,7 +338,7 @@ public final class BrowserChromeView: NSView {
         addressBar.pageTitle = { [weak self] in self?.tab.state.title ?? self?.wakingAddress?.title }
         addressBar.onTypedHTTPSUpgrade = { [weak self] url in
             guard let self else { return }
-            httpsFallback.expect(url, current: tab.state.loadError)
+            loads.httpsFallback.expect(url, current: tab.state.loadError)
         }
     }
 
@@ -351,28 +357,26 @@ public final class BrowserChromeView: NSView {
 
     // MARK: Tab binding
 
-    private func attach(_ tab: any BrowserTab, replacing old: (any BrowserTab)?) {
+    /// Binds `tab` in place of `old`; `tab` again (a tab switch to the same page) re-binds it under the new tab state.
+    func attach(_ tab: any BrowserTab, replacing old: (any BrowserTab)?) {
         observation?.cancel()
         promptObservation?.cancel()
         linkStatusObservation?.cancel()
-        // Another page in this toolbar: the held address was the old page's.
-        if let old, old !== tab { wakingAddress = nil }
+        // Another page in this toolbar: the held address was the old page's (a tab switch put back its own).
+        if let old, old !== tab, !parksLeavingPage { wakingAddress = nil }
         siteZoom.follow(tab)
+        if boundState == nil { loads.follow(tab) }  // a bound tab's loads follow it (`BrowserChromeTabState.loads`)
+        let area = BrowserPageArea(container: contentContainer)
         if let old, old !== tab {
-            old.contentView.removeFromSuperview()
+            area.leave(old.contentView, parks: parksLeavingPage)
+            // A parked page carries no key-resize hold: the hold's end reaches only the shown page (one chrome per
+            // pane), and the line below holds this page again if it shows while the hold still runs.
+            (old.contentView as? any BrowserPagePaneMotionHolding)?.holdPage(for: nil)
         }
         pageInfoIfMade?.tabDidChange()
-        let content = tab.contentView
-        content.translatesAutoresizingMaskIntoConstraints = false
-        contentContainer.addSubview(content)
-        NSLayoutConstraint.activate([
-            content.topAnchor.constraint(equalTo: contentContainer.topAnchor),
-            content.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor),
-            content.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor),
-            content.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor),
-        ])
+        area.show(tab.contentView)
         // A page that comes in while the chrome follows its pane through a key hold keeps the pane's page size too.
-        if let paneMotionHold { (content as? any BrowserPagePaneMotionHolding)?.holdPage(for: paneMotionHold) }
+        if let paneMotionHold { (tab.contentView as? any BrowserPagePaneMotionHolding)?.holdPage(for: paneMotionHold) }
         pageBars.findBarIfMade?.tab = tab
         addressBar.allowsChromiumSchemes = tab.engineKind == .cef
         extensionToolbar.bind(tab)
@@ -395,10 +399,6 @@ public final class BrowserChromeView: NSView {
 
     private func render() {
         let state = tab.state
-        if let http = httpsFallback.observe(state) {
-            // task-owner: one load, after this render (never a load inside the observed render).
-            Task { @MainActor [weak self] in self?.tab.load(http) }
-        }
         backButton.isEnabled = state.canGoBack
         forwardButton.isEnabled = state.canGoForward
 
@@ -409,8 +409,6 @@ public final class BrowserChromeView: NSView {
         }
         updateAddress(for: state)
         updateMachineBadge()
-        recordHistory(state)
-        reportFinishedLoad(state)
         progressLine.set(progress: state.progress, visible: loading)
 
         pageStatus.render(state)

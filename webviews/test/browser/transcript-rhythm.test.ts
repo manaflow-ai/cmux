@@ -78,10 +78,6 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
             const composer = rect(".acpmux-composer-box");
             // A received message's line leads with its sender (IncomingMessageCard.tsx `leading`).
             const headerIcon = rect('[data-row-id="grid-header"] .cv-disclosure__line > :first-child');
-            // Stacked (messageLineLook.ts), the received message's first line sits on its own line
-            // right under its line: the run gap is from there.
-            const firstLine = document.querySelector('[data-row-id="grid-header"] .cv-msgline__preview');
-            const headerEnd = firstLine ? firstLine.getBoundingClientRect().bottom : header.bottom;
             const toolIcon = rect(".acpmux-activity .cv-tool__icon");
             const chevron = rect(".acpmux-activity .cv-tool__chevron");
             // A reply's own action row, when it draws one: a turn's copy now lives in its footer
@@ -124,8 +120,8 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
               toolIcon,
               chevron,
               copy,
-              gaps: [message.top - headerEnd, group.top - message.bottom],
-              // The live line is one more line of the tool run over it: flush (#29965).
+              gaps: [message.top - header.bottom, group.top - message.bottom],
+              // The live state keeps the scaled run gap below completed activity.
               liveUnderRun: live.top - group.bottom,
               inner: paragraphs[1]!.top - paragraphs[0]!.bottom,
               composerGap: composer.top - live.bottom,
@@ -154,7 +150,9 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
           // A run and the prose by it: the run gap (design/transcript-spacing.md rule 4).
           for (const gap of state.gaps)
             expect(Math.abs(gap - gridLength("gap-run") * scale), "run gap").toBeLessThanOrEqual(0.5);
-          expect(Math.abs(state.liveUnderRun), "live line flush under its run").toBeLessThanOrEqual(0.5);
+          expect(Math.abs(state.liveUnderRun - gridLength("gap-run") * scale), "live line run gap").toBeLessThanOrEqual(
+            0.5,
+          );
           expect(Math.abs(state.inner - 12 * scale), "paragraph gap").toBeLessThanOrEqual(0.5);
           // Over a floating stack the newest line rests the rest gap over it (model.ts REST_GAP, Leo
           // 2026-11-01: "more space between composer and latest messages"); docked in flow, the

@@ -21,6 +21,9 @@ export type CloudStart = {
   harness?: string;
   model?: string;
   environment?: string;
+  reservationKey?: string;
+  /** A native gesture ticket reserved before waiting for a Cloud machine lease. */
+  gestureTicket?: string;
 };
 
 /// Which folder a Cloud chat starts in: the chat's project on this Mac, copied to the machine, when
@@ -46,13 +49,73 @@ type Native = (method: string, params?: Record<string, unknown>) => Promise<unkn
 /// sent, and the Cloud start then failed with pathOutsideRoots. A project folder granted to a tab
 /// the check then hands to a run is harmless. Only a folder Cloud would copy (cloudStartFolder);
 /// a home or root answer asks nothing here (the local start still asks on Return).
-export function newTabProjectPick(callNative: Native, offerable: boolean): { onProjectPicked?: (cwd: string) => void } {
+/// `granted` gets the folder and its grant's promise, so a Cloud send of that folder made right
+/// after the pick waits for it instead of racing it (cloudFolderGrants).
+export function newTabProjectPick(
+  callNative: Native,
+  offerable: boolean,
+  granted?: (cwd: string, grant: Promise<unknown>) => void,
+): { onProjectPicked?: (cwd: string) => void } {
   if (!offerable) return {};
   return {
     onProjectPicked: (cwd) => {
-      if ("cwd" in cloudStartFolder(cwd)) void pickFolder(callNative, cwd, () => undefined);
+      if (!("cwd" in cloudStartFolder(cwd))) return;
+      const grant = pickFolder(callNative, cwd, () => undefined);
+      granted?.(cwd, grant);
     },
   };
+}
+
+/// How long a Cloud send waits for its folder's grant (workspace.useFolder) before it goes anyway.
+/// A grant that never answers must not hold the composer forever: past this the start goes, and a
+/// folder still not granted gets the host's worded "pick the folder" refusal (#34406), with the
+/// prompt still in the composer.
+export const CLOUD_FOLDER_GRANT_WAIT_MS = 3000;
+
+/// The folder grants the page's Cloud picks made (the composer's Cloud row, the New Tab project
+/// pick), by folder as cloudStartFolder spells it. A Cloud start waits for the grant of the folder it
+/// sends, never another pick's, and at most `waitMs`. A grant leaves once it settles.
+export function cloudFolderGrants(waitMs: number = CLOUD_FOLDER_GRANT_WAIT_MS) {
+  const grants = new Map<string, Promise<unknown>>();
+  return {
+    /// A grant of `cwd` is out. A folder Cloud never copies is never sent, so nothing waits for it.
+    granting(cwd: string, grant: Promise<unknown>): void {
+      const folder = cloudStartFolder(cwd);
+      if (!("cwd" in folder)) return;
+      grants.set(folder.cwd, grant);
+      const leave = () => {
+        if (grants.get(folder.cwd) === grant) grants.delete(folder.cwd);
+      };
+      grant.then(leave, leave);
+    },
+    /// Settles once the grant of `cwd` settles (either way), or after `waitMs`; at once with none.
+    /// The timer is cleared when the grant wins, so nothing is left running.
+    settled(cwd: string | undefined): Promise<void> {
+      const grant = cwd ? grants.get(cwd) : undefined;
+      if (!grant) return Promise.resolve();
+      return new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, waitMs);
+        const done = () => {
+          clearTimeout(timer);
+          resolve();
+        };
+        grant.then(done, done);
+      });
+    },
+  };
+}
+
+export type CloudFolderGrants = ReturnType<typeof cloudFolderGrants>;
+
+/// The pane's Cloud start (App.tsx `startCloud`): one at a time (oneCloudStart), and the host call
+/// goes once the grant of the folder it sends has settled or the wait ran out (cloudFolderGrants).
+export function grantedCloudStart(
+  callNative: (method: string, params?: Record<string, unknown>) => Promise<unknown>,
+  grants: CloudFolderGrants,
+): (start: CloudStart, key?: string) => Promise<CloudStartAnswer> | undefined {
+  return oneCloudStart((method, params) =>
+    grants.settled(typeof params.cwd === "string" ? params.cwd : undefined).then(() => callNative(method, params)),
+  );
 }
 
 /// The host's answer: ok, or a code with the host's own words when it has them.
@@ -79,6 +142,8 @@ export async function startCloudChat(
   if (start.harness) params.harness = start.harness;
   if (start.model) params.model = start.model;
   if (start.environment) params.environment = start.environment;
+  if (start.reservationKey) params.reservationKey = start.reservationKey;
+  if (start.gestureTicket) params.gestureTicket = start.gestureTicket;
   try {
     await call("cloud.startChat", params);
     return { ok: true };

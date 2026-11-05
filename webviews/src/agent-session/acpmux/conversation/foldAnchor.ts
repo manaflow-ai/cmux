@@ -45,6 +45,13 @@ export const FOLD_SETTLE_MS = 150; // motion-allow: a hold timer after the fold,
 /// scroll lets go of it sooner.
 export const FOLD_HOLD_MIN_MS = 400; // motion-allow: a hold timer, not an animation
 
+/// How far up the view a disclosure line can sit, as a share of the view's height from its foot,
+/// and still pin the bottom when the view is at the latest row: what opens pushes the text above it
+/// up and nothing under it moves. A line further up opens downward, as away from the bottom (Leo,
+/// 2026-11-05: "obviously when you get >like 50-70% up the screen from the bottom then it starts
+/// doing it normally expanding down").
+export const BOTTOM_PIN_SHARE = 0.6;
+
 /// Whether the physical scroller is at (or within the normal follow deadband of) its end.
 export function atFoldBottom(scrollTop: number, clientHeight: number, scrollHeight: number, deadband: number): boolean {
   return scrollHeight > clientHeight + 0.5 && scrollHeight - clientHeight - scrollTop <= deadband;
@@ -84,10 +91,16 @@ export type FoldAnchor = {
   until: number;
 };
 
+/// A message row's first line, on its own line under the row (messageLineLook.ts, stacked: a sent
+/// message, an agent message, a received line, a folded group's head). It toggles its row, so a click
+/// on it holds the row's line, as a click on the line does; the first line itself goes as the row opens.
+const FIRST_LINE = ".cv-msgline__preview";
+
 /// The disclosure line `target` is on, inside one of `scroller`'s rows; undefined for anything else.
 export function foldToggleAt(target: EventTarget | null, scroller: HTMLElement): HTMLElement | undefined {
   const element = target && typeof (target as Element).closest === "function" ? (target as Element) : null;
-  const toggle = element?.closest<HTMLElement>(FOLD_TOGGLE);
+  const line = element?.closest(FIRST_LINE)?.previousElementSibling;
+  const toggle = line?.matches(FOLD_TOGGLE) ? (line as HTMLElement) : element?.closest<HTMLElement>(FOLD_TOGGLE);
   if (!toggle || !scroller.contains(toggle) || !toggle.closest(".acpmux-row")) return undefined;
   // A control of its own inside the toggle (a sent line's recipient, its Copy) opens nothing there.
   const control = element?.closest<HTMLElement>(NESTED_CONTROL);

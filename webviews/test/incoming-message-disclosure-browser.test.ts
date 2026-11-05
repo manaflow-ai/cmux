@@ -236,12 +236,11 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
       const row = page.locator(".cv-received");
       await row.waitFor({ timeout: 10_000 });
       expect(await row.count()).toBe(1);
-      // Closed: the sender on the tool rows' 22px line, the first line on its own 18px line under it
-      // (messageLineLook.ts `stacked`), nothing else.
-      expect(await row.evaluate((el) => Math.round(el.getBoundingClientRect().height))).toBe(40);
+      // Closed: one line on the tool rows' 22px line, the sender and the first line, nothing under it.
+      expect(await row.evaluate((el) => Math.round(el.getBoundingClientRect().height))).toBe(22);
       expect(await row.locator(".cv-disclosure__line").evaluate((el) => el.getBoundingClientRect().height)).toBe(22);
       expect(await row.locator(".cv-received__from").innerText()).toBe("Grid fix");
-      expect(await row.locator(".cv-disclosure__below").innerText()).toBe(
+      expect(await row.locator(".cv-received__preview").innerText()).toBe(
         "Paragraph 1 of the landing report: every check on the grid lane passed on this run.",
       );
       expect(await row.locator(".cv-disclosure__panel").count()).toBe(0);
@@ -371,6 +370,39 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
     }
   });
 
+  // A scroll made from code right after that open (scrollIntoView, Find, a link to a row) stays
+  // where the code put it: the open's hold at the end pinned it back there within its 300 ms (#34780).
+  test("a scroll from code just after opening the chat's last row stays where it was put", async () => {
+    const page = await openChat(
+      [...Array.from({ length: 6 }, (_, index) => turn(index)).flat(), fromAgent(LONG, "Grid fix", "child-3", "m-end")],
+      "Paragraph 1 of the landing report",
+    );
+    try {
+      const toggle = page.locator(".cv-received .cv-disclosure__toggle");
+      await toggle.waitFor({ timeout: 10_000 });
+      await rest(page);
+      expect(await atLatest(page)).toBe(true);
+      await toggle.click();
+      expect(await toggle.getAttribute("aria-expanded")).toBe("true");
+      // A frame into the open, inside its hold: up from the end by one view, from code.
+      const put = await page.locator(".acpmux-scroll").evaluate(async (el) => {
+        await new Promise<void>((done) => requestAnimationFrame(() => done()));
+        el.scrollTop = el.scrollHeight - el.clientHeight * 2;
+        return el.scrollTop;
+      });
+      // The regression is a re-pin inside the open's hold (400 ms, or the fold's length plus 150 ms).
+      // fixed-wait: waiting past the hold is the behavior under test
+      await page.waitForTimeout(600);
+      await rest(page);
+      const after = await page.locator(".acpmux-scroll").evaluate((el) => el.scrollTop);
+      console.log(`code scroll after open: put ${put} -> ${after}`);
+      expect(await atLatest(page)).toBe(false);
+      expect(Math.abs(after - put)).toBeLessThan(2);
+    } finally {
+      await page.close();
+    }
+  });
+
   test("three messages from three senders between two replies are three rows, in order, where they arrived", async () => {
     const page = await openChat(
       [
@@ -427,8 +459,8 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
 
   // Leo, 2026-10-29: "this ui is all quite inconsistent". A delivered message and one that waits
   // are one row: each chevron right after its words (Leo, 2026-11-03: "this how chatgpt does their
-  // chevrons"; this test pinned one chevron x at the line's end before), one plate under the line,
-  // actions only on hover.
+  // chevrons"; this test pinned one chevron x at the line's end before), no plate under the line on
+  // hover (as a sent message's and a tool's line have none), actions only on hover.
   test("a delivered message and a waiting one draw the same line: chevron after the words, actions on hover", async () => {
     const page = await openChat(
       [
@@ -457,10 +489,13 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
         all.map((row) => {
           const line = row.querySelector<HTMLElement>(":scope > .cv-disclosure__line")!;
           const chevron = line.querySelector<HTMLElement>(".cv-rotor")!.getBoundingClientRect();
-          // Stacked, the line's last words are the sender's (its text, not its padded box); its first
-          // line is under it.
+          // The line's last words: its first line's, or the sender's (its text, not its padded box) in
+          // the stacked gallery look. The preview first: in the default one-line look (#34464) the
+          // sender comes before it on the same line, and a list selector returns the earlier node.
           const range = document.createRange();
-          range.selectNodeContents(line.querySelector(".cv-received__preview, .cv-received__from")!);
+          range.selectNodeContents(
+            line.querySelector(".cv-received__preview") ?? line.querySelector(".cv-received__from")!,
+          );
           const words = range.getBoundingClientRect();
           const hover = line.querySelector<HTMLElement>(".cv-received__hover");
           return {
@@ -481,7 +516,7 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
         expect(line.hidden).toBe("0");
       }
       expect(await page.getByText(/Read after this|Open chat|^From:/).count()).toBe(0);
-      // Hovered, the actions show in the line's own plate, and the chevron stays put.
+      // Hovered, the actions show at the line's end with no plate under the line, and the chevron stays put.
       await rows.nth(1).locator(":scope > .cv-disclosure__line").hover();
       // Measure the revealed controls after their transition, not in its first frame.
       const actions = await rows.nth(1).locator(".cv-received__hover").elementHandle();
@@ -513,7 +548,7 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
       expect(new Set(gaps).size).toBeLessThanOrEqual(1);
       expect(await rows.locator(".cv-received__hover .cv-message-pin").count()).toBe(0);
       expect(await rows.locator('.cv-received__hover .cv-message-footer-row [aria-label="Copy"]').count()).toBe(0);
-      expect(hovered.plate).not.toBe("rgba(0, 0, 0, 0)");
+      expect(hovered.plate).toBe("rgba(0, 0, 0, 0)");
       expect(hovered.shown).toBe("1");
       expect(hovered.right).toBe(lines[1]!.right);
     } finally {

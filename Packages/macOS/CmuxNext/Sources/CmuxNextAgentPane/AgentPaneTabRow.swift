@@ -147,5 +147,6 @@ extension PaneTabRowSharing where Self: AgentPaneView {
     public var onTabRowToolsChange: (() -> Void)? { get { model.tabRow.onChange } set { model.tabRow.onChange = newValue } }
     public func setTabRow(height: CGFloat, trailingInset: CGFloat) { AgentPaneTabRow.offer(points: height, trailingInset: trailingInset, to: self) }
     public func setTabRowTabs(shown: Bool) { model.tabRow.tabsShown = shown }
+    public var tabRowTakesLoneTab: Bool { true }
     public var tabRowHoleFill: CGColor? { model.tabRow.holeFill }
 }

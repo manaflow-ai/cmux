@@ -51,13 +51,23 @@ import Foundation
     /// (``paneGone(_:in:)``) settles at once: waiting for a snapshot left it applying, and its
     /// provisional pane came back. A cancelled creation stays while the records hold what it
     /// made (``CancelledCreation``).
-    static func awaitsRecords(_ intent: PendingIntent, in store: DaemonStore) -> Bool {
+    static func awaitsRecords(_ intent: PendingIntent, snapshot: Bool = false, in store: DaemonStore) -> Bool {
         if intent.closeWhenCreated { return CancelledCreation.daemonHolds(intent, in: store) }
+        if intent.standInClosed {
+            // A closed stand-in's fresh tab stays hidden until its close commits (``CancelledCreation/closeStandIn(_:in:)``).
+            if CancelledCreation.freshTabHeld(intent, in: store) { return true }
+            // Not seen yet (its close never went out): the daemon's dock pane and layout can come before the fresh
+            // tab, so it is waited for, up to a snapshot, which holds everything the daemon made.
+            if intent.closeAttempts == 0, !snapshot { return true }
+        }
         switch intent.kind {
         case .splitPane(_, _, _, let provisional), .dockTab(_, _, let provisional, _, _):
             return !daemonPlaces(provisional, in: store) && !paneGone(intent, in: store)
         case .closeTabs(let surfaces):
             return TabCloseOverlay(store: store).daemonHolds(surfaces)
+        case .closeStandInPane:
+            // Stays until the records drop the daemon's pane (its close committed).
+            return CancelledCreation.closingPane(intent.kind, in: store).map { $0.handle.rawValue < ProvisionalPane.firstHandle } ?? false
         case .createWorkspace(let provisional, _):
             // Cmd-N's workspace settles only once the daemon's workspace holds a tab: before
             // that, undoing the overlay would show the window an empty workspace for a turn.

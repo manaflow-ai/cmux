@@ -30,10 +30,10 @@ extension AgentTabStore {
 
     /// Shows workspace `key` named `name` with its New Tab page (starting in `cwd`; `token` is the
     /// key hold of the press) at daemon-order `index` in this turn, and returns the work that
-    /// confirms it; with `chat` (a seed) or `session` (`linked`: ``linkedSessions``), that chat (P4).
+    /// confirms it; with `chat` (a seed) or `session` (`linked`: ``linkedSessions``), that chat (P4); `firstTabKeyed`: its tab is keyed by the workspace (`firstChatTabMutationID`).
     /// Nil when it cannot (``showsWorkspaceAtOnce(on:)``).
     func showWorkspace(_ key: WorkspaceKey, name: String, index: Int?, cwd: String?, token: String?, chat: AgentPaneSeed? = nil,
-                       session: (id: String, host: String?, linked: Bool)? = nil, on daemon: DaemonService, repair: EmptyWorkspaceRepair) -> OptimisticWorkspace? {
+                       session: (id: String, host: String?, linked: Bool)? = nil, firstTabKeyed: Bool = false, on daemon: DaemonService, repair: EmptyWorkspaceRepair) -> OptimisticWorkspace? {
         guard showsWorkspaceAtOnce(on: daemon), let localHost else { return nil }
         let store = daemon.store
         let record = AgentSessionRef(host: session?.host ?? localHost, hostName: localHostName, session: session?.id)
@@ -66,7 +66,7 @@ extension AgentTabStore {
                 ) { workspace in
                     BenchSpans.mark("cmdN.workspace.created")
                     var request = NewConversationTabRequest(agentSession: record, workspace: workspace.workspace, origin: Self.createOrigin,
-                                                            mutationID: UUID().uuidString)
+                                                            mutationID: firstTabKeyed ? workspace.firstChatTabMutationID : UUID().uuidString)
                     request.transaction = transaction
                     // One mutation id for every send: a tab the daemon made after the deadline replays.
                     let response = try await DaemonConnection.retryingLateReplies(NewConversationTabRequest.command, until: giveUp) { try await connection.request(request) }

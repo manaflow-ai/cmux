@@ -21,10 +21,13 @@ use crate::state::{Batch, ChildRef, ChildStatus, HostState, Item, PendingTurn};
 use crate::turn::{self, Interrupt, TurnOutcome, TurnStart};
 use optchat_host::{Appended, NewMessage};
 
-/// The notice for the first stuck view line (its node fails with a request
-/// error on every try); None when no line is stuck.
-/// A line held only by an exhausted route (a capacity error) is a quiet
-/// wait, logged by the host: no notice.
+/// The notice for the first stuck view line whose node cannot be built as
+/// things stand: a setup error, or a request error the same call repeats on
+/// every try (`ErrorClass::permanent`). None when no line is stuck so.
+/// A line held by a transient failure that ran out of tries (a session that
+/// did not answer under load, a 5xx, an exhausted route) is a quiet wait,
+/// logged and retried by the host: no notice. It said "a request error"
+/// for such timeouts (https://github.com/manaflow-ai/cmux/issues/36026).
 pub fn stuck_notice(status: &optchat_host::Status) -> Option<String> {
     let error = |node: &optchat_core::NodeId| {
         status
@@ -33,17 +36,23 @@ pub fn stuck_notice(status: &optchat_host::Status) -> Option<String> {
             .find(|f| f.node == *node)
             .map(|f| f.error.as_str())
     };
+    let lasting = |e: &str| {
+        e.starts_with(optchat_host::SETUP_ERROR)
+            || optchat_host::error_class(e).is_some_and(|c| c.permanent())
+    };
     let node = status
         .stuck
         .iter()
-        .find(|n| error(n).is_none_or(|e| optchat_host::capacity_wait(e).is_none()))?;
+        .find(|n| error(n).is_some_and(lasting))?;
     let class = match error(node) {
         Some(e) if e.starts_with(optchat_host::SETUP_ERROR) => {
             format!("a {}", optchat_core::cut_at_bytes(e, 240))
         }
-        e => e
-            .and_then(optchat_host::error_class)
-            .map_or_else(|| "a request error".to_owned(), |c| c.to_string()),
+        Some(e) => optchat_host::error_class(e).map_or_else(
+            || optchat_core::cut_at_bytes(e, 240).to_owned(),
+            |c| c.to_string(),
+        ),
+        None => "no error recorded for it yet".to_owned(),
     };
     Some(format!(
         "The Chief's memory cannot summarize line {} ({class}). Replies go on without that summary; the line stays unsummarized (zoom opens it) until the compactor can build it.",
@@ -158,13 +167,18 @@ impl Brain {
                     settle.clear();
                 }
                 if settled {
-                    // A stuck node (a request error on every try) no longer
-                    // holds the turn: one notice says so, retracted once
-                    // every stuck node is built.
+                    // A stuck node no longer holds the turn; one that
+                    // cannot be built as things stand (a setup error, a
+                    // request error on every try) posts one notice,
+                    // retracted once no such line is left, even while
+                    // another line waits out timeouts (issue 36026).
                     let status = chat.status();
-                    if let Some(text) = stuck_notice(&status) {
-                        let _ = tx.send(Input::CompactorStatus(Err(text)));
-                    } else if status.recovered {
+                    let notice = stuck_notice(&status);
+                    let cleared = notice.is_none();
+                    let _ = tx.send(Input::CompactorStuck(notice));
+                    // Every stuck node built: the compactor works, which
+                    // also answers the probe's notice.
+                    if cleared && status.recovered {
                         let _ = tx.send(Input::CompactorStatus(Ok(())));
                     }
                 }
@@ -196,8 +210,14 @@ impl Brain {
                         let run_update = |u: crate::run::RunUpdate| {
                             let _ = tx.send(Input::Run(Box::new(u)));
                         };
+                        // How long its session has taken to start, for the app.
+                        let starting = |secs: Option<u64>| {
+                            if let Some(settle) = &settle_status {
+                                settle.starting(secs);
+                            }
+                        };
                         let outcome =
-                            turn::run_with_drafts(&*agents, &chat, &start, &interrupt, &*log, &progress, &trace, &draft, &run_update);
+                            turn::run_with_drafts(&*agents, &chat, &start, &interrupt, &*log, &progress, &trace, &draft, &run_update, &starting);
                         // Claude Code placed all four cache breakpoints
                         // itself: the same turn again without the marker
                         // (the refused request did nothing), and later
@@ -260,7 +280,7 @@ impl Brain {
                                     }
                                 }
                                 again.prompt_id = format!("{}:{}", start.prompt_id, retry.as_str());
-                                turn::run_with_drafts(&*agents, &chat, &again, &interrupt, &*log, &progress, &trace, &draft, &run_update)
+                                turn::run_with_drafts(&*agents, &chat, &again, &interrupt, &*log, &progress, &trace, &draft, &run_update, &starting)
                             }
                             (Some(e), _) if marked && is_marker_limit_error(e) => {
                                 marker_refused.refused();
@@ -286,12 +306,12 @@ impl Brain {
                                     }
                                 }
                                 again.prompt_id = format!("{}:unmarked", start.prompt_id);
-                                turn::run_with_drafts(&*agents, &chat, &again, &interrupt, &*log, &progress, &trace, &draft, &run_update)
+                                turn::run_with_drafts(&*agents, &chat, &again, &interrupt, &*log, &progress, &trace, &draft, &run_update, &starting)
                             }
                             _ => outcome,
                         };
                         crate::turn::run_after_capacity_waits(outcome, &start, &interrupt, &*log, &trace, |again| {
-                            turn::run_with_drafts(&*agents, &chat, again, &interrupt, &*log, &progress, &trace, &draft, &run_update)
+                            turn::run_with_drafts(&*agents, &chat, again, &interrupt, &*log, &progress, &trace, &draft, &run_update, &starting)
                         })
                     }
                     Engine::Native(native) => {
@@ -1276,10 +1296,14 @@ impl Brain {
 
     pub(super) fn turn_ended(&mut self, key: &str, mut outcome: TurnOutcome) {
         if let Some(cut) = self.is_cut(key, &outcome) {
+            self.cut_ran |= !outcome.unstarted;
             self.turn_cut(key, outcome, cut);
             return;
         }
         self.cuts = 0;
+        if std::mem::take(&mut self.cut_ran) {
+            outcome.unstarted = false;
+        }
         self.steer_due.take_if(|(_, turn)| turn == key);
         let outcome_done = outcome.done_draft.take();
         self.keep_turn_session(key, &mut outcome);
@@ -1323,6 +1347,42 @@ impl Brain {
         // A turn the owner stopped posts nothing, even one that ended
         // normally before it saw the interrupt (the stop was accepted).
         let quiet = superseded || owner_stopped;
+        // A turn whose start stalled before its prompt reached a harness
+        // (`unstarted_stall`), past its cuts: its error is the harness
+        // start's, for host.log and the trace, never a reply. Its messages
+        // stay open in the reply ledger, which runs a retry turn and, if none
+        // answers, says so in plain words.
+        let stalled = unstarted_stall(&outcome);
+        // The ledger holds only a person message of the Chief conversation
+        // (`reply_ledger.rs`): a turn whose messages it all holds, with at
+        // least one it saw (a cut turn's resume answers its cut messages
+        // through the ledger), stays quiet and the retry turn answers. Any
+        // other stalled turn (a group member's message, a subagent's report,
+        // a turn with nothing waiting) says in plain words that it could not
+        // start, and writes no failure note, so the next turn still sees what
+        // this one did not answer.
+        let awaited = |id: &String| self.state.awaiting.iter().any(|a| &a.id == id);
+        let held = self
+            .state
+            .turn
+            .as_ref()
+            .filter(|t| t.key == key)
+            .is_some_and(|t| t.answers.iter().all(awaited))
+            && !self.unanswered_in_turn().is_empty();
+        let unstarted = stalled && held;
+        if stalled
+            && !quiet
+            && let Some(error) = &outcome.error
+        {
+            (self.log)(&format!(
+                "turn {key} did not start ({failed}: {error}); {}",
+                if held {
+                    "its messages wait for a retry turn"
+                } else {
+                    "it says so in plain words; the next turn takes up its items"
+                }
+            ));
+        }
         // A failed turn also leaves a note in the memory log, after the
         // messages it did not answer: without it the next turn's delta shows
         // them as still open, and a later "hi" got the answer to a message
@@ -1334,7 +1394,11 @@ impl Brain {
         let steered_waits = self.queue.iter().any(|q| q.logged);
         let failure_note = match &outcome.error {
             Some(error)
-                if !(quiet || tool_stopped || outcome.orphan.is_some() || steered_waits) =>
+                if !(quiet
+                    || stalled
+                    || tool_stopped
+                    || outcome.orphan.is_some()
+                    || steered_waits) =>
             {
                 Some(failure_note(error))
             }
@@ -1348,13 +1412,17 @@ impl Brain {
                 "turn {key} ended by the Chief's stop: nothing more posted"
             ));
         }
-        let text = ended_turn_text(
-            outcome.reply,
-            outcome.error,
-            quiet || tool_stopped,
-            outcome.refused,
-            &failed,
-        );
+        let text = if stalled && !held && !(quiet || tool_stopped) {
+            UNSTARTED_TEXT.to_owned()
+        } else {
+            ended_turn_text(
+                outcome.reply,
+                outcome.error,
+                quiet || tool_stopped || unstarted,
+                outcome.refused,
+                &failed,
+            )
+        };
         // NO_REPLY posts nothing: a Chief that reads every message stays
         // quiet with it (membership), and any Chief ends with it when a
         // reaction or its `reply` calls said it all (brain/replies.rs).
@@ -1417,7 +1485,9 @@ impl Brain {
             .filter(|t| t.key == key)
             .map(|t| t.answers.clone())
             .unwrap_or_default();
-        if superseded {
+        // A turn that never started carries its messages to the turn that
+        // answers them, as a superseded one does.
+        if superseded || unstarted {
             add_answers(&mut self.state.carry_answers, answers.clone());
         } else if !answers.is_empty() {
             self.state.last_answers = answers.clone();
@@ -1432,13 +1502,14 @@ impl Brain {
             .collect();
         // Work announced as pending that this turn closes: a silent turn
         // still answers with a done marker, unless the owner stopped it.
-        let closes = !quiet
+        let closes = !(quiet || stalled)
             && answers
                 .iter()
                 .any(|id| self.state.open_answers.contains(id) && !pending.contains(id));
         // An owner-stopped turn posts no done marker, so the work it would
-        // close stays open for a later turn to close.
-        if !quiet {
+        // close stays open for a later turn to close; so does a turn that
+        // never started.
+        if !(quiet || stalled) {
             self.state
                 .open_answers
                 .retain(|id| !answers.contains(id) || pending.contains(id));
@@ -1456,7 +1527,7 @@ impl Brain {
         // In a group conversation the reply goes into the thread of the last
         // message it answers (membership::thread_target); a superseded turn's
         // messages keep theirs for the turn that answers them.
-        let thread = if superseded {
+        let thread = if superseded || unstarted {
             None
         } else {
             // In the Chief conversation too: the thread of the user message
@@ -1541,6 +1612,8 @@ impl Brain {
         self.flush_outbox();
         self.schedule_reply_checks(if said_no_reply {
             super::reply_ledger::WHY_NO_REPLY
+        } else if unstarted {
+            super::reply_ledger::WHY_UNSTARTED
         } else {
             super::reply_ledger::WHY_SILENT
         });
@@ -1604,14 +1677,47 @@ const UPSTREAM_TRANSIENT: [&str; 8] = [
     "ECONNRESET",
 ];
 
+/// What a turn that could not start says when the reply ledger does not hold
+/// its messages: never the start's diagnostics.
+const UNSTARTED_TEXT: &str = "I could not start an agent just now; the machine may be busy. I will pick this up with the next message.";
+
+/// A turn whose prompt never reached a harness because its start stalled or
+/// broke off: rerun, and past its cuts never posted (its message waits in the
+/// reply ledger). A usage limit is not cured by a retry and stays a failure.
+fn unstarted_stall(outcome: &TurnOutcome) -> bool {
+    let Some(error) = outcome.error.as_deref().map(crate::turn::error_head) else {
+        return false;
+    };
+    outcome.unstarted
+        && !outcome.refused
+        && outcome.reply.is_none()
+        && crate::turn::is_start_stall(error)
+        && !matches!(
+            crate::auto_resume::classify_error(error),
+            crate::auto_resume::StopKind::UsageLimit(_)
+        )
+}
+
 /// Whether, and why, a failed turn was cut.
 pub(super) fn cut_kind(outcome: &TurnOutcome) -> Option<Cut> {
-    let error = outcome.error.as_deref()?;
+    // Its words, not the numbers of the process detail after them (a pid of
+    // 15023 or "ran 502 s" is no HTTP status).
+    let error = crate::turn::error_head(outcome.error.as_deref()?);
     if outcome.orphan.is_some() {
         return (error == crate::turn::CONNECTION_LOST).then_some(Cut::Link);
     }
     if outcome.refused || outcome.cancelled {
         return None;
+    }
+    // Its prompt never reached a harness (`TurnOutcome::unstarted`) and its
+    // start stalled or broke off (`turn::is_start_stall`): nothing ran, so it
+    // runs again after an upstream wait. Leo, 2026-11-04: "(turn failed on
+    // claude-sr2: session/new: agent_start did not finish within 90s; ...)"
+    // posted as the Chief's reply three times, because only Chief's own "no
+    // answer within" wording was matched here. A start refused for a reason
+    // (a setup error) still fails at once and shows.
+    if unstarted_stall(outcome) {
+        return Some(Cut::Upstream);
     }
     if outcome.reply.is_none()
         && [
