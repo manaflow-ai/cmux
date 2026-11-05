@@ -122,7 +122,8 @@ pub enum FallbackCode {
     NoBase,
     /// The index has unresolved merge conflicts.
     Unmerged,
-    /// A submodule has commits not on its remote, or uncommitted changes.
+    /// A submodule is at a commit not on its remote, or has none checked out
+    /// (its uncommitted changes alone stay on this Mac, named).
     SubmoduleLocalWork,
     /// A delta seed's previous commits are not in this repository (a gc
     /// dropped them, or they came from another one).
@@ -459,9 +460,9 @@ fn build(
     since: &Since<'_>,
     bases: Vec<String>,
 ) -> Result<Planned, Fallback> {
-    let submodules = submodules(repo)?;
+    let (submodules, submodule_work) = submodules(repo)?;
     let scratch = Scratch::new()?;
-    let Commits { index: index_commit, work: work_commit, skipped, sparse } =
+    let Commits { index: index_commit, work: work_commit, mut skipped, sparse } =
         commits(repo, &scratch)?;
     let store = scratch.0.join("store.git");
     git::output(git::at(&scratch.0).args(["init", "-q", "--bare", "--template="]).arg(&store))
@@ -478,6 +479,7 @@ fn build(
     }
     let stash = repo.commit("refs/stash");
     let lfs = uses_lfs(repo, &skipped);
+    skipped.extend(submodule_work);
 
     let mut refs = vec![
         ("refs/cmux-seed/head", repo.head.as_str()),
@@ -697,13 +699,15 @@ fn untracked_left_out(repo: &Repo) -> Result<Vec<Skipped>, Fallback> {
     Ok(skipped)
 }
 
-/// Each submodule with the commit checked out in it. One with a commit not
-/// on its remote-tracking refs, or with uncommitted changes, is local work
-/// this plan cannot seed yet.
-fn submodules(repo: &Repo) -> Result<Vec<Submodule>, Fallback> {
+/// Each submodule with the commit checked out in it, and the submodules
+/// whose uncommitted changes stay on this Mac (the machine gets the
+/// commit). One whose commit is not on its remote-tracking refs is local
+/// work this plan cannot seed: the machine could not fetch it.
+fn submodules(repo: &Repo) -> Result<(Vec<Submodule>, Vec<Skipped>), Fallback> {
     let staged = git::output(git::at(&repo.top).args(["ls-files", "-z", "-s"]))
         .map_err(|error| failed("listing the index", error))?;
     let mut found = Vec::new();
+    let mut left_here = Vec::new();
     for entry in staged.split(|byte| *byte == 0).filter(|entry| !entry.is_empty()) {
         let entry = String::from_utf8_lossy(entry);
         let Some((meta, path)) = entry.split_once('\t') else { continue };
@@ -730,7 +734,12 @@ fn submodules(repo: &Repo) -> Result<Vec<Submodule>, Fallback> {
         let dirty = git::text(git::at(&checkout).args(["status", "--porcelain"]))
             .map_err(|error| failed(&format!("reading submodule {path}"), error))?;
         if !dirty.is_empty() {
-            return Err(local_work("has uncommitted changes".to_string()));
+            let folder = format!("{path}/");
+            left_here.push(Skipped {
+                raw: folder.clone().into_bytes(),
+                path: folder,
+                why: "a submodule's uncommitted changes stay on this Mac".to_string(),
+            });
         }
         let on_remote = git::optional(git::at(&checkout).args([
             "for-each-ref",
@@ -745,7 +754,7 @@ fn submodules(repo: &Repo) -> Result<Vec<Submodule>, Fallback> {
         }
         found.push(Submodule { path: path.to_string(), commit });
     }
-    Ok(found)
+    Ok((found, left_here))
 }
 
 /// The sparse-checkout patterns when sparse checkout is on.
