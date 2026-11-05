@@ -385,7 +385,7 @@ def summary(rows):
             out[f"{phase}/{command}"] = {
                 "n": len(sel), "missed": sum(v is None for v in vis),
                 "key_p50": pct([r.get("key_ms") for r in sel], .5), "key_max": pct([r.get("key_ms") for r in sel], 1),
-                "visible_p50": pct(vis, .5), "visible_p95": pct(vis, .95), "visible_max": pct(vis, 1),
+                "visible_p50": pct(vis, .5), "visible_p95": pct(vis, .95), "visible_p99": pct(vis, .99), "visible_max": pct(vis, 1),
                 "frames_p50": pct([frame_of(r) for r in sel], .5),
                 "frames_p95": pct([frame_of(r) for r in sel], .95),
                 "frames_max": pct([frame_of(r) for r in sel], 1),

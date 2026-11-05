@@ -82,9 +82,14 @@ def sidebar_rows(report, count):
     if values:
         out["sidebar_scroll"] = stats(values)
     switch = size.get("switch") or {}
-    values = _samples(switch.get("click_to_idle_ms"), "p95")
-    if values:
-        out["switch"] = stats(values)
+    switch_stats = switch.get("click_to_idle_ms")
+    if isinstance(switch_stats, dict) and isinstance(switch_stats.get("p95"), (int, float)):
+        out["switch"] = {"p50": switch_stats.get("p50", switch_stats["p95"]),
+                          "p95": switch_stats["p95"],
+                          "p99": switch_stats.get("p99", switch_stats["p95"]),
+                          "n": switch_stats.get("n")}
+    elif isinstance(switch_stats, (int, float)):
+        out["switch"] = stats([switch_stats])
     return out
 
 
