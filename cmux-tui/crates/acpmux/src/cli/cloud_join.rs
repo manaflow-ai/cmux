@@ -28,7 +28,7 @@ fn consent_home() -> PathBuf {
     CONSENT_HOME.get().cloned().unwrap_or_else(state_dir)
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct MachineCredential {
     pub credential: String,
     pub machine_id: String,
@@ -41,6 +41,25 @@ pub struct MachineCredential {
     pub wg_public_key: String,
     #[serde(default)]
     pub credential_generation: u64,
+    /// The person who enrolled this machine, from the hub's answer for this credential
+    /// (`userId`). `meshRelay.controlFrom`'s `sameUser` entry matches it against the
+    /// hub-stamped sender. None (an older join, or a hub that does not name it yet) grants
+    /// nothing automatically.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<String>,
+}
+
+/// A hub-supplied id the store keeps: non-empty, one line, and no secret-shaped text.
+pub(crate) fn safe_id(value: &str) -> Option<String> {
+    Some(value)
+        .filter(|s| {
+            !s.is_empty()
+                && s.len() <= 256
+                && !s.contains("cmj_")
+                && !s.contains("cmm_")
+                && !s.chars().any(char::is_control)
+        })
+        .map(str::to_owned)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -114,14 +133,27 @@ fn save(record: &MachineCredential) -> Result<()> {
 
 fn configure_mesh_relay(hub: &str) -> Result<()> {
     let mut config = crate::config::Config::load()?;
+    let control_from = joined_control_from(config.mesh_relay.take());
     config.mesh_relay = Some(crate::mesh_http::MeshRelayConfig {
         url: hub.to_owned(),
         token_command: Vec::new(),
         credential: Some("join".to_owned()),
         team_messaging: true,
-        control_from: Vec::new(),
+        control_from,
     });
     config.save_with_writer(|path, bytes| recovery::write_durable(path, bytes, true))
+}
+
+/// The control senders a join writes: the owner's own entries kept, plus the person's own
+/// other machines (`{"sameUser": true}`) unless an entry already says what `sameUser` gets.
+fn joined_control_from(
+    previous: Option<crate::mesh_http::MeshRelayConfig>,
+) -> Vec<crate::mesh_http::MeshControlFrom> {
+    let mut control_from = previous.map(|relay| relay.control_from).unwrap_or_default();
+    if !control_from.iter().any(|entry| entry.same_user) {
+        control_from.push(crate::mesh_http::MeshControlFrom::same_user());
+    }
+    control_from
 }
 
 fn mesh_relay_configured() -> bool {
@@ -139,6 +171,28 @@ fn load() -> Result<Option<MachineCredential>> {
 /// sends it only as the bearer of its own hub request.
 pub(crate) fn machine_credential() -> Result<Option<MachineCredential>> {
     load()
+}
+
+/// The person this machine recorded at join, for `controlFrom`'s `sameUser` entry. None when
+/// the machine is not joined, is revoked, or recorded no person.
+pub(crate) fn machine_user_id() -> Option<String> {
+    let record = load().ok().flatten()?;
+    (!record.revoked).then_some(record.user_id?).and_then(|user| safe_id(&user))
+}
+
+/// Records the person the hub names for the credential that asked (`host join --status`
+/// repairs an older join). Like [`record_auth_result`], only that credential's record changes.
+fn record_user_id(token: &str, user_id: Option<String>) -> Result<()> {
+    let Some(user_id) = user_id else { return Ok(()) };
+    let _lock = join_lock()?;
+    if let Some(mut record) = load()?
+        && record.credential == token
+        && record.user_id.as_deref() != Some(user_id.as_str())
+    {
+        record.user_id = Some(user_id);
+        save(&record)?;
+    }
+    Ok(())
 }
 
 /// A stored hub origin, checked as `host join` checks it.
@@ -305,15 +359,9 @@ pub async fn status(hub: Option<String>, json_out: bool) -> Result<()> {
     let pending_origin = recovery::pending_origin()?;
     let fallback_hub = pending_origin.clone().unwrap_or(origin(hub)?);
     let record = load()?.unwrap_or(MachineCredential {
-        credential: String::new(),
-        machine_id: String::new(),
-        team_id: String::new(),
         name: local_name(None),
         hub_origin: fallback_hub,
-        last_heartbeat: None,
-        revoked: false,
-        wg_public_key: String::new(),
-        credential_generation: 0,
+        ..Default::default()
     });
     let daemon = tokio::time::timeout(
         std::time::Duration::from_secs(2),
@@ -321,7 +369,7 @@ pub async fn status(hub: Option<String>, json_out: bool) -> Result<()> {
     )
     .await;
     let running = matches!(daemon, Ok(Ok(_)));
-    let mut out = json!({"credentialPresent": !record.credential.is_empty(), "machineId": record.machine_id, "teamId": record.team_id, "hubOrigin": record.hub_origin, "hubReachable": false, "lastHeartbeat": record.last_heartbeat, "revoked": record.revoked, "wgPublicKey": record.wg_public_key, "consent": load_consent(), "credentialStore":"file", "credentialPath":credential_path(), "credentialMode":if record.credential.is_empty() { None } else { Some("0600") }, "daemonRunning":running, "meshRelayConfigured":mesh_relay_configured(), "build": crate::hub::build(), "channel":null});
+    let mut out = json!({"credentialPresent": !record.credential.is_empty(), "machineId": record.machine_id, "teamId": record.team_id, "hubOrigin": record.hub_origin, "hubReachable": false, "lastHeartbeat": record.last_heartbeat, "revoked": record.revoked, "wgPublicKey": record.wg_public_key, "consent": load_consent(), "credentialStore":"file", "credentialPath":credential_path(), "credentialMode":if record.credential.is_empty() { None } else { Some("0600") }, "daemonRunning":running, "meshRelayConfigured":mesh_relay_configured(), "userId": record.user_id, "build": crate::hub::build(), "channel":null});
     out["joinIncomplete"] = json!(pending_origin.is_some());
     out["helperConsent"] =
         json!({"state":"unknown","reason":"running helper consent support has not been verified"});
@@ -331,7 +379,15 @@ pub async fn status(hub: Option<String>, json_out: bool) -> Result<()> {
         let hub = origin(Some(record.hub_origin.clone()))?;
         let answer = hub_client(&hub, Some(&record.credential))?.machine_redeem_self().await;
         let status = match answer {
-            Ok(_) => Some(200),
+            Ok(body) => {
+                // Repair an older join: record the person the hub now names.
+                let user_id = body.user_id.as_ref().and_then(|user| safe_id(&user.to_string()));
+                if user_id.is_some() && record.user_id != user_id {
+                    record_user_id(&record.credential, user_id.clone())?;
+                    out["userId"] = json!(user_id);
+                }
+                Some(200)
+            }
             Err(error) => cmux_cloud_client::ApiError::from_api(error).await.status,
         };
         if let Some(status) = status {
@@ -440,6 +496,43 @@ mod tests {
             "https://example.com"
         );
         assert!(origin(Some("http://127.0.0.1:1234".to_owned())).is_ok());
+    }
+
+    #[test]
+    fn a_join_grants_the_same_person_and_keeps_the_owners_own_entries() {
+        use crate::mesh_http::{MeshControlFrom, MeshRelayConfig};
+        assert_eq!(super::joined_control_from(None), vec![MeshControlFrom::same_user()]);
+        let own = MeshControlFrom {
+            daemon_id: "d1".into(),
+            ops: vec!["stop".into()],
+            ..Default::default()
+        };
+        let previous = MeshRelayConfig { control_from: vec![own.clone()], ..Default::default() };
+        assert_eq!(
+            super::joined_control_from(Some(previous)),
+            vec![own, MeshControlFrom::same_user()]
+        );
+        // An owner who narrowed or emptied `sameUser` keeps that choice across a rejoin.
+        let narrowed = MeshControlFrom { ops: vec![], ..MeshControlFrom::same_user() };
+        let previous =
+            MeshRelayConfig { control_from: vec![narrowed.clone()], ..Default::default() };
+        assert_eq!(super::joined_control_from(Some(previous)), vec![narrowed]);
+    }
+
+    #[test]
+    fn an_older_record_reads_with_no_person_and_a_new_one_keeps_it() {
+        let old = serde_json::json!({"credential":"cmm_x","machine_id":"m","team_id":"t","name":"n",
+            "hub_origin":"https://example.com","last_heartbeat":null,"revoked":false,"wgPublicKey":"k"});
+        let record: super::MachineCredential = serde_json::from_value(old).unwrap();
+        assert_eq!(record.user_id, None);
+        let record = super::MachineCredential { user_id: Some("user_1".into()), ..record };
+        let round: super::MachineCredential =
+            serde_json::from_value(serde_json::to_value(&record).unwrap()).unwrap();
+        assert_eq!(round.user_id.as_deref(), Some("user_1"));
+        assert_eq!(super::safe_id("user_1").as_deref(), Some("user_1"));
+        for bad in ["", "cmm_secret", "a\nb"] {
+            assert_eq!(super::safe_id(bad), None, "{bad:?}");
+        }
     }
 
     #[test]
