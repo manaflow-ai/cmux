@@ -2247,11 +2247,20 @@ class TerminalBandTests(unittest.TestCase):
         runs = {s + 1: a_width(s, "strip-tui-band") - grid_end for s in range(MOVE[0], MOVE[1] + 10)}
         band = {f for f, run in runs.items() if run > jp.BAND_LIMIT_PX}
         self.assertEqual(min(band), MOVE[0] + 6)  # from sample 15 on (a 28 px run)
-        for contract in ("m18", "m20"):
-            row = self.reports["strip-tui-band"][contract]["kinds"]["terminal"]
-            self.assertEqual(jp_frames(row["band_ranges"]), band, (contract, row.get("band_ranges")))
-            self.assertLessEqual(band, jp_frames(row["fail_ranges"]), contract)
-            self.assertEqual(row["worst_px"], max(runs.values()), contract)  # 84 px: the 80 px growth and the 4 px rest ground
+        row = self.reports["strip-tui-band"]["m18"]["kinds"]["terminal"]
+        self.assertEqual(jp_frames(row["band_ranges"]), band, row.get("band_ranges"))
+        self.assertLessEqual(band, jp_frames(row["fail_ranges"]))
+        self.assertEqual(row["worst_px"], max(runs.values()))  # 84 px: the 80 px growth and the 4 px rest ground
+        # m20 (m19's allowance, pixel-perfect's band_allow rule): a band whose grid edge is where a grid current at one of
+        # the 2 samples before would put it (its run to that sample's pane edge within the limit) is the terminal's last
+        # frame: lag. Frames 16 and 17 (samples 15 and 16: the pane edge of sample 14 is 316 px, the grid ends at 292 px)
+        last = {f for f in band if any(a_width(j, "strip-tui-band") - jp.BAND_LIMIT_PX <= grid_end
+                                       for j in (f - 2, f - 3))}
+        self.assertEqual(last, {MOVE[0] + 6, MOVE[0] + 7})
+        row20 = self.reports["strip-tui-band"]["m20"]["kinds"]["terminal"]
+        self.assertEqual(jp_frames(row20["band_ranges"]), band - last, row20.get("band_ranges"))
+        self.assertLessEqual(last, jp_frames(row20["lag_ranges"]), row20.get("lag_ranges"))
+        self.assertEqual(row20["worst_px"], max(runs.values()))
         self.assertEqual(self.reports["strip-tui-band"]["m14"]["kinds"]["terminal"]["fail"], 0)  # m14 does not change
 
     def test_a_terminal_at_rest_has_no_band(self):
