@@ -26,26 +26,29 @@ spec.loader.exec_module(rust_live)
 class FakeApp:
     """An app bundle whose daemon is a sleep process; `respawn` is the app's reconnect."""
 
-    def __init__(self, root: Path, respawn: bool = True):
+    def __init__(self, root: Path, respawn: bool = True, backoff: float = 0.05):
         self.bin = root / "cmux DEV.app" / "Contents" / "Resources" / "bin"
         self.bin.mkdir(parents=True)
         self.file = self.bin / "cmux"
         self.file.write_text("base build\n")
         (self.bin / "cmux-tui").symlink_to("cmux")
         self.respawn = respawn
+        self.backoff = backoff
         self.builds_run: list[str] = []
         self.owner = self.start()
         self.stopped = threading.Event()
-        threading.Thread(target=self.supervise, daemon=True).start()
+        self.thread = threading.Thread(target=self.supervise, daemon=True)
+        self.thread.start()
 
     def start(self) -> subprocess.Popen:
         self.builds_run.append(self.file.read_text())
-        return subprocess.Popen(["sleep", "600"])
+        return subprocess.Popen(["sleep", "600"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     def supervise(self) -> None:
         while not self.stopped.is_set():
             if self.owner.poll() is not None and self.respawn:
-                time.sleep(0.05)  # the app's first reconnect backoff
+                if self.stopped.wait(self.backoff):  # the app's reconnect backoff
+                    break
                 self.owner = self.start()
             time.sleep(0.01)
 
@@ -54,6 +57,7 @@ class FakeApp:
 
     def close(self) -> None:
         self.stopped.set()
+        self.thread.join()
         if self.owner.poll() is None:
             self.owner.send_signal(signal.SIGKILL)
             self.owner.wait()
@@ -94,14 +98,15 @@ class AppHandoffTests(unittest.TestCase):
         second = self.new.with_name("cmux-tui-2")
         second.write_text("pr build 2\n")
         swapper.swap({"cmux-tui": second})
-        self.assertTrue((self.state / "app-original.json").is_file())
+        marker = swapper.marker()
+        self.assertTrue(marker.is_file())
         # A new watcher (the old one died) still knows the app's own build.
         later = rust_live.Swapper(None, "/fake.sock", state=self.state)
         later.owner = lambda _cli: app.status()
         self.assertEqual(later.restore_app(), str(app.file))
         self.assertEqual(app.file.read_text(), "base build\n")
         self.assertEqual(app.builds_run[-1], "base build\n")
-        self.assertFalse((self.state / "app-original.json").exists())
+        self.assertFalse(marker.exists())
 
     def test_no_new_owner_puts_the_file_back(self):
         app = FakeApp(self.tmp, respawn=False)
@@ -114,6 +119,39 @@ class AppHandoffTests(unittest.TestCase):
             swapper.swap({"cmux-tui": self.new})
         self.assertEqual(app.file.read_text(), "base build\n")
         self.assertEqual(sorted(p.name for p in app.bin.iterdir()), ["cmux", "cmux-tui"])
+
+    def test_a_watcher_on_another_session_leaves_this_apps_marker_and_daemon_alone(self):
+        app = FakeApp(self.tmp)
+        self.addCleanup(app.close)
+        self.swapper(app).swap({"cmux-tui": self.new})
+        swapped_owner = app.owner.pid
+        other = rust_live.Swapper(None, "/other.sock", state=self.state)
+        other.owner = lambda _cli: app.status()
+        self.assertIsNone(other.restore_app())
+        self.assertEqual(app.owner.pid, swapped_owner)
+        self.assertEqual(app.file.read_text(), "pr build\n")
+        self.assertTrue(self.swapper(app).marker().is_file())
+
+    def test_an_owner_that_comes_up_after_the_deadline_is_handed_back_to_the_restored_file(self):
+        app = FakeApp(self.tmp)
+        self.addCleanup(app.close)
+        swapper = self.swapper(app)
+        real_wait = swapper.wait_for_new_owner
+        missed = []
+
+        def wait(cli, old):
+            # The first wait gives up just before the app's new owner (from the new build) answers.
+            if missed:
+                return real_wait(cli, old)
+            missed.append(old)
+            time.sleep(0.3)
+            return None
+
+        swapper.wait_for_new_owner = wait
+        with self.assertRaisesRegex(RuntimeError, "back as it was"):
+            swapper.swap({"cmux-tui": self.new})
+        self.assertEqual(app.file.read_text(), "base build\n")
+        self.assertEqual(app.builds_run, ["base build\n", "pr build\n", "base build\n"])
 
     def test_a_daemon_outside_an_app_still_restarts_through_the_cli(self):
         swapper = rust_live.Swapper("s", None, state=self.state)

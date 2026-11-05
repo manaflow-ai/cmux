@@ -390,16 +390,24 @@ class Swapper:
         self.env = env
         self.previous: Path | None = None  # the last cmux-tui this loop swapped in
         # An app's daemon file and the copy of what it held before the first swap. Kept in the state
-        # folder (app-original.json) so a watcher that died never takes a swapped file for the app's.
+        # folder, one marker per session/socket, so a watcher that died never takes a swapped file for
+        # the app's, and a watcher on another session never restores this one's.
         self.state = state
         self.app_original: tuple[Path, Path] | None = None
-        marker = self.state / "app-original.json" if self.state else None
+        marker = self.marker()
         if marker and marker.is_file():
             try:
                 saved = json.loads(marker.read_text())
-                self.app_original = (Path(saved["file"]), Path(saved["copy"]))
+                if saved.get("selector") == self.selector:
+                    self.app_original = (Path(saved["file"]), Path(saved["copy"]))
             except (OSError, ValueError, KeyError):
                 pass
+
+    def marker(self) -> Path | None:
+        if not self.state:
+            return None
+        key = hashlib.sha256(json.dumps(self.selector).encode()).hexdigest()[:12]
+        return self.state / f"app-original-{key}.json"
 
     def cli(self, binary: Path, *words: str, timeout: float = 60) -> subprocess.CompletedProcess:
         return run([str(binary), *self.selector, *words], env=self.env, timeout=timeout)
@@ -438,12 +446,13 @@ class Swapper:
         reconnect runs `server ensure` from `target`, with its own install key. A new owner that
         does not answer in APP_OWNER_SECS puts the file that was there back."""
         if self.app_original is None or self.app_original[0] != target:
-            keep = (self.state or Path(tempfile.mkdtemp(prefix="rust-live-app-"))) / "app-original" / target.name
+            marker = self.marker()
+            keep = (marker.with_suffix("") if marker else Path(tempfile.mkdtemp(prefix="rust-live-app-"))) / target.name
             keep.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(target, keep)
             self.app_original = (target, keep)
-            if self.state:
-                (self.state / "app-original.json").write_text(json.dumps({"file": str(target), "copy": str(keep)}) + "\n")
+            if marker:
+                marker.write_text(json.dumps({"selector": self.selector, "file": str(target), "copy": str(keep)}) + "\n")
         before = target.with_name(f".{target.name}.rust-live-before")
         staged = target.with_name(f".{target.name}.rust-live")
         shutil.copy2(target, before)
@@ -456,8 +465,21 @@ class Swapper:
             pass
         if self.wait_for_new_owner(new, pid) is None:
             os.replace(before, target)  # the app's next ensure runs the build that ran before
+            late = self.owner(target)
+            if late and late[0] != pid:
+                # An owner that came up after the last poll runs the new build, and while it answers the
+                # app's ensure starts nothing: hand off once more, to the file that is back.
+                self.handoff_to_file(late[0], target)
             raise RuntimeError(f"no new daemon answered {APP_OWNER_SECS} s after the handoff; {target} is back as it was")
         before.unlink(missing_ok=True)
+
+    def handoff_to_file(self, pid: int, target: Path) -> None:
+        """SIGTERM to the owner `pid`; the app's reconnect starts the next one from `target`."""
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        self.wait_for_new_owner(target, pid)
 
     def wait_for_new_owner(self, cli: Path, old: int) -> int | None:
         deadline = time.monotonic() + APP_OWNER_SECS
@@ -479,14 +501,12 @@ class Swapper:
         staged = target.with_name(f".{target.name}.rust-live")
         shutil.copy2(keep, staged)
         os.replace(staged, target)
-        if owner:
-            try:
-                os.kill(owner[0], signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-            self.wait_for_new_owner(target, owner[0])
-        if self.state:
-            (self.state / "app-original.json").unlink(missing_ok=True)
+        # Only this app's owner hands off: one running from somewhere else is not the swapped build.
+        if owner and self.app_file(owner[1]) == target:
+            self.handoff_to_file(owner[0], target)
+        marker = self.marker()
+        if marker:
+            marker.unlink(missing_ok=True)
         self.app_original = None
         return str(target)
 
