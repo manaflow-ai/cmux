@@ -113,7 +113,13 @@ impl AgentReceiver {
     ) -> Result<ReceiverSnapshot, String> {
         let snapshot = match self.read_prepared(path, uid, system, budget, &refresh) {
             Ok(snapshot) => snapshot,
-            Err(error) if is_refusal(&error) => return Err(error),
+            Err(error) if is_refusal(&error) => {
+                // A reply that fails validation is a rejected snapshot, not
+                // a transport failure: it never keeps a retained lease
+                // (#36008), as dropping a retained renewal would.
+                self.owner.reject(refresh);
+                return Err(error);
+            }
             Err(error) => {
                 self.owner.keep(refresh);
                 return Err(error);
