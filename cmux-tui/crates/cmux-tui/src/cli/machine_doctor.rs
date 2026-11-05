@@ -202,7 +202,7 @@ pub(super) fn remote_steps(
                     steps.push(JoinStep::fail(
                         "platform",
                         format!("joining is off on {origin}"),
-                        format!("Point at development: --platform {}", machine_join::DEV_ORIGIN),
+                        format!("Point at production: --platform {}", machine_join::DEFAULT_ORIGIN),
                     ));
                     Err(())
                 }
