@@ -348,6 +348,27 @@ if [[ "$mode" == installed && "$experience" == isolated ]]; then
   result fallback not_run "isolated, installed: two instances under the shipped bundle id $bundle_id share one defaults domain (cfprefsd ignores HOME), so a side instance of the installed app is unsupported; --mode=lab runs each instance under its own id"
   exit 0
 fi
+# Other running apps with cmux in their path: "PID BUNDLE_ID" (unknown when the Info.plist is unreadable).
+other_apps() { python3 - "$work" <<'PY'
+import plistlib, subprocess, sys
+ours = sys.argv[1]
+for l in subprocess.run(["ps", "-axo", "pid=,comm="], capture_output=True, text=True).stdout.splitlines():
+    pid, _, comm = l.strip().partition(" ")
+    if "/Contents/MacOS/" not in comm or "cmux" not in comm.lower() or ours in comm: continue
+    try: bid = plistlib.load(open(comm.split("/Contents/MacOS/")[0] + "/Contents/Info.plist", "rb")).get("CFBundleIdentifier", "unknown")
+    except Exception: bid = "unknown"
+    print(pid, bid)
+PY
+}
+# Before any defaults are touched: a running app with the shipped id (or an unreadable one) means an
+# installed run stops here, so that app's defaults domain is never exported, cleared or restored.
+coexisting="$(other_apps | tr '\n' ',' | sed 's/,$//; s/,/, /g')"; note other_instances "${coexisting:-none}"
+if [[ "$mode" == installed && -n "$coexisting" ]] && other_apps | awk -v id="$bundle_id" '$2 == id || $2 == "unknown" {f=1} END {exit !f}'; then
+  note coexistence_preexisting "unsupported: a running app has the shipped bundle id $bundle_id (or an unreadable one)"
+  result fallback not_run "coexistence: a second instance under the shipped bundle id $bundle_id would share the running one's bundle-id state, so an installed side instance next to it is unsupported; the running app was left alone (--mode=lab runs a tagged copy)"
+  exit 0
+fi
+[[ -n "$coexisting" ]] || note coexistence_preexisting "NOT PROVEN: no other cmux app was already running"
 # The shipped defaults domain, set aside for an installed run and put back after it (see "defaults").
 domain_empty() { local rc=0; "$defaults_tool" export "$bundle_id" "$aside.probe" >/dev/null 2>&1 \
   && python3 -c 'import plistlib, sys; sys.exit(1 if plistlib.load(open(sys.argv[1], "rb")) else 0)' "$aside.probe" || rc=1; rm -f "$aside.probe"; return $rc; }
@@ -374,18 +395,6 @@ else
 fi
 # (|| true: under pipefail a last line that is not ours would end the script.)
 ours_running() { ps -axo pid=,comm= | while read -r p c; do [[ "$c" == "$work/"*"/Contents/MacOS/"* ]] && echo "$p" || true; done; }
-# Other running apps with cmux in their path: "PID BUNDLE_ID" (unknown when the Info.plist is unreadable).
-other_apps() { python3 - "$work" <<'PY'
-import plistlib, subprocess, sys
-ours = sys.argv[1]
-for l in subprocess.run(["ps", "-axo", "pid=,comm="], capture_output=True, text=True).stdout.splitlines():
-    pid, _, comm = l.strip().partition(" ")
-    if "/Contents/MacOS/" not in comm or "cmux" not in comm.lower() or ours in comm: continue
-    try: bid = plistlib.load(open(comm.split("/Contents/MacOS/")[0] + "/Contents/Info.plist", "rb")).get("CFBundleIdentifier", "unknown")
-    except Exception: bid = "unknown"
-    print(pid, bid)
-PY
-}
 
 shot() { screencapture -x -D 1 "$out/$1.png" && sips -s format bmp "$out/$1.png" --out "$work/$1.bmp" >/dev/null; }
 # Changed pixels of B against A inside the region, as "count x,y,w,h" (the box of the changes).
@@ -528,13 +537,6 @@ PY
 }
 
 others >"$work/others-before.txt"
-coexisting="$(other_apps | tr '\n' ',' | sed 's/,$//; s/,/, /g')"; note other_instances "${coexisting:-none}"
-if [[ "$mode" == installed && -n "$coexisting" ]] && other_apps | awk -v id="$bundle_id" '$2 == id || $2 == "unknown" {f=1} END {exit !f}'; then
-  note coexistence_preexisting "unsupported: a running app has the shipped bundle id $bundle_id (or an unreadable one)"
-  result fallback not_run "coexistence: a second instance under the shipped bundle id $bundle_id would share the running one's bundle-id state, so an installed side instance next to it is unsupported; the running app was left alone (--mode=lab runs a tagged copy)"
-  exit 0
-fi
-[[ -n "$coexisting" ]] || note coexistence_preexisting "NOT PROVEN: no other cmux app was already running"
 if [[ "$experience" == full-build ]]; then
   # The probe against a full build, no overlay: green on the head (parity), red on the base.
   want=fail; [[ "$app_commit" == "$head" ]] && want=pass; note probe_full_build_expected "$want"
