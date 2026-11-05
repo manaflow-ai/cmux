@@ -54,6 +54,9 @@ test("the waiting line is a pill with the dot; once answered the dot shrinks bef
   const pill = host.querySelector(".cv-waiting")!;
   expect(pill.textContent).toBe("Waiting for you: allow this?");
   expect(pill.querySelector(".cv-needs-input-dot:not(.is-answered)")).not.toBeNull();
+  // The ringed dot sits before the pill, outside it, as Claude desktop's "Needs your input".
+  expect(pill.querySelector(".cv-waiting__pill")?.textContent).toBe("Waiting for you: allow this?");
+  expect(pill.querySelector(".cv-waiting__pill .cv-needs-input-dot")).toBeNull();
 
   // Answered: Thinking, led by the shrinking dot.
   await draw(undefined);

@@ -73,7 +73,7 @@ function KeyHint({ shortcut }: { shortcut: string }) {
 
 /// A key the card itself answers (Esc, ⌘↩), drawn as a keycap in its button: `label` as shown,
 /// `aria` in `aria-keyshortcuts` form.
-export type CardKey = { label: string; aria: string };
+export type CardKey = { keys: string[]; aria: string };
 
 /** Shared action button so grouped and legacy cards present the same localized label and key hint.
  * Only the short label and the key: what an answer covers is the card's one scope line, never the
@@ -96,22 +96,31 @@ export function PermissionActionButton({
       aria-keyshortcuts={[cardKey?.aria, shortcut].filter(Boolean).join(" ") || undefined}
     >
       <span className="acpmux-permission-action-label">{label}</span>
-      {cardKey ? <Keycap>{cardKey.label}</Keycap> : shortcut && <KeyHint shortcut={shortcut} />}
+      {cardKey ? (
+        <span className="acpmux-permission-keys">
+          {cardKey.keys.map((key) => (
+            <Keycap key={key}>{key}</Keycap>
+          ))}
+        </span>
+      ) : (
+        shortcut && <KeyHint shortcut={shortcut} />
+      )}
     </button>
   );
 }
 
-const DENY_KEY: CardKey = { label: "esc", aria: "Escape" };
-const ALLOW_KEY: CardKey = { label: "⌘↩", aria: "Meta+Enter" };
+// One keycap per key, as Claude desktop draws "Esc" and "⌘ ↩".
+const DENY_KEY: CardKey = { keys: ["Esc"], aria: "Escape" };
+const ALLOW_KEY: CardKey = { keys: ["⌘", "↩"], aria: "Meta+Enter" };
 
 /// A permission ask as Claude desktop draws its "Allow Claude to use …?" card (Leo, 2026-11-05: "The
 /// whole, like, allow whatever to use, allow for this session, or deny. And then it shows the
-/// hotkeys."): a glass card whose bold title is what the call does, with the tool's glyph and a muted
-/// reason under it; then a quiet details band, the command clamped to its first line ("Show full
+/// hotkeys."): a glass card whose head, a shade lighter than the rest, holds what the call does, with
+/// the tool's glyph, and a muted reason under it; then the details, the command clamped to its first line ("Show full
 /// command" opens all of it) and what an answer covers (the folder or app, the Always allow rule) as
-/// one muted line, cut with an ellipsis and whole on hover; then the answers at the trailing edge,
-/// short buttons sized to their labels: any other option the agent offered, Deny with its Esc
-/// keycap, Always allow, and the filled Allow once with its ⌘↩ keycap, each shown only when the
+/// one muted line, cut with an ellipsis and whole on hover; then the answers, short buttons sized to
+/// their labels: any other option the agent offered and Deny with its Esc keycap at the leading
+/// edge, Always allow and the filled Allow once with its ⌘ ↩ keycaps at the trailing edge, each shown only when the
 /// agent offered that kind (permissions/prompt.ts). Deny opens a field for what the agent should do instead, sent with the
 /// deny through `onDenyWithFeedback`. Keys 1, 2 and 3, Return and ⌘↩ (Allow once) and Esc (Deny, or close
 /// the field) answer while this card is the prompt and nothing else has the keyboard. In a chat
@@ -546,7 +555,7 @@ export function PermissionCard({
           <div className="acpmux-permission-feedback-actions">
             <button type="button" aria-keyshortcuts="Escape" disabled={writing.sending} onClick={closeFeedback}>
               {t("permission.feedbackCancel")}
-              <Keycap>esc</Keycap>
+              <Keycap>Esc</Keycap>
             </button>
             <button
               type="submit"

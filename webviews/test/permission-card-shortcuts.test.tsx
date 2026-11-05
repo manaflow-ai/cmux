@@ -86,13 +86,13 @@ async function mount(shortcuts?: boolean, permission: AcpmuxPermission = ask) {
   const keycaps = () =>
     [...host.querySelectorAll("button")]
       .filter((button) => button.querySelector("kbd"))
-      .map((button) => `${button.getAttribute("aria-label")}: ${button.querySelector("kbd")!.textContent}`);
+      .map((button) => `${button.getAttribute("aria-label")}: ${[...button.querySelectorAll("kbd")].map((key) => key.textContent).join(" ")}`);
   return { host, answers, press, keycaps, unmount: () => act(async () => root.unmount()) };
 }
 
 test("deny answers with the first deny option, and only its button shows the keycap", async () => {
   const card = await mount();
-  expect(card.keycaps()).toEqual(["Deny: esc", "Allow once: ⌘↩"]);
+  expect(card.keycaps()).toEqual(["Deny: Esc", "Allow once: ⌘ ↩"]);
   await card.press("permissionDeny");
   expect(card.answers).toEqual(["abort"]);
   await card.unmount();
@@ -113,11 +113,11 @@ test("short buttons keep ⌥⌘1, ⌥⌘2 and ⌥⌘3, show Esc and ⌘↩ keyca
   // Leo 2026-11-05, on Claude desktop's "Deny Esc" and "Allow for this session ⌘↩": Deny and Allow
   // once show the card's own keys as keycaps; Always allow keeps its light ⌥⌘2 hint. Every button
   // still answers its app shortcut, listed after the card key.
-  expect(card.keycaps()).toEqual(["Deny: esc", "Always allow: ⌥⌘2", "Allow once: ⌘↩"]);
+  expect(card.keycaps()).toEqual(["Deny: Esc", "Always allow: ⌥⌘2", "Allow once: ⌘ ↩"]);
   // Leo 2026-10-25, "just make it good? incl. the symbol hints": the hint is decoration, its
   // modifiers a fainter span before the key, and the button's name stays its label.
   const hints = [...card.host.querySelectorAll("button kbd")];
-  expect(hints.map((hint) => hint.getAttribute("aria-hidden"))).toEqual(["true", "true", "true"]);
+  expect(hints.map((hint) => hint.getAttribute("aria-hidden"))).toEqual(["true", "true", "true", "true"]);
   expect(card.host.querySelector(".acpmux-permission-action-modifiers")?.textContent).toBe("⌥⌘");
   expect(
     [...card.host.querySelectorAll("button[aria-keyshortcuts]")].map((b) => b.getAttribute("aria-keyshortcuts")),

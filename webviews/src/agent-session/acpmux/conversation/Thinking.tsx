@@ -310,7 +310,7 @@ export function Thinking({
       {waiting ? (
         <output className="cv-thinking cv-waiting" data-waiting={waiting}>
           <span className="cv-needs-input-dot" aria-hidden="true" />
-          {t(WAITING_LABEL[waiting])}
+          <span className="cv-waiting__pill">{t(WAITING_LABEL[waiting])}</span>
         </output>
       ) : (
         <span className="cv-shimmer__row">
