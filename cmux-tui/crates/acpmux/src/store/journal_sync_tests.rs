@@ -202,10 +202,14 @@ fn a_failed_sync_of_a_kept_aside_image_freezes_the_store() {
     std::fs::create_dir(sessions.join(CHAT)).unwrap_or_else(|e| panic!("{e}"));
     let unapplied = home.path().join("journal-unapplied");
     super::log_sync::FAIL_DIR_SYNC.with(|fail| *fail.borrow_mut() = Some(unapplied));
-    let checkpointed = store.flush();
+    let failed = store.flush();
     super::log_sync::FAIL_DIR_SYNC.with(|fail| *fail.borrow_mut() = None);
+    assert!(failed.is_err(), "the checkpoint did not report its failed folder sync");
+    // The next checkpoint writes the file again and syncs the folder again, and that sync may
+    // report success without the entry the failed one dropped: it must not go on and retire the
+    // image's record.
     assert!(
-        checkpointed.is_err(),
+        store.flush().is_err(),
         "a checkpoint went past a failed sync of the folder that keeps an image aside"
     );
     assert!(stop_asked(store.as_ref()), "the store did not ask the daemon to stop");
