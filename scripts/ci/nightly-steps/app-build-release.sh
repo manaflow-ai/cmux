@@ -136,6 +136,11 @@ run_release_build() (
     CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME="$CHANNEL_ICON_NAME" \
     "${notary_test_flags[@]}"
 )
+# The job summary's build lines (LOG CACHE). They never fail the build, and a tree without the helper (a test
+# harness that copies only the helpers it knows) skips them.
+summarize_release_build() {
+  [[ -f scripts/ci/nightly-steps/release-build-summary.sh ]] && bash scripts/ci/nightly-steps/release-build-summary.sh "$@" || true
+}
 # The host root's products go to this workspace while the lock is still held.
 finish_host_build() {
   [[ -z "$host_root" ]] || python3 scripts/ci/nightly_build_state.py finish-host "$host_root"
@@ -149,10 +154,10 @@ set -e
 if [[ "$release_status" -ne 0 ]] && cmux_next_runtime_cas_failed "$RUNNER_TEMP/nightly-release-build.log"; then
   echo "::warning::managed fleet compilation cache failed; retrying the Release build with the local cache"
   run_release_build 1 2>&1 | tee "$RUNNER_TEMP/nightly-release-build-retry.log"
-  bash scripts/ci/nightly-steps/release-build-summary.sh "$RUNNER_TEMP/nightly-release-build-retry.log" "$([[ $build_cache == fleet ]] && echo fallback || echo "$build_cache")"
+  summarize_release_build "$RUNNER_TEMP/nightly-release-build-retry.log" "$([[ $build_cache == fleet ]] && echo fallback || echo "$build_cache")"
   finish_host_build
 elif [[ "$release_status" -eq 0 ]]; then
-  bash scripts/ci/nightly-steps/release-build-summary.sh "$RUNNER_TEMP/nightly-release-build.log" "$build_cache"
+  summarize_release_build "$RUNNER_TEMP/nightly-release-build.log" "$build_cache"
   finish_host_build
 else
   exit "$release_status"
