@@ -173,7 +173,7 @@ html:has(.acpmux-shell[data-tab-row]){background:transparent !important}
 /* A line under the header (header/underHeader.ts: a Create Checkpoint review, a live chat's choice, a peer copy, a watched
    chat, a handoff error) keeps the transcript below it; the App drops data-solo-tab from the stage then
    (App.tsx soloUnder), this is the backstop. */
-.acpmux-stage[data-solo-tab]:not(:has(>[data-enter=top],>.acpmux-checkpoint-review))>.acpmux-scroll{margin-top:calc(-1 * var(--acpmux-tab-row-height))}
+.acpmux-stage[data-solo-tab]:not(:has(>[data-enter=top],>.acpmux-checkpoint-review,>.cv-subagent-result))>.acpmux-scroll{margin-top:calc(-1 * var(--acpmux-tab-row-height))}
 .acpmux-stage[data-solo-tab]>.acpmux-scroll[data-fade-top]{--acpmux-fade-top:var(--acpmux-tab-row-height)}
 .acpmux-stage[data-solo-tab]>.acpmux-scroll :is(.acpmux-find,.acpmux-minimap){top:var(--acpmux-tab-row-height)}
 .acpmux-stage[data-solo-tab]>.acpmux-header[data-tab-row]::before{content:"";position:absolute;inset:0;z-index:var(--layer-backdrop,-1);pointer-events:none;-webkit-backdrop-filter:blur(var(--acpmux-solo-blur));backdrop-filter:blur(var(--acpmux-solo-blur));-webkit-mask-image:linear-gradient(#000 35%,transparent);mask-image:linear-gradient(#000 35%,transparent)}
