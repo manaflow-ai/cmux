@@ -138,3 +138,8 @@ test("an ISO timestamp beside a zoned clock time keeps its own hover and is not 
   ]);
   expect(sources("2026-10-24T05:21-07:00 and 08:00 UTC")).toEqual(["2026-10-24T05:21-07:00", "08:00 UTC"]);
 });
+
+test("a time glued to a word is not part of a list", () => {
+  expect(sources("build23:55 and 01:28 UTC")).toEqual(["01:28 UTC"]);
+  expect(sources("id_23:55 and 01:28Z")).toEqual(["01:28Z"]);
+});

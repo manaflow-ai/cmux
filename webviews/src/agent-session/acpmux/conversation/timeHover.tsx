@@ -19,7 +19,7 @@ const CLOCK_TIMES = new RegExp(CLOCK_TIME, "g");
 // A list or range of clock times ("23:55 and 01:28 UTC", "23:55, 00:10 and 01:28 UTC",
 // "23:55–01:28 UTC") shares the zone that follows its last time. Found by a linear scan over
 // the clock times, not one nested pattern, so long runs of times cannot backtrack.
-const CLOCK_TOKEN = new RegExp(`(?<![\\d.:])${CLOCK_TIME}(?![\\d:])`, "g");
+const CLOCK_TOKEN = new RegExp(`(?<![\\w.:])${CLOCK_TIME}(?![\\d:])`, "g");
 const CLOCK_JOIN = /^(?:\s*,\s*(?:(?:and|or)\s+)?|\s+(?:and|or|to|through|until)\s+|\s*[\u2013\u2014-]\s*)$/;
 const ISO_SPAN = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?/g;
 const CLOCK_ZONE = /^(?: UTC|Z)\b/;
@@ -36,9 +36,11 @@ function clockLists(text: string): Array<{ start: number; end: number }> {
   };
   // Clock-like pieces of an ISO timestamp ("T05:21", "-07:00") are not clock times themselves.
   const iso = [...text.matchAll(ISO_SPAN)].map((m) => [m.index!, m.index! + m[0].length] as const);
+  let isoAt = 0;
   for (const match of text.matchAll(CLOCK_TOKEN)) {
     const start = match.index!;
-    if (iso.some(([from, to]) => start >= from && start < to)) {
+    while (isoAt < iso.length && iso[isoAt]![1] <= start) isoAt++;
+    if (isoAt < iso.length && start >= iso[isoAt]![0]) {
       close();
       run = undefined;
       continue;
