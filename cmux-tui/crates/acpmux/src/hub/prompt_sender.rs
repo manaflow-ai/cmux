@@ -1,7 +1,10 @@
 //! Who sent a prompt, as the agent gets it (`_meta.acpmux.sender`): another
-//! agent's name, class and thread, so an agent that is itself a relay (`cmux
-//! chief acp`) can pass them on and treat the words as that agent's, not as
-//! the owner's. A person's prompt carries none. The agent's blocks are
+//! agent's name, class and thread, and who the daemon knows sent it apart from
+//! what it claimed (`verified`, `transport`, `sessionId`, `harness`, `editedBy`,
+//! `forwardedBy`, `prompt_provenance.rs`), so an agent that is itself a relay
+//! (`cmux chief acp`) can pass on the original sender beside itself and treat
+//! the words as that sender's, never the owner's. An `unverified` prompt says
+//! so with no name. A person's prompt carries none. The agent's blocks are
 //! unchanged; harnesses that do not know the key ignore it.
 
 use serde_json::{Map, Value, json};
@@ -44,9 +47,17 @@ pub(super) fn add_sender(
     class: Option<&str>,
     provenance: Option<&Value>,
 ) {
-    let Some(name) = agent.filter(|n| !n.is_empty()) else { return };
+    let name = agent.filter(|n| !n.is_empty());
+    let unverified = provenance.and_then(|p| p.get("kind")).and_then(Value::as_str)
+        == Some(crate::prompt_provenance::UNVERIFIED_KIND);
+    if name.is_none() && !unverified {
+        return;
+    }
     let mut sender = Map::new();
-    sender.insert("name".into(), json!(name));
+    if let Some(name) = name {
+        sender.insert("name".into(), json!(name));
+    }
+    origin_fields(&mut sender, provenance);
     if let Some(class) = class {
         sender.insert("class".into(), json!(class));
     }
@@ -69,6 +80,37 @@ pub(super) fn add_sender(
     }
     if let Some(meta) = meta.as_object_mut() {
         meta.insert("acpmux".into(), json!({"sender": Value::Object(sender)}));
+    }
+}
+
+/// Who the daemon knows sent it, apart from its name: copied from the provenance as the daemon
+/// stamped it, never from the prompt's own text.
+fn origin_fields(sender: &mut Map<String, Value>, provenance: Option<&Value>) {
+    let Some(p) = provenance.and_then(Value::as_object) else { return };
+    use crate::prompt_provenance as pp;
+    if let Some(verified) = p.get(pp::VERIFIED).and_then(Value::as_bool) {
+        sender.insert("verified".into(), json!(verified));
+    }
+    for (from, to) in [
+        (pp::TRANSPORT, "transport"),
+        (pp::FROM_SESSION_ID, "sessionId"),
+        (pp::FROM_HARNESS, "harness"),
+    ] {
+        if let Some(value) = p.get(from).and_then(Value::as_str) {
+            sender.insert(to.into(), json!(value));
+        }
+    }
+    // A session's message names its session as `from` (`session_message`).
+    if !sender.contains_key("sessionId")
+        && p.get("kind").and_then(Value::as_str) == Some("session_message")
+        && let Some(from) = p.get("from").and_then(Value::as_str)
+    {
+        sender.insert("sessionId".into(), json!(from));
+    }
+    for key in [pp::EDITED_BY, pp::FORWARDED_BY, pp::CLAIMED] {
+        if let Some(value) = p.get(key) {
+            sender.insert(key.into(), value.clone());
+        }
     }
 }
 
@@ -110,6 +152,30 @@ mod tests {
         assert_eq!(
             params["_meta"]["acpmux"]["sender"],
             json!({"name": "Codex Chief", "class": "question", "threadId": "t2", "chief": "agent_codex"})
+        );
+    }
+
+    #[test]
+    fn the_agent_learns_who_the_daemon_knows_sent_it_apart_from_its_name() {
+        let session = crate::prompt_provenance::session_message("s-a", "lane-a", "s-b");
+        let session = crate::prompt_provenance::observed(session, "unix");
+        let params = prompt_params("s", json!([]), Some("lane-a"), None, Some(&session));
+        assert_eq!(
+            params["_meta"]["acpmux"]["sender"],
+            json!({"name": "lane-a", "verified": true, "transport": "unix", "sessionId": "s-a"})
+        );
+        let named = crate::prompt_provenance::observed(
+            crate::prompt_provenance::named_sender("codex@box", "s-b"),
+            "unix",
+        );
+        let params = prompt_params("s", json!([]), Some("codex@box"), None, Some(&named));
+        assert_eq!(params["_meta"]["acpmux"]["sender"]["verified"], false);
+        // A prompt no proof attributes says so, with no name: never the owner's.
+        let unknown = crate::prompt_provenance::unverified("s-b", "unix", Map::new());
+        let params = prompt_params("s", json!([]), None, None, Some(&unknown));
+        assert_eq!(
+            params["_meta"]["acpmux"]["sender"],
+            json!({"verified": false, "transport": "unix"})
         );
     }
 

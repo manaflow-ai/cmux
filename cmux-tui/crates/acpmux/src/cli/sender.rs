@@ -1,16 +1,17 @@
-//! Who `acpmux send` names as its sender when given no `--from` (`_meta.acpmux.fromAgent`).
+//! Who `acpmux send` names as its sender when given no `--from` (`_meta.acpmux.fromAgent`): a
+//! claimed label only, never proof (`prompt_provenance.rs` `verified`).
 //!
 //! An agent in an acpmux session needs none: its caller token, inherited from the session's
 //! process tree, proves the session to the daemon that issued it (`client.rs`, `hub/person.rs`
-//! (a)). Run outside one, nothing tells an agent from the person, so a send is the person's
-//! unless `ACPMUX_FROM` names an agent: `reach` sets it from the caller's session name, the one
-//! identity that survives an ssh hop (claude-sr2, 2026-10-24: lanes on other machines sent their
-//! reports with `reach cosmic-gray 'acpmux send …'`, and each read as the person's own words).
+//! (a)). Run outside one, nothing tells an agent from the person, and the shared Unix account
+//! proves nobody: the daemon records a send naming no sender as `unverified`, never as the
+//! person's (Leo, 2026-11-05: "why is it sending it as if it were me?"). Only the app's own
+//! proven connection is the person. `ACPMUX_FROM` names an agent: `reach` sets it from the
+//! caller's session name, the one identity that survives an ssh hop (claude-sr2, 2026-10-24).
 //!
 //! An agent harness's own shell outside acpmux (Claude Code in a terminal, the Codex desktop app)
-//! is no person either: its send names `<harness>@<host>` and its harness (`fromHarness`), so the
-//! receiver shows that agent's card, never the person's bubble (Leo, 2026-11-05: "why is it
-//! sending it as if it were me?").
+//! names `<harness>@<host>` and its harness (`fromHarness`), so the receiver shows that agent's
+//! card with its mark; both are claims.
 
 /// Names the sender of every `acpmux send` run with it set and no `--from`.
 pub const FROM_ENV: &str = "ACPMUX_FROM";
@@ -27,8 +28,8 @@ pub fn harness_of_this_process() -> Option<&'static str> {
     if in_session(env) { None } else { harness_of(env) }
 }
 
-/// The machine the person's own send ran on (`_meta.acpmux.cliHost`): the transcript says
-/// "via CLI on big-red" under their prompt. None for an agent's send, named or in a session.
+/// The machine a send naming no sender ran on (`_meta.acpmux.cliHost`), a claimed label the
+/// daemon keeps on its `unverified` provenance. None for an agent's send, named or in a session.
 pub fn person_host(named: bool) -> Option<String> {
     (!from_an_agent(named)).then(crate::host_pressure::host_name)
 }
@@ -69,7 +70,7 @@ fn in_session(env: impl Fn(&str) -> Option<String>) -> bool {
 }
 
 /// The sender a send names with no `--from`: `None` when it runs in an acpmux session (the
-/// daemon proves that one) or is the person's. `ACPMUX_FROM` names it; else an agent harness's
+/// daemon proves that one) or names no one (the daemon records it `unverified`). `ACPMUX_FROM` names it; else an agent harness's
 /// own shell is `<harness>@<host>`.
 pub fn implicit(
     env: impl Fn(&str) -> Option<String>,
@@ -144,7 +145,7 @@ mod tests {
     }
 
     #[test]
-    fn with_no_name_and_no_session_the_send_is_the_persons() {
+    fn with_no_name_and_no_session_the_send_names_no_one() {
         assert_eq!(implicit(env(&[]), host), None);
         assert_eq!(
             implicit(env(&[("SSH_CONNECTION", "100.81.77.9 50022 100.84.217.73 22")]), host),

@@ -358,13 +358,15 @@ impl Hub {
                 control: stricter(q.run.control, control),
                 cloud_mobile: q.run.cloud_mobile,
                 trust_gate: q.run.trust_gate || trust_gate,
-                // The person rewrote it: it is no longer the sender's message, unless the sender
-                // is that person.
-                provenance: q.run.provenance.clone().filter(|p| {
-                    crate::author::of_provenance(Some(p)).is_some_and(|id| editor == Some(Some(id)))
-                }),
-                agent: None,
-                class: None,
+                // The person rewrote it: it keeps who sent it, and says who edited it beside
+                // that (`prompt_provenance::edited_by`), never becoming the editor's own words.
+                provenance: q
+                    .run
+                    .provenance
+                    .clone()
+                    .map(|p| crate::prompt_provenance::edited_by(p, editor)),
+                agent: q.run.agent.clone(),
+                class: q.run.class,
                 supersede: None,
                 full_access_device: same_device(q.run.full_access_device.as_deref(), device),
                 message_id: None,

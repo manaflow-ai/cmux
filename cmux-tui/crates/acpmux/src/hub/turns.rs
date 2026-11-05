@@ -156,6 +156,20 @@ impl Hub {
         // behind adoption's recovered turn below.
         self.session_log(session).await;
         self.wait_adopted(session).await;
+        // A prompt the daemon sends for a session (a workflow's step, its nudge) names that
+        // session: with no provenance its record would read as the person's own.
+        if opts.provenance.is_none()
+            && let Some(agent) = opts.agent.as_deref()
+        {
+            opts.provenance = Some(match self.resolve(agent).ok().filter(|s| s.id == agent) {
+                Some(from) => crate::prompt_provenance::session_message(
+                    &from.id,
+                    &self.session_name(&from.id),
+                    &session.id,
+                ),
+                None => crate::prompt_provenance::named_sender(agent, &session.id),
+            });
+        }
         self.pair_logs(opts.provenance.as_ref()).await;
         // A person's own prompt is the person asking for the chat: what a daemon start held in
         // its protected folder goes on, ahead of this prompt (`protected_hold.rs`).

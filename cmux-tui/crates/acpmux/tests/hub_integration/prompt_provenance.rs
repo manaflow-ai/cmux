@@ -390,7 +390,7 @@ async fn a_queued_prompt_keeps_its_provenance_until_it_runs() {
 }
 
 #[tokio::test]
-async fn an_edit_of_a_queued_prompt_drops_its_provenance() {
+async fn an_edit_of_a_queued_prompt_keeps_its_sender_and_names_its_editor() {
     let hub = hub();
     let mut c = Client::open(&hub);
     let session = c.new_session(json!({"harness": "fake"})).await;
@@ -405,7 +405,14 @@ async fn an_edit_of_a_queued_prompt_drops_its_provenance() {
     c.reply_to(waiting).await;
     let ran = c.user_message(&session, "p-e").await;
     assert_eq!(ran["text"], "the person's rewrite", "{ran}");
-    assert!(ran.pointer("/_meta/provenance").is_none(), "an edited prompt kept it: {ran}");
+    // Still the builder's message, never the editor's own words; the edit is named beside it.
+    assert_eq!(ran.pointer("/_meta/provenance/kind"), Some(&json!("agent_message")), "{ran}");
+    assert_eq!(ran.pointer("/_meta/provenance/from"), p.get("from"), "{ran}");
+    assert_eq!(
+        ran.pointer("/_meta/provenance/editedBy"),
+        Some(&json!({"actor": "owner"})),
+        "{ran}"
+    );
 }
 
 #[tokio::test]

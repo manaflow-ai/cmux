@@ -397,6 +397,7 @@ impl Hub {
         self: &Arc<Self>,
         p: &Value,
         control: crate::hub::Control,
+        sender: Option<crate::prompt_provenance::HandoffSender>,
     ) -> Result<Value, RpcError> {
         let id = required(p, "handoffId")?;
         let _id = self.handoffs.lock(format!("id:{id}")).await;
@@ -544,7 +545,7 @@ impl Hub {
         let (turn_id, outcome) = match found {
             Some(t) => (Some(t), "already_started"),
             None if retry && r.state == State::Started => (None, "already_started"),
-            None => match self.handoff_send(&target, &r, &prompt_id).await {
+            None => match self.handoff_send(&target, &r, &prompt_id, sender).await {
                 Ok(t) => (t, "started"),
                 Err(e) => {
                     // The target never recorded the prompt: back to draft,
@@ -588,6 +589,7 @@ impl Hub {
         target: &Arc<Session>,
         r: &Record,
         prompt_id: &str,
+        sender: Option<crate::prompt_provenance::HandoffSender>,
     ) -> Result<Option<String>, RpcError> {
         let mut blocks = vec![json!({"type": "text", "text": r.text})];
         if let Some(note) = references(r) {
@@ -612,7 +614,10 @@ impl Hub {
             interrupt: false,
             steer_now: false,
             interrupt_turn: None,
-            provenance: None,
+            // The proven person's start is theirs (None); any other is unverified, never theirs.
+            provenance: sender.map(|s| {
+                crate::prompt_provenance::unverified(&target.id, s.transport, Default::default())
+            }),
             agent: None,
             class: None,
             after_turn: None,
