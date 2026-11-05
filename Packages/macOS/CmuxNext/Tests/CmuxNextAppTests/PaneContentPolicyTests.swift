@@ -152,8 +152,9 @@ struct PaneContentPolicyTests {
     }
 
     /// A held key (three Ctrl-Shift-H presses 4 frames apart retarget one spring): in every frame each terminal's
-    /// surface has the size its pane shows it at; each terminal asks its PTY for the final grid of each press, once, by
-    /// that press's first frame (at most one grid per press, the last one the final).
+    /// surface has the size its pane shows it at; each terminal's PTY gets at most one grid per read of its grids (each
+    /// read ends the coalescer's window, cmux-ad m18: m6 sent each press's final grid by its first frame), and the last is
+    /// the final grid.
     @Test func aHeldKeyShowsEachSurfaceAtItsPanesSizeAndSendsAtMostOneGridPerPress() async throws {
         let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
         defer { rig.close() }
@@ -188,14 +189,14 @@ struct PaneContentPolicyTests {
             let final = try #require(try Self.surface(pane, in: rig).fittedGrid)
             let sent = (grids[pane] ?? []) + (try await Self.grids(pane, rig))
             PaneGroundCoversPaneTests.ownFrames()
-            #expect(sent.count <= 3 && sent.last == final, "\(pane) asked its PTY for \(sent) over 3 presses (final \(final))")
+            #expect(sent.count <= 4 && sent.last == final, "\(pane) asked its PTY for \(sent) over 3 presses and the landing (final \(final))")
         }
     }
 
     /// A press and its reverse in one key hold (Ctrl-Shift-H, then L 4 frames later, before the first lands): the panes
-    /// rest where they began. Each terminal hears each press's final grid by that press's first frame (the reverse one too, though
-    /// it rests at the size the hold began at), its surface has its pane's size in every frame, and it rests at its start
-    /// size.
+    /// rest where they began. Each terminal's surface has its pane's size in every frame and rests at its start size; its
+    /// PTY gets at most one grid per read of its grids (m18: the view's grid coalesced; m6 sent each press's final grid
+    /// by its first frame), and ends at its start grid.
     @Test func aPressAndItsReverseInOneHoldSendEachGridInItsTurn() async throws {
         let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
         defer { rig.close() }
@@ -235,10 +236,11 @@ struct PaneContentPolicyTests {
         for pane in panes {
             let was = try #require(start[pane]), surface = try Self.surface(pane, in: rig)
             let startGrid = try #require(was.grid, "SETUP: \(pane) fits no grid at rest")
-            #expect(atPress[pane]?.count == 1 && atPress[pane]?.first != startGrid, "\(pane): the first press sent \(atPress[pane] ?? [])")
-            #expect(atReverse[pane] == [startGrid], "\(pane): the reverse press sent \(atReverse[pane] ?? []), not the start grid \(startGrid)")
-            #expect(try await Self.grids(pane, rig).isEmpty, "\(pane) sent a grid at the landing")
+            let landing = try await Self.grids(pane, rig)
             PaneGroundCoversPaneTests.ownFrames()
+            let sent = (atPress[pane] ?? []) + (atReverse[pane] ?? []) + landing
+            #expect(sent.count <= 3 && (sent.last ?? startGrid) == startGrid,
+                    "\(pane): the presses sent \(atPress[pane] ?? []), \(atReverse[pane] ?? []) and \(landing): its PTY does not end at the start grid \(startGrid)")
             #expect(surface.frame.size == was.size, "\(pane)'s surface rests at \(surface.frame.size), not its start size \(was.size)")
         }
     }
@@ -667,7 +669,7 @@ struct PaneContentPolicyTests {
         for pane in panes {
             let final = try #require(try Self.surface(pane, in: rig).fittedGrid)
             let sent = (grids[pane] ?? []) + (try await Self.grids(pane, rig))
-            #expect(sent.count <= 3 && sent.last == final, "\(pane) asked its PTY for \(sent) over 3 presses (final \(final))")
+            #expect(sent.count <= 4 && sent.last == final, "\(pane) asked its PTY for \(sent) over 3 presses and the landing (final \(final))")
         }
     }
 
@@ -720,6 +722,8 @@ struct PaneContentPolicyTests {
     /// The grids `pane`'s terminal asked its PTY for since the last call (a focus report after them is the marker).
     static func grids(_ pane: PaneID, _ rig: Rig) async throws -> [TerminalGridSize] {
         let session = try #require(rig.provider.sessions[pane])
+        // cmux-ad m18: a grid in the coalescer's 25 ms window counts as asked for (it goes when the window ends).
+        session.session.surfaceView.flushGridReport()
         session.session.surfaceView.bridge.takeUnretainedValue().input.focusGained()
         return await session.io.gridsUntilMarker()
     }

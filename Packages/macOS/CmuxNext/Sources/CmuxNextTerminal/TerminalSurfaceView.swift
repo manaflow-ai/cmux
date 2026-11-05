@@ -39,6 +39,35 @@ public final class TerminalSurfaceView: NSView {
     /// Whether a grid report waits for the pane's layout spring to land (``TerminalGridPolicy/held``).
     var isHeldGridPending: Bool { geometry.held }
 
+    /// Whether a grid report waits: held for a spring's landing, or in the coalescer's 25 ms window.
+    var isGridReportPending: Bool { geometry.held || gridReportCoalescer.isWaiting }
+
+    /// cmux-ad m18: while the view's size changes frame by frame (a key resize its host follows, a divider drag that does
+    /// not hold), its grid goes to the PTY owner at most once per 25 ms, the newest (Ghostty.app's `min_ms` rule), and the
+    /// last always goes. Every report goes through it, so its last-sent grid is the PTY's (``sendGridReport(_:)``).
+    private(set) lazy var gridReportCoalescer = TerminalGridReportCoalescer { [weak self] grid in
+        self?.sendGridReport(grid)
+    }
+
+    /// The report ``reportFinalGrid(_:)`` sends now is a spring's final grid (`final` for the PTY owner's path).
+    private var sendingFinalGrid = false
+
+    /// The PTY owner gets `grid`, with its cell pixel size now (the coalescer's send can come 25 ms after the size).
+    private func sendGridReport(_ grid: TerminalGridSize) {
+        guard let surface else { return }
+        Self.gridReports &+= 1
+        let size = ghostty_surface_size(surface)
+        let metrics = TerminalGridMetrics(cellWidth: Int(size.cell_width_px), cellHeight: Int(size.cell_height_px),
+                                          paddingWidth: 0, paddingHeight: 0)
+        let cells = metrics.cellPixels(of: grid)
+        session?.surfaceDidReport(grid: grid, pixelWidth: cells.width, pixelHeight: cells.height, final: sendingFinalGrid)
+    }
+
+    /// A gesture or a spring ended, or a test reads the PTY's grids: the grid that waits in the coalescer's window goes now.
+    func flushGridReport() {
+        gridReportCoalescer.flush()
+    }
+
     /// Who presents this view's new sizes and a held display scale (``place(_:)``).
     var frameOwnership = TerminalFrameOwnership()
 
@@ -50,13 +79,10 @@ public final class TerminalSurfaceView: NSView {
     /// unless the owner already has it.
     func reportFinalGrid(_ grid: TerminalGridSize) {
         defer { updateReflowPreview() }
-        guard let surface, let report = geometry.finalSized(grid) else { return }
-        Self.gridReports &+= 1
-        let size = ghostty_surface_size(surface)
-        let metrics = TerminalGridMetrics(cellWidth: Int(size.cell_width_px), cellHeight: Int(size.cell_height_px),
-                                          paddingWidth: 0, paddingHeight: 0)
-        let cells = metrics.cellPixels(of: report)
-        session?.surfaceDidReport(grid: report, pixelWidth: cells.width, pixelHeight: cells.height, final: true)
+        guard surface != nil, let report = geometry.finalSized(grid) else { return }
+        sendingFinalGrid = true
+        defer { sendingFinalGrid = false }
+        gridReportCoalescer.reportNow(report)
     }
 
     /// The pane's layout spring landed: the final grid no longer stands in for the view's, and the surface
@@ -66,6 +92,8 @@ public final class TerminalSurfaceView: NSView {
         geometry.motionLanded()
         (superview as? TerminalHostView)?.releaseSurfaceHold()
         if isHeldGridPending { updateSurfaceSize() }
+        // A key resize's last grid goes at its landing, not up to 25 ms later.
+        flushGridReport()
     }
 
     /// Whether this view reports its grid to the PTY owner. Followers only
@@ -465,21 +493,31 @@ public final class TerminalSurfaceView: NSView {
         publish(size: size)
         guard size.columns > 0, size.rows > 0 else { return }
         let desired = TerminalGridSize(columns: Int(size.columns), rows: Int(size.rows))
-        let metrics = TerminalGridMetrics(cellWidth: Int(size.cell_width_px), cellHeight: Int(size.cell_height_px),
-                                          paddingWidth: 0, paddingHeight: 0)
-        // A pane on a layout spring (Cmd-Shift-Enter zoom, split, close, a key resize) resizes this view on
-        // every display frame: the surface draws each size (the reflow preview), and the grid goes to the
-        // owner once the spring lands (`paneMotionDidSettle`), one PTY resize instead of one per frame.
+        // A pane on a layout spring (Cmd-Shift-Enter zoom, split, close) resizes this view on every display
+        // frame: the surface draws each size (the reflow preview), and the grid goes to the owner once the
+        // spring lands (`paneMotionDidSettle`), one PTY resize instead of one per frame. A key resize whose host
+        // follows its pane (cmux-ad m18) is live instead: its grid goes through the coalescer, at most once per
+        // 25 ms and the newest, so the PTY follows the pane and ends at the landing's grid.
+        let live = ((superview as? TerminalHostView)?.surfaceFollowsArea ?? false) || isFollowingResizeGesture
         let report = geometry.viewSized(desired, force: forceReport,
-                                        holding: !forceReport && (isInPaneMotion || isFollowingResizeGesture))
+                                        holding: !forceReport && ((isInPaneMotion && !live) || isFollowingResizeGesture))
         // In the same main-thread turn as set_size: the frame of the new size
         // draws at the next display pass, already reflowed.
-        // A held grid is reported when the spring lands: the preview draws it meanwhile.
-        updateReflowPreview(reporting: report != nil || geometry.held)
-        guard let report else { return }
-        Self.gridReports &+= 1
-        let cells = metrics.cellPixels(of: report)
-        session?.surfaceDidReport(grid: report, pixelWidth: cells.width, pixelHeight: cells.height)
+        // A held or coalesced grid is reported later: the preview draws it meanwhile.
+        updateReflowPreview(reporting: report != nil || geometry.held || gridReportCoalescer.isWaiting)
+        guard let report else {
+            // At rest at the grid that waits in the coalescer's window (a gesture ended there): it goes now.
+            if !live { flushGridReport() }
+            return
+        }
+        // Forced: now, whatever went before. Live: coalesced (`TerminalGridReportCoalescer`). At rest: now, unless the
+        // PTY already has it.
+        if forceReport {
+            gridReportCoalescer.reportNow(report)
+        } else {
+            gridReportCoalescer.viewSized(report)
+            if !live { flushGridReport() }
+        }
     }
 
     private func publish(size: ghostty_surface_size_s) {

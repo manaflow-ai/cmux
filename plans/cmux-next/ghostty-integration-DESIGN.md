@@ -178,9 +178,12 @@ redrew only after the animation and the daemon echo.
   surface is already final and its reflow preview reflows once until the owner announces the grid. A
   pane that shrinks keeps its larger view; once the owner announces the final grid the preview is off
   (`previewsViewGrid(followingPane:)`), so Ghostty pads the final grid instead of reflowing it back to the wider
-  frame. A key resize whose host follows its pane with `motion.frameOwner.terminals` on is the exception
-  (cmux-ad m14): its surface takes the pane's size in every frame, so the preview stays on and each frame draws
-  the grid that size fits, with the cursor row in view (no low-prompt bottom hold).
+  frame. A key resize whose host follows its pane is the exception (cmux-ad m14, m18; switch on or off): its
+  surface takes the pane's size in every frame, so the preview stays on and each frame draws the grid that size
+  fits, with the cursor row in view (no low-prompt bottom hold). Its grid goes to the PTY through
+  `TerminalGridReportCoalescer` (Ghostty.app's 25 ms rule: the first change opens a window, the newest goes when it
+  ends, the landing flushes), not as a final grid at the press. With the switch on, a frame not drawn by the commit
+  that carries its bounds lands late (`TerminalFramePresenter.Stats.lateLandings`); nothing keeps an old size.
 - Anchor: a pane that grows downward pins its held content to the bottom when the cursor is in the
   lower half of a normal screen (the owner pulls scrollback down as rows grow, so the prompt is on the
   last row); a full-screen program (alternate screen) or a cursor near the top pins to the top.

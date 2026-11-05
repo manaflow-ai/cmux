@@ -16,8 +16,8 @@ import Testing
 /// cmux-ad m6 (Lawrence on dogfood 363e39f2: "tabbar moves smoothly on ctrl shift hjkl but browsers/terminals do not
 /// anymore"), part (a) for terminals, with `motion.frameOwner.terminals` on. The contract of a key resize: in EVERY frame
 /// each terminal shows pixels at its pane's size in that frame, or the previous frame's (clipped and anchored top-left,
-/// never stretched, never a background gap); the PROGRAM's grid (the PTY's size) changes at most once per press. Pixels
-/// per frame; program size per press.
+/// never stretched, never a background gap). cmux-ad m18: the PROGRAM's grid (the PTY's size) follows the view's grid at
+/// most once per 25 ms, the newest (Ghostty.app's rule), and ends at the landing's grid; m6 sent one grid per press.
 ///
 /// Before: the key resize's hold (RESIZE KEYS K3) kept each surface at one size per press (S3's host follows its pane,
 /// but its surface keeps the press's final size, or its start size, on the hold's still edges), so the terminal froze,
@@ -32,7 +32,8 @@ import Testing
 /// - the surface's top-left within 1 device px of its host area's top-left;
 /// - a size its pane had in this press, this frame or earlier (the newest frame drawn, or an older one kept until then:
 ///   never a size the pane has not had yet), and never stretched (the layer's pixels are the frame's pixels);
-/// - after the landing, each terminal at its final size; each PTY at most one grid for the press.
+/// - after the landing, each terminal at its final size; each PTY at most one grid per 25 ms of the press (plus the
+///   landing's flush), the last its view's grid.
 /// It prints each frame's main time (step and layout: p50, p95, max).
 ///
 /// It needs a window on a display (a display worker: `cmux-ci run --display --label gui-session-v1`).
@@ -49,9 +50,11 @@ struct TerminalKeyResizeFrameTests {
         let resizesBefore = screen.ios.map { $0.resizes.count }
 
         let before = screen.sessions.map(Sample.init)
+        let pressed = ContinuousClock.now
         _ = PaneResize.press("p2", .right, model: screen.model, view: screen.root)
         var frames: [[Sample]] = [before]
         let (steps, intervals) = await Self.step(screen) { frames.append($0) }
+        let windows = Self.coalescingWindows(since: pressed)
         try #require(steps >= 4, "the press's spring ran \(steps) frames: no spring ran")
         try #require(frames.contains { $0.map(\.area) != before.map(\.area) }, "the press changed no pane's area")
 
@@ -97,7 +100,9 @@ struct TerminalKeyResizeFrameTests {
         #expect(unsized.isEmpty, "\(unsized.count) frames showed a terminal at a size its pane had not had yet: \(unsized.prefix(8))")
         #expect(stretched.isEmpty, "\(stretched.count) frames showed a terminal's frame stretched: \(stretched.prefix(8))")
         #expect(landed.isEmpty, "after the landing a terminal does not show its pane's size: \(landed)")
-        #expect(resizes.allSatisfy { $0 <= 1 }, "a press resized a terminal's program more than once: \(resizes)")
+        #expect(resizes.allSatisfy { $0 <= windows }, "a press resized a terminal's program more than once per 25 ms (\(windows) windows): \(resizes)")
+        let ends = Self.ptyEndsAtItsViewsGrid(screen)
+        #expect(ends.isEmpty, "a PTY does not end at its view's grid: \(ends)")
         #expect(changes.allSatisfy { $0 > 3 }, "a terminal took a new size in only \(changes) of \(steps) spring frames: it did not follow its pane")
     }
 
@@ -124,6 +129,7 @@ struct TerminalKeyResizeFrameTests {
         let presenter = TerminalFramePresenter.forWindow(screen.window)
         let resizesBefore = screen.ios.map { $0.resizes.count }
 
+        let pressed = ContinuousClock.now
         _ = PaneResize.press("p2", .right, model: screen.model, view: screen.root)
         var steps = 0, moving = true, waitedInSpring = 0, waitingAtLanding = false
         while moving, steps < 240 {
@@ -142,7 +148,10 @@ struct TerminalKeyResizeFrameTests {
         await Self.settle(screen)
         let resizes = zip(screen.ios.map { $0.resizes.count }, resizesBefore).map { $0 - $1 }
         let grids = screen.ios[0].resizes.suffix(resizes[0]).map { "\($0.columns)x\($0.rows)" }
-        #expect(resizes.allSatisfy { $0 <= 1 }, "a press resized a terminal's program more than once: \(resizes) (p1: \(grids))")
+        let windows = Self.coalescingWindows(since: pressed)
+        #expect(resizes.allSatisfy { $0 <= windows }, "a press resized a terminal's program more than once per 25 ms (\(windows) windows): \(resizes) (p1: \(grids))")
+        let ends = Self.ptyEndsAtItsViewsGrid(screen)
+        #expect(ends.isEmpty, "a PTY does not end at its view's grid: \(ends)")
     }
 
     /// cmux-ad m14 (a P0 from Lawrence): in every frame each terminal shows pixels drawn at its pane's size, and its
@@ -175,6 +184,7 @@ struct TerminalKeyResizeFrameTests {
         try #require(low, "SETUP: a terminal does not rest with its prompt on the last row of the grid its owner announced")
         await Self.settle(screen)
         let resizesBefore = screen.ios.map { $0.resizes.count }
+        let pressed = ContinuousClock.now
 
         var frames: [[GridSample]] = []
         /// This frame's sizes land with their own frames (at most 2 s), then each terminal is sampled.
@@ -234,7 +244,8 @@ struct TerminalKeyResizeFrameTests {
         #expect(undrawn.isEmpty, "\(undrawn.count) frames drew a grid other than the one the terminal's size fits (its prompt cut or padded): \(undrawn.prefix(6))")
         #expect(unshown.isEmpty, "\(unshown.count) frames' sizes never showed their own frames: \(unshown.prefix(6))")
         #expect(rested.isEmpty, "after the landing: \(rested)")
-        #expect(resizes.allSatisfy { $0 <= presses.count }, "the presses resized a terminal's program more than once per press: \(resizes)")
+        let windows = Self.coalescingWindows(since: pressed)
+        #expect(resizes.allSatisfy { $0 <= windows }, "the presses resized a terminal's program more than once per 25 ms (\(windows) windows): \(resizes)")
     }
 
     /// One terminal after a frame's sizes landed: its surface's frame and its area (host points: the host's area under
@@ -405,6 +416,23 @@ struct TerminalKeyResizeFrameTests {
     }
 
     static func text(_ size: CGSize) -> String { "\(size.width)x\(size.height)" }
+
+    /// The most grids one terminal's PTY may get from `start` to now under m18's coalescing: one per 25 ms window
+    /// (``TerminalGridReportCoalescer/defaultInterval``) begun in that time, plus the landing's flush.
+    static func coalescingWindows(since start: ContinuousClock.Instant) -> Int {
+        let ms = Self.ms(start.duration(to: .now))
+        return Int((ms / 25).rounded(.up)) + 1
+    }
+
+    /// The terminals whose PTY's last grid (as their IO recorded it) is not the grid their view fits now.
+    static func ptyEndsAtItsViewsGrid(_ screen: PaneScreen) -> [String] {
+        zip(screen.sessions, screen.ios).enumerated().compactMap { index, pair in
+            let (session, io) = pair
+            guard let fitted = session.surfaceView.fittedGrid, let last = io.resizes.last else { return nil }
+            return last.columns == fitted.columns && last.rows == fitted.rows
+                ? nil : "p\(index + 1): PTY \(last.columns)x\(last.rows), view \(text(fitted))"
+        }
+    }
 
     static func text(_ grid: TerminalGridSize?) -> String { grid.map { "\($0.columns)x\($0.rows)" } ?? "none" }
 
