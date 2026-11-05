@@ -1,13 +1,16 @@
 // l10n-allow-file: gallery fixtures for the live line's tool calls, not shipped UI.
-// The live line's words change as Claude desktop's do (Leo, 2026-11-05: "this is quite good too how
-// it animates the changing text!!! we need to have that!!! for changing tool calls at the bottom"):
-// the old call rises out, the new one rises in, and the turn's clock slides to its end while it
-// ticks (ui/motion/useTextSwap.ts). The mid-change variants hold every finite animation at one
+// The Working line and the activity line under a todo list change their words as Claude desktop's
+// do (Leo, 2026-11-05: "this is quite good too how it animates the changing text!!! we need to have
+// that!!! for changing tool calls at the bottom"): the old call rises out, the new one rises in, and
+// the clock slides to its end while it ticks (ui/motion/useTextSwap.ts). The Codex-style live line
+// (Thinking.tsx) rolls its own words (`useRoll`). The mid-change variants hold every finite animation at one
 // moment so the still shows the motion; the live page (Replay) plays it.
 import { useLayoutEffect, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
-import { Thinking } from "./Thinking";
+import type { AcpmuxRow } from "../model";
+import { ActivityLine } from "./ActivityLine";
+import { WorkingFor } from "./WorkingFor";
 
 const CALLS = [
   "Reading daemon log_load and startup",
@@ -16,7 +19,13 @@ const CALLS = [
   "Finding _acpmux/watch and sessions callers",
 ];
 
-type Variant = "at-rest" | "mid-change" | "longer-call" | "changed" | "fast-calls" | "motion-off";
+type Variant =
+  | "at-rest"
+  | "mid-change"
+  | "longer-call"
+  | "changed"
+  | "fast-calls"
+  | "motion-off";
 
 function Fixture({ variant }: { variant: Variant }) {
   const [step, setStep] = useState(variant === "longer-call" ? 1 : 0);
@@ -32,19 +41,49 @@ function Fixture({ variant }: { variant: Variant }) {
       else root.dataset.cmuxMotion = before;
     };
   }, [variant]);
+  const call = CALLS[step % CALLS.length];
   return (
     <div style={{ padding: 24, maxWidth: 640 }}>
-      <button type="button" style={{ marginBottom: 16 }} onClick={() => setStep((value) => value + 1)}>
+      <button
+        type="button"
+        style={{ marginBottom: 16 }}
+        onClick={() => setStep((value) => value + 1)}
+      >
         Next call
       </button>
-      <Thinking since={since} doing={CALLS[step % CALLS.length]} doingAt={step} />
+      <WorkingFor
+        row={
+          {
+            id: "working",
+            kind: "working",
+            version: step + 1,
+            at: since,
+            doing: call,
+          } as AcpmuxRow
+        }
+      />
+      <ActivityLine
+        row={
+          {
+            id: "activity",
+            kind: "activityLine",
+            version: step + 1,
+            at: since,
+            text: call,
+          } as AcpmuxRow
+        }
+      />
     </div>
   );
 }
 
 /// The swap's own animations (the shimmer's endless loops keep running).
 const swapAnimations = (doc: Document) =>
-  doc.getAnimations().filter((animation) => animation.effect?.getTiming().iterations !== Infinity);
+  doc
+    .getAnimations()
+    .filter(
+      (animation) => animation.effect?.getTiming().iterations !== Infinity,
+    );
 
 /// Hold the change `ms` in, so the still shows the old words leaving and the new arriving.
 const holdAt = (ms: number) => (ctx: PlayContext) => {
@@ -54,18 +93,25 @@ const holdAt = (ms: number) => (ctx: PlayContext) => {
   }
 };
 
-const next = (ctx: PlayContext) => ctx.click({ role: "button", name: "Next call" });
-const settled = (ctx: PlayContext) => ctx.waitFor(() => swapAnimations(ctx.document).length === 0);
+const next = (ctx: PlayContext) =>
+  ctx.click({ role: "button", name: "Next call" });
+const settled = (ctx: PlayContext) =>
+  ctx.waitFor(() => swapAnimations(ctx.document).length === 0);
 
 export default componentEntry<{ variant: Variant }>({
   id: "agent-pane.live-line-text-swap",
-  title: "Live line: the call's words change in place",
+  title: "Working and activity lines: the call's words change in place",
   area: "Agent pane",
   pane: true,
   height: 140,
   widths: { narrow: 360, normal: 560 },
-  styles: () => Promise.all([import("../styles.css"), import("./conversation.css")]),
-  covers: ["agent-session/acpmux/conversation/Thinking.tsx#Thinking", "ui/motion/useTextSwap.ts#useTextSwap"],
+  styles: () =>
+    Promise.all([import("../styles.css"), import("./conversation.css")]),
+  covers: [
+    "agent-session/acpmux/conversation/WorkingFor.tsx#WorkingFor",
+    "agent-session/acpmux/conversation/ActivityLine.tsx#ActivityLine",
+    "ui/motion/useTextSwap.ts#useTextSwap",
+  ],
   variants: {
     "at-rest": {
       props: { variant: "at-rest" },
@@ -111,7 +157,9 @@ export default componentEntry<{ variant: Variant }>({
       play: async (ctx) => {
         await next(ctx);
         await ctx.waitFor(
-          () => swapAnimations(ctx.document).length === 0 && !ctx.document.querySelector(".ui-text-swap__ghost"),
+          () =>
+            swapAnimations(ctx.document).length === 0 &&
+            !ctx.document.querySelector(".ui-text-swap__ghost"),
         );
       },
     },
