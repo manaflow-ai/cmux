@@ -161,17 +161,28 @@ fn plain(kind: &'static str, whole: String, attrs: &[syn::Attribute], in_test: b
     Entry { kind, tokens: whole, sig: None, in_test: in_test || attrs.iter().any(is_test_attr), unsafe_or_ffi: None }
 }
 
+/// Inserts under KEY, or under "KEY #2", "KEY #3"... when items share a key (two `include!(...)`
+/// calls, two unnamed impl items), so no item hides another one's change.
+fn put(out: &mut BTreeMap<String, Entry>, key: String, entry: Entry) {
+    if !out.contains_key(&key) {
+        out.insert(key, entry);
+        return;
+    }
+    let n = (2..).find(|n| !out.contains_key(&format!("{key} #{n}"))).unwrap();
+    out.insert(format!("{key} #{n}"), entry);
+}
+
 fn collect(items: &[syn::Item], prefix: &str, in_test: bool, out: &mut BTreeMap<String, Entry>) {
     for item in items {
         match item {
             syn::Item::Fn(f) => {
                 let key = format!("{prefix}fn {} {}", f.sig.ident, cfg_key(&f.attrs));
-                out.insert(key, fn_entry(&f.attrs, Some(&f.vis), &f.sig, tokens(f), Some(tokens(&f.block)), in_test));
+                put(out, key, fn_entry(&f.attrs, Some(&f.vis), &f.sig, tokens(f), Some(tokens(&f.block)), in_test));
             }
             syn::Item::Mod(m) => {
                 let test = in_test || m.attrs.iter().any(is_test_attr);
                 let header = format!("{} {} mod {}", attrs_tokens(&m.attrs), tokens(&m.vis), m.ident);
-                out.insert(format!("{prefix}mod {} {}", m.ident, cfg_key(&m.attrs)), plain("mod", header, &m.attrs, in_test));
+                put(out, format!("{prefix}mod {} {}", m.ident, cfg_key(&m.attrs)), plain("mod", header, &m.attrs, in_test));
                 if let Some((_, inner)) = &m.content {
                     collect(inner, &format!("{prefix}{}::", m.ident), test, out);
                 }
@@ -193,16 +204,16 @@ fn collect(items: &[syn::Item], prefix: &str, in_test: bool, out: &mut BTreeMap<
                 if i.unsafety.is_some() {
                     header.unsafe_or_ffi = Some("unsafe");
                 }
-                out.insert(ikey.clone(), header);
+                put(out, ikey.clone(), header);
                 for member in &i.items {
                     match member {
                         syn::ImplItem::Fn(f) => {
                             let key = format!("{ikey}::fn {} {}", f.sig.ident, cfg_key(&f.attrs));
-                            out.insert(key, fn_entry(&f.attrs, Some(&f.vis), &f.sig, tokens(f), Some(tokens(&f.block)), test));
+                            put(out, key, fn_entry(&f.attrs, Some(&f.vis), &f.sig, tokens(f), Some(tokens(&f.block)), test));
                         }
                         other => {
                             let key = format!("{ikey}::{}", tokens(other).split_whitespace().take(8).collect::<Vec<_>>().join(" "));
-                            out.insert(key, plain("impl item", tokens(other), &[], test));
+                            put(out, key, plain("impl item", tokens(other), &[], test));
                         }
                     }
                 }
@@ -212,21 +223,21 @@ fn collect(items: &[syn::Item], prefix: &str, in_test: bool, out: &mut BTreeMap<
                 let mut head = t.clone();
                 head.items.clear();
                 let tkey = format!("{prefix}trait {} {}", t.ident, cfg_key(&t.attrs));
-                out.insert(tkey.clone(), plain("trait", tokens(&head), &t.attrs, in_test));
+                put(out, tkey.clone(), plain("trait", tokens(&head), &t.attrs, in_test));
                 for member in &t.items {
                     match member {
                         syn::TraitItem::Fn(f) => {
                             let key = format!("{tkey}::fn {}", f.sig.ident);
-                            out.insert(key, fn_entry(&f.attrs, None, &f.sig, tokens(f), f.default.as_ref().map(tokens), test));
+                            put(out, key, fn_entry(&f.attrs, None, &f.sig, tokens(f), f.default.as_ref().map(tokens), test));
                         }
                         other => {
-                            out.insert(format!("{tkey}::{}", tokens(other)), plain("trait item", tokens(other), &[], test));
+                            put(out, format!("{tkey}::{}", tokens(other)), plain("trait item", tokens(other), &[], test));
                         }
                     }
                 }
             }
             syn::Item::Use(u) => {
-                out.insert(format!("{prefix}use {}", tokens(u)), plain("use", tokens(u), &u.attrs, in_test));
+                put(out, format!("{prefix}use {}", tokens(u)), plain("use", tokens(u), &u.attrs, in_test));
             }
             other => {
                 let (kind, attrs): (&'static str, &[syn::Attribute]) = match other {
@@ -243,7 +254,7 @@ fn collect(items: &[syn::Item], prefix: &str, in_test: bool, out: &mut BTreeMap<
                     _ => ("item", &[]),
                 };
                 let name = item_name(other);
-                out.insert(format!("{prefix}{kind} {name} {}", cfg_key(attrs)), plain(kind, tokens(other), attrs, in_test));
+                put(out, format!("{prefix}{kind} {name} {}", cfg_key(attrs)), plain(kind, tokens(other), attrs, in_test));
             }
         }
     }
@@ -626,6 +637,13 @@ mod tests {
         assert!(!test_only("any(test, unix)"));
         assert!(!test_only("feature = \"test\""));
         assert_eq!(bucket("#[cfg(not(test))]\nfn a() -> u8 { 1 }", "#[cfg(not(test))]\nfn a() -> u16 { 1 }"), Bucket::Full);
+    }
+
+    #[test]
+    fn repeated_macro_invocations_are_each_compared() {
+        let old = "include!(\"a.rs\");\ninclude!(\"b.rs\");";
+        assert_eq!(bucket(old, "include!(\"c.rs\");\ninclude!(\"b.rs\");"), Bucket::Full);
+        assert_eq!(bucket(old, old), Bucket::NoCompile);
     }
 
     #[test]

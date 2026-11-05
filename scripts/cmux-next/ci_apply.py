@@ -95,12 +95,13 @@ def _router():
     return cmux_next_route
 
 
-def app_linked_rust(paths: list[str]) -> list[str]:
-    """The changed Rust paths the app links (FFI crates and their inputs): those need the app rebuilt."""
+def app_linked_rust(paths: list[str], repo: Path = ROOT) -> list[str]:
+    """The changed Rust paths the app links (FFI crates and their inputs): those need the app rebuilt.
+    Read from REPO's tree, the one whose diff is being classified."""
     route = _router()
     inputs = [p for p in route.SWIFT_JOB_INPUTS if p.startswith("cmux-tui/")]
     try:
-        inputs += list(route.app_ffi_inputs(ROOT)) + list(route.scheme_phase_rust_inputs(ROOT))
+        inputs += list(route.app_ffi_inputs(Path(repo))) + list(route.scheme_phase_rust_inputs(Path(repo)))
     except Exception:  # noqa: BLE001 - a router that cannot read the tree: treat every Rust path as linked
         return [p for p in paths if p.startswith("cmux-tui/")]
     return [p for p in paths if any(p == i or p.startswith(i.rstrip("/") + "/") for i in inputs)]
@@ -111,7 +112,7 @@ def full_inputs(paths: list[str]) -> list[str]:
     return [p for p in paths if p in route.FULL_INPUTS or p in route.VENDORED_PINS]
 
 
-def plan_from(result: dict, labels: set[str] = frozenset(), event: str = "pull_request") -> dict:
+def plan_from(result: dict, labels: set[str] = frozenset(), event: str = "pull_request", repo: Path = ROOT) -> dict:
     """The lane for a live_apply.classify() result."""
     files = result["files"]
     every = sorted({p for paths in files.values() for p in paths})
@@ -127,7 +128,7 @@ def plan_from(result: dict, labels: set[str] = frozenset(), event: str = "pull_r
         reasons["iOS (not covered by this lane)"] = files["ios-only"]
     if "rebuild" in files and not result["reasons"]:
         reasons["rebuild"] = files["rebuild"]
-    linked = app_linked_rust(files.get("daemon", []))
+    linked = app_linked_rust(files.get("daemon", []), repo)
     if linked:
         reasons["Rust the app links (FFI)"] = linked
     pinned = full_inputs(every)
@@ -159,7 +160,7 @@ def rust_bucket(repo: str, base: str, head: str) -> dict | None:
 
 
 def plan(repo: str, base: str, head: str, labels: set[str] = frozenset(), event: str = "pull_request") -> dict:
-    out = plan_from(live_apply.classify_range(repo, base, head), labels, event)
+    out = plan_from(live_apply.classify_range(repo, base, head), labels, event, Path(repo))
     out.update(base=base, head=head)
     if "daemon" in out["appliers"]:
         out["rust"] = rust_bucket(repo, base, head)
@@ -188,8 +189,8 @@ def commands(p: dict) -> list[str]:
                          f"--base {base} -- cargo test --locked    # {why}")
     if "swift-body" in p["appliers"]:
         swift = sorted(p["files"].get("swift-live", []))
-        steps.append(f"cmux-ci run --class light --ref {base} --script scripts/live-code/build.sh  # kept by tree")
-        steps.append(f"scripts/live-code/patch.py --log LOG --module CmuxNextApp --live DIR --tree <{head} worktree> "
+        steps.append(f"cmux-ci run --class light --ref {base} --script scripts/live-code/build.sh --arg LIVE  # kept by tree")
+        steps.append(f"scripts/live-code/patch.py --log LIVE/xcodebuild.log --module CmuxNextApp --live LIVE --tree <{head} worktree> "
                      + " ".join(swift))
     if (ROOT / "scripts" / "ci" / "affected_tests.py").is_file():  # cmux#36531
         steps.append(f"cmux-ci test --affected --ref {head}    # the affected tests, sharded over the fleet")
@@ -234,7 +235,9 @@ def dropped(job_name: str, lane: str, appliers) -> bool:
 
 
 # Conclusions that count as passing; every other one (ACTION_REQUIRED, STALE, ...) is red.
-# replay() drops unfinished, SKIPPED, NEUTRAL and CANCELLED runs before it asks.
+# replay() drops unfinished, SKIPPED, NEUTRAL and CANCELLED runs before it asks, from the full side and
+# the lane side alike: a path-filtered job skips, and a superseded run is cancelled, on every PR. So the
+# drop cannot make the lane green where full CI was red; the two verdicts differ only by dropped().
 GREEN_CONCLUSIONS = {"SUCCESS", "SKIPPED", "NEUTRAL"}
 
 

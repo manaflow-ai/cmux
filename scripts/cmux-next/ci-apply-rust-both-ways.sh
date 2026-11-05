@@ -33,18 +33,24 @@ outcomes() { # LOG: "binary::test outcome" lines, sorted
 }
 
 n=0
+failed=0
 for pair in "$@"; do
   n=$((n + 1))
   base="${pair%%:*}" head="${pair##*:}" tag="$n-${head:0:12}"
   if ! git -C "$root" fetch -q --no-tags --depth=200 origin "$base" "$head"; then
-    printf '%s\t%s\tfetch-failed\n' "$base" "$head" >> "$out/results.tsv"; continue
+    printf '%s\t%s\tfetch-failed\n' "$base" "$head" >> "$out/results.tsv"; failed=1; continue
   fi
   wt="$work/wt-$n"
   git -C "$root" worktree add -q --detach "$wt" "$head"
   # include_str! reads ghostty-next by relative path too: point the worktree's empty submodule at it.
   rmdir "$wt/ghostty-next" 2>/dev/null && ln -s "$root/ghostty-next" "$wt/ghostty-next"
   mapfile -t changed < <(git -C "$wt" diff --name-only "$base" "$head")
-  read -r -a sel < <(python3 "$wt/scripts/ci/cargo_affected.py" --root "$wt" --changed "${changed[@]}" --format args 2>"$out/$tag.affected.err")
+  if ! selection="$(python3 "$wt/scripts/ci/cargo_affected.py" --root "$wt" --changed "${changed[@]}" --format args 2>"$out/$tag.affected.err")"; then
+    # A selector that fails is not an empty selection: report it, and fail the run at the end.
+    printf '%s\t%s\tselection-failed\n' "$base" "$head" >> "$out/results.tsv"; failed=1
+    git -C "$root" worktree remove --force "$wt"; continue
+  fi
+  read -r -a sel <<< "$selection"
   if [[ ${#sel[@]} -eq 0 ]]; then
     printf '%s\t%s\tnone\n' "$base" "$head" >> "$out/results.tsv"; git -C "$root" worktree remove --force "$wt"; continue
   fi
@@ -53,7 +59,7 @@ for pair in "$@"; do
   git -C "$wt" checkout -q --detach "$base"
   if ! (cd "$wt/cmux-tui" && CARGO_TARGET_DIR="$work/lane" cargo test --locked --no-run "${sel[@]}") > "$out/$tag.base.log" 2>&1; then
     # No warm baseline, so no comparison: say so instead of reporting zero differing tests.
-    printf '%s\t%s\t%s\tbase-build-failed\n' "$base" "$head" "${sel[*]}" >> "$out/results.tsv"
+    printf '%s\t%s\t%s\tbase-build-failed\n' "$base" "$head" "${sel[*]}" >> "$out/results.tsv"; failed=1
     rm -rf "$work/lane"; git -C "$root" worktree remove --force "$wt"; continue
   fi
   git -C "$wt" checkout -q --detach "$head"
@@ -79,3 +85,4 @@ for pair in "$@"; do
 done
 rm -rf "$work/lane"
 cat "$out/results.tsv"
+exit "$failed"
