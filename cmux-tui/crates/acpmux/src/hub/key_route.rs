@@ -169,11 +169,15 @@ fn ambiguous(key: &str, many: &[&Candidate]) -> RpcError {
 }
 
 #[cfg(test)]
+#[path = "key_route_fold_tests.rs"]
+mod fold_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::session_identity::SessionReceipt;
 
-    fn test_hub() -> Arc<Hub> {
+    pub(super) fn test_hub() -> Arc<Hub> {
         let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
         let mut cfg: crate::config::Config = serde_json::from_value(json!({
             "harnesses": {"fake": {"argv": ["python3", fake]}},
@@ -186,7 +190,7 @@ mod tests {
     }
 
     /// Peer `peer`'s session `id`, listed as peers list them: under `peer/id`, named `peer/name`.
-    fn list(hub: &Hub, peer: &str, id: &str, name: &str, status: &str) {
+    pub(super) fn list(hub: &Hub, peer: &str, id: &str, name: &str, status: &str) {
         let row = RemoteSession {
             peer: peer.into(),
             summary: json!({"sessionId": id, "name": format!("{peer}/{name}"), "status": status}),
@@ -200,7 +204,7 @@ mod tests {
         hub.remote_sessions.lock().unwrap().insert(format!("{peer}/{id}"), row);
     }
 
-    async fn named(hub: &Arc<Hub>, name: &str) -> Arc<Session> {
+    pub(super) async fn named(hub: &Arc<Hub>, name: &str) -> Arc<Session> {
         let start = NewRequest {
             name: Some(name.into()),
             cwd: Some(std::env::temp_dir()),
