@@ -34,14 +34,12 @@ public struct AgentTabMap<Value>: Sequence {
     public func makeIterator() -> Iterator { storage.map { (key: $0.key.key, value: $0.value) }.makeIterator() }
 
     public subscript(_ key: AgentTabKey) -> Value? {
-        get { storage[key] ?? (key.machine.isEmpty ? nil : storage[AgentTabKey(machine: "", key: key.key)]) }
+        get { storage[key] }
         set {
             if let newValue {
-                if !key.machine.isEmpty { storage.removeValue(forKey: AgentTabKey(machine: "", key: key.key)) }
                 storage[key] = newValue
             } else {
                 storage.removeValue(forKey: key)
-                if !key.machine.isEmpty { storage.removeValue(forKey: AgentTabKey(machine: "", key: key.key)) }
             }
         }
     }

@@ -377,7 +377,7 @@ extension AgentTabStore {
             return folders
         }
         tabs.shareMachineWithMeScoped = { [weak services, weak tabs] key in
-            guard let services, let tabs, let machine = tabs.remoteMachineID(of: key.key), let session = services.machines.session(machine) else {
+            guard let services, let session = services.machines.session(key.machine) else {
                 return .refused(code: "unavailable", message: CloudShareStrings.notCloudMachine)
             }
             return await CloudMachineShare.shareWithMe(session, cloud: services.cloud)
@@ -432,7 +432,7 @@ extension AgentTabStore {
                 // The tab may still be provisional here: each handshake reads its store surface.
                 host.existing = { [weak tabs] in
                     guard let tabs else { throw CancellationError() }
-                    return try await tabs.existingRemoteChat(key.key)
+                    return try await tabs.existingRemoteChat(key.key, machine: key.machine)
                 }
             }
             if session == nil {

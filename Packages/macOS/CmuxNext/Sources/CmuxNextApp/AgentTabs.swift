@@ -475,6 +475,11 @@ final class AgentTabStore {
     /// the provisional alias (cx-k21v: a remote New Tab page's send failed with unknown_tab).
     func resolveRemote(_ key: String) -> String { aliases[key] ?? remoteAliases[key] ?? key }
 
+    func resolveRemote(_ key: String, machine: String) -> String {
+        let scoped = AgentTabKey(machine: machine, key: key)
+        return aliases[scoped] ?? remoteAliases[scoped] ?? key
+    }
+
     /// The ``revealTurn(_:in:)`` value that scrolls to and marks message `id`, the harness message
     /// id an `agent/<harness>/<session>?message=<id>` link carries (the page's `MESSAGE_REVEAL`,
     /// webviews/src/agent-session/acpmux/links.ts). A message this machine's transcript does not
@@ -491,10 +496,10 @@ final class AgentTabStore {
     /// The tab's pane view, made on first show. A tab whose session runs on another machine is
     /// carried by that tab's own session daemon (``remoteHost``); nil when it cannot be (the
     /// pane then shows the "runs on" notice).
-    func view(for key: String) -> AgentPaneView? {
-        let key = resolve(key)
-        if let view = views[key] { return view }
-        let tabKey = tabKey(key)
+    func view(for key: String, machine: String? = nil) -> AgentPaneView? {
+        let tabKey = tabKey(key, machine: machine)
+        let key = tabKey.key
+        if let view = views[tabKey] { return view }
         let key = tabKey.key
         guard let (record, store) = record(for: tabKey) else { return nil }
         let kind = hostKind(record, listedHere: daemon(for: tabKey)?.isLocal != false)
@@ -739,7 +744,7 @@ final class AgentTabStore {
         return view
     }
 
-    func existingView(_ key: String) -> AgentPaneView? { views[resolve(key)] }
+    func existingView(_ key: String, machine: String? = nil) -> AgentPaneView? { views[tabKey(key, machine: machine)] }
 
     func newTabPage(_ key: String) -> (page: AgentPaneNewTab, handler: NewTabPageHandler)? { newTabPages[resolve(key)] }
     /// The New Tab page's handler, else a chat tab's (a chat's picks are remembered too, cx-q5x6r).
