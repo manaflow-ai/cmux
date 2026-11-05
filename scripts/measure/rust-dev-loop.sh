@@ -16,7 +16,7 @@
 # per build, and .build/rust-dev-loop/samples.json. Exit 1 when a dev build failed.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
-variants=base n=8 clean_n=1 scenarios=core,tui,acpmux,switch tests=""
+variants=base n=8 clean_n=1 scenarios=core,tui,acpmux,switch tests="" out=""
 for kv in "$@"; do
   case "$kv" in
     variants=*) variants="${kv#*=}" ;;
@@ -24,6 +24,7 @@ for kv in "$@"; do
     clean_n=*) clean_n="${kv#*=}" ;;
     scenarios=*) scenarios="${kv#*=}" ;;
     tests=*) tests="${kv#*=}" ;;
+    out=*) out="${kv#*=}" ;;
     *) echo "error: unknown argument $kv" >&2; exit 2 ;;
   esac
 done
@@ -33,7 +34,7 @@ if [[ ! -f "$root/ghostty-next/build.zig" ]]; then
 fi
 cd "$root/cmux-tui"
 rustup show active-toolchain
-out="$root/.build/rust-dev-loop"
+out="${out:-$root/.build/rust-dev-loop}"
 mkdir -p "$out"
 exec python3 "$root/scripts/measure/rust-dev-loop.py" --workspace "$root/cmux-tui" --out "$out" \
-  --variants "$variants" --n "$n" --clean-n "$clean_n" --scenarios "$scenarios" --tests "$tests"
+  --target-root "$root/.build/rust-dev-loop-target" --variants "$variants" --n "$n" --clean-n "$clean_n" --scenarios "$scenarios" --tests "$tests"

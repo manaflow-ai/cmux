@@ -159,6 +159,7 @@ def main() -> int:
     ap.add_argument("--clean-n", type=int, default=1, help="clean builds per variant (the first warms it)")
     ap.add_argument("--scenarios", default="core,tui,acpmux,switch")
     ap.add_argument("--tests", default="", help="packages to time cargo test vs cargo nextest on (base variant)")
+    ap.add_argument("--target-root", default="", help="where the per-variant target directories go (default OUT/target)")
     a = ap.parse_args()
 
     ws = Path(a.workspace).resolve()
@@ -203,7 +204,8 @@ def main() -> int:
         log(f"DEVLOOP-SAMPLE {variant} {scenario} round={i} {dt:.2f}s exit={rc} compiled={compiled}")
         (out / "samples.json").write_text(json.dumps({"host": host, "samples": samples}, indent=1))
 
-    targets = {k: out / "target" / re.sub(r"[^A-Za-z0-9_.-]", "_", k) for k in chosen}
+    troot = Path(a.target_root).resolve() if a.target_root else out / "target"
+    targets = {k: troot / re.sub(r"[^A-Za-z0-9_.-]", "_", k) for k in chosen}
     for c in range(a.clean_n):
         for k, spec in chosen.items():
             shutil.rmtree(targets[k], ignore_errors=True)
