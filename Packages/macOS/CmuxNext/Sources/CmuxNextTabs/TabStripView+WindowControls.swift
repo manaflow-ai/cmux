@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
 
 // A strip under the window's traffic lights (minimal titlebar, sidebar
 // hidden, the top-left pane) starts its tabs after them. Only strips whose
@@ -9,6 +9,11 @@ import CmuxNextDesign
 // where its pane will rest (`RestingPlacement`): it lays out once, for its
 // final place, and its tabs then move with the column, never pinned to the
 // traffic lights while the column slides under them or under the sidebar.
+//
+// Strips join the window's avoiders, so a top-row control that moves with no strip resize of its own (the
+// sidebar's leading-slot +) makes them re-check.
+extension TabStripView: WindowControlsAvoiding {}
+
 extension TabStripView {
     /// Re-checks the traffic lights after the strip moved in its window
     /// without a resize (the App calls it when the pane's window frame
@@ -24,8 +29,12 @@ extension TabStripView {
         guard let window else { return 0 }
         let host = window as? TitlebarAccessoryHosting
         let (strip, shown, moving) = restingWindowRect()
+        // The sidebar's + in this strip's leading slot (`sidebar.topLeftCluster = tabLead`) counts as accessory too.
+        let slot = (window as? any WindowControlsAvoidanceHosting)?.windowControlsAvoiders.leadingSlotFrame
+        let frames = [host?.titlebarAccessoryFrame, slot].compactMap(\.self)
+        let accessory = frames.dropFirst().reduce(frames.first) { partial, frame in partial?.union(frame) }
         let resting = Self.windowControlsInset(strip: strip, shown: shown, lights: WindowTitlebar.trafficLightsFrame(in: window),
-                                               accessory: host?.titlebarAccessoryFrame, padding: metrics.stripHorizontalPadding)
+                                               accessory: accessory, padding: metrics.stripHorizontalPadding)
         // On the way, the larger of the inset it shows and the one it rests with: a column leaving
         // the traffic lights keeps its tabs clear of them until it rests (off screen by then), and
         // one arriving clears them from the start (while still off screen), so neither jumps in view.

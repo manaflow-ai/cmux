@@ -364,6 +364,7 @@ public final class TabStripView: NSView {
         super.viewDidMoveToWindow()
         syncShown()
         if window != nil {
+            WindowControlsAvoiders.join(self)
             applyTokens(animated: false)
             startObserving()
             startObservingTokens()

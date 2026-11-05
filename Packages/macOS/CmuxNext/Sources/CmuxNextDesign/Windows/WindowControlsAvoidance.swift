@@ -26,6 +26,17 @@ public final class WindowControlsAvoiders {
 
     public init() {}
 
+    /// A control another package put in the top row, outside the window's own titlebar accessory: the sidebar's +
+    /// in the first tab strip's leading slot (`sidebar.topLeftCluster = tabLead`). Strips under the top row keep
+    /// clear of it as of the accessory (``WindowTitlebar/windowControlsMaxX(over:shown:lights:accessory:)``).
+    public weak var leadingSlot: NSView?
+
+    /// ``leadingSlot``'s frame in window coordinates while it shows in a window.
+    public var leadingSlotFrame: CGRect? {
+        guard let view = leadingSlot, view.window != nil, !view.isHiddenOrHasHiddenAncestor else { return nil }
+        return view.convert(view.bounds, to: nil)
+    }
+
     /// The number of views that joined and are still alive (tests).
     public var count: Int { entries.values.count(where: { $0.view != nil }) }
 

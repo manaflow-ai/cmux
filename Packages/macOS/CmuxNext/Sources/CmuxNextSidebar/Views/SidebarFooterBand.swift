@@ -74,7 +74,7 @@ final class SidebarFooterBand {
     /// Whether an overfull pinned row needs the separate footer line reserved for Search.
     var needsDedicatedSearchRow: Bool {
         guard let host, host.design.sidebarSections.showSearchButton, !host.design.sidebarSections.noFade,
-              let row = bandFirstRow else { return false }
+              !host.searchLivesInHeader, let row = bandFirstRow else { return false }
         return Self.searchPlacement(sidebarWidth: host.bounds.width, side: Self.searchButtonSide,
                                     itemsMaxX: row.itemsMaxX).needsDedicatedRow
     }
@@ -159,6 +159,8 @@ final class SidebarFooterBand {
             return nil
         }
         button.isHidden = false
+        // `sidebar.topLeftCluster = headerRow` placed it in the header row beside the +; the footer row ends at its edge.
+        if host.searchLivesInHeader { return nil }
         let side = Self.searchButtonSide
         let x: CGFloat, midY: CGFloat
         if let row = bandFirstRow {
