@@ -18,6 +18,7 @@ beforeAll(() => {
       <ul class="cv-list"><li id="first"><strong style="font-weight:600">ship</strong> it</li><li id="last">then <a class="cv-link" href="https://example.com" data-chip="1">check</a><button>Copy</button></li></ul>
     </div></div>
     <div class="cv-md"><p id="other">another reply</p></div>
+    <div class="cv-md"><p id="mathp">Area <span class="cv-math" data-tex="\\pi r^2"><span id="glyph">πr2</span></span> grows</p></div>
   </body></html>`);
   for (const key of KEYS) {
     saved.set(key, scope[key]);
@@ -46,4 +47,20 @@ test("a selection across replies is the page's own copy", () => {
   range.setStartBefore(doc.getElementById("heading")!);
   range.setEndAfter(doc.getElementById("other")!);
   expect(selectionHtml(range)).toBeNull();
+});
+
+test("a selection that starts or ends inside an equation is mathCopy's", () => {
+  const glyph = doc.getElementById("glyph")!.firstChild!;
+  const range = doc.createRange();
+  range.setStart(glyph, 1);
+  range.setEnd(doc.getElementById("mathp")!.lastChild!, 3);
+  expect(selectionHtml(range)).toBeNull();
+  // All inside one equation: its clone holds only glyphs, no element with the TeX.
+  const inside = doc.createRange();
+  inside.setStart(glyph, 0);
+  inside.setEnd(glyph, 2);
+  expect(selectionHtml(inside)).toBeNull();
+  const whole = doc.createRange();
+  whole.selectNodeContents(doc.getElementById("mathp")!);
+  expect(selectionHtml(whole)).toBeNull();
 });

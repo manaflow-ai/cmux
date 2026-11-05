@@ -32,12 +32,14 @@ function elementOf(node: Node): Element | null {
 export function selectionHtml(range: Range): string | null {
   const reply = elementOf(range.commonAncestorContainer)?.closest(".cv-md");
   if (!reply) return null;
+  // Math is mathCopy.ts's, also a selection that starts or ends inside an equation (its clone
+  // leaves out the element that holds the TeX); highlighted code draws in a shadow root, which a
+  // clone leaves empty.
+  if (elementOf(range.startContainer)?.closest(MATH) || elementOf(range.endContainer)?.closest(MATH)) return null;
+  for (const element of reply.querySelectorAll("*"))
+    if ((element.shadowRoot || element.matches(MATH)) && range.intersectsNode(element)) return null;
   const holder = document.createElement("div");
   holder.append(range.cloneContents());
-  if (holder.querySelector(MATH)) return null;
-  // Highlighted code draws in a shadow root, which a clone leaves empty.
-  for (const element of reply.querySelectorAll("*"))
-    if (element.shadowRoot && range.intersectsNode(element)) return null;
   for (const element of holder.querySelectorAll(CHROME)) element.remove();
   for (const element of holder.querySelectorAll("*"))
     for (const name of element.getAttributeNames()) if (!KEEP.has(name)) element.removeAttribute(name);
