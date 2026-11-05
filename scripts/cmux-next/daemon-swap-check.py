@@ -187,13 +187,17 @@ def nightly_run_commit(number: str) -> str | None:
     (4191131679101 is run 41911316791, attempt 1): the run's head commit."""
     if len(number) < 3:
         return None
-    url = f"https://api.github.com/repos/manaflow-ai/cmux/actions/runs/{number[:-2]}"
-    result = subprocess.run(["curl", "-sf", url], capture_output=True, text=True, timeout=60)
+    # That attempt, not the run's latest: a re-run of failed jobs keeps the number.
+    url = (f"https://api.github.com/repos/manaflow-ai/cmux/actions/runs/{number[:-2]}"
+           f"/attempts/{int(number[-2:])}")
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    auth = ["-H", f"Authorization: Bearer {token}"] if token else []
+    result = subprocess.run(["curl", "-sf", *auth, url], capture_output=True, text=True, timeout=60)
     try:
         run = json.loads(result.stdout)
     except ValueError:
         return None
-    if run.get("path") != ".github/workflows/nightly.yml" or run.get("run_attempt") != int(number[-2:]):
+    if run.get("path") != ".github/workflows/nightly.yml":
         return None
     sha = run.get("head_sha") or ""
     return sha if re.fullmatch(r"[0-9a-f]{40}", sha) else None
