@@ -6,7 +6,7 @@ private let grantsLogger = Logger(subsystem: "com.cmuxterm.app.next", category: 
 
 /// cmux Remote's Accessibility and Screen Recording, as one fresh probe read them
 /// (docs/cmux-remote.md, Permissions).
-public struct CmuxRemoteGrants: Sendable, Equatable {
+public nonisolated struct CmuxRemoteGrants: Sendable, Equatable {
     public var accessibility: Bool
     public var screenRecording: Bool
     /// The host process that holds them, when the status names it.

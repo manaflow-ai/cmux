@@ -6,7 +6,7 @@ import Foundation
 /// Control and Data Access" there, which people do not recognise), with the older names in
 /// brackets, then follows each request. It is an approval-style card: top right, over every app,
 /// never activating, and only the person's press answers it (`DebugDialog.userOnly`).
-public enum ComputerUseRemoteSetupCard: String, Sendable, Equatable {
+public nonisolated enum ComputerUseRemoteSetupCard: String, Sendable, Equatable {
     /// Both permissions named; Not Now or Continue.
     case ask
     /// Step 1: Accessibility was requested.
@@ -36,7 +36,7 @@ extension ComputerUseApprovalCards: ComputerUseRemoteSetupPresenting {
         guard setupCard != card || dialogID(Self.setupCardID) == nil else { return }
         withdrawSetup()
         setupCard = card
-        place(Self.setupCardID, spec: Self.setupSpec(card)) { [weak self] button in
+        placeCard(Self.setupCardID, spec: Self.setupSpec(card)) { [weak self] button in
             self?.setupCard = nil
             answered(button)
         }

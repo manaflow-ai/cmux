@@ -1,17 +1,17 @@
 import CmuxNextCompat
-import Observation
+public import Observation
 import os
 
 nonisolated private let remoteSetupLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "computer-use")
 
 /// One of cmux Remote's two macOS grants.
-public enum ComputerUseRemoteGrant: String, Sendable, Equatable {
+public nonisolated enum ComputerUseRemoteGrant: String, Sendable, Equatable {
     case accessibility
     case screenRecording
 }
 
 /// What Computer Use setup knows of cmux Remote's grants.
-public enum ComputerUseRemoteSetupState: Sendable, Equatable {
+public nonisolated enum ComputerUseRemoteSetupState: Sendable, Equatable {
     /// The grants are not cmux Remote's (the legacy helper, the helper v2 on its own).
     case notRemote
     /// Computer Use is off, turned off by policy, or cannot run: nothing to set up.
@@ -52,7 +52,7 @@ public protocol ComputerUseRemoteGrantSource: AnyObject {
 @MainActor
 @Observable
 public final class ComputerUseRemoteSetupFlow {
-    public enum Step: Equatable, Sendable {
+    public nonisolated enum Step: Equatable, Sendable {
         /// Not cmux Remote's grants, or Computer Use is off: nothing to do here.
         case none
         /// cmux Remote's grants are being read.

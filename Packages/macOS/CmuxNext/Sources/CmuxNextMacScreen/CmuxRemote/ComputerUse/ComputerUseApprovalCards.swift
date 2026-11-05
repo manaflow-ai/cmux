@@ -82,13 +82,13 @@ public final class ComputerUseApprovalCards: ComputerUseApprovalPresenting {
 
     /// Shows card `id` for `spec`; a press of one of the four answers runs `decide`, then the card closes.
     private func place(_ id: String, spec: CmuxDialogSpec, decide: @escaping @MainActor (ComputerUseApprovalDecision) -> Void) {
-        place(id, spec: spec, pressed: { button in
+        placeCard(id, spec: spec, pressed: { button in
             if let decision = ComputerUseApprovalDecision(rawValue: button) { decide(decision) }
         })
     }
 
     /// Shows card `id` for `spec`; a press (never a dismissal) runs `pressed` with its button, then the card closes.
-    func place(_ id: String, spec: CmuxDialogSpec, pressed: @escaping @MainActor (String) -> Void) {
+    func placeCard(_ id: String, spec: CmuxDialogSpec, pressed: @escaping @MainActor (String) -> Void) {
         let panel = makesPanels ? ComputerUseApprovalCardPanel.make() : nil
         let scope: CmuxDialogScope = panel.map { .window($0) } ?? .app
         let dialog = center.present(spec, in: scope) { [weak self] answer in
