@@ -6,7 +6,7 @@ import CoreText
 
 /// DEBUG ONLY: the agent-message header variants of the Agent Messages Playground (user 2026-11-02,
 /// msg 19588: "give me more variations of agent messages ui"; msg 19613: "i want playground in swift,
-/// not html"). Each case draws a fold, notes or note row of `HomeAgentFoldRowProvider` its own way, in
+/// not html"). Each case draws an agents row or a note of `HomeAgentFoldRowProvider` its own way, in
 /// the real transcript; ``current`` is the shipped look. The playground registers a provider with a
 /// style (`MessagesLabHomeView.debugSetAgentFoldStyle(_:)`); release builds always draw ``current``.
 /// Titles and captions are DEV-only English.

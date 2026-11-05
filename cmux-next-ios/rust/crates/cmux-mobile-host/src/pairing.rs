@@ -666,7 +666,15 @@ async fn authenticate(
             }
             (signature, pair_token)
         }
-        _ => return Err(("timeout", "no signature".into())),
+        // The phone refused the challenge itself (it closes `auth` at once when this Mac proves
+        // another key than the one it pinned, or names another Mac): say so, not "timeout", so the
+        // log shows the real cause (2026-11-03: a 6 ms "timeout" hid `mac_identity_changed`).
+        Ok(Some(ChannelEvent::Closed(info))) => {
+            let why = format!("the iPhone closed pairing: {} {}", info.code, info.reason);
+            return Err(("phone_closed", why.trim_end().to_owned()));
+        }
+        Ok(None) => return Err(("phone_closed", "the iPhone closed pairing".into())),
+        Err(_) => return Err(("timeout", "no signature".into())),
     };
     let message =
         challenge_message(&pairing.mac_device_id, phone, &nonce, identity_key, approval_key, action);

@@ -24,6 +24,8 @@ final class CEFRuntime {
 
     var state: State = .idle
     private(set) var shim: CEFShimLibrary?
+    /// Whether first-party pages serve the live web loop (``setLivePages(_:)``), kept until the shim loads.
+    var livePages = false
     private(set) var layout: CEFRuntimeLayout?
     private(set) var storage = CEFProfileStorage.forApplication(bundleIdentifier: Bundle.main.bundleIdentifier)
     var pump: CEFMessagePump?
@@ -117,8 +119,8 @@ final class CEFRuntime {
     var shutdownSequence: CEFShutdownSequence?
     var shutdownWaiter: CheckedContinuation<Void, Never>?
     var shutdownTimeout: Task<Void, Never>?
-    /// Recent renderer and helper process failures (`debug.crashes`).
-    let crashLog = BrowserCrashLog()
+    /// Recent renderer and helper process failures (`debug.crashes`); the ones a person saw also go to crash reporting.
+    let crashLog = BrowserCrashLog(), failureReports = CEFFailureReports()
     /// Watches helper exits (GPU, utility, extension renderers) from start.
     var childMonitor: CEFChildProcessMonitor?
     /// Runs once CEF is initialized (the App re-installs its crash signal
@@ -454,6 +456,7 @@ final class CEFRuntime {
                                                       entry.entry)
             if added != 1 { logger.error("cmux-page \(id, privacy: .public) refused by the shim") }
         }
+        applyLivePages()
         // Every document's start scripts and report channels, once for every browser, in the
         // renderer (fork API 29): no tab opens a DevTools session for them (`CEFDocumentScripts`).
         if CEFForkFeatures(shim).rendererPaths {

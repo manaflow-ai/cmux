@@ -1635,3 +1635,165 @@ fn a_pack_of_private_objects_is_private() {
         assert_eq!(mode, 0o600, "{} is {mode:o}", path.display());
     }
 }
+
+/// Serves `fs.*` like [`serve_fs`] and counts the connections that wrote a
+/// file (not the sync record).
+fn serve_fs_counting_writers(
+    socket: &Path,
+    home: &Path,
+) -> &'static std::sync::atomic::AtomicUsize {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let listener = UnixListener::bind(socket).unwrap();
+    let service: &'static FsService =
+        Box::leak(Box::new(FsService::new(Roots::new([home.to_path_buf()]))));
+    let writers: &'static AtomicUsize = Box::leak(Box::default());
+    std::thread::spawn(move || {
+        for connection in listener.incoming() {
+            let Ok(connection) = connection else { return };
+            std::thread::spawn(move || {
+                let mut writer = connection.try_clone().unwrap();
+                let mut wrote = false;
+                for line in BufReader::new(connection).lines() {
+                    let Ok(line) = line else { return };
+                    let request: Value = serde_json::from_str(&line).unwrap();
+                    let path = request["path"].as_str().unwrap_or_default();
+                    if request["cmd"] == "fs.write" && !path.ends_with("cmux-sync.json") && !wrote {
+                        wrote = true;
+                        writers.fetch_add(1, Ordering::SeqCst);
+                    }
+                    let id = request["id"].clone();
+                    let cmd = request["cmd"].as_str().unwrap_or_default().to_string();
+                    let mut text =
+                        stream::answer(&id, service.call("local", &cmd, request)).to_string();
+                    text.push('\n');
+                    if writer.write_all(text.as_bytes()).is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    writers
+}
+
+/// Small files go on several connections at once (one with
+/// `CMUX_SYNC_PUSH_CONNECTIONS=1`), a big one too, and every file lands as
+/// it is here; a second push writes nothing.
+#[test]
+fn small_files_go_on_several_connections_and_all_land() {
+    use std::sync::atomic::Ordering;
+    for (connections, least, most) in [("8", 3, 8), ("1", 1, 1)] {
+        let root = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(root.path()).unwrap();
+        let folder = root.join("many");
+        std::fs::create_dir_all(folder.join("deep/er")).unwrap();
+        for index in 0..300 {
+            let at = if index % 3 == 0 { "deep/er" } else { "." };
+            std::fs::write(folder.join(at).join(format!("f{index:03}.txt")), format!("{index}\n"))
+                .unwrap();
+        }
+        let big: Vec<u8> = (0..6 * 1024 * 1024u32).map(|i| (i % 251) as u8).collect();
+        std::fs::write(folder.join("big.bin"), &big).unwrap();
+        let (_sockets, socket, home) = machine_home(&root);
+        let writers = serve_fs_counting_writers(&socket, &home);
+        let remote = home.join("work/many");
+        let run = || {
+            let output = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+                .env("CMUX_TUI_STATE_DIR", state_of(&socket))
+                .env("CMUX_SYNC_PUSH_CONNECTIONS", connections)
+                .args(["link", "sync", "push", "--socket"])
+                .arg(&socket)
+                .arg(&folder)
+                .arg(&remote)
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stdout));
+            serde_json::from_slice::<Value>(&output.stdout).unwrap()
+        };
+        let summary = run();
+        assert_eq!(summary["written"], json!(301), "{summary}");
+        // The big file goes on the push's own connection, the small ones on
+        // up to `connections` more.
+        let used = writers.load(Ordering::SeqCst);
+        assert!(used <= most + 1, "{used} writing connections");
+        assert!(used >= least, "{used} writing connections");
+        for (path, bytes) in files_below(&folder) {
+            let relative = path.strip_prefix(&folder).unwrap();
+            assert_eq!(std::fs::read(remote.join(relative)).unwrap(), bytes, "{relative:?}");
+        }
+        assert_eq!(run()["written"], json!(0));
+    }
+}
+
+/// A folder the machine turns into a symlink after the push planned it
+/// (here: when the first file lands) is never written through: the write
+/// into it is skipped and named, and nothing lands where the link points.
+#[test]
+fn a_folder_turned_into_a_symlink_mid_push_is_not_written_through() {
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let folder = root.join("site");
+    std::fs::create_dir_all(folder.join("sub")).unwrap();
+    std::fs::write(folder.join("a.txt"), "a\n").unwrap();
+    std::fs::write(folder.join("sub/b.txt"), "b\n").unwrap();
+    let (_sockets, socket, home) = machine_home(&root);
+    let remote = home.join("work/site");
+    let elsewhere = home.join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+
+    let listener = UnixListener::bind(&socket).unwrap();
+    let service: &'static FsService = Box::leak(Box::new(FsService::new(Roots::new([home]))));
+    let swapped: &'static std::sync::atomic::AtomicBool = Box::leak(Box::default());
+    let (sub, target) = (remote.join("sub"), elsewhere.clone());
+    std::thread::spawn(move || {
+        for connection in listener.incoming() {
+            let Ok(connection) = connection else { return };
+            let (sub, target) = (sub.clone(), target.clone());
+            std::thread::spawn(move || {
+                let mut writer = connection.try_clone().unwrap();
+                for line in BufReader::new(connection).lines() {
+                    let Ok(line) = line else { return };
+                    let request: Value = serde_json::from_str(&line).unwrap();
+                    let id = request["id"].clone();
+                    let cmd = request["cmd"].as_str().unwrap_or_default().to_string();
+                    let first_write = cmd == "fs.write"
+                        && !swapped.swap(true, std::sync::atomic::Ordering::SeqCst);
+                    let reply = stream::answer(&id, service.call("local", &cmd, request));
+                    if first_write {
+                        std::fs::remove_dir(&sub).unwrap();
+                        std::os::unix::fs::symlink(&target, &sub).unwrap();
+                    }
+                    let mut text = reply.to_string();
+                    text.push('\n');
+                    if writer.write_all(text.as_bytes()).is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+
+    let output = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+        .env("CMUX_TUI_STATE_DIR", state_of(&socket))
+        .env("CMUX_SYNC_PUSH_CONNECTIONS", "1")
+        .args(["link", "sync", "push", "--socket"])
+        .arg(&socket)
+        .arg(&folder)
+        .arg(&remote)
+        .output()
+        .unwrap();
+    let summary: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(output.status.success(), "{summary}");
+    assert_eq!(std::fs::read_to_string(remote.join("a.txt")).unwrap(), "a\n");
+    assert!(!elsewhere.join("b.txt").exists(), "a write went through the symlink: {summary}");
+    let named: Vec<&str> = summary["skipped_files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|entry| entry["path"].as_str())
+        .collect();
+    assert!(named.contains(&"sub/b.txt"), "{summary}");
+}
+
+#[path = "link_sync/git_index.rs"]
+mod git_index;

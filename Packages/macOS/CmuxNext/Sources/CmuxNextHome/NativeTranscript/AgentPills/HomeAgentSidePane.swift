@@ -1,10 +1,10 @@
-#if DEBUG
 import AppKit
 import CmuxNextDesign
 
-/// DEBUG ONLY: the Agent Messages Playground's right pane (user 2026-11-03, msg 19960): one tab per opened
-/// agent in a tab strip, the selected tab's content under it. Opening an agent that has a tab selects it;
-/// closing the last tab calls `emptied` (the playground hides the pane).
+/// The agent pane's tab strip and content (user 2026-11-03, msg 19960): one tab per opened agent, the
+/// selected tab's content under it. Opening an agent that has a tab selects it; closing the last tab calls
+/// `emptied`. With ``onSelect`` and ``onClose`` set (``HomeAgentPaneView``) a tab click or its close button
+/// asks the owner instead, which then calls ``select(_:)`` or ``close(_:)``; the DEBUG playground leaves them nil.
 @MainActor
 final class HomeAgentSidePane: NSView {
     private struct Tab {
@@ -15,6 +15,10 @@ final class HomeAgentSidePane: NSView {
     }
 
     var emptied: (() -> Void)?
+    /// A click on a tab (nil: the tab shows at once).
+    var onSelect: ((String) -> Void)?
+    /// A click on a tab's close button (nil: the tab closes at once).
+    var onClose: ((String) -> Void)?
     private var tabs: [Tab] = []
     private var selected: String?
     private let strip = NSStackView()
@@ -62,6 +66,30 @@ final class HomeAgentSidePane: NSView {
         select(peer)
     }
 
+    /// Puts `content` in `peer`'s tab in place of its old content (its chat changed), and `title` on its tab.
+    func replace(_ peer: String, title: String, content: NSView) {
+        guard let index = tabs.firstIndex(where: { $0.peer == peer }) else { return }
+        let old = tabs[index]
+        if old.content.superview === holder { old.content.removeFromSuperview() }
+        ((old.chip.subviews.first as? NSStackView)?.arrangedSubviews.first as? NSButton)?.title = title
+        tabs[index] = Tab(peer: peer, title: title, content: content, chip: old.chip)
+        if selected == peer { select(peer) }
+    }
+
+    /// Puts `title` on `peer`'s tab (its content stays).
+    func retitle(_ peer: String, title: String) {
+        guard let index = tabs.firstIndex(where: { $0.peer == peer }), tabs[index].title != title else { return }
+        let old = tabs[index]
+        ((old.chip.subviews.first as? NSStackView)?.arrangedSubviews.first as? NSButton)?.title = title
+        tabs[index] = Tab(peer: peer, title: title, content: old.content, chip: old.chip)
+    }
+
+    /// `peer`'s tab content; nil when it has no tab.
+    func content(of peer: String) -> NSView? { tabs.first { $0.peer == peer }?.content }
+
+    /// The selected tab's content.
+    var selectedContent: NSView? { tabs.first { $0.peer == selected }?.content }
+
     /// Shows `peer`'s tab.
     func select(_ peer: String) {
         guard let tab = tabs.first(where: { $0.peer == peer }) else { return }
@@ -96,13 +124,14 @@ final class HomeAgentSidePane: NSView {
     }
 
     private func makeChip(peer: String, title: String) -> NSView {
-        let chip = HomeAgentFillView(fill: .clear, radius: 7)
+        let chip = HomeAgentFillView(fill: .clear, radius: Metrics.insetCornerRadius)
         let name = TabButton(title: title, target: self, action: #selector(tabClicked))
         name.peer = peer
         name.isBordered = false
         name.font = Typography.system(size: TypeScale.detail, weight: TypeScale.emphasis)
         name.lineBreakMode = .byTruncatingTail
-        let closeButton = TabButton(image: NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close tab") ?? NSImage(),
+        let closeLabel = String(localized: "home.agentPane.closeTab", defaultValue: "Close tab", bundle: .module)
+        let closeButton = TabButton(image: NSImage(systemSymbolName: "xmark", accessibilityDescription: closeLabel) ?? NSImage(),
                                     target: self, action: #selector(closeClicked))
         closeButton.peer = peer
         closeButton.isBordered = false
@@ -123,13 +152,16 @@ final class HomeAgentSidePane: NSView {
         return chip
     }
 
-    @objc private func tabClicked(_ sender: TabButton) { select(sender.peer) }
+    @objc private func tabClicked(_ sender: TabButton) {
+        if let onSelect { onSelect(sender.peer) } else { select(sender.peer) }
+    }
 
-    @objc private func closeClicked(_ sender: TabButton) { close(sender.peer) }
+    @objc private func closeClicked(_ sender: TabButton) {
+        if let onClose { onClose(sender.peer) } else { close(sender.peer) }
+    }
 }
 
 /// A tab strip button that knows its agent.
 private final class TabButton: NSButton {
     var peer = ""
 }
-#endif

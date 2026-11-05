@@ -117,6 +117,8 @@ env:
   # Everywhere else it still fails. Change `warn` to `fail` to make it block
   # feat-cmux-next again.
   CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.event.merge_group.base_ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
 
 
 # A newer push to the same pull request replaces its run; dispatches never

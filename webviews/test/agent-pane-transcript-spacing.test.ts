@@ -194,10 +194,13 @@ await requireBrowserLane("agent-pane-transcript-spacing.test.ts", async () => {
       const lastActions = userRow("Ship it when green.").querySelector(".cv-user__actions")!;
       const afterFirst = rowAfter(userRow("Is the hosted test run done?"));
       const firstContent = afterFirst.querySelector(".cv-md, .cv-worked") ?? afterFirst;
-      // The turn's Worked for (a Claude turn draws one too), or its first run line.
+      // A Claude turn's first run line, where a Codex turn draws Worked for (turns.ts claudeGroups).
       const worked = rowAfter(userRow("Ship it when green.")).querySelector(".cv-worked, .cv-tool");
-      // Turn footers only: a reply's own row (cv-reply-actions) reuses their look.
-      const footers = [...document.querySelectorAll<HTMLElement>(".cv-turn-actions:not(.cv-reply-actions)")];
+      // Turn footers only: a reply's own row (cv-reply-actions) reuses their look. The copy row a
+      // stretch ends on before the steer (turns.ts supersededFooters, #34939) is not the turn's.
+      const footers = [...document.querySelectorAll<HTMLElement>(".cv-turn-actions:not(.cv-reply-actions)")].filter(
+        (node) => !node.closest('[data-row-id^="superseded-"]'),
+      );
       const lastFooterTime = footers.at(-1)!.querySelector(".cv-turn-time")!;
       const lastReply = reply("Meanwhile the PR checks");
       const dock = document.querySelector<HTMLElement>(".acpmux-main[data-dock=float] > .acpmux-dock")!;

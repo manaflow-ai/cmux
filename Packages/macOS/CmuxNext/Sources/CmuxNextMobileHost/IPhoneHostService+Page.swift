@@ -1,5 +1,6 @@
 public import CmuxNextMobile
 public import CmuxNextSettings
+import CmuxNextDesign
 import Foundation
 
 /// The Mobile page's iPhone card (`iphone` in `cmux.settings.host.lists`), every text localized
@@ -12,6 +13,8 @@ extension IPhoneHostService {
             "allowed": .bool(allowed),
             "status_title": .string(IPhoneHostStrings.statusTitle),
             "status": .string(statusText),
+            // Msg 3790: where the status says to sign in, the card shows the Sign In button.
+            "sign_in": statusText == IPhoneHostStrings.signedOut ? .string(SignInButton.defaultTitle) : .null,
             "phase": .string(phaseName),
             "account_title": .string(IPhoneHostStrings.accountTitle),
             "account": account.map { .string(IPhoneHostStrings.registered(as: $0.email ?? $0.userID)) } ?? .null,

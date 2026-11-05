@@ -77,6 +77,13 @@ under the router's 2 s request deadline),
 Site Information opens its panel), `settings` (Settings opens and paints), `alive`, `quit`
 (`quitEndEverything` ends the process within 30 s; else a `sample` and a kill). A crash report fails the run.
 
+### Onboarding suite (ON1)
+
+`--suite onboarding` with `--nightly newest|BUILD` installs a NIGHTLY from its DMG and turns on Computer
+Use the way a person does, over VNC only, then a scripted agent clicks, types and drags in background apps.
+See [onboarding/README.md](onboarding/README.md) for the steps, the reference flow it is measured against
+(Claude Desktop, Codex) and the findings.
+
 ### Exec suite (OS probes)
 
 `os-matrix.sh --build JOB --os 14,15,26 --suite exec:NAME` runs one OS probe, `probes/NAME.swift`, in each guest.

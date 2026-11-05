@@ -123,7 +123,7 @@ The driver drives and reads the app only through interfaces the app already has:
 | app state | the control socket: `debug.surfaces {text: true}` (each pane's focus, link, viewport text, `terminal_id`, `host_pid`), `action.run` |
 | the daemon's screen | the bundled `cmux` CLI on the app's own daemon: `cmux terminal ID screen read` |
 | processes | `ps`, scoped to the terminal's `__terminal-host` (`host_pid`), else to every process run from the app bundle |
-| the frame | `debug.window_snapshot` (the app's own drawing of its main window) read with macOS text recognition |
+| the frame | `debug.window_snapshot` (the app's own drawing of its main window) read with macOS text recognition (`scripts/ci/pr_media_ocr.swift`; an image in which it finds no text at all is read again in four horizontal bands) |
 
 ## Write a journey
 
@@ -209,7 +209,7 @@ no fixture or earlier run can show the expected text) and `${prompt}` (`J> `).
 | `{"app_text_lacks": "TEXT"}` | app | negative: the pane's viewport text does not contain TEXT |
 | `{"daemon_history": {...}}` | daemon | the daemon's scrollback (`terminal ID history read`): `rows` `oldest`/`newest`, `count`; `contains`, `lacks` (negative) TEXT; `pattern` (one group: a row number) with `contiguous` and `last` N |
 | `{"app_rows": {...}}` | app | the numbered rows the viewport shows (after any scroll): `pattern`, `min_rows`, `contiguous`; `top`/`last`: `{eq\|ne\|gt\|lt\|ge\|le: N, a bound NAME, or "daemon_oldest"}`; `bind` NAME (sets `${NAME_top}`, `${NAME_mid}`); `hold` makes it negative-style (read every poll and through `settle`) |
-| `{"frame_screen": {"shows": [...], "lacks": [...]}}` | frame | one fresh frame shows every `shows` text and none of `lacks` (a negative read only on a frame that shows the run's own text) |
+| `{"frame_screen": {"shows": [...], "lacks": [...]}}` | frame | one fresh frame shows every `shows` text and none of `lacks` (a negative read only on a frame that shows the run's own text); a `lacks` check is not judged on a band read in which a band that shows ink read no text (`driver.lacks_not_judged`); a `lacks` text that the read finds fails it; a band with no ink is blank and does not make the read partial |
 | `{"clipboard": "TEXT"}` | clipboard | the general pasteboard is exactly TEXT (`pbpaste`) |
 | `{"quit_leftovers": {"allow": [{"match": RE, "why": TEXT}]}}` | process | every process a `relaunch` with `leftovers_after` found after the quit matches an `allow` entry; the others are listed with their RSS |
 
@@ -342,6 +342,105 @@ The driver decides, not the author:
   builds, the app never answered, the lease ran out). Never counted as a pass.
 
 Check the clip anyway: a pass says the checked text showed; the clip shows what else did.
+
+## Film judges and judge goldens
+
+The film judges read the in-app recorder's films (`debug.motion` `record_*` and `trace_*`): `video_judge.py`
+(pacing, exact-scanline geometry, model against shown, content, recorder faults), `video-cases/judge_trace.py`
+(per-frame geometry of a layout motion, one motion per drag), `video-cases/judge_keys.py` (each keyboard resize
+press) and `video-cases/judge_scan.py` (repeated pictures in motion). They run on the VM with the venv
+(`/work/tmp/bv-venv/bin/python -I`, numpy and imageio_ffmpeg), never on a mini. This folder holds the one copy;
+the kit branches' copies are older (REWRITE R-HARNESS, handoff/rewrites/R-HARNESS/DESIGN.md).
+
+`video-cases/judge_pixel.py` judges the pixel fixture films (the FRAME OWNER's kit, `cp/pixel-perfect-kit`
+`ext_pixel.py` `px_record_start`: terminals that run `pixel/tui_border.py` and pages that show `pixel/page.html`):
+each pane side's content edge on each scan line against the pane edge that cmux's own layer shows in the same film
+frame (the tab strip), on the film's own clock. Its JSON has the m6 rows (`m6`) and the cmux-ad m14 rows (`m14`);
+`video-cases/judge_m14.py BASE ...` gives the m14 verdict per film (exit 0 every film passes, 1 a film fails, 2 a film
+is not judged and none fails; a usage error also exits 2). Each rule in `video-cases/test_judge_pixel.py` came as a
+red-then-green pair with an independent review (the FRAME OWNER's; m14's by R-HARNESS); a change to a rule does the
+same. Its unit tests run with the goldens' TRUTH tier below (as every `video-cases/test_judge_*.py`); its film results
+are not in the goldens yet. `video-cases/m14_known_films.py` holds the m14 known-film checks, which read films outside
+the store: run them yourself after an m14 change.
+
+Every change to a judge reproduces the judge goldens. They have two tiers:
+
+- BASELINE: every gallery film, frozen read-only in `/work/goldens/judge-films` (sha256-pinned by
+  `judge-goldens/films.json`), with the judges' results on it (`judge-goldens/expected.json`, one line per film).
+  A change here is a difference to explain, then bless.
+- TRUTH: answers known without the judges (`judge-goldens/truth.json`). A ruler fact is read by a judge-free pixel
+  ruler from the stored film's exact scan lines (a run of one fixture color on one scan line in exactly these
+  frames, and not in the 6 frames either side); an expectation says what a judge must or must not report on that
+  film. The judges' own unit tests (`test_video_judge*.py`, `video-cases/test_judge_*.py`) are TRUTH too. A TRUTH
+  failure fails `run` and refuses `bless`: it cannot be blessed away. Add a fact only with its evidence (who proved
+  it, how) in its `why`. A fact that cannot be checked is NO VERDICT in both: its film is not in `films.json`, it has
+  no `why`, an unknown key, no ruler and no expectation, an expectation of an unknown form or of a kind its judge
+  does not report (`check`, `defect_frames` and `absent_check` are video_judge's findings; `kind` and `absent_kind`
+  are judge_trace's defects), a judge that does not judge its film, or an empty or reversed span; so is a check, kind
+  or absence of a name its judge does not report or that is no text, a missing `truth.json`, and a skipped judge unit
+  test (the runner gives the tests the store it judges as `JUDGE_GOLDENS_STORE`). A name is read at the severity its
+  judge writes it with (`NAMES` in `judge_goldens.py`, pinned to the source: 14 video_judge names are defects, 5 notes
+  and 4 recorder findings). An absence fails when the judge reports the name; when it does not, it holds only where
+  that name's own check looked, as the result shows it (`NEEDS`: complete frames, a motion window, trace samples, a
+  tracked divider, a divider compared with the trace, the film's movie in the store, a HID drag in the film's pinned
+  `events.json` that the judge placed (for `jump back`); for judge_trace a judged motion, an edge that travelled for
+  `reverse`, `lurch` and `end-jump`, and 2 or more panes at rest for `gap`, `overlap` and `overlap-fading`); else it is
+  NO VERDICT. Five video_judge names need an input that its result does not show: the two input-started checks
+  (`main thread missed refreshes before the first frame`, `frame gap during slow input`) and the three step checks
+  (`jump`, `jump back`, `jump back (animation)`: check_steps judges only dividers that moved more than 2 px): a fact
+  of an absence of them is refused before any film is judged, until the judge writes that count. A check (must report) needs no coverage: a judge that did
+  not look, and so missed it, fails. A ruler fact also needs the film's
+  scan records to be its complete frames, one each, in order (the judge's frame numbers).
+
+```bash
+PY=/work/tmp/bv-venv/bin/python
+agent-sandbox $PY -I scripts/journeys/judge_goldens.py run                    # all reproduced, TRUTH holds: exit 0
+agent-sandbox $PY -I scripts/journeys/judge_goldens.py run --only 'feat-5851715-120x2/*'
+agent-sandbox $PY -I scripts/journeys/judge_goldens.py bless --reason "TEXT"  # after a reviewed judge change
+agent-sandbox $PY -I scripts/journeys/judge_goldens.py snapshot --source /Users/lawrence/fun/wt/handoff/resize-videos
+$PY -I scripts/journeys/test_judge_goldens.py          # the runner's own tests (also _truth.py and _review.py)
+```
+
+- Exit 0: every result reproduced and every TRUTH fact and unit test holds. Exit 1: a judge's result changed, a
+  TRUTH expectation failed or a unit test failed; each film and judge is printed with the summary that moved and the first JSON paths.
+  Exit 2 (NO VERDICT, never a pass): the run cannot say. A film's judges over `--film-seconds` (default 300 s; the
+  slowest of the 834 films takes about 50 s, and each run prints its slowest film; the budget holds also for a
+  film process that closed its output), the run over `--deadline-minutes`, a judge process that dies, `judge_scan`
+  timed out, ended by a signal or hit by an error of the machine, out of memory, an operating-system error of the
+  machine, a result with no stable JSON form, a pinned store file that changed or is missing, a blessed result that is
+  gone or changed, a judge or runner file that changed during the run, another toolchain (python, numpy, the ffmpeg
+  binary), a TRUTH fact that cannot be checked or a
+  ruler fact the film does not show, an expectation whose check did not look, a unit-test file that is ended by a
+  signal or reports no count, a skipped unit test, or no film selected.
+- Each film is judged in its own process (its process group is ended at the budget), in a sealed view that holds
+  only its folder's pinned files (reflinks under `<store>/.scratch`), with bytecode that only this run wrote (a prefix
+  per run): a result cannot depend on `--jobs`, film order, an older run's bytecode, or a file the table does not
+  pin. The runner starts and signals processes: run it under
+  `agent-sandbox`.
+- A judge PR runs `run` on its head, names the changed films and why each change is right, then `bless` with that
+  reason in the same PR. A bless needs the judge files and `judge_goldens.py` committed and records both (the
+  runner makes the judges' inputs and normalizes their results). A change on no film needs a film that shows it: a
+  new gallery film (`snapshot`, `bless`) or a TRUTH fact.
+- `snapshot` takes a gallery folder only when no file in it changed for 10 minutes (`--settled-minutes`), decides
+  the whole folder before it copies a file, never replaces a stored file (whatever its manifest records: a file the
+  store holds with the same bytes is recorded with no copy, other bytes refuse the folder), and refuses a new input of
+  a recorded film or folder (`display.json`, `diag-tiers.json`, `<film>.*`): a changed film needs a new folder name.
+  It copies with reflink, so it needs no space.
+- One store serves every manifest: a branch that adds films (S1b, a judge PR's new film) snapshots them into the same
+  store before it lands. `run` and `bless` check only the files their own table pins, and count the others in a note
+  ("the store also holds N folder(s) and M file(s) this manifest does not pin"). No unpinned file decides a result:
+  each judge reads only its folder's pinned files (sealed views), the TRUTH ruler reads only a pinned scan and
+  frames.json, and the drag need only a pinned events.json. One snapshot runs at a time: it holds a lock on the store
+  (`<store>/.snapshot.lock`) while it plans, copies and writes `films.json`, and waits up to `--lock-seconds` (600) for
+  it. A snapshot plans a folder against the files some files table in `<store>/tables` pins, with the size and sha256
+  that the table pins (never the bytes on disk), so the files of a snapshot killed in its copy are taken again as the
+  same bytes or refused; a file is linked into place, never replaced. A table that does not hash to its name, two
+  tables that pin one file with other bytes, or a file another manifest's table pins whose store copy is changed or
+  gone refuse the snapshot: the store was changed by hand (a manifest's own pinned files are checked by `run` and
+  `bless`). A new film whose name has a dot, or is a folder file's name (`display`, `diag-tiers`), is refused.
+  A result file is written through a part file of its own, so two writes of one result at once both succeed, and the
+  part file a killed write leaves never blocks a later write. The judges' unit tests read the store by name
+  (`JUDGE_GOLDENS_STORE`): a test reads only the pinned files of the film it names.
 
 ## Gate a dogfood build
 

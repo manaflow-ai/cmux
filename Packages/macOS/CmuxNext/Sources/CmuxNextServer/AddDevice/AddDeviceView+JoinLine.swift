@@ -112,7 +112,7 @@ extension AddDeviceView: NSTextFieldDelegate {
         box.spacing = Metrics.space2
         box.edgeInsets = NSEdgeInsets(top: Metrics.space3, left: Metrics.space3, bottom: Metrics.space3, right: Metrics.space3)
         box.wantsLayer = true
-        box.layer?.cornerRadius = 8
+        box.layer?.cornerRadius = Metrics.insetCornerRadius
         box.layer?.backgroundColor = Palette.textPrimary.withAlphaComponent(0.06).cgColor
         box.translatesAutoresizingMaskIntoConstraints = false
         box.addArrangedSubview(field)

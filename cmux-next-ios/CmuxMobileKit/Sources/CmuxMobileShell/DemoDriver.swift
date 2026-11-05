@@ -489,8 +489,8 @@ struct DemoDriver {
     /// Phone approvals end to end (verify/phone-approvals.md): waits for the link and
     /// the Mac's pairing, then works through the plan in the `cmuxMobile.demo.approve` default
     /// (comma separated; default `allow,allow,allow`). Each `allow` or `deny` answers the
-    /// next ask that reaches the Feed through the card's own path: Allow (Face ID signs
-    /// it) or the reject option for a permission, the first option (signed) or Decline
+    /// next ask that reaches the Feed through the card's own path: Allow (signed
+    /// with the approval key) or the reject option for a permission, the first option (signed) or Decline
     /// for a question. `signout` signs out as Settings does (the phone asks the Mac to
     /// forget it).
     private func approve() async {

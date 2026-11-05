@@ -273,7 +273,14 @@ async fn a_move_commit_answers_only_once_moved_to_is_on_disk() {
     let mut commit = {
         let (hub, session, dir) = (hub.clone(), session.clone(), dir.clone());
         tokio::spawn(async move {
-            let answer = hub.transfer_commit(&session, "tx-g2", serde_json::json!({})).await;
+            let answer = hub
+                .transfer_commit_with_epoch(
+                    &session,
+                    "tx-g2",
+                    serde_json::json!({}),
+                    Some(session.ownership_epoch()),
+                )
+                .await;
             // What a crash right after the answer would leave.
             (answer, !on_disk(&dir, &session.id)["movedTo"].is_null())
         })

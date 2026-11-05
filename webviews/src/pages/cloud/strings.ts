@@ -121,7 +121,6 @@ export const L = {
   sizeSpec: "size.spec",
   overview: "detail.overview",
   snapshots: "detail.snapshots",
-  fieldId: "field.id",
   fieldSize: "field.size",
   fieldImage: "field.image",
   fieldCreated: "field.created",

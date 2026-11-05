@@ -307,10 +307,59 @@ class App:
         return path
 
     def read_text(self, image):
+        """The text lines of IMAGE (a Read: whether the reader read it in bands, and its bands that show ink and read no
+        text (unread) or show no ink at all (blank))."""
         done = subprocess.run([self.ocr, str(image)], capture_output=True, text=True, timeout=120)
         if done.returncode != 0:
             raise StepError(f"text recognition failed on {Path(image).name}: {(done.stderr or done.stdout).strip()[-200:]}")
-        return [line for line in done.stdout.splitlines() if line.strip()]
+        err = done.stderr or ""
+
+        def bands(pattern):
+            found = re.search(pattern, err)
+            return [int(b) for b in re.findall(r"[0-9]+", found.group(1))] if found else []
+
+        return Read([line for line in done.stdout.splitlines() if line.strip()], bands(r"no text in bands? ([0-9][0-9, ]*)"),
+                    blank=bands(r"blank bands? ([0-9][0-9, ]*)"), banded="lines in 4 bands" in err)
+
+
+class Read(list):
+    """The text lines of one image, and the bands of it (1 is the top) in which the reader read no text.
+    scripts/ci/pr_media_ocr.swift reads an image in which Vision finds no text at all again in 4 horizontal bands; on
+    macOS 27 a band can read nothing although it shows text, so such a read is partial: a check that text is absent
+    must not pass on it (cmux-ad m10 1, review 1 of #35282). UNREAD: the bands that show ink and read no text; BLANK:
+    the bands that show no ink at all (empty terminal rows: they hold no text, so they do not make the read partial;
+    review 2 of #35282); BANDED: the read came from bands."""
+
+    def __init__(self, lines=(), unread=(), blank=(), banded=None):
+        super().__init__(lines)
+        self.unread = list(unread)
+        self.blank = list(blank)
+        self.banded = bool(self.unread or self.blank) if banded is None else bool(banded)
+
+
+def unread_bands(lines):
+    """The bands of a read that show ink and read no text ([] for a whole read or a plain list)."""
+    return list(getattr(lines, "unread", None) or [])
+
+
+def blank_bands(lines):
+    """The bands of a read that show no ink ([] for a whole read or a plain list)."""
+    return list(getattr(lines, "blank", None) or [])
+
+
+def band_detail(lines):
+    """{"bands": {"unread": [...], "blank": [...]}} for a frame check's detail when LINES came from a band read, else {}."""
+    return {"bands": {"unread": unread_bands(lines), "blank": blank_bands(lines)}} if getattr(lines, "banded", False) else {}
+
+
+def lacks_not_judged(want, lines, present=()):
+    """Why a `lacks` check of WANT cannot be judged on LINES (a band that shows ink read nothing), or None. A forbidden
+    text the read does find (PRESENT) is there, partial read or not: the check fails (None here)."""
+    unread = unread_bands(lines)
+    if not want.get("lacks") or not unread or present:
+        return None
+    return (f"band{'s' if len(unread) > 1 else ''} {', '.join(map(str, unread))} of the reader's 4 read no text: "
+            "a lacks check needs the whole frame read")
 
 
 def descendants(table, roots):
@@ -906,7 +955,11 @@ class Journey:
         lines = self.app.read_text(image)
         missing = [t for t in want.get("shows", []) if not ocr_contains(lines, t)]
         present = [t for t in want.get("lacks", []) if ocr_contains(lines, t)]
-        detail = {"image": image.name, "text": lines[-12:], "lines": len(lines), "missing": missing, "present": present}
+        detail = {"image": image.name, "text": lines[-12:], "lines": len(lines), "missing": missing, "present": present,
+                  **band_detail(lines)}
+        partial = lacks_not_judged(want, lines, present)
+        if partial:
+            return False, dict(detail, lacks_not_judged=partial)
         return bool(want.get("shows")) and not missing and not present, detail
 
     def cond_quit_leftovers(self, want, cache):
@@ -1239,8 +1292,10 @@ class Journey:
                 alias["pane"] = place[1].get("id")
         record["named_terminals"] = found
         # Restore settles when every shown terminal view is attached live (restore-journey.py's rule); then the
-        # creation hold a restored selection opens is waited out (CREATION_HOLD_SECONDS).
-        settled = False
+        # creation hold a restored selection opens is waited out (CREATION_HOLD_SECONDS). A loaded topology with no
+        # terminal tab has no view to wait for: it is settled at once (else every such reopen waited out the whole
+        # RELAUNCH_SECONDS, and a journey of quits with no terminal did not fit its lease).
+        settled = bool(topo) and not any(term for *_, term in self.places(topo))
         while now() < end and not settled:
             try:
                 shown = [p for p in app.panes() if p.get("kind") == "terminal" and p.get("presence") == "visible"]

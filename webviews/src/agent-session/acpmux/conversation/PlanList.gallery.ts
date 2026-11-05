@@ -145,6 +145,53 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
     },
+    "hat-tuck-chevron": {
+      note: 'The hat under the pointer: its chevron at the top middle tucks it away (Leo, 2026-11-04: "what if you wanted to collapse that one line?").',
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__tuck"));
+        // A click on the header's middle opens the hat: the chevron takes only the hat's top band.
+        await ctx.click({ selector: ".acpmux-running-tray__head" });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-running-tray .cv-plan__item").length === 3);
+        // The pointer over the hat shows its chevron.
+        await ctx.hover({ selector: ".acpmux-running-tray__head" });
+      },
+      snapshot: chat(
+        [
+          user("Add retry to the uploader, cover it and update the docs", 2),
+          row("plan", 1.9, {
+            plan: [
+              todo("Add retry to the uploader", "completed"),
+              todo("Cover it with a test", "in_progress"),
+              todo("Update the docs", "pending"),
+            ],
+          }),
+          assistant("Retry is in: three attempts, backing off from 200 ms. Writing the test now.", 0.8),
+        ],
+        { isWorking: true },
+      ),
+    },
+    "hat-tucked": {
+      note: "Settings > Agent Chat > Tuck Away Running Tray on (or the hat's chevron clicked): only a faint up chevron at the composer's top middle, in the accent while work runs; hovered, it brightens on a small pill and brings the hat back.",
+      display: { "agentPane.display.trayTucked": true },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-tray-pull__tab"));
+        if (ctx.document.querySelector(".acpmux-running-tray")) throw new Error("no hat: it is tucked away");
+      },
+      snapshot: chat(
+        [
+          user("Add retry to the uploader, cover it and update the docs", 2),
+          row("plan", 1.9, {
+            plan: [
+              todo("Add retry to the uploader", "completed"),
+              todo("Cover it with a test", "in_progress"),
+              todo("Update the docs", "pending"),
+            ],
+          }),
+          assistant("Retry is in: three attempts, backing off from 200 ms. Writing the test now.", 0.8),
+        ],
+        { isWorking: true },
+      ),
+    },
     "finished-folded": {
       note: "Shipped: the turn ended, and its list folded where it stood to its one line, under the answer; the chevron opens the steps again.",
       snapshot: chat([

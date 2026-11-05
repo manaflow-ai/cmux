@@ -88,6 +88,16 @@ nonisolated enum AppearanceSettingsSchema {
                 keywords: ["accent", "color", "colour", "highlight", "selection", "personality", "rose pine", "ansi"]
             ),
             SettingDescriptor(
+                ThemeFileSetting.path, section: .appearance, group: appTheme,
+                title: SettingsText.keyed("settings.appearance.themeFile", "Theme File"),
+                help: SettingsText.keyed("settings.appearance.themeFile.help",
+                                        "A look from a file in ~/.config/cmux/themes, such as \"tokyo\" for tokyo.json. Its values apply over these settings, live as you save it. Unset, no file applies."),
+                summary: SettingsText.keyed("settings.appearance.themeFile.summary", "A look from ~/.config/cmux/themes"),
+                kind: .text, default: nil,
+                defaultLabel: SettingsText.keyed("settings.choice.none", "None"),
+                keywords: ["theme file", "rice", "ricing", "dotfile", "dotfiles", "look", "config", "themes folder", "json"]
+            ),
+            SettingDescriptor(
                 HighlightColorSetting().configPath, section: .appearance, group: appTheme,
                 title: SettingsText.keyed("settings.appearance.highlightColor", "Highlight Color"),
                 help: SettingsText.keyed("settings.appearance.highlightColor.help",
@@ -384,8 +394,18 @@ nonisolated enum AppearanceSettingsSchema {
             SettingDescriptor(
                 ["layout", "paneCornerRadius"], section: .appearance, group: panes,
                 title: SettingsText.keyed("settings.layout.paneCornerRadius", "Corner Radius"),
-                kind: .number(appearancePoints(PaneChromeOverrides.cornerRadiusRange, step: 1, placeholder: 6)),
-                default: nil, defaultLabel: densityDefault, keywords: ["rounded"]
+                help: SettingsText.keyed("settings.layout.paneCornerRadius.help",
+                                         "One radius for panes, tabs, panels, popovers, cards and toasts. Shapes inside them use this radius minus the corner padding."),
+                kind: .number(appearancePoints(PaneChromeOverrides.cornerRadiusRange, step: 1, placeholder: 10)),
+                default: nil, defaultLabel: densityDefault, keywords: ["rounded", "radius", "tabs", "concentric", "corners"]
+            ),
+            SettingDescriptor(
+                ["layout", "cornerPadding"], section: .appearance, group: panes,
+                title: SettingsText.keyed("settings.layout.cornerPadding", "Corner Padding"),
+                help: SettingsText.keyed("settings.layout.cornerPadding.help",
+                                         "Space between a pane's edge and its tabs. Inner corners use the corner radius minus this."),
+                kind: .number(appearancePoints(PaneChromeOverrides.cornerPaddingRange, step: 1, placeholder: 2)),
+                default: nil, defaultLabel: densityDefault, keywords: ["inset", "gap", "tabs", "concentric", "corners", "radius"]
             ),
             SettingDescriptor(
                 ["layout", "paneBorder"], section: .appearance, group: panes,

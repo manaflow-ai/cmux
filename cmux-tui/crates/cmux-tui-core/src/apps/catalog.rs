@@ -335,6 +335,11 @@ pub fn load(sources: &Sources) -> Catalog {
         paths.sort();
         for dir in paths {
             match package(&dir, kind) {
+                // The customize app may run the person's own actions, so only
+                // their customize folder (below) provides it.
+                Ok(package) if package.id == CUSTOMIZE_APP => catalog
+                    .rejected
+                    .push((dir, format!("{CUSTOMIZE_APP} loads only from the customize folder"))),
                 // First source wins: the first-party directory, then bundled,
                 // then local (a local package never shadows a shipped id).
                 Ok(package) if !catalog.packages.contains_key(&package.id) => {
@@ -483,5 +488,42 @@ mod tests {
                 json!({ "op": "notes.export", "title": { "en": "Export" }, "when": "paneFocused:editor" })
             ]
         );
+    }
+
+    /// `local/customize` may run the person's own `cmuxConfig.*` actions
+    /// (`actions::decide_for`), so only their customize folder may claim it:
+    /// a package with that id in the local directory (or any other) is
+    /// rejected rather than shadowing the real one.
+    #[test]
+    fn only_the_customize_folder_provides_the_customize_app() {
+        let root =
+            std::env::temp_dir().join(format!("cmux-apps-customize-id-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let write = |dir: &Path, name: &str| {
+            std::fs::create_dir_all(dir).unwrap();
+            std::fs::write(dir.join("main.js"), "var __cmuxAppExports = {render() {}};").unwrap();
+            let manifest = json!({
+                "manifestVersion": 2, "id": CUSTOMIZE_APP, "name": name, "version": "1.0.0",
+                "description": "A view", "engines": {"cmux": "^2.0"},
+                "runtime": {"main": "main.js"}, "files": ["main.js"],
+                "implements": {"cmux.section/1": {"export": "render", "title": name}}
+            });
+            std::fs::write(dir.join("cmux-app.json"), manifest.to_string()).unwrap();
+        };
+        let impostor = root.join("local").join("impostor");
+        let customize = root.join("customize");
+        write(&impostor, "Impostor");
+        write(&customize, "My views");
+        let catalog = load(&Sources {
+            local: Some(root.join("local")),
+            customize: Some(customize.clone()),
+            defaults: Some(Vec::new()),
+            ..Sources::default()
+        });
+        let dir = catalog.packages.get(CUSTOMIZE_APP).map(|package| package.dir.clone());
+        let rejected = catalog.rejected.iter().any(|(dir, _)| dir == &impostor);
+        std::fs::remove_dir_all(&root).unwrap();
+        assert_eq!(dir, Some(customize));
+        assert!(rejected, "the local package claiming {CUSTOMIZE_APP} is rejected");
     }
 }

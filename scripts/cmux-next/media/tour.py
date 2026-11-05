@@ -17,7 +17,15 @@ A tour is a JSON file with a `title` and `steps`, and optionally `settings`:
 the cmux-next.json the app launches with (`CMUX_NEXT_CONFIG_FILE`), a private
 file in the tour's work directory, so a tour can show a setting (background
 art, a theme) and `cmux settings set` writes there, never to the runner's own
-settings. A step has a `title` and optionally:
+settings. `customize: true` gives the launch its own empty customize folder
+(`CMUX_CUSTOMIZE_DIR`, `local/customize`'s folder, in the tour's work directory,
+which every terminal of the app has too), so a step can write a customize app
+there and the daemon installs and reloads it; every tour gets its own folder either
+way, so the runner's own customize app never draws itself into a tour's shots.
+`{repo}` in a step's `cmux`
+words is this checkout; in text typed into a shell (`write --text`) it is filled
+in shell-quoted, so write `{repo}/a`, never `"{repo}"/a`. A step has a `title`
+and optionally:
 
     cmux      argv after `cmux`; app scopes get --app-socket, see `daemon`
     rpc       {"method": ..., "params": {...}}: one app control-socket request
@@ -69,6 +77,7 @@ from pathlib import Path
 import plistlib
 import re
 import selectors
+import shlex
 import shutil
 import signal
 import socket
@@ -88,7 +97,7 @@ MAX_OTHER_WINDOWS = 4
 MIN_OTHER_WINDOW = (40, 24)
 # All of a step's other-window shots share this many seconds.
 OTHER_WINDOWS_BUDGET = 20.0
-TOUR_KEYS = {"title", "steps", "settings", "env"}
+TOUR_KEYS = {"title", "steps", "settings", "env", "customize"}
 # A directional focus right after a pane close (focus_after_close).
 DIRECTIONAL_FOCUS = {"focusLeft", "focusRight", "focusUp", "focusDown"}
 # Focus moves that open no pane, so they never undo a close (ActionCatalog+Focus.swift).
@@ -144,6 +153,26 @@ def slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:40] or "step"
 
 
+def fill_repo(words: list[str], repo: str, where: str) -> list[str]:
+    """`{repo}` in a step's words, filled in with this checkout.
+
+    In text typed into a shell (`terminal ... write --text`) it is filled in
+    shell-quoted, so a checkout path holding a space or a quote still reaches the
+    command as one word. The tour must not quote it itself: its own quotes around a
+    quoted path would run as two words, or end the quoting early.
+    """
+    typed = words.index("--text") + 1 if "write" in words and "--text" in words else None
+    filled = []
+    for index, word in enumerate(words):
+        if index != typed:
+            filled.append(word.replace("{repo}", repo))
+            continue
+        if re.search(r"""['"]\{repo\}|\{repo\}['"]""", word):
+            raise TourError(f"{where}: `{{repo}}` in typed text is filled in quoted; drop the quotes around it")
+        filled.append(word.replace("{repo}", shlex.quote(repo)))
+    return filled
+
+
 def load_tour(path: Path) -> dict[str, Any]:
     """The tour in `path`, checked; TourError says what is wrong with it."""
     try:
@@ -163,6 +192,8 @@ def load_tour(path: Path) -> dict[str, Any]:
     if (not isinstance(env, dict) or not all(isinstance(key, str) and key.startswith("CMUX_NEXT_") and isinstance(value, str)
                                              for key, value in env.items())):
         raise TourError(f"{path}: `env` maps CMUX_NEXT_* names to strings ({{repo}} is the checkout)")
+    if "customize" in data and not isinstance(data["customize"], bool):
+        raise TourError(f"{path}: `customize` must be true or false")
     if len(steps) > MAX_STEPS:
         raise TourError(f"{path}: {len(steps)} steps; split tours past {MAX_STEPS}")
     for number, step in enumerate(steps, 1):
@@ -217,8 +248,11 @@ def load_tour(path: Path) -> dict[str, Any]:
     # Launch environment for fixture seams (a fixture browser-import home); {repo} is this checkout.
     repo = str(Path(__file__).resolve().parents[3])
     launch_env = {key: value.replace("{repo}", repo) for key, value in env.items()}
+    for number, step in enumerate(steps, 1):
+        if step.get("cmux"):
+            step["cmux"] = fill_repo(step["cmux"], repo, f"{path}: step {number}")
     return {"name": slug(path.stem), "title": data["title"].strip(), "steps": steps, "settings": data.get("settings"),
-            "env": launch_env}
+            "env": launch_env, "customize": data.get("customize", False)}
 
 
 def _action(step: dict[str, Any]) -> str | None:
@@ -1075,8 +1109,19 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
     shots = session.shareable(directory / "shots")
     frames = session.shareable(directory / "frames")
     workdir = Path(tempfile.mkdtemp(prefix="cmux-tour.", dir="/tmp"))
+    launch_env = dict(tour.get("env") or {})
+    # Every tour gets its own customize folder, named or not: with no CMUX_CUSTOMIZE_DIR the daemon
+    # falls back to the runner's own ~/.config/cmux/customize, so one personal extension there would
+    # draw itself into every tour's shots. The daemon reads CMUX_* from the app's environment
+    # (TerminalEnvironment), never a CMUX_NEXT_* knob.
+    customize = workdir / "customize"
+    # `customize: true` says a step writes an app there, so the folder is made, and made writable
+    # by the console user when that is someone else. A plain tour only names the path: nothing
+    # creates it, so the launch sees an empty customize folder either way.
+    launch_env["CMUX_CUSTOMIZE_DIR"] = str(session.shareable(customize) if tour.get("customize")
+                                           else customize)
     app = App(app_path, session, workdir, fresh_state=fresh_state, settings=tour.get("settings"),
-              launch_env=tour.get("env"))
+              launch_env=launch_env)
     screen = Screen(session, session.shareable(workdir / "raw"), app)
     recorder = Recorder(screen, frames)
     video = WindowVideo(session, None, session.shareable(directory), screen.scratch)

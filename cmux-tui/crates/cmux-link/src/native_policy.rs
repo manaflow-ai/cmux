@@ -56,7 +56,10 @@ impl NativePolicy {
             && self.checked_at_ms <= now.unix_ms
             && self.expires_at_ms <= MAX_SAFE_INTEGER
             && self.expires_at_ms > now.unix_ms
-            && self.expires_at_ms.checked_sub(self.checked_at_ms).is_some_and(|ms| ms <= 30_000)
+            && self
+                .expires_at_ms
+                .checked_sub(self.checked_at_ms)
+                .is_some_and(|ms| ms <= super::MAX_ADMIT_MS)
             && now.monotonic.checked_duration_since(self.request_started).is_some_and(|elapsed| {
                 elapsed < Duration::from_millis(self.expires_at_ms - self.checked_at_ms)
             })

@@ -136,6 +136,23 @@ scripts/review-history.py cluster --cache review-history.jsonl > clusters.md
 - **`assumeIsolated` traps** when a callback can arrive on the main thread outside the actor,
   for example KVO (#15445).
 
+## 12. What the person sees in each frame (added by hand, 2026-11-04)
+
+The review history can't see this one: no bot comment asks it. A visual fix can pass every
+number it states and still remove something the person relied on.
+
+- **A PR that changes what moves on screen** (a P0 or perf fix, a motion change) has a
+  `Frames:` line for each content kind it touches (terminal, page, agent chat, tab strip,
+  divider): what the person sees in each frame of the motion, before and after, in plain words.
+- **Name any content that stops following its pane** in those words ("the page does not move
+  during the spring; it takes its new size once after the landing"), and keep a `HOLD:` line
+  in the description until the requester accepts it.
+- **Dropped refreshes alone never accept a visual fix.** #32635 cut a key resize's drops from
+  4-8 to 0-1 per press by holding terminal and page content at their start size through the
+  spring. Its body described the mechanism and never said "the content no longer moves", so no
+  reviewer saw a loss to refuse. It was found in use: the tab bar moved smoothly while terminals
+  and pages stood still.
+
 ## Smaller groups
 
 - **Docs and comments out of date (64):** when you change a contract, update the prose next to it

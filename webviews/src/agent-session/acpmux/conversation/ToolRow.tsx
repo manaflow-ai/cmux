@@ -1,3 +1,4 @@
+import { ToolVisualRow } from "./ToolVisualPreview";
 import { WrittenArtifactButtons } from "./writtenArtifacts";
 // One tool call drawn on its own row: its glyph, its title, and, when it has any, its
 // output, Shell block or diff below once opened.
@@ -41,15 +42,15 @@ export function toolIcon(kind?: string): ReactNode {
     case "delete":
     case "move":
     case "fileChange":
-      return <Pencil size={16} strokeWidth={1.1} />;
+      return <Pencil size={16} />;
     case "search":
       return <Magnifier />;
     case "execute":
       return <TerminalSquare />;
     case "fetch":
-      return <Globe size={16} strokeWidth={1.1} />;
+      return <Globe size={16} />;
     default:
-      return <ToolGroup size={16} strokeWidth={1.2} />;
+      return <ToolGroup size={16} />;
   }
 }
 
@@ -180,28 +181,26 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
   // status such as "Wait 60000 ms" with no body is a plain row.
   return (
     <>
-      {expandable ? (
-        <button
-          type="button"
-          className={`cv-tool is-toggle${shell ? "" : " is-whole-open"}${running ? " is-live" : " is-strong"}`}
-          data-tool-id={tool.id}
-          aria-expanded={open}
-          aria-controls={open && (shell || files.length > 0 || body) ? detailsId : undefined}
-          ref={fold.headerRef}
-          onClick={fold.toggle}
-        >
-          {content}
-          <ChevronRight
-            size={14}
-            strokeWidth={1.2}
-            className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
-          />
-        </button>
-      ) : (
-        <div className={`cv-tool${running ? " is-live" : " is-strong"}`} data-tool-id={tool.id}>
-          {content}
-        </div>
-      )}
+      <ToolVisualRow sources={images} label={label}>
+        {expandable ? (
+          <button
+            type="button"
+            className={`cv-tool is-toggle${shell ? "" : " is-whole-open"}${running ? " is-live" : " is-strong"}`}
+            data-tool-id={tool.id}
+            aria-expanded={open}
+            aria-controls={open && (shell || files.length > 0 || body) ? detailsId : undefined}
+            ref={fold.headerRef}
+            onClick={fold.toggle}
+          >
+            {content}
+            <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
+          </button>
+        ) : (
+          <div className={`cv-tool${running ? " is-live" : " is-strong"}`} data-tool-id={tool.id}>
+            {content}
+          </div>
+        )}
+      </ToolVisualRow>
       <WrittenArtifactButtons tools={[tool]} />
       {recovery && <RepoRecoveryCard recovery={recovery} />}
       <ToolFailureCause failure={failure} />

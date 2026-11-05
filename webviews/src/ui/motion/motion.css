@@ -181,11 +181,13 @@
   }
 }
 
-/* One slow drift, then rest: iteration-count 1 (DRIFT_S in DepthLayer.tsx). */
-.ui-depth:is([data-look="drift"], [data-look="drift-parallax"]) .ui-depth__wash[data-depth="far"] {
+/* One slow drift, then rest: iteration-count 1 (DRIFT_S in DepthLayer.tsx). Only while the layer's
+   motionMode() reading is "full" (data-motion). The host sits in :where() so these rules weigh
+   (0,2,0) and every stop rule below outranks them. */
+:where(.ui-depth[data-motion="full"]:is([data-look="drift"], [data-look="drift-parallax"])) .ui-depth__wash[data-depth="far"] {
   animation: ui-depth-drift-far var(--ui-depth-drift, 24s) var(--cmux-ease-out) 1; /* motion-allow: one bounded ambient drift, paused while hidden, not a transition */
 }
-.ui-depth:is([data-look="drift"], [data-look="drift-parallax"]) .ui-depth__wash[data-depth="near"] {
+:where(.ui-depth[data-motion="full"]:is([data-look="drift"], [data-look="drift-parallax"])) .ui-depth__wash[data-depth="near"] {
   animation: ui-depth-drift-near var(--ui-depth-drift, 24s) var(--cmux-ease-out) 1; /* motion-allow: one bounded ambient drift, paused while hidden, not a transition */
 }
 .ui-depth[data-paused] .ui-depth__wash {
@@ -193,7 +195,13 @@
 }
 
 /* Motion off or Reduce Motion: every primitive here holds still. */
-:root:is([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .ui-depth__wash {
+:root:is(
+    [data-agent-motion="off"],
+    [data-agent-motion="reduced"],
+    [data-cmux-motion="off"],
+    [data-cmux-motion="reduced"]
+  )
+  .ui-depth__wash[data-depth] {
   animation: none;
   transition: none;
   translate: none;
@@ -202,7 +210,7 @@
   transition: none;
 }
 @media (prefers-reduced-motion: reduce) {
-  .ui-depth__wash {
+  :root .ui-depth__wash[data-depth] {
     animation: none;
     transition: none;
     translate: none;

@@ -7,7 +7,7 @@ import Foundation
 /// prompt it answers (`_acpmux/info`): the same calls the chat and the Feed
 /// make (verify/rich-push.md, "Reply delivery").
 public enum PushReplyPlan: Equatable, Sendable {
-    /// `AcpmuxHub.answer`: signed after Face ID.
+    /// `AcpmuxHub.answer`: signed with the approval key.
     case answer(AgentQuestion, AgentQuestionAnswer)
     /// `AcpmuxHub.decline`: the question's reject, unsigned.
     case decline(AgentQuestion)

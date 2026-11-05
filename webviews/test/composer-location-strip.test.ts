@@ -382,6 +382,9 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     await viewport.evaluate((element) => {
       element.scrollTop = element.scrollHeight;
     });
+    // The list mounts only the rows in view (Combobox virtualRows): the scroll's rows come with its
+    // next frame.
+    await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
     const last = page.locator(".acpmux-location-row").last();
     const [popupRect, viewportRect, lastRect] = await Promise.all([
       popup.boundingBox(),

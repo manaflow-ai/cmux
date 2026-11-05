@@ -26,7 +26,8 @@ enum HomeMapping {
         return key.replacingOccurrences(of: "%", with: "%25").replacingOccurrences(of: ":", with: "%3A")
     }
 
-    /// A hash's bubble picture (`HomeMedia.asset`), nil until it is ready.
+    /// A hash's bubble picture (`HomeMedia.asset`), or a table picture source's thumbnail
+    /// (`HomeTablePictures.asset`: a local path, `file:` or `https` URL), nil until it is ready.
     typealias Media = (String) -> String?
 
     /// A link card's fetched preview (`LinkPreviews.cached`), nil: the domain card.
@@ -78,6 +79,12 @@ enum HomeMapping {
         return PartRef(messageId: r.id, partIndex: homePart == 0 ? last : r.owners.firstIndex(of: homePart) ?? last)
     }
 
+    /// A Chief chat draws no row for a retracted message (Delete, #36019); other chats keep
+    /// Messages' "You unsent a message" note.
+    static func hidesRetracted(_ summary: ConversationSummary?, me: ParticipantID) -> Bool {
+        summary?.kind(me: me) == .chief
+    }
+
     /// The client id prefix of Chief's first-launch welcome messages (CmuxNext `ChiefWelcome`).
     static let welcomeKeyPrefix = "chief-welcome-"
 
@@ -100,11 +107,14 @@ enum HomeMapping {
                 reactions: item.reactions.map { reaction($0, partIndex: projectedIndex($0.partIndex, owners)) }, format: format)
         // ThreadMode.tree: the message a nested reply answers (HomeMapping+Tree.swift).
         message.parent = parent(item, roots: roots)
-        // Chief's first-launch welcome (CmuxNext ChiefWelcome, client ids "chief-welcome-…"): each bubble its own group.
-        if item.key.rawValue.hasPrefix(welcomeKeyPrefix) { message.cmuxStandsAlone = true }
         // The Chief's messages to its agents and their reports: asides under its reply (no avatar, no name).
         if item.agentMessage != nil { message.cmuxAside = true }
-        if !item.isRetracted, !item.parts.isEmpty, parts.isEmpty {
+        if item.isRetracted, hidesRetracted(summary, me: me) {
+            // A Chief chat shows no "unsent" row: a deleted message is gone (#36019).
+            message.deletedAt = message.retractedAt
+            message.replyTo = nil
+            message.parent = nil
+        } else if !item.isRetracted, !item.parts.isEmpty, parts.isEmpty {
             // Nothing to read (a Chief turn's done marker, a work part with no preview): kept so
             // its seq still moves the read cursor, drawn as no row and counted as no reply.
             message.deletedAt = Instant.format(item.createdAt)
@@ -137,7 +147,7 @@ enum HomeMapping {
         // A Feed row in the main Chief's transcript: one muted caption line, not a bubble from the Chief.
         if let row = item.feedRow, let caption = HomeAgentFoldRowProvider.part(feed: row) { return ([caption], [0]) }
         if let row = item.agentMessage {
-            // A fold or notes row: a muted caption line, no bubble (HomeAgentFoldRowProvider).
+            // An agents row or a note: a drawn row, no bubble (HomeAgentFoldRowProvider).
             if let caption = HomeAgentFoldRowProvider.part(row) { return ([caption], [0]) }
             // An agent-message row: its words, as Markdown (the fold's link, the bold "Chief → a917" line).
             let shown = self.parts(.text(agentMessageText(row)), media: media, markdown: true, links: links)
@@ -162,18 +172,14 @@ enum HomeMapping {
         return (parts, owners)
     }
 
-    /// What an agent-message row says, as Markdown. A fold or notes row is one muted (italic) line with
-    /// no link, a click anywhere on the row opens or closes it ("▸ Agent messages (6) · a938, a917";
-    /// "▸ Disconnected (5) · `a1` `a2`", the agents as code chips). A message is its bold
+    /// What an agent-message row says, as Markdown. An agents row is one muted (italic) line with no
+    /// link, a click anywhere on the row opens or closes it ("▸ Agent messages (6) · a938, a917"). A message is its bold
     /// "from → to" line over the whole message; a status note is the agent's chip and its words, muted.
     static func agentMessageText(_ row: HomeAgentMessageRow) -> String {
         switch row.kind {
         case let .fold(count, peers, expanded):
             let label = expanded ? CmuxStrings.hideAgentMessages(count) : CmuxStrings.showAgentMessages(count)
             return expanded ? "*▾ \(label)*" : "*▸ \(label)* · \(HomeAgentMessageRow.peerPreview(peers.map(markdownEscaped), separator: ", "))"
-        case let .notes(count, peers, reason, expanded):
-            let label = CmuxStrings.agentNotes(reason, count)
-            return expanded ? "*▾ \(label)*" : "*▸ \(label)* · \(HomeAgentMessageRow.peerPreview(peers.map(codeChip), separator: " "))"
         case let .note(peer, _, text):
             return "\(codeChip(peer)) *\(markdownEscaped(text))*"
         case let .message(from, to, _, text):
@@ -239,8 +245,9 @@ enum HomeMapping {
     /// nil when it has no table, or tables are off (Debug Settings > Home > Rich tables), or no provider
     /// is installed: the text then maps as it always did, tables as written in the bubble.
     /// A table's pictures (`![alt](source)` in its cells) resolve to local files with `media`: a
-    /// `cmux-attachment:<hash>` source is the message's attachment of that hash (the Chief's uploads), a
-    /// file in Home's media folder is itself; any other source has no file (its alt text shows).
+    /// `cmux-attachment:<hash>` source is the message's attachment of that hash (the Chief's uploads,
+    /// `media(hash)`); a local path, `file:` or `https` URL is its thumbnail (`media(source)`,
+    /// ``HomeTablePictures``); any other source, or one without a file yet, shows its alt text.
     static func tableParts(_ text: String, media: Media = { _ in nil }, _ textParts: (String) -> [Part]) -> [Part]? {
         guard HomeTableRowProvider.isOn, HomeTableRowProvider.installed != nil else { return nil }
         let segments = HomeTableSplitter().segments(in: text)
@@ -279,13 +286,18 @@ enum HomeMapping {
         guard !sources.isEmpty else { return nil }
         var out: [String: String] = [:]
         for source in sources {
-            if source.hasPrefix(tableAttachmentScheme) {
-                if let path = media(String(source.dropFirst(tableAttachmentScheme.count))) { out.updateValue(path, forKey: source) }
-            } else if let url = source.hasPrefix("/") ? URL(fileURLWithPath: source) : URL(string: source), url.isFileURL {
-                out.updateValue(url.path, forKey: source)
-            }
+            let key = source.hasPrefix(tableAttachmentScheme) ? String(source.dropFirst(tableAttachmentScheme.count)) : source
+            guard source.hasPrefix(tableAttachmentScheme) || HomeTablePictures.handles(source), let asset = media(key) else { continue }
+            out.updateValue(localPath(asset), forKey: source)
         }
         return out
+    }
+
+    /// A picture asset as a path: ``HomeMedia`` hands out `file:` URL strings (MessagesLab's bubbles read
+    /// that form), the table card reads paths; a bare path stays as it is.
+    static func localPath(_ asset: String) -> String {
+        guard asset.hasPrefix("file:"), let url = URL(string: asset), url.isFileURL else { return asset }
+        return url.path
     }
 
     /// The attachment hashes `text`'s tables show in their cells (each one draws there, not again below).

@@ -63,7 +63,7 @@ test("a folded run of one kind of work keeps that kind's glyph", () => {
   const items = [fetchCall("one", "https://example.com/a"), fetchCall("two", "https://example.com/b")];
   expect(shouldFoldToolRun(row(items), toolGroups(items))).toBe(true);
   const html = renderToStaticMarkup(<ToolRows row={row(items)} />);
-  expect(html).toContain(renderToStaticMarkup(<Globe size={16} strokeWidth={1.1} />));
+  expect(html).toContain(renderToStaticMarkup(<Globe size={16} />));
   expect(html).not.toContain(renderToStaticMarkup(<MultiTool />));
 });
 

@@ -306,7 +306,16 @@ extension DaemonStore {
                 snapshotCoveredPersonal(through: consumed)
                 advanceAppliedSequence(to: consumed)
                 resyncPacer.reset()
-                if seedAgents { apply(agents: try await driver.connection.agents()) }
+                if seedAgents {
+                    do {
+                        apply(agents: try await driver.connection.agents())
+                    } catch let error as DaemonError where error.isRemoteDenied {
+                        // The link refuses this read for good (a Cloud machine's Native carrier
+                        // serves no `list-agents`): the tree stands, and asking again only refuses
+                        // again. Not a failed resync, so no retry loop (566 refusals in 30 min).
+                        logger.info("resync: \(DaemonError.remoteDeniedCode, privacy: .public) for list-agents; agent rows come from events")
+                    }
+                }
             } catch {
                 logger.error("resync failed: \(String(describing: error), privacy: .public)")
                 failed = true

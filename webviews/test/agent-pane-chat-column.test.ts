@@ -616,9 +616,13 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     thinks(chat, THOUGHT);
     const page = await open(chat, 900, 700, false, true);
     // Streaming: the Codex-style turn (Debug toggle agentPane.debug.codexToolRuns, on by default)
-    // draws no row for the thought yet; the turn's live line at its foot says "Thinking"
-    // (Thinking.tsx), with nothing to open.
-    await page.locator(".cv-worked.is-below .cv-thinking", { hasText: "Thinking" }).waitFor();
+    // draws no row for the thought yet; the turn's live line at its foot says one of the default
+    // The default status mode is Thinking only, with nothing to open.
+    await page
+      .locator(".cv-worked.is-below .cv-thinking", {
+        hasText: /^Thinking/,
+      })
+      .waitFor();
     expect(await page.getByText("Step 60: check the retry path.", { exact: false }).count()).toBe(0);
     expect(await thoughtToggle(page).count()).toBe(0);
     await page.locator(".acpmux-scroll").hover();

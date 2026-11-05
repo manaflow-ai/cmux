@@ -35,7 +35,10 @@
 //! [`Journal::clear_damage`] moves it into `quarantine/`. A segment is only ever appended to. The
 //! one exception is the writer's own failed write: it cuts the segment back to its size before
 //! that write, so it removes only bytes that were never synced and never acknowledged. Nothing
-//! here deletes a segment or shortens one past a synced record.
+//! here deletes a segment or shortens one past a synced record, except one:
+//! [`Journal::retire_through`] removes the segments that hold no record after the caller's
+//! compaction point, and the caller opens the journal from that point later (quarantined segments
+//! are never deleted).
 //!
 //! Recovery ([`Journal::open`]) is the one start path for a clean exit, a crash, a kill -9 and an
 //! OS crash: it syncs the last segment, reads the segments in LSN order, checks each record's

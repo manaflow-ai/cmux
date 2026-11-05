@@ -76,7 +76,7 @@ pub async fn run(cmd: DepsCmd, json_out: bool) -> Result<()> {
             }
             Ok(())
         }
-        DepsCmd::Upload { key, root, include, codec } => {
+        DepsCmd::Upload { key, root, include, codec, cold_ms } => {
             let codec = match codec.as_str() {
                 "zstd" => Codec::Zstd,
                 "gzip" => Codec::Gzip,
@@ -86,7 +86,7 @@ pub async fn run(cmd: DepsCmd, json_out: bool) -> Result<()> {
                     );
                 }
             };
-            let outcome = warm::upload(&key, &root, &include, codec).await?;
+            let outcome = warm::upload(&key, &root, &include, codec, cold_ms).await?;
             if json_out {
                 print_json(&json!({"key": key, "upload": outcome}));
             }

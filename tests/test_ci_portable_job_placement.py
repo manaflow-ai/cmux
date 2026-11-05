@@ -16,6 +16,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -469,6 +470,26 @@ class Decide(unittest.TestCase):
                                   idle(1), snapshot(), NOW)
         self.assertEqual(placed.mini_jobs, ("ci-guard-group",))
 
+    def test_supported_light_rescue_bots_attempt_three_is_placed_afresh(self):
+        for actor in sorted(placement.pool.RESCUE_ACTORS):
+            with self.subTest(actor=actor):
+                placed = placement.decide(env(GITHUB_RUN_ATTEMPT="3", GITHUB_TRIGGERING_ACTOR=actor,
+                                              PORTABLE_ATTEMPT3_RESCUE="1"),
+                                          idle(1), snapshot(), NOW)
+                self.assertEqual(placed.mini_jobs, ("ci-guard-group",))
+
+    def test_attempt_three_without_the_light_workflow_marker_stays_fail_closed(self):
+        for actor in sorted(placement.pool.RESCUE_ACTORS):
+            with self.subTest(actor=actor):
+                environment = env(GITHUB_RUN_ATTEMPT="3", GITHUB_TRIGGERING_ACTOR=actor)
+                self.assertEqual(placement.attempt_refusal(environment), "attempt 3 keeps its Blacksmith route")
+                self.assertEqual(placement.decide(environment, idle(1), snapshot(), NOW).mini_jobs, ())
+        for actor in ("leo", "austinywang"):
+            with self.subTest(actor=actor):
+                environment = env(GITHUB_RUN_ATTEMPT="3", GITHUB_TRIGGERING_ACTOR=actor,
+                                  PORTABLE_ATTEMPT3_RESCUE="1")
+                self.assertEqual(placement.attempt_refusal(environment), "attempt 3 keeps its Blacksmith route")
+
     def test_outputs_delimit_whole_job_keys(self):
         with tempfile.TemporaryDirectory() as scratch:
             output = Path(scratch) / "out"
@@ -820,6 +841,7 @@ class Wiring(unittest.TestCase):
                 side_label = placement_job["steps"][-1]["env"]["SIDE_LABEL"]
                 self.assertIn("vars.CI_LIGHT_LANE_RUNNER", side_label)
                 self.assertIn("vars.CI_SIDE_LANE_RUNNER", side_label)
+                self.assertEqual(placement_job["steps"][-1]["env"]["PORTABLE_ATTEMPT3_RESCUE"], "1")
                 for name in consumers:
                     condition = str(workflow_jobs[name]["if"])
                     if name == "web-validation":
@@ -827,6 +849,12 @@ class Wiring(unittest.TestCase):
                     else:
                         self.assertIn("always()", condition)
                         self.assertIn("!cancelled()", condition)
+
+    def test_other_portable_callers_do_not_opt_into_bot_attempt_three(self):
+        for workflow in ("ci.yml", "cmux-next.yml"):
+            with self.subTest(workflow=workflow):
+                step = jobs(workflow)["portable-placement"]["steps"][-1]
+                self.assertNotIn("PORTABLE_ATTEMPT3_RESCUE", step.get("env", {}))
 
     def test_merge_group_skips_placement_but_keeps_web_rollup(self):
         workflow_jobs = jobs("web-validation.yml")
@@ -855,6 +883,78 @@ class Wiring(unittest.TestCase):
             with self.subTest(workflow=workflow):
                 checkout = jobs(workflow)["portable-placement"]["steps"][0]
                 self.assertEqual(checkout["with"]["ref"], "${{ github.event.pull_request.base.sha || github.sha }}")
+
+
+class SkippedPlacementKeepsRouting(unittest.TestCase):
+    """A skipped portable-placement never skips the jobs it only places.
+
+    The bootstrap skips on a re-run (attempt 3, or a person's attempt 2), on a fork and under
+    CI_PORTABLE_LIGHT_JOBS_OFF. A job whose if calls no status function gets GitHub's implicit
+    success(), which reads every ancestor, not just its needs: so after `changes` (always())
+    routed web=true, run 41892308895's whole-run attempt 3 skipped `web`, its shards and the webview
+    verdict, and the verdict could not be refreshed without a new commit. Each descendant says
+    !cancelled() (or always()) and checks the result of each job it needs instead.
+    """
+
+    WORKFLOWS = ("ci.yml", "cmux-next.yml", "cmux-next-guards.yml")
+    STATUS = re.compile(r"\b(always|cancelled|failure)\(\)")
+    # Push-only and gated on its needs' results already; its 'skipped' generated-files branch would
+    # start running on a first attempt with a status function, so it keeps the implicit success().
+    EXEMPT = {("cmux-next.yml", "swift-exports-cache")}
+    # The jobs this guard was added for: each checks every need's result, so a failed or skipped
+    # router still skips them as the implicit success() did on a first attempt.
+    RESULT_CHECKED = {"ci.yml": ("guards", "ghosttykit-release-check", "browser", "remote-daemon", "web",
+                                 "dogfood-build"),
+                      "cmux-next.yml": ("web-bundles", "request-nightly-next")}
+
+    @staticmethod
+    def needs(job: dict) -> list[str]:
+        value = job.get("needs") or []
+        return [value] if isinstance(value, str) else list(value)
+
+    def descendants(self, workflow_jobs: dict, root: str) -> set[str]:
+        found: set[str] = set()
+        changed = True
+        while changed:
+            changed = False
+            for name, job in workflow_jobs.items():
+                if name not in found and any(need == root or need in found for need in self.needs(job or {})):
+                    found.add(name)
+                    changed = True
+        return found
+
+    def test_no_job_skips_because_the_placement_bootstrap_skipped(self):
+        checked = 0
+        for workflow in self.WORKFLOWS:
+            workflow_jobs = jobs(workflow)
+            self.assertIn("portable-placement", workflow_jobs, workflow)
+            for name in sorted(self.descendants(workflow_jobs, "portable-placement")):
+                if (workflow, name) in self.EXEMPT:
+                    continue
+                with self.subTest(job=f"{workflow}#{name}"):
+                    condition = str(workflow_jobs[name].get("if") or "")
+                    self.assertRegex(condition, self.STATUS,
+                                     "a skipped portable-placement skips this job through the implicit success()")
+                    checked += 1
+        self.assertGreater(checked, 20)
+
+    def test_web_and_the_other_routed_jobs_still_skip_on_a_failed_need(self):
+        for workflow, names in self.RESULT_CHECKED.items():
+            workflow_jobs = jobs(workflow)
+            for name in names:
+                with self.subTest(job=f"{workflow}#{name}"):
+                    job = workflow_jobs[name]
+                    condition = " ".join(str(job["if"]).split())
+                    self.assertIn("!cancelled()", condition)
+                    for need in self.needs(job):
+                        self.assertIn(f"needs.{need}.result == 'success'", condition)
+
+    def test_the_skip_is_what_a_rerun_or_a_fork_gets(self):
+        bootstrap = str(jobs("ci.yml")["portable-placement"]["if"])
+        self.assertIn("github.run_attempt == 1", bootstrap)
+        self.assertIn("head.repo.full_name == github.repository", bootstrap)
+        changes = str(jobs("ci.yml")["changes"]["if"])
+        self.assertIn("always()", changes)
 
 
 if __name__ == "__main__":
