@@ -141,7 +141,7 @@ public nonisolated enum HardEdge: String, Sendable, CaseIterable, TunableChoice 
     /// The lit marks on a selected fill in `rect` (flipped coordinates), as one path to fill with
     /// `accent`, inside the fill's outline so its mask never clips them: `blade` a bar down the
     /// square leading edge (on the first tab, the card's edge continued) and a band along the
-    /// top-trailing cut; `hud` a solid wedge in the cut and a diamond on the leading edge. nil otherwise.
+    /// top-trailing cut; `hud` a solid wedge in the cut (its diamonds ride the card's frame, clear of the icon). nil otherwise.
     @MainActor public func selectedMarks(_ rect: CGRect) -> CGPath? {
         guard self == .blade || self == .hud, rect.width > 0, rect.height > 0 else { return nil }
         let cut = min(Self.fillCut, rect.width / 2, rect.height / 2)
@@ -160,7 +160,6 @@ public nonisolated enum HardEdge: String, Sendable, CaseIterable, TunableChoice 
             path.addLines(between: [CGPoint(x: rect.maxX - cut, y: rect.minY), CGPoint(x: rect.maxX, y: rect.minY + cut),
                                     CGPoint(x: rect.maxX, y: rect.minY + tick), CGPoint(x: rect.maxX - tick, y: rect.minY)])
             path.closeSubpath()
-            path.addPath(Self.diamond(CGPoint(x: rect.minX, y: rect.midY), radius: Self.diamondRadius))
         }
         return path
     }

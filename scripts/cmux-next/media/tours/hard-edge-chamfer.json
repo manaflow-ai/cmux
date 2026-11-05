@@ -158,13 +158,8 @@
    "shot": false
   },
   {
-   "title": "Chamfer: 45\u00b0 cuts, no curves (first tab selected: it stands on the card's edge)",
-   "wait": 2,
-   "cmux": [
-    "action",
-    "run",
-    "tab.next"
-   ]
+   "title": "Chamfer: 45\u00b0 cuts, no curves (the first tab is selected: it stands on the card's edge)",
+   "wait": 2
   }
  ]
 }
