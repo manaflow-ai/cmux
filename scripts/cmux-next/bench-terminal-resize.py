@@ -89,6 +89,8 @@ parser.add_argument("--key-settle-s", type=float, default=0.6, help="after the l
 parser.add_argument("--set", action="append", default=[], help="KEY=true|false: a boolean tunable set after launch")
 parser.add_argument("--held-repeat", type=int, default=0, help="keys layouts: also measure a held key (this many presses)")
 parser.add_argument("--xctrace-rounds", type=int, default=0, help="Time Profiler (attached to the app pid) on this many rounds per layout")
+parser.add_argument("--held-is-data", action="store_true",
+                    help="SCRATCH (SMOOTH-PAGES-PROFILE): a terminal held through a key resize (S4 OFF arm) is data, not a failed layout")
 parser.add_argument("--pages-mix", action="store_true",
                     help="SCRATCH (SMOOTH-PAGES-PROFILE): in STRESS, every other pane of each column shows a Chromium page")
 parser.add_argument("--devtools-docked", action="store_true",
@@ -807,6 +809,9 @@ try:
                     "split-resize-stress": lambda: split_resize(in_stress=True), "keys": keys, "keys-stress": keys_stress}[name]()
         for result in (produced if isinstance(produced, list) else [produced]):
             found = terminal_resize_verdict.problems(result)
+            if opts.held_is_data:
+                result["held_as_data"] = [p for p in found if "did not change size with their pane" in p]
+                found = [p for p in found if "did not change size with their pane" not in p]
             if found:
                 # A layout that measured nothing fails the run (its zeros are not a result).
                 result["problems"] = found
