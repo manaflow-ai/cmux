@@ -4,6 +4,7 @@ import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextHistory
 import CmuxNextRemote
+import CmuxNextTabs
 import CmuxNextWakeups
 import Foundation
 import Testing
