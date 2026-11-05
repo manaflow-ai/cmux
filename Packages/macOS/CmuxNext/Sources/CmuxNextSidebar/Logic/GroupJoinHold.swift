@@ -1,21 +1,25 @@
-import CmuxNextWakeups
 import Foundation
 public import Observation
 
 /// A new workspace that joins a named group (`acpmux new --group`, `cmux agent open --group`) lists once, in that
-/// group. Its join is a sidebar-document move the app sends only once the daemon lists the workspace, and the
-/// daemon's create puts it with the loose rows: the sidebar drew it there for a frame or more, then moved it into its
-/// group (Leo, 2026-11-03: "it's just weird how it flickers into some top level group or whatever then goes away").
-/// While a held workspace lists outside every group, the sidebar leaves its row out; it shows from the pass that
-/// lists it in a group. A join that never lands cannot hide a workspace: once it has listed loose for `limit`, it
-/// shows where it lists.
+/// group. The daemon's create puts it with the loose rows, and its join is a sidebar-document move (Leo, 2026-11-03:
+/// "it's just weird how it flickers into some top level group or whatever then goes away"). The join is written in
+/// the pass that first lists the workspace: that pass leaves the row out and sends the move, which the document
+/// applies at once (its optimistic look), so the next pass draws the row in its group. Nothing waits on a clock: a
+/// joined workspace stays out only while the document has not shown its own change yet; once it has, a row still
+/// listed loose (the move was refused) shows where it lists.
+///
+/// Leaned on: Nielsen's error prevention (https://www.nngroup.com/articles/ten-usability-heuristics/): the row is
+/// placed in its group when it is first listed, instead of a timer hiding a second write.
 public struct GroupJoinHold: Sendable, Equatable {
-    /// How long a held workspace may list loose before it shows there anyway: a sidebar-document move lands well
-    /// within it.
-    public static let limit: Duration = .seconds(2)
+    struct Entry: Sendable, Equatable {
+        /// The group name the workspace joins.
+        var group: String
+        /// Its join was sent (by this hold's pass, or by the create's placement first).
+        var joined = false
+    }
 
-    /// Each held workspace, with when it first listed loose (nil: not listed loose yet; its create may be slow).
-    private var held: [String: ContinuousClock.Instant?] = [:]
+    private var held: [String: Entry] = [:]
 
     public init() {}
 
@@ -23,30 +27,44 @@ public struct GroupJoinHold: Sendable, Equatable {
 
     public func holds(_ id: String) -> Bool { held[id] != nil }
 
-    /// Holds new workspace `id` until it lists in a group.
-    public mutating func hold(_ id: String) { held[id] = .some(nil) }
+    /// Holds new workspace `id` until it lists in group `group`.
+    public mutating func hold(_ id: String, group: String) { held[id] = Entry(group: group) }
 
     /// Its create ended without the workspace (or was taken back): nothing to hold.
     public mutating func release(_ id: String) { held[id] = nil }
 
-    /// The held workspaces `sections` lists outside any group, to leave out of them in this pass. A held workspace
-    /// listed in a group is released (its row draws there from its first frame), so is one that has listed loose for
-    /// `limit`: the caller asks again once `limit` has passed while it leaves one out.
-    public mutating func hiding(in sections: [SidebarSection], now: ContinuousClock.Instant) -> Set<String> {
-        guard !held.isEmpty else { return [] }
+    /// Whether the caller should send `id`'s join now: true once per held workspace (and for one not held, which joins
+    /// as before); false when its join was sent already.
+    public mutating func claim(_ id: String) -> Bool {
+        guard var entry = held[id] else { return true }
+        if entry.joined { return false }
+        entry.joined = true
+        held[id] = entry
+        return true
+    }
+
+    /// One pass over `sections`: the held workspaces to leave out of it, and the joins to send in it (workspace and
+    /// group name; the caller claims each). A held workspace listed in a group is released (its row draws there from its
+    /// first frame). One listed loose whose join is not sent yet is left out and its join is due. One listed loose after
+    /// its join was sent stays out while `catchingUp` (the document applied a change it does not show yet); otherwise
+    /// the move did not take, and it is released to show where it lists.
+    public mutating func pass(over sections: [SidebarSection], catchingUp: Bool) -> (hidden: Set<String>, due: [(id: String, group: String)]) {
+        guard !held.isEmpty else { return ([], []) }
         var hidden: Set<String> = []
+        var due: [(id: String, group: String)] = []
         for section in sections {
             for node in section.nodes {
                 switch node {
                 case let .workspace(workspace):
                     let id = workspace.id.rawValue
-                    guard let since = held[id] else { continue }
-                    let first = since ?? now
-                    if now - first >= Self.limit {
-                        held[id] = nil
-                    } else {
-                        held[id] = .some(first)
+                    guard let entry = held[id] else { continue }
+                    if !entry.joined {
                         hidden.insert(id)
+                        due.append((id, entry.group))
+                    } else if catchingUp {
+                        hidden.insert(id)
+                    } else {
+                        held[id] = nil
                     }
                 case let .group(group):
                     for workspace in group.workspaces { held[workspace.id.rawValue] = nil }
@@ -55,31 +73,37 @@ public struct GroupJoinHold: Sendable, Equatable {
                 }
             }
         }
-        return hidden
+        return (hidden, due)
     }
 }
 
-/// The app's ``GroupJoinHold`` for its sidebar passes: what a pass leaves out, and one redraw at the hold's limit while
-/// it leaves a row out (a one-shot deadline, set again only by a pass that still leaves one out), so a row whose join
-/// never landed shows with no other change to wake the sidebar.
+/// The app's ``GroupJoinHold`` for its sidebar passes: what a window's pass leaves out, and the joins that pass sends
+/// once it has drawn (``takeDue(in:)``).
 @MainActor @Observable
 public final class GroupJoinRows {
     @ObservationIgnored private var state = GroupJoinHold()
-    /// Bumped at the limit: the sidebar's tracked pass reads it, so it runs again.
-    private var checks = 0
-    @ObservationIgnored private let limit = DemandTimer(owner: "GroupJoinRows.limit")
+    /// Per window: the joins its last pass found due, sent from that pass's apply.
+    @ObservationIgnored private var due: [String: [(id: String, group: String)]] = [:]
 
     public init() {}
 
-    public func hold(_ id: String) { state.hold(id) }
+    public func hold(_ id: String, group: String) { state.hold(id, group: group) }
     public func release(_ id: String) { state.release(id) }
+    /// See ``GroupJoinHold/claim(_:)``.
+    public func claim(_ id: String) -> Bool { state.claim(id) }
 
-    /// The held workspaces `listed` shows loose, to leave out of this pass.
-    public func hidden(in listed: [SidebarSection]) -> Set<String> {
-        _ = checks
+    /// The held workspaces `listed` (window `window`'s pass) shows loose, to leave out of this pass. `catchingUp`: the
+    /// sidebar document has applied a change its shown projection does not hold yet.
+    public func hidden(in listed: [SidebarSection], window: String, catchingUp: Bool) -> Set<String> {
         guard !state.isEmpty else { return [] }
-        let hidden = state.hiding(in: listed, now: .now)
-        if !hidden.isEmpty { limit.scheduleIfIdle(after: GroupJoinHold.limit) { @MainActor [weak self] in self?.checks &+= 1 } }
+        let (hidden, found) = state.pass(over: listed, catchingUp: catchingUp)
+        due[window] = found.isEmpty ? nil : found
         return hidden
+    }
+
+    /// The joins window `window`'s last pass found due, each claimed (so sent once, by this window or the placement).
+    public func takeDue(in window: String) -> [(id: String, group: String)] {
+        guard let found = due.removeValue(forKey: window) else { return [] }
+        return found.filter { state.claim($0.id) }
     }
 }
