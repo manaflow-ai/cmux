@@ -255,7 +255,10 @@ def build(engines, states):
                 wait(lambda: tab in shown_tabs(), 20)
                 tabs[(engine, state)] = tab
                 if state == "minimized":
-                    action("minimizeWindow", target=f"window:{window}", focus=False)
+                    # minimizeWindow acts on the active window, not its target: make this one active.
+                    rpc("debug.window.focus", {"window": window})
+                    wait(lambda: key_window_id() == window, 10)
+                    action("minimizeWindow", target=f"window:{window}", focus=True)
                     # The Dock animation ends later: a verb run before it ends meets a window that
                     # still draws, and one during it meets the change mid-call.
                     if not wait(minimized_window, 20):
