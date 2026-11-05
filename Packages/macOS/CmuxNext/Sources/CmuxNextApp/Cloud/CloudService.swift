@@ -491,6 +491,8 @@ final class CloudService {
     /// after the account's machines were dropped (sign-out, another account),
     /// or after this app added or removed a machine, is stale.
     @ObservationIgnored private var listGeneration = 0
+    /// Changes whenever Cloud's account-owned sessions are retired; fences pending keyed starts.
+    @ObservationIgnored var approvalScopeEpoch = 0
     /// Orders every read of machine records (a list, Machine Status's one record) by when it was asked.
     @ObservationIgnored private var recordReads = 0
     /// Per machine, the read whose record it holds: an older read's answer that lands later changes nothing.
@@ -714,6 +716,8 @@ final class CloudService {
     }
 
     private func dropAllMachines() {
+        // An awaiting keyed start from the old account must never publish its signer afterwards.
+        approvalScopeEpoch &+= 1
         // Account teardown must also fence a mutation that finishes after sign-out.
         // The next permitted refresh re-enables tracking for the current account.
         changes.stop()
