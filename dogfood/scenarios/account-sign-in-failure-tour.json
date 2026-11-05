@@ -9,7 +9,7 @@
       "socket": "workspace.create",
       "params": {
         "title": "Sign-in failure",
-        "initial_input": "CLI=\"${CMUX_BUNDLED_CLI_PATH:-$(command -v cmux)}\"; APP=\"${CLI%%.app/*}.app\"; printf \"app=%s\\n\" \"$APP\"; open -a \"$APP\" \"cmux-dev://auth-callback?cmux_auth_state=tour-from-an-earlier-launch&stack_refresh=tour&stack_access=tour\"; printf \"Delivered a sign-in callback this launch never started\\n\"\n",
+        "initial_input": "CLI=\"${CMUX_BUNDLED_CLI_PATH:-$(command -v cmux)}\"; APP=\"${CLI%%.app/*}.app\"; printf \"app=%s\\n\" \"$APP\"; open -a \"$APP\" \"cmux-dev://auth-callback?cmux_auth_state=tour-from-an-earlier-launch&stack_refresh=tour&stack_access=tour\"; printf \"Delivered a sign-in callback this launch never started\\n\"; \"$CLI\" settings open account\n",
         "focus": true
       },
       "save": "setup"
@@ -18,24 +18,10 @@
       "wait": 3.0
     },
     {
-      "shot": "invalid-callback-delivered"
-    },
-    {
-      "key": ",",
-      "modifiers": [
-        "command"
-      ]
+      "shot": "stale-callback-delivered"
     },
     {
       "wait": 1.5
-    },
-    {
-      "tree": "settings-opened"
-    },
-    {
-      "click": {
-        "label": "Account"
-      }
     },
     {
       "wait": 1.0
