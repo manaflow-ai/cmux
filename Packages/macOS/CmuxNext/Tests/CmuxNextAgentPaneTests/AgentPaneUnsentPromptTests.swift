@@ -381,6 +381,32 @@ struct AgentPaneUnsentPromptTests {
                 "the acknowledgement never reached the disk: its prompt would be sent again after a relaunch")
     }
 
+    /// A change whose write fails, then an older change's queued write: the older snapshot does not
+    /// go over the file as it is; the journal goes as it is now, the failed change in it.
+    @Test func anOlderWriteAfterAFailedNewerOneWritesTheJournalAsItIsNow() throws {
+        let url = Self.journalURL()
+        let folder = url.deletingLastPathComponent()
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
+            try? FileManager.default.removeItem(at: folder)
+        }
+        let journal = AgentPanePromptJournal(url: url)
+        let entry = { (id: String) in
+            AgentPanePromptJournal.Entry(daemon: Self.daemon, sessionId: "s-1", promptId: id, params: "{}", at: journal.now())
+        }
+        let owner = UUID()
+        #expect(try journal.record(entry("p-a"), owner: owner))
+        #expect(try journal.record(entry("p-b"), owner: owner))
+        let older = journal.entries()
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: folder.path)
+        journal.forget(daemon: Self.daemon, promptId: "p-b")
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
+        // An older change's snapshot, queued before the forget, writes now.
+        #expect(journal.write(older, pendingTrust: [], generation: 1))
+        let kept = AgentPanePromptJournal(url: url).entries().map(\.promptId)
+        #expect(kept == ["p-a"], "an older snapshot went over the failed forget: \(kept)")
+    }
+
     /// A record over an unreadable journal that cannot be set aside yet (#28204) is refused like any
     /// record that did not reach the disk: the only copy of the earlier prompts is never written over,
     /// and the new prompt does not go.

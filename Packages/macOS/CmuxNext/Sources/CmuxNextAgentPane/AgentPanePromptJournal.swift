@@ -383,8 +383,9 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
         }
     }
 
+    /// Writes the snapshot of change `generation`, unless a newer one was written (internal for tests).
     @discardableResult
-    private func write(_ entries: [Entry], pendingTrust: [PendingTrust], generation: Int) -> Bool {
+    func write(_ entries: [Entry], pendingTrust: [PendingTrust], generation: Int) -> Bool {
         written.withLock { last in
             guard generation > last.generation else {
                 guard last.behind else { return true }
