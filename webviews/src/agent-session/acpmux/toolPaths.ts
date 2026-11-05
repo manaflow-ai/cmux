@@ -93,7 +93,14 @@ export function toolLabel(
   const canonical = canonicalCall(title ? tool : { ...tool, title: fallbackName });
   // A write or edit waiting on its permission keeps its own title ("Writing to notes.md"), as
   // WriteLabel.tsx `writeCall` leaves it (cx-p5fgx).
-  if (title && tool.status === "pending" && (canonical?.tool === "write" || canonical?.tool === "edit")) return title;
+  // Claude Code's own "Write x.ts" reads as it did (its path, below).
+  if (
+    title &&
+    tool.status === "pending" &&
+    (canonical?.tool === "write" || canonical?.tool === "edit") &&
+    !OWN_VERBS.has(firstWord(title))
+  )
+    return title;
   const named = canonical && canonicalLabel(canonical, title, paths, cwd);
   if (named) return named;
   if (paths.length) {
