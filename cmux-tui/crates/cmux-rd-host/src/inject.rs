@@ -33,8 +33,8 @@ use x11rb::protocol::xinput::{
     HierarchyChangeDataAddMaster, HierarchyChangeDataRemoveMaster,
 };
 use x11rb::protocol::xproto::{
-    Atom, AtomEnum, ConnectionExt as _, PropMode, Window, BUTTON_PRESS_EVENT,
-    BUTTON_RELEASE_EVENT, KEY_PRESS_EVENT, KEY_RELEASE_EVENT, MOTION_NOTIFY_EVENT,
+    Atom, AtomEnum, ConnectionExt as _, PropMode, Window, BUTTON_PRESS_EVENT, BUTTON_RELEASE_EVENT,
+    KEY_PRESS_EVENT, KEY_RELEASE_EVENT, MOTION_NOTIFY_EVENT,
 };
 use x11rb::protocol::xtest::ConnectionExt as _;
 use x11rb::rust_connection::RustConnection;
@@ -102,7 +102,8 @@ impl HoldGuard {
         let mut out = Vec::new();
         while let Some(front) = self.queue.front() {
             if presses(front) {
-                let waited = self.since.map_or(Duration::ZERO, |s| now.saturating_duration_since(s));
+                let waited =
+                    self.since.map_or(Duration::ZERO, |s| now.saturating_duration_since(s));
                 if waited < HOLD_LIMIT && agent_holds() {
                     self.since.get_or_insert(now);
                     break;
@@ -231,7 +232,8 @@ impl Injector {
     pub fn apply(&mut self, event: &InputEvent) -> Res<()> {
         let Some(master) = self.person() else { return self.send(event, None) };
         let (conn, root) = (&self.conn, self.root);
-        let ready = self.hold.push(event.clone(), Instant::now(), || Self::agent_holds(conn, root, master));
+        let ready =
+            self.hold.push(event.clone(), Instant::now(), || Self::agent_holds(conn, root, master));
         for e in &ready {
             self.send(e, Some(master))?;
         }
@@ -373,12 +375,14 @@ fn find_master(conn: &RustConnection, name: &str) -> Res<Option<PersonMaster>> {
 /// The master pair named `name` among (id, type, attachment, name) rows.
 fn pick_master(devices: &[(u16, DeviceType, u16, Vec<u8>)], name: &str) -> Option<PersonMaster> {
     let want = format!("{name} pointer");
-    let (pointer, _, keyboard, _) = devices
-        .iter()
-        .find(|(_, ty, _, n)| *ty == DeviceType::MASTER_POINTER && n.as_slice() == want.as_bytes())?;
+    let (pointer, _, keyboard, _) = devices.iter().find(|(_, ty, _, n)| {
+        *ty == DeviceType::MASTER_POINTER && n.as_slice() == want.as_bytes()
+    })?;
     let core = devices
         .iter()
-        .find(|(_, ty, _, n)| *ty == DeviceType::MASTER_POINTER && n.as_slice() == b"Virtual core pointer")
+        .find(|(_, ty, _, n)| {
+            *ty == DeviceType::MASTER_POINTER && n.as_slice() == b"Virtual core pointer"
+        })
         .map_or(0, |(id, ..)| *id);
     devices
         .iter()
@@ -424,8 +428,7 @@ fn remove_person_master(conn: &RustConnection, master: PersonMaster) -> Res<()> 
     let (Some(p), Some(k)) = (
         core(DeviceType::MASTER_POINTER, b"Virtual core pointer"),
         core(DeviceType::MASTER_KEYBOARD, b"Virtual core keyboard"),
-    )
-    else {
+    ) else {
         return Err("no other master to return the slaves to".into());
     };
     let change = HierarchyChange {
@@ -596,7 +599,19 @@ mod tests {
         // A toplevel at (600,400)-(900,600) for the person to point at.
         let win = agent.generate_id().unwrap();
         agent
-            .create_window(0, win, root, 600, 400, 300, 200, 0, WindowClass::INPUT_OUTPUT, 0, &CreateWindowAux::new())
+            .create_window(
+                0,
+                win,
+                root,
+                600,
+                400,
+                300,
+                200,
+                0,
+                WindowClass::INPUT_OUTPUT,
+                0,
+                &CreateWindowAux::new(),
+            )
             .unwrap();
         agent.map_window(win).unwrap();
         let core = |c: &RustConnection| {
@@ -648,10 +663,16 @@ mod tests {
         assert_eq!(person_buttons(&agent), 0);
 
         // The marker names the window under the person's pointer.
-        let atom = agent.intern_atom(false, PERSON_PROPERTY.as_bytes()).unwrap().reply().unwrap().atom;
+        let atom =
+            agent.intern_atom(false, PERSON_PROPERTY.as_bytes()).unwrap().reply().unwrap().atom;
         let read = |c: &RustConnection| {
-            let r = c.get_property(false, root, atom, AtomEnum::STRING, 0, 1024).unwrap().reply().unwrap();
-            (!r.value.is_empty()).then(|| serde_json::from_slice::<serde_json::Value>(&r.value).unwrap())
+            let r = c
+                .get_property(false, root, atom, AtomEnum::STRING, 0, 1024)
+                .unwrap()
+                .reply()
+                .unwrap();
+            (!r.value.is_empty())
+                .then(|| serde_json::from_slice::<serde_json::Value>(&r.value).unwrap())
         };
         let v = read(&agent).expect("marker while the person holds control");
         assert_eq!(v["window"], win);
