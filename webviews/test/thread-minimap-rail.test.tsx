@@ -356,21 +356,22 @@ test("the rail never outgrows a short transcript", async () => {
   expect(railHeight(18, 720, 720, 720, 4, RAIL_HEIGHTS["initial-240-max-80"])).toBe(240);
 });
 
-test("the rail is never taller than 240 px, whatever the prompt count or the pane's height", async () => {
+test("the rail is never taller than 480 px, whatever the prompt count or the pane's height", async () => {
   const { railHeight } = await import("../src/agent-session/acpmux/threadMinimap/model");
   // Leo, 2026-11-04: "make it look like codex's size" and "the height of the left scroll rail should
-  // never be affected by anything". As tall as its ticks up to 240 px; past 24 prompts its list scrolls.
+  // never be affected by anything". As tall as its ticks up to 480 px; past 48 prompts its list scrolls.
   for (const count of [1, 4, 12, 24, 70, 1000])
-    for (const view of [540, 720, 1100, 2100]) expect(railHeight(count, view, view)).toBe(Math.min(count * 10, 240));
-  // Nor the prompts on screen: a view showing 50 short prompts at once keeps 240, and its list
+    for (const view of [540, 720, 1100, 2100]) expect(railHeight(count, view, view)).toBe(Math.min(count * 10, 480));
+  // Nor the prompts on screen: a view showing 50 short prompts at once keeps 480, and its list
   // scrolls to keep them in view (railScrollTop).
-  for (const band of [1, 24, 50, 1000]) expect(railHeight(1000, 1000, 1000, 1000, band)).toBe(240);
+  for (const band of [1, 24, 50, 1000]) expect(railHeight(1000, 1000, 1000, 1000, band)).toBe(480);
 });
 
-test("the rail keeps one tick pitch at every prompt count, as tall as its ticks up to 240 px, at one top", async () => {
-  // Leo, 2026-11-05, on a rail whose ticks sat 20 px apart in a fixed box: the 240 px maximum stays, the
-  // ticks go back to the pitch they had before (10 px), a short chat gets a short rail, and the rail
-  // never shifts as it grows ("i just don't like it when the thing shifts").
+test("the rail keeps one tick pitch at every prompt count, as tall as its ticks up to 480 px, at one top", async () => {
+  // Leo, 2026-11-05, on a rail whose ticks sat 20 px apart in a fixed 480 px box: "the rail, ok keep it at
+  // this max size, but don't reduce the density. y'all reduced the density". The ticks go back to the
+  // 10 px pitch in a rail as tall as they are, and it never shifts as it grows ("i just don't like it
+  // when the thing shifts").
   const drawn: { count: number; pitch: number; height: number; top: number }[] = [];
   for (const count of [3, 13, 24, 100]) {
     const view = await mount(count);
@@ -388,7 +389,7 @@ test("the rail keeps one tick pitch at every prompt count, as tall as its ticks 
     }
   }
   expect(drawn.map(({ count, pitch, height }) => ({ count, pitch, height }))).toEqual(
-    [3, 13, 24, 100].map((count) => ({ count, pitch: 10, height: Math.min(count * 10, 240) })),
+    [3, 13, 24, 100].map((count) => ({ count, pitch: 10, height: Math.min(count * 10, 480) })),
   );
   expect(new Set(drawn.map(({ top }) => top)).size).toBe(1);
 });

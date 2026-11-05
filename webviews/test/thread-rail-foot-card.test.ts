@@ -156,7 +156,7 @@ await requireBrowserLane("thread-rail-foot-card.test.ts", async () => {
         const rest = await measure(page);
         if (out) await page.screenshot({ path: path.join(out, `rail-foot-${variant}-rest.png`) });
         // The fixed rail keeps its rest box; a growing stack may lay over its foot.
-        expect(rest.rail.bottom - rest.rail.top).toBeGreaterThanOrEqual(240 - 1);
+        expect(rest.rail.bottom - rest.rail.top).toBeGreaterThanOrEqual(480 - 1);
         const drawn = rest.ticks.map((tick) => tick.index);
         expect(drawn.length).toBeGreaterThan(8);
         const last = Math.max(...drawn);

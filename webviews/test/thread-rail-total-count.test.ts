@@ -203,8 +203,8 @@ await requireBrowserLane("thread-rail-total-count.test.ts", async () => {
     await settle(page);
     const shown = await ticks(page);
     expect(shown.all[0]!.setSize).toBe(TOTAL);
-    // The rail is 240 px at most while the list scrolls all 45 prompts.
-    expect(shown.rail.height).toBe(240);
+    // Forty-five prompts at the 10 px pitch: 450 px, under the 480 px maximum.
+    expect(shown.rail.height).toBe(450);
     await page.close();
   });
 

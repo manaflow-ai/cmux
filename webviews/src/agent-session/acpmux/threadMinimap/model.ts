@@ -86,12 +86,12 @@ export function railPlacement(
 /// should never be affected by anything"). Only a view too short to hold it still clips it
 /// (railRoom). A `fixed` arm is one height whatever the chat, window or bottom stack (Leo, 2026-11-04:
 /// "the height of the left scroll rail should never be affected by anything"): only a view too short
-/// for it clips it. `fixed-480` (twice the height and pitch) spread a short chat's ticks 20 px apart;
-/// a `fit` arm keeps the 240 px maximum as a slot and the rail as tall as its ticks at the 10 px
-/// pitch inside it, so a short chat has a short rail as dense as before (Leo, 2026-11-05). `fit` says
-/// where the rail sits in its slot: at the slot's top it only grows down, so it never shifts as a chat
-/// grows (Leo, 2026-11-03: "i just don't like it when the thing shifts"). `fit-240` ships; the
-/// gallery compares the arms.
+/// for it clips it. `fixed-480` (twice the height and pitch) spread the ticks 20 px apart (Leo,
+/// 2026-11-05: "the rail, ok keep it at this max size, but don't reduce the density. y'all reduced the
+/// density"). A `fit` arm keeps that maximum as a slot and draws the ticks at the 10 px pitch in a rail
+/// as tall as they are inside it. `fit` says where the rail sits in its slot: at the slot's top it only
+/// grows down, so it never shifts as a chat grows (Leo, 2026-11-03: "i just don't like it when the
+/// thing shifts"). `fit-480` ships; the gallery compares the arms.
 export type RailHeightConfig = {
   initial: number;
   maxRows: number;
@@ -106,16 +106,17 @@ export const RAIL_HEIGHTS = {
   "fixed-360": { initial: 360, maxRows: 24, maxShare: 1, fixed: true, pitch: ROW_PITCH * 1.5 },
   "fixed-480": { initial: 480, maxRows: 24, maxShare: 1, fixed: true, pitch: ROW_PITCH * 2 },
   "fixed-280": { initial: 280, maxRows: 28, maxShare: 1, fixed: true },
+  "fit-480": { initial: 480, maxRows: 48, maxShare: 1, fixed: true, fit: "top" },
+  "fit-480-center": { initial: 480, maxRows: 48, maxShare: 1, fixed: true, fit: "center" },
+  "fit-480-bottom": { initial: 480, maxRows: 48, maxShare: 1, fixed: true, fit: "bottom" },
   "fit-240": { initial: 240, maxRows: 24, maxShare: 1, fixed: true, fit: "top" },
-  "fit-240-center": { initial: 240, maxRows: 24, maxShare: 1, fixed: true, fit: "center" },
-  "fit-240-bottom": { initial: 240, maxRows: 24, maxShare: 1, fixed: true, fit: "bottom" },
   "initial-240-max-80": { initial: 240, maxRows: 96, maxShare: 0.8 },
   "initial-320-max-92": { initial: 320, maxRows: 128, maxShare: 0.92 },
   "initial-400-max-96": { initial: 400, maxRows: 160, maxShare: 0.96 },
   "initial-480-max-full": { initial: 480, maxRows: 200, maxShare: 1 },
 } as const satisfies Record<string, RailHeightConfig>;
 export type RailHeightArm = keyof typeof RAIL_HEIGHTS;
-export const DEFAULT_RAIL_HEIGHT: RailHeightArm = "fit-240";
+export const DEFAULT_RAIL_HEIGHT: RailHeightArm = "fit-480";
 /// The fisheye by row distance from the hovered (or scrubbed) row: 26, 20, 14, 10, then 6 px.
 const PROGRESS = [1, 0.7, 0.4, 0.2] as const;
 /// Space kept free above and below the card inside the transcript's viewport.
