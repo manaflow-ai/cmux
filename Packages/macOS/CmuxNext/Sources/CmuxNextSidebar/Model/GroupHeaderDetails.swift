@@ -11,8 +11,8 @@ public nonisolated struct GroupHeaderDetails: Hashable, Sendable {
     /// The members' other states (waiting, error, done) beside loading
     /// (`sidebar.detailedStatusIcons`).
     public var otherStates = false
-    /// How the header's background draws (`sidebar.groupHeader.background`): glass, solid, or glass only where
-    /// the sidebar is see-through. It always shows (``GroupBackground``).
+    /// How the header's background draws (`sidebar.groupHeader.background`): glass, solid, or cmux's own
+    /// group look (glass). It always shows (``GroupBackground``).
     public var background: SidebarGroupBackgroundStyle = .auto
 
     /// Details with every field off but the ones given.
@@ -20,7 +20,7 @@ public nonisolated struct GroupHeaderDetails: Hashable, Sendable {
     ///   - memberCount: Show the member count after the name.
     ///   - unreadCount: Show the unread total on the right.
     ///   - otherStates: Show states other than loading.
-    ///   - background: How the background draws; glass where the sidebar is see-through by default.
+    ///   - background: How the background draws; cmux's own group look (glass) by default.
     public init(memberCount: Bool = false, unreadCount: Bool = false, otherStates: Bool = false,
                 background: SidebarGroupBackgroundStyle = .auto) {
         self.memberCount = memberCount

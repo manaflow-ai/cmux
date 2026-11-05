@@ -73,12 +73,12 @@ import Testing
         #expect(failures.isEmpty, Comment(rawValue: "\(failures.count) failures; first:\n" + failures.prefix(80).joined(separator: "\n")))
     }
 
-    /// `auto` is glass exactly where the sidebar is see-through; `glass` and `solid` hold everywhere.
-    @Test func automaticIsGlassOnlyOverASeeThroughSidebar() {
-        #expect(SidebarGroupBackgroundStyle.auto.drawsGlass(seeThrough: true))
-        #expect(!SidebarGroupBackgroundStyle.auto.drawsGlass(seeThrough: false))
-        #expect(SidebarGroupBackgroundStyle.glass.drawsGlass(seeThrough: false))
-        #expect(!SidebarGroupBackgroundStyle.solid.drawsGlass(seeThrough: true))
+    /// `auto` follows cmux's own group look (Leo's glass, #36225); `glass` and `solid` hold whatever that look is.
+    @Test func automaticFollowsTheAppsGroupLook() {
+        #expect(SidebarGroupBackgroundStyle.auto.drawsGlass(appLooksGlassy: true))
+        #expect(!SidebarGroupBackgroundStyle.auto.drawsGlass(appLooksGlassy: false))
+        #expect(SidebarGroupBackgroundStyle.glass.drawsGlass(appLooksGlassy: false))
+        #expect(!SidebarGroupBackgroundStyle.solid.drawsGlass(appLooksGlassy: true))
     }
 }
 

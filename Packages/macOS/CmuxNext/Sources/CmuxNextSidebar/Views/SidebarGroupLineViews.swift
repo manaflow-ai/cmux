@@ -218,8 +218,8 @@ final class GroupLineView: NSView {
             // Under the solid band, the band's rest color (Leo 2026-10-19: bar and line are one color);
             // the quieter looks keep the dot's color.
             // Under a glass band, the pane's vivid color (`GroupTint.glassRGB`), so rail and rim read as one group;
-            // under the solid band (`sidebar.groupHeader.background` solid, or no glass here), the band's rest color.
-            let glassy = look.glass != .solid && !color.isNone && background.drawsGlass(seeThrough: themeTokens.backgroundOpacity < 1)
+            // under the solid band (`sidebar.groupHeader.background` solid), the band's rest color.
+            let glassy = !color.isNone && background.drawsGlass(appLooksGlassy: look.glass != .solid)
             let line = look.style != .band ? color.lineColor(themed: look.themed)
                 : glassy ? color.glassRGB(themed: look.themed).nsColor : color.lineFill(themed: look.themed)
             layer?.backgroundColor = NSColor.clear.cgColor

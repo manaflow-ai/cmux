@@ -329,8 +329,8 @@ final class GroupHeaderRowView: SidebarRowView {
                 return paintQuiet(tokens, look)
             }
             let glass = SidebarGroupGlass.tunable.value
-            if glass != .solid, backgroundStyle.drawsGlass(seeThrough: tokens.backgroundOpacity < 1) {
-                return paintGlass(tokens, look, glass)
+            if backgroundStyle.drawsGlass(appLooksGlassy: glass != .solid) {
+                return paintGlass(tokens, look, glass == .solid ? .vivid : glass)
             }
             rim.isHidden = true
             let background = groupBackground(.band, tokens, look, glass: false)
@@ -439,11 +439,11 @@ final class GroupHeaderRowView: SidebarRowView {
         paintFill(nil)
     }
 
-    /// The header's background in `look`, glass or solid as `sidebar.groupHeader.background` asks for this sidebar
-    /// (glass where it is see-through, by default).
+    /// The header's background in `look`, glass or solid as `sidebar.groupHeader.background` asks (cmux's own look,
+    /// glass, by default).
     private func groupBackground(_ strength: GroupBackground.Strength, _ tokens: ThemeTokens,
                                  _ look: (style: SidebarGroupHeaderStyle, themed: Bool), glass: Bool? = nil) -> GroupBackground {
-        GroupBackground(tint: tint, strength: strength, glass: glass ?? backgroundStyle.drawsGlass(seeThrough: tokens.backgroundOpacity < 1),
+        GroupBackground(tint: tint, strength: strength, glass: glass ?? backgroundStyle.drawsGlass(appLooksGlassy: SidebarGroupGlass.tunable.value != .solid),
                         themed: look.themed, tokens: tokens)
     }
 

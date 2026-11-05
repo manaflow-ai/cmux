@@ -41,7 +41,7 @@ public nonisolated enum SidebarSectionsSetting {
     public static let showLocalMachinePath = ["sidebar", "showLocalMachine"]
     public static let groupHeaderMemberCountPath = ["sidebar", "groupHeader", "memberCount"]
     public static let groupHeaderUnreadCountPath = ["sidebar", "groupHeader", "unreadCount"]
-    /// `sidebar.groupHeader.background` (``SidebarGroupBackgroundStyle``): glass, solid, or glass where the sidebar is see-through.
+    /// `sidebar.groupHeader.background` (``SidebarGroupBackgroundStyle``): glass, solid, or cmux's own group look (glass).
     public static let groupHeaderBackgroundPath = ["sidebar", "groupHeader", "background"]
 
     static func tipsDescriptor(group: SettingText) -> SettingDescriptor {
@@ -124,7 +124,7 @@ public nonisolated enum SidebarSectionsSetting {
         SettingDescriptor(groupHeaderBackgroundPath, section: .appearance, group: group,
                           title: SettingsText.keyed("settings.sidebar.groupHeader.background", "Group Background"),
                           help: SettingsText.keyed("settings.sidebar.groupHeader.background.help",
-                                                   "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses glass when the sidebar is see-through. A group always has a visible background, also when it has no color."),
+                                                   "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color."),
                           kind: .choice(SidebarGroupBackgroundStyle.allCases.map { style in
                               switch style {
                               case .auto: SettingChoice(style.rawValue, SettingsText.keyed("settings.choice.groupBackgroundAuto", "Automatic"))
