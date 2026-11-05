@@ -72,6 +72,31 @@ describe("server pairing mints the box's machine join token (workerd)", () => {
     expect(waiter.frames.find((f) => f.t === "paired").machine_join.token).toBe(TOKEN)
   })
 
+  for (const status of [404, 403]) {
+    it(`a platform that refuses (${status}) pairs as before, with no join token`, async () => {
+      const { team, user, code, waiter } = await setup(`stack-pair-machine-join-${status}`)
+      const env = { PAIRING_DO: testEnv.PAIRING_DO, TEAM_DO: testEnv.TEAM_DO, PLATFORM: platform(() => new Response("{}", { status })), INTERNAL_TOKEN: "internal-test" } as never
+      expect((await pairApprove(env, sessionPrincipal(user, team), { op: "server.pair.approve", params: { code, team, name: "Studio" }, idempotency_key: `platform-${status}` }, userSubmit as never)).ok).toBe(true)
+      await waiter.until(() => waiter.frames.some((f) => f.t === "paired"))
+      expect(waiter.frames.find((f) => f.t === "paired").machine_join).toBeUndefined()
+    })
+  }
+
+  it("a retry after a failed host write reuses the pinned token and mints no second one", async () => {
+    const { team, user, code, waiter } = await setup("stack-pair-machine-join-retry")
+    const fake = platform(minted)
+    const teams = testEnv.TEAM_DO
+    const realTeam = teams.get(teams.idFromName(team)) as any
+    // The host write fails once without a refusal (an owner outage); the install is already registered.
+    const flaky = { idFromName: (n: string) => teams.idFromName(n), get: () => ({ canEnrollServer: (...a: Array<unknown>) => realTeam.canEnrollServer(...a), enrollServer: async () => ({ ok: false, code: "owner.unreachable", message: "fixture outage" }) }) }
+    const approve = (teamDo: unknown) => pairApprove({ PAIRING_DO: testEnv.PAIRING_DO, TEAM_DO: teamDo, PLATFORM: fake, INTERNAL_TOKEN: "internal-test" } as never, sessionPrincipal(user, team), { op: "server.pair.approve", params: { code, team, name: "Studio" }, idempotency_key: "retry-pinned" }, userSubmit as never)
+    expect(await approve(flaky)).toMatchObject({ ok: false })
+    expect((await approve(testEnv.TEAM_DO)).ok).toBe(true)
+    expect(fake.calls).toHaveLength(1)
+    await waiter.until(() => waiter.frames.some((f) => f.t === "paired"))
+    expect(waiter.frames.find((f) => f.t === "paired").machine_join.token).toBe(TOKEN)
+  })
+
   it("without the platform binding the box pairs as before, with no join token", async () => {
     const { team, user, code, waiter } = await setup("stack-pair-machine-join-unbound")
     const env = { PAIRING_DO: testEnv.PAIRING_DO, TEAM_DO: testEnv.TEAM_DO } as never

@@ -41,8 +41,8 @@ const label = (name: string): string | undefined => {
 }
 
 /**
- * Mints the box's join token for `user` in `team`. A deployment without the platform binding (local, tests) mints
- * none and pairs as before; a platform that refuses or cannot be reached fails the approval before any install or
+ * Mints the box's join token for `user` in `team`. A deployment without the platform binding (local, tests), or whose
+ * platform refuses (4xx), mints none and pairs as before; a platform that refuses or cannot be reached fails the approval before any install or
  * host is written, so a retry finishes it.
  */
 export const mintPairMachineJoin = async (env: Pick<Env, "PLATFORM" | "INTERNAL_TOKEN">, input: { team: string; user: string; name: string }): Promise<Minted> => {
@@ -59,7 +59,12 @@ export const mintPairMachineJoin = async (env: Pick<Env, "PLATFORM" | "INTERNAL_
   } catch {
     return unavailable()
   }
-  if (response.status === 403) return { ok: false, code: "auth.forbidden", message: "you may not add machines to this team", retryable: false }
+  // A refusal (404: this deployment's platform runs no machine join, as on staging; 403: the platform's own role rule)
+  // never costs the person the pairing: it goes on as before, without the join token. Only an outage is retried.
+  if (response.status >= 400 && response.status < 500) {
+    console.warn(JSON.stringify({ msg: "pair.machine_join.refused", status: response.status }))
+    return { ok: true, join: null }
+  }
   if (!response.ok) {
     console.warn(JSON.stringify({ msg: "pair.machine_join.mint_failed", status: response.status }))
     return unavailable()

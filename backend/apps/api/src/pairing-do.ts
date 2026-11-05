@@ -249,7 +249,7 @@ export class PairingDO extends DurableObject<Env> {
     if (grant && (!approval?.mesh || !result.network)) return null
     if (result.network && !grant) return null
     const join: PairMachineJoin | null = row.machine_join ? JSON.parse(row.machine_join) : null
-    return JSON.stringify({ t: "paired", ...result, ...(grant ? { network_enrollment: grant } : {}), ...(join ? { machine_join: machineJoinFrame(join) } : {}) })
+    return JSON.stringify({ t: "paired", ...result, ...(grant ? { network_enrollment: grant } : {}), ...(join && machineJoinLive(join, now) ? { machine_join: machineJoinFrame(join) } : {}) })
   }
 
   /**
