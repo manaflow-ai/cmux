@@ -59,13 +59,30 @@ public final class WebProjection {
 
     public init() {}
 
+    /// Projection windows seen open, so one that closes ends its projection for good (a window reopened
+    /// under the same id is an ordinary window).
+    private var shown: Set<String> = []
+
     /// Whether any open window is a projection now.
-    public var isActive: Bool { projections.contains { isOpen($0.windowID) } }
+    public var isActive: Bool {
+        prune()
+        return !shown.isEmpty
+    }
 
     /// The server `webView` loads from: its window's projection server, nil for none.
     public func server(for webView: WKWebView?) -> PageDevServer? {
         guard !projections.isEmpty, let window = webView?.window, let id = windowID(window) else { return nil }
+        prune()
         return projections.last { $0.windowID == id }?.server
+    }
+
+    /// Drops the projections whose window showed and has closed since.
+    private func prune() {
+        for projection in projections where isOpen(projection.windowID) { shown.insert(projection.windowID) }
+        let closed = shown.filter { !isOpen($0) }
+        guard !closed.isEmpty else { return }
+        projections.removeAll { closed.contains($0.windowID) }
+        shown.subtract(closed)
     }
 
     /// The override in force for `webView`: ``WebDevOverride/current`` with its window's projection
@@ -92,6 +109,7 @@ public final class WebProjection {
     /// The projection a test run goes to: the one whose window is `windowID` (the active window), else
     /// the newest open one. A non-empty `test` replaces its test command.
     public func testRun(in windowID: String?, test: String?) throws(Refusal) -> Projection {
+        prune()
         guard let index = projections.lastIndex(where: { $0.windowID == windowID })
             ?? projections.lastIndex(where: { isOpen($0.windowID) })
         else { throw Refusal(message: Self.noProjection) }

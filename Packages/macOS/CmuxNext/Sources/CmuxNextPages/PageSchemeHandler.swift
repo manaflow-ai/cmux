@@ -117,16 +117,19 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
             return Self.artifactReply(url: url)
         }
         var live = liveOverride()
-        if let projected = projection.server(for: webView) { live.server = projected }
-        if let devServer = devServer ?? live.server, let remote = devServer.url(for: url, page: served.page) {
+        // A projection window's server wins over the launch variable's too (``WebProjection``).
+        let projected = projection.server(for: webView)
+        if let projected { live.server = projected }
+        let launchServer = projected == nil ? devServer : nil
+        if let devServer = launchServer ?? live.server, let remote = devServer.url(for: url, page: served.page) {
             if let (body, response) = await fetchDevServer(remote), devServer.isOwn(response.url),
-               self.devServer != nil || response.statusCode < 400 {
+               launchServer != nil || response.statusCode < 400 {
                 let type = response.value(forHTTPHeaderField: "Content-Type").flatMap(Self.validMIMEType)
                     ?? Self.mimeType(forExtension: remote.pathExtension)
                 return Self.reply(url: url, csp: devServer.csp(for: served.page), status: response.statusCode, mimeType: type, body: body)
             }
             // The launch variable's server (Debug) fails the request, as before.
-            if self.devServer != nil { return nil }
+            if launchServer != nil { return nil }
         }
         let update = if let webView {
             await WebBundleServedViews.shared.root(for: served.root, in: webView)
