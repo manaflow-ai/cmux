@@ -1665,20 +1665,22 @@ def test_registry_change_is_linux_only(base: str, head: str) -> bool:
     """Ignore only Linux registrations; native execution entries must match."""
     try:
         def native_entries(text: str) -> list[dict]:
+            """The entries a native lane runs, and the linux-guard entries with runtime requirements
+            (which need more than a Linux guard, so they count as native too)."""
             entries = _test_registry_entries(text)
             seen = set()
             native = []
             for entry in entries:
-                if not isinstance(entry, dict) or set(entry) - {"path", "lane", "requirements", "reason"}:
+                # `serial` runs an entry alone in its lane: on a native entry it is compared with the
+                # rest of the entry; on a linux-guard entry it changes only the Linux run.
+                if not isinstance(entry, dict) or set(entry) - {"path", "lane", "requirements", "reason", "serial"}:
                     raise ValueError("unknown test entry")
                 path, lane = entry.get("path"), entry.get("lane")
                 if not isinstance(path, str) or not isinstance(lane, str) or path in seen:
                     raise ValueError("missing or duplicate test identity")
                 seen.add(path)
-                if lane != "linux-guard":
+                if lane != "linux-guard" or entry.get("requirements"):
                     native.append(entry)
-                elif entry.get("requirements"):
-                    raise ValueError("guard entry with runtime requirements")
             return native
 
         # By path, not position: the split re-ordered the entries (by area, then path).
