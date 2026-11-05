@@ -395,7 +395,12 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
                 last = (max(last.generation, now.0), false)
                 return true
             }
-            guard writeFile(entries, pendingTrust: pendingTrust) else { return false }
+            // A failed write still fences older snapshots: the next of them writes the journal as
+            // it is now, this change in it, never its own older state.
+            guard writeFile(entries, pendingTrust: pendingTrust) else {
+                last = (generation, true)
+                return false
+            }
             last = (generation, false)
             return true
         }
