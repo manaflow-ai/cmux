@@ -29,7 +29,6 @@ extension WebKitTab {
     /// the UA's black text over a dark theme color for the whole load. On an
     /// ordinary page `didFinish` ends the hold first.
     func pageDidCommit() {
-        resetPageBackdrop()
         guard BrowserPageTunables.loadingBackground.value else { return }
         setDrawsPageBackground(false)
         pageBaseHold.schedule(after: Self.pageBaseHoldLimit) { @MainActor [weak self] in
@@ -49,6 +48,5 @@ extension WebKitTab {
         pageBaseHold.cancel()
         guard !PageBackground.isBlank(webView.url) else { return }
         setDrawsPageBackground(true)
-        samplePageBackdrop()
     }
 }

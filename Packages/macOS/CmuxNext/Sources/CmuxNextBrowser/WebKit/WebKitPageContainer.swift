@@ -36,9 +36,6 @@ final class WebKitPageContainer: NSView {
     /// Inspector shows and hides this way).
     var onSubviewsChange: (() -> Void)?
 
-    /// Its pane started a key resize (`WebKitPageContainer+PaneMotion`): the tab reads the page's color for the gap.
-    var onPaneMotion: (() -> Void)?
-
     override func didAddSubview(_ subview: NSView) {
         super.didAddSubview(subview)
         onSubviewsChange?()
@@ -82,24 +79,8 @@ final class WebKitPageContainer: NSView {
     }
 
     override func resizeSubviews(withOldSize oldSize: NSSize) {
-        // A parked page (hidden in its pane's page area, `BrowserPageArea`) does no view work the person cannot see: the
-        // web view takes the container's size once, when it shows again, not once per frame of every resize meanwhile.
-        if isHidden {
-            if parkedFromSize == nil { parkedFromSize = oldSize }
-            return
-        }
         guard emulation != nil, pageAlone else { return super.resizeSubviews(withOldSize: oldSize) }
         placeEmulatedPage()
-    }
-
-    /// The container's size when a resize first reached it while parked; nil when the web view has the container's size.
-    private var parkedFromSize: NSSize?
-
-    override func viewDidUnhide() {
-        super.viewDidUnhide()
-        guard let size = parkedFromSize else { return }
-        parkedFromSize = nil
-        resizeSubviews(withOldSize: size)
     }
 
     private var isScaledForEmulation = false
