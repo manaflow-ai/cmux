@@ -32,5 +32,7 @@ for path in "$@"; do
   echo "tcc-grant.sh: granted $path (csreq ${csreq:0:4})"
 done
 sudo -n launchctl kickstart -k system/com.apple.tccd >/dev/null 2>&1 || true
+# The user's tccd may hold an earlier answer; from inside the login session this restarts it too.
+launchctl kickstart -k "gui/$(id -u)/com.apple.tccd" >/dev/null 2>&1 || true
 sleep 2 # tccd answers once it has reread the databases
 exit $status

@@ -21,6 +21,7 @@
 # 1920x1080 display. Its artifact is then artifacts/cu-driver-eval.tgz, as on a console Mac, with
 # vm.json added; its exit status is the A/B's.
 set -uo pipefail
+started_at=$(date +%s)
 base_url="" suite=probe reps=3 drivers="cmux-cua,cua-driver-0.38.0"
 for arg in "$@"; do
   case "$arg" in
@@ -243,28 +244,34 @@ setup="mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo '$pubkey' >>~/.ssh/authorized
 setup+=" && echo lume | sudo -S sh -c 'echo \"lume ALL=(ALL) NOPASSWD: ALL\" >/etc/sudoers.d/cu-eval && chmod 440 /etc/sudoers.d/cu-eval'"
 lume ssh "$vm" -t 60 "$setup" >"$out/key.log" 2>&1 || { finish "could not install the run's key in the guest (key.log)"; exit 4; }
 # -n everywhere but the copy, which reads the archive from stdin: ssh must not eat the step's stdin.
-guest() { ssh -i "$keydir/id" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=error "lume@$ip" "$@"; }
-guest -n true || { finish "ssh with the run's key failed"; exit 4; }
+ssh_opts=(-i "$keydir/id" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=error)
+guest() { ssh "${ssh_opts[@]}" "lume@$ip" "$@"; }
+guest_n() { ssh -n "${ssh_opts[@]}" "lume@$ip" "$@"; }
+guest_n true || { finish "ssh with the run's key failed"; exit 4; }
 rev=$(git rev-parse HEAD)
 git archive "$rev" scripts/measure/cu-driver-eval.sh scripts/measure/cu-driver-eval scripts/build-cmux-cua.sh |
   guest 'rm -rf ~/cu-eval && mkdir -p ~/cu-eval && tar -x -C ~/cu-eval' || { finish "could not copy the A/B into the guest"; exit 4; }
-guest -n "bash ~/cu-eval/scripts/measure/cu-driver-eval/guest-start.sh $rev $reps '$drivers'" >"$out/start.log" 2>&1 ||
+guest_n "bash ~/cu-eval/scripts/measure/cu-driver-eval/guest-start.sh $rev $reps '$drivers'" >"$out/start.log" 2>&1 ||
   { cat "$out/start.log"; finish "could not start the A/B in the guest's session (start.log)"; exit 4; }
 cat "$out/start.log"
 note "the A/B is running in the guest"
 finished=0
-for _ in $(seq 1 540); do
-  guest -n 'test -f ~/cu-eval/eval.status' 2>/dev/null && { finished=1; break; }
-  sleep 10 # bounded wait for the A/B: 90 minutes for its builds, downloads and trials
+# Up to 90 minutes for its builds, downloads and trials, ending 5 minutes before the step's
+# 7200 s budget runs out (a first pull and the boot spend some of it), so the results still come back.
+deadline=$(( started_at + 6900 ))
+(( deadline > $(date +%s) + 5400 )) && deadline=$(( $(date +%s) + 5400 ))
+while (( $(date +%s) < deadline )); do
+  guest_n 'test -f ~/cu-eval/eval.status' 2>/dev/null && { finished=1; break; }
+  sleep 10
 done
-guest -n 'cat ~/cu-eval/eval.log' >"$out/eval.log" 2>/dev/null
+guest_n 'cat ~/cu-eval/eval.log' >"$out/eval.log" 2>/dev/null
 tail -40 "$out/eval.log"
-[[ $finished == 1 ]] || { finish "the A/B did not finish in the guest within 90 minutes (eval.log)"; exit 4; }
-eval_status=$(guest -n 'cat ~/cu-eval/eval.status' 2>/dev/null | tr -dc '0-9')
+[[ $finished == 1 ]] || { finish "the A/B did not finish in the guest in the time left (eval.log)"; exit 4; }
+eval_status=$(guest_n 'cat ~/cu-eval/eval.status' 2>/dev/null | tr -dc '0-9')
 [[ -n "$eval_status" ]] || eval_status=4
 facts=$(python3 -I -c 'import json, sys; f = json.loads(sys.argv[1]); f["input_ab_exit"] = int(sys.argv[2]); print(json.dumps(f))' "$facts" "$eval_status")
 finish
-if guest -n 'cat ~/cu-eval/artifacts/cu-driver-eval.tgz' >"$out/guest-eval.tgz" 2>/dev/null && tar -xzf "$out/guest-eval.tgz" -C "$root/artifacts"; then
+if guest_n 'cat ~/cu-eval/artifacts/cu-driver-eval.tgz' >"$out/guest-eval.tgz" 2>/dev/null && tar -xzf "$out/guest-eval.tgz" -C "$root/artifacts"; then
   cp "$out/vm.json" "$out/eval.log" "$root/artifacts/cu-driver-eval/"
   tar -czf "$root/artifacts/cu-driver-eval.tgz" -C "$root/artifacts" cu-driver-eval
   cat "$root/artifacts/cu-driver-eval/summary.md" 2>/dev/null
