@@ -279,6 +279,7 @@ extension SettingsSchema {
         "cloud.agentsStartWithoutAsking": .userOnly,
         // The person's consent to copy their own Claude login to their own Cloud machines: only theirs to give.
         "cloud.useMyClaudeLoginOnMyCloudMachines": .privacy,
+        "cloud.useMyCodexLoginOnMyCloudMachines": .privacy,
         "agents.chats.roots": .privacy,
         "agents.chats.discovery": .privacy,
         "agentPane.scrollToBottomOnSend": .userOnly,
