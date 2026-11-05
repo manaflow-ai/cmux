@@ -581,7 +581,6 @@ CmuxNextAgentPane	struct	AgentPaneProcessExit	0	LOGIC	100	0	Packages/macOS/CmuxN
 CmuxNextAgentPane	struct	AcpmuxReadyLine	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxWebEndpoint.swift	from struct AcpmuxWebEndpoint:5: Splits webUrl into ws endpoint and token: copy of connection parsing
 CmuxNextAgentPane	struct	AcpmuxWebEndpoint	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxWebEndpoint.swift	Splits webUrl into ws endpoint and token: copy of connection parsing
 CmuxNextAgentPane	struct	AcpmuxWebModes	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxWebModes.swift	Hand-written Swift Codable of a daemon reply/row (wire type)
-CmuxNextAgentPane	extension	ActionRegistry	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/ActionRegistry+SideSessions.swift	Action registry wiring
 CmuxNextAgentPane	enum	AgentChatCopyOutcome	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentChatCopyOperations.swift	Assembles clipboard text of focused chat (formatter of product data)
 CmuxNextAgentPane	extension	Dictionary	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentChatCopyOperations.swift	from enum AgentChatCopyOutcome:5: Assembles clipboard text of focused chat (formatter of product data)
 CmuxNextAgentPane	struct	AgentChatCopyOperations	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentChatCopyOperations.swift	from enum AgentChatCopyOutcome:5: Assembles clipboard text of focused chat (formatter of product data)

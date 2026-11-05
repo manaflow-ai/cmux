@@ -165,3 +165,18 @@ a839, test (linux) green on run 40985398560. Product fixes in acpmux:
 Test-only: fake agent sends `totalTokens` (#27132), session_pool expects a crashed daemon's
 pooled host to end itself (c7e99bd), remote_guard_modes expects the VM-boundary ambiguity
 refusal (#26276), agent_tools and tailnet_embedded_logout use the hermetic helper.
+
+## Notice to PL-acpmux: chat guidance and the person's skills (2026-11-05)
+
+Design: [agent-guidance-DESIGN.md](agent-guidance-DESIGN.md). What changed in acpmux:
+- `agent_guidance.rs` (new): cmux's built-in chat guidance (plan list, side sessions, session
+  links, closing recap, editing cmux live) and the person's skills from `~/.config/cmux/skills`.
+- First-turn context: a new part `cmux-guidance` (`context_inventory::snapshot_for`, sent as
+  `<cmux-guidance-context>`), beside the default/user/project rule, never replacing it. Claude
+  Code gets a short pointer to the skill; Codex and other harnesses get the compact guidance and
+  an index of the person's skills. Fresh forks get it too (`hub/fork.rs`).
+- Skills: `cmux:cmux-chat` joins `SKILL_FILES`; the person's skills are a second session plugin,
+  `cmux-user`, written per content hash under `agent-tools/user-<hash>` (regular files only) and
+  passed as a second `--plugin-dir` (`AgentTools::user_plugin_dir`).
+- Settings `agents.guidance.{claude,codex,otherAgents,userSkills}` (default on, user-only), read
+  when a chat is created. The test fakes treat `<cmux-guidance-context>` as hidden guidance.

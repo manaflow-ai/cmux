@@ -34,7 +34,9 @@ live_code_xcodebuild_args() { # CONFIG [LIST]
   # code build bound hundreds: two private classes' deinits at one address). Live code also needs
   # every function at its own address, or a patch to one repoints all the code folded with it.
   local ldflags='$(inherited) -Xlinker -no_fixup_chains -Xlinker -no_deduplicate'
-  [[ -n "$list" ]] && ldflags+=" -Xlinker -interposable_list -Xlinker $list"
+  # Quoted: Xcode splits OTHER_LDFLAGS on spaces, and a fleet checkout sits under
+  # "/Library/Application Support".
+  [[ -n "$list" ]] && ldflags+=" -Xlinker -interposable_list -Xlinker \"$list\""
   # shellcheck disable=SC2016 # Xcode expands $(TARGET_NAME), not the shell
   printf '%s\n' \
     EMIT_FRONTEND_COMMAND_LINES=YES \

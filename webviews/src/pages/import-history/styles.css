@@ -86,6 +86,7 @@
 }
 .history-muted,
 .history-safety,
+.history-note,
 .history-file,
 .history-report {
   color: var(--page-text-2);
@@ -137,6 +138,10 @@
   padding: 8px;
   font: inherit;
   user-select: text;
+}
+.history-note {
+  margin: var(--ds-space-5) 0 0;
+  line-height: 1.5;
 }
 .history-safety {
   margin: 24px 0;

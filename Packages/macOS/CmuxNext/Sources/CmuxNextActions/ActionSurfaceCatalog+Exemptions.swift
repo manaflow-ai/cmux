@@ -96,7 +96,7 @@ nonisolated extension ActionSurfaceCatalog {
         "browser.extension.remove", "browser.extension.command", "browserProfile.new", "browserProfile.rename",
         "browserProfile.setColor", "browserProfile.clearColor", "browserProfile.setIcon", "browserProfile.clearIcon",
         "browserProfile.clearBrowsingData", "browserProfile.removeImportedData", "browserProfile.newTab", "browserProfile.newWindow", "browserProfile.newWorkspace",
-        "browserProfile.openLink", "browserProfile.setWorkspaceDefault", "browserProfile.clearWorkspaceDefault",
+        "browserProfile.openLink", "browserProfile.openLinkInNew", "browserProfile.setWorkspaceDefault", "browserProfile.clearWorkspaceDefault",
         "browserProfile.setSpaceDefault", "browserProfile.clearSpaceDefault", "browserProfile.moveTab",
         "browserProfile.duplicateTab", "palette.toggleMatchTerminalBackground", "palette.enableMinimalMode",
         "palette.disableMinimalMode", "palette.enableBrowser", "palette.disableBrowser", "markAllNotificationsRead", "clearAllNotifications",

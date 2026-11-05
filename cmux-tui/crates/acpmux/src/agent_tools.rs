@@ -13,7 +13,9 @@
 //!   (`--plugin-dir`) whose skills are `cmux:cmux-browser`,
 //!   `cmux:cmux-cua`, `cmux:cmux-customization` (settings, and a view of the
 //!   person's own that an agent writes as the customize app) and
-//!   `cmux:acpmux` (the acpmux CLI guide, for driving sessions from a shell). The skill text is compiled in from `skills/` and
+//!   `cmux:acpmux` (the acpmux CLI guide, for driving sessions from a shell) and
+//!   `cmux:cmux-chat` (plans, sub-sessions, links and the recap; `agent_guidance.rs`, which
+//!   also adds the person's own skills as a `cmux-user` plugin). The skill text is compiled in from `skills/` and
 //!   written once per content hash under `<ACPMUX_HOME>/agent-tools/`.
 //!   Only the skill descriptions reach the prompt (progressive disclosure).
 //!   `cmux-cua` is model-invocable: its description claims tasks in a
@@ -220,6 +222,8 @@ const SKILL_FILES: &[(&str, &str)] = &[
     ),
     ("cmux-live/SKILL.md", include_str!("../../../../skills/cmux-live/SKILL.md")),
     ("acpmux/SKILL.md", include_str!("../skills/acpmux/SKILL.md")),
+    // How the chat draws a plan, sub-sessions, links and a recap (`agent_guidance.rs`).
+    ("cmux-chat/SKILL.md", include_str!("../skills/cmux-chat/SKILL.md")),
 ];
 
 /// One stdio MCP server.
@@ -237,6 +241,9 @@ pub struct AgentTools {
     pub servers: Vec<McpServer>,
     /// The Claude Code plugin folder holding the skills.
     pub plugin_dir: Option<PathBuf>,
+    /// The person's own skills (`~/.config/cmux/skills`) as a second plugin, `cmux-user`
+    /// (`agent_guidance.rs`), while `agents.guidance.userSkills` is on and there are any.
+    pub user_plugin_dir: Option<PathBuf>,
     /// The display allocation folder, only in per-workspace display mode
     /// (`agent_displays.rs`): [`AgentTools::scoped`] then gives the
     /// computer use server its workspace's display, or leaves it out.
@@ -658,14 +665,17 @@ fn resolve_with_cua_helper(
             env: vec![],
         });
     }
-    let plugin_dir = match materialize(&inputs.state_dir) {
+    // `agents.guidance.claude` off leaves `cmux-chat` out of the plugin, not only the pointer.
+    let chat_skill = crate::agent_guidance::Switches::current().claude;
+    let plugin_dir = match materialize(&inputs.state_dir, chat_skill) {
         Ok(dir) => Some(dir),
         Err(e) => {
             tracing::warn!("agent tools: the skills plugin was not written: {e:#}");
             None
         }
     };
-    AgentTools { servers, plugin_dir, displays: inputs.displays.clone() }
+    let user_plugin_dir = user_plugin(&inputs.state_dir);
+    AgentTools { servers, plugin_dir, user_plugin_dir, displays: inputs.displays.clone() }
 }
 
 impl AgentTools {
@@ -945,7 +955,7 @@ impl AgentTools {
                 }
             }
         }
-        if let Some(dir) = &self.plugin_dir {
+        for dir in self.plugin_dir.iter().chain(&self.user_plugin_dir) {
             args.push("--plugin-dir".into());
             args.push(dir.to_string_lossy().into_owned());
         }
@@ -1018,11 +1028,30 @@ fn memory_enabled(text: &str) -> bool {
         == Some(Value::Bool(true))
 }
 
+/// The person's skills as the `cmux-user` plugin, read now; `None` when the switch is off,
+/// there are none, or the copy failed (logged: the session starts without them).
+fn user_plugin(state_dir: &Path) -> Option<PathBuf> {
+    use crate::agent_guidance as guidance;
+    if !guidance::Switches::current().user_skills {
+        return None;
+    }
+    let skills = guidance::user_skills(&guidance::user_skills_dir()?);
+    guidance::materialize_user_plugin(state_dir, &skills)
+        .inspect_err(|e| {
+            tracing::warn!("agent tools: the user skills plugin was not written: {e:#}")
+        })
+        .ok()
+        .flatten()
+}
+
 /// The plugin folder for the compiled-in skills, written once per content
 /// hash (to a temporary folder, then renamed, so a reader never sees half).
-fn materialize(state_dir: &Path) -> anyhow::Result<PathBuf> {
+/// `chat_skill` false leaves out `cmux-chat` (the `agents.guidance.claude` switch).
+fn materialize(state_dir: &Path, chat_skill: bool) -> anyhow::Result<PathBuf> {
+    let skill_files: Vec<&(&str, &str)> =
+        SKILL_FILES.iter().filter(|(p, _)| chat_skill || !p.starts_with("cmux-chat/")).collect();
     let mut all = Vec::new();
-    for (path, text) in SKILL_FILES {
+    for (path, text) in &skill_files {
         all.extend_from_slice(path.as_bytes());
         all.push(0);
         all.extend_from_slice(text.as_bytes());
@@ -1044,7 +1073,7 @@ fn materialize(state_dir: &Path) -> anyhow::Result<PathBuf> {
         "version": env!("CARGO_PKG_VERSION"),
     });
     let mut files = vec![(".claude-plugin/plugin.json".to_owned(), manifest.to_string())];
-    files.extend(SKILL_FILES.iter().map(|(p, t)| (format!("skills/{p}"), (*t).to_owned())));
+    files.extend(skill_files.iter().map(|(p, t)| (format!("skills/{p}"), (*t).to_owned())));
     files.push(("hooks/hooks.json".to_owned(), hooks));
     for (path, text) in files {
         let file = tmp.join(path);

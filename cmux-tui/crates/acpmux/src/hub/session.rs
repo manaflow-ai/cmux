@@ -268,6 +268,11 @@ pub struct Session {
     /// The turn id whose forced cancellation was already published. A second
     /// Stop for the same turn must not publish another forced answer.
     pub(super) cancel_forced_turn: StdMutex<Option<String>>,
+    /// The turn whose own prompt is not handed to its agent yet, and whether a Stop fenced it
+    /// meanwhile (`cancel.rs`). A fenced prompt is never written (`steer_end.rs`), so its Stop
+    /// sends the agent no `session/cancel`: with no prompt of the turn to stop, a harness could
+    /// keep that cancel and end the next turn with it.
+    pub(super) unwritten_prompt: StdMutex<Option<(String, bool)>>,
     /// The forced `turn_result` already written for a turn, if any. This is
     /// separate from `cancel_forced_turn`: several prompt waiters can observe
     /// the same forced answer, but only one may append the result.
@@ -399,6 +404,10 @@ pub struct Session {
     /// Tool calls that run `gh pr create`, and the URL each printed so far, until they end
     /// (`pull_requests.rs`).
     pub(super) pr_creates: StdMutex<std::collections::HashMap<String, Option<String>>>,
+    /// Files its tool calls just edited, for the who-else notice (`touched.rs`).
+    pub(super) touch_queue: StdMutex<Vec<(String, String)>>,
+    /// The sessions it was told share its files, once each (`touched.rs`).
+    pub(super) overlaps_told: StdMutex<std::collections::HashSet<String>>,
     /// Its agent's `start_session` tool calls that run, with their input (`lineage.rs`).
     pub(super) start_calls: StdMutex<std::collections::HashMap<String, Value>>,
     /// The places typing into it, and who sent its prompts (`composers.rs`).
