@@ -31,6 +31,9 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
     private var frameRate = ScreenQuality.baselineFrameRate
     /// The most pixels on the captured picture's long edge (``setMaximumLongEdge(_:)``; nil: the display's size).
     private var longEdgeCap: Int?
+    /// The last reconfiguration failed: the running capture may not be at
+    /// ``longEdgeCap``, so the same cap set again reconfigures.
+    private var configurationFailed = false
     private var onFrame: (@Sendable (CVPixelBuffer, CGRect) -> Void)?
     private var onDisplays: (@Sendable ([CGSize], Int) -> Void)?
     private let input = EventInjector()
@@ -164,8 +167,9 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
     /// so the encoder gets the smaller picture with no extra copy.
     public func setMaximumLongEdge(_ pixels: Int?) {
         let generation = lock.withLock { () -> Int? in
-            guard pixels != longEdgeCap else { return nil }
+            guard pixels != longEdgeCap || configurationFailed else { return nil }
             longEdgeCap = pixels
+            configurationFailed = false
             return stream == nil || streamDisplay == nil ? nil : streamGeneration
         }
         guard let generation else { return }
@@ -198,6 +202,7 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
                     log("capturing display \(running.display.displayID) at \(configuration.width)x\(configuration.height), \(rate) fps")
                 } catch {
                     log("capture \(configuration.width)x\(configuration.height) at \(rate) fps not applied: \(error.localizedDescription)")
+                    lock.withLock { configurationFailed = true }
                     return
                 }
                 applied = (rate, running.cap)

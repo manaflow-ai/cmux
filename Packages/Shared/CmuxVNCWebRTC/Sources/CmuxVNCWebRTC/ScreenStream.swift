@@ -603,15 +603,16 @@ public final class ScreenStreamHost: @unchecked Sendable {
 
     /// Takes a viewer's `view` report: once a new size held long enough
     /// (``ViewerDemand``), the source captures at it and the encoder's
-    /// bitrate follows the smaller picture.
+    /// bitrate follows the smaller picture. The demand follows the viewer
+    /// under a fixed preset too, so going back to Auto starts at its size.
     private func applyDemand(_ input: ScreenInput, session: Session) {
         guard let longEdge = input.i, session.backend.scalesToDemand else { return }
         let now = Double(DispatchTime.now().uptimeNanoseconds) / 1e9
         let changed = session.lock.withLock { () -> Int?? in
             let display = session.displays.indices.contains(session.current) ? session.displays[session.current] : .zero
-            guard session.quality == .auto || session.quality == .smooth,
-                  session.demand.report(longEdge: longEdge, displayLongEdge: Int(max(display.width, display.height)),
-                                        pinch: input.d == true, now: now) else { return nil }
+            guard session.demand.report(longEdge: longEdge, displayLongEdge: Int(max(display.width, display.height)),
+                                        pinch: input.d == true, now: now),
+                  session.quality == .auto || session.quality == .smooth else { return nil }
             return .some(session.demand.cap)
         }
         guard let changed else { return }
