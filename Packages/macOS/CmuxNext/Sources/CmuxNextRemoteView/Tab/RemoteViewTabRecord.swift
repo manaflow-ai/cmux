@@ -73,8 +73,8 @@ public nonisolated struct RemoteViewTabRecord: Sendable, Hashable {
     /// A Cloud machine's desktop (`via=cloud`): `host` is the machine id, and the app reaches
     /// the machine's VNC server only over its own Cloud tunnel (Open Desktop's native viewer).
     public var cloudDesktop: Bool
-    /// A Cloud desktop shown by the machine's `cmux-rd` host (H.264 over the machine's daemon
-    /// link, `via=cloud-rd`) instead of its VNC server.
+    /// A Cloud desktop shown by the machine's `cmux-rd` host (H.264 over the owner's Native
+    /// link, service `desktop`, `via=cloud-rd`) instead of its VNC server.
     public var cloudRd: Bool
 
     /// The default VNC port.

@@ -206,10 +206,13 @@ nonisolated enum CloudActionDescriptions {
             `cmux cloud new-terminal-on-machine --target machine:<id> --focus` opens and shows a workspace.
             """,
         "cloudOpenDesktop": """
-            Shows the machine's desktop (--target machine:<id>) in a new workspace on this Mac: its noVNC \
-            page in a browser tab, reached over this Mac's Cloud tunnel with no port opened here (--viewer \
-            web, the default). Refused when the machine has no desktop or address, or the browser is \
-            unavailable. Answers at once with no fields, before the page loads.
+            Shows the machine's desktop (--target machine:<id>) in a new workspace on this Mac. For a \
+            machine that reports a desktop the default is --viewer rd: the agent's display as a live \
+            video stream over this Mac's link to the machine, opened watching (Take over in the pane \
+            gives you the mouse and keyboard, Hand back returns them). --viewer web shows the noVNC page \
+            in a browser tab over this Mac's Cloud tunnel, the default for a machine without a desktop \
+            report. Refused when the machine has no desktop, or the viewer cannot reach it. Answers at \
+            once with no fields, before the desktop shows.
             """,
         "cloudRenameMachine": """
             Renames the machine (--target machine:<id> --name <name>; an empty name clears it). Answers at \

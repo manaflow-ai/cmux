@@ -6,7 +6,8 @@ struct NativeCloudBrokerRequest: Decodable, Sendable {
         case connectInfo = "cloud.machine.connect_info"
         case linkToken = "cloud.machine.link_token"
     }
-    enum Service: String, Codable, Sendable { case daemon, ssh }
+    /// cmux-link `Service` names a link token may cover (`desktop`: a Cloud desktop's rd stream).
+    enum Service: String, Codable, Sendable { case daemon, ssh, desktop }
     private enum CodingKeys: String, CodingKey, CaseIterable { case version, id, op, host, services }
     private struct Field: CodingKey {
         let stringValue: String
@@ -44,7 +45,7 @@ struct NativeCloudBrokerRequest: Decodable, Sendable {
         case .connectInfo:
             guard !values.contains(.services) else { throw NativeDeviceEnrollmentError.invalidScope }
         case .linkToken:
-            guard let services, (1...2).contains(services.count), Set(services).count == services.count else {
+            guard let services, (1...3).contains(services.count), Set(services).count == services.count else {
                 throw NativeDeviceEnrollmentError.invalidScope
             }
         }

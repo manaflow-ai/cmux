@@ -2,9 +2,8 @@ public import AppKit
 public import CmuxNextDesign
 import CmuxNextCompat
 
-// Development builds only: the pane is not exposed in Release until the
-// overlay link token authenticates hello claims (RemoteViewAvailability).
-#if DEBUG
+// Every build: Release shows it only for a Cloud machine's desktop over its Native link; the
+// development hosts stay Debug only (RemoteViewAvailability).
 /// What the pane asks of its owner (the App: transport, layout, settings).
 public struct RemoteDesktopPaneHandlers {
     /// Stop pressed (toolbar, or Cancel while connecting): close the session.
@@ -18,6 +17,9 @@ public struct RemoteDesktopPaneHandlers {
     public var selectQuality: (RemoteQualityPreset) -> Void = { _ in }
     /// A display picked (phase 2: the host's display list).
     public var selectDisplay: (Int) -> Void = { _ in }
+    /// The mode the toolbar asked for (the toggle, or Take over / Hand back), after the pane
+    /// applied it: an owner whose session's mode is fixed at its start restarts it.
+    public var selectMode: (RemoteControlMode) -> Void = { _ in }
     /// cmux shortcut matcher: true keeps the chord in the viewer.
     public var isLocalShortcut: (NSEvent) -> Bool = { _ in false }
 
@@ -76,13 +78,15 @@ public final class RemoteDesktopPane {
         presenter: RemotePresenterKind = RemoteViewTunables().presenter.value,
         initialMode: RemoteControlMode = .control,
         scaling: RemoteViewGeometry.Scaling = .native,
-        viaCloudTunnel: Bool = false
+        viaCloudTunnel: Bool = false,
+        modeControl: RemoteModeControl = .toggle
     ) {
         self.source = source
         self.inputSink = inputSink
         self.settings = settings
         state = RemotePaneState(hostName: hostName, requestedMode: initialMode, interactiveMaxRttMs: settings.interactiveMaxRttMs)
         state.viaCloudTunnel = viaCloudTunnel
+        state.modeControl = modeControl
         self.presenter = RemoteFramePresenters().make(presenter)
         presenterKind = self.presenter.kind
         view.video.install(self.presenter)
@@ -158,7 +162,7 @@ public final class RemoteDesktopPane {
     }
 
     private func wireChrome() {
-        view.toolbar.onSelectMode = { [weak self] in self?.apply(.selectMode($0)) }
+        view.toolbar.onSelectMode = { [weak self] mode in self?.selectMode(mode) }
         view.toolbar.onSelectQuality = { [weak self] preset in
             guard let self else { return }
             settings.quality = preset
@@ -176,6 +180,14 @@ public final class RemoteDesktopPane {
         }
         view.card.onClose = { [weak self] in self?.handlers.close() }
         view.banner.onControlAnyway = { [weak self] in self?.apply(.controlAnyway) }
+    }
+
+    /// The toolbar's mode choice: applied, then told to the owner (a press of the mode already
+    /// in force does nothing).
+    func selectMode(_ mode: RemoteControlMode) {
+        guard mode != state.requestedMode else { return }
+        apply(.selectMode(mode))
+        handlers.selectMode(mode)
     }
 
     /// A share button: the user's explicit action for `kind`. It asks macOS
@@ -235,4 +247,3 @@ nonisolated final class OneShotSignal: Sendable {
         }
     }
 }
-#endif

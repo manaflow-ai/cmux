@@ -10,6 +10,10 @@ public nonisolated enum RemotePaneEvent: Sendable, Hashable {
     case stop
     /// The viewer pressed Reconnect; a new session starts connecting.
     case reconnect
+    /// Take over or Hand back: the live session ends and a new one starts in the requested
+    /// mode (`cmux.rd/1` fixes a session's mode at its start), shown as reconnecting over
+    /// the last frame.
+    case restartForMode
     case setInteractiveMaxRtt(Int)
     /// The indicator's Stop (or the toolbar button of an active kind): the
     /// kind disappears at once; the transport revokes its consent.
@@ -57,6 +61,14 @@ public struct RemotePaneReducer {
             status.rttMs = nil
             next.status = status
             next.controlDespiteLatency = false
+            next.reconnecting = state.hasFrame || state.reconnecting
+            next.hasFrame = false
+        case .restartForMode:
+            guard !state.isEnded else { break }
+            var status = state.status ?? RemoteViewStatus(state: .connecting)
+            status.state = .connecting
+            status.rttMs = nil
+            next.status = status
             next.reconnecting = state.hasFrame || state.reconnecting
             next.hasFrame = false
         case let .setInteractiveMaxRtt(limit):
