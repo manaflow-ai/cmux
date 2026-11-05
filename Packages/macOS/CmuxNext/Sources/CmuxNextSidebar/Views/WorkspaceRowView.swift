@@ -290,7 +290,7 @@ final class WorkspaceRowView: SidebarRowView {
             animateTitleChange(from: priorTitle, to: shownTitle, variant: tunables.workspaceTitleMotion,
                                placeholder: isShowingPlaceholder || isPlaceholderRow)
         }
-        title.font = ws.titleWeight.map { NSFont.systemFont(ofSize: SidebarStyle.titleFont.pointSize, weight: $0.font) } ?? SidebarStyle.titleFont
+        title.font = ws.titleWeight.map { SidebarStyle.titleFont(weight: $0.font) } ?? SidebarStyle.titleFont
         subtitle.setFont(SidebarStyle.subtitleFont)
         subtitle.setString(shown.now.map(Strings.rowNow) ?? row.detail ?? "")
         hasSubtitle = row.detail != nil

@@ -163,6 +163,10 @@ enum SidebarStyle {
     /// Length of the fade that ends a clipped row title (no ellipsis): 24 pt at Compact. At
     /// 16 pt the fade ended at a word gap and read as a hard cut.
     static var titleFadeWidth: CGFloat { Metrics.space6 + Metrics.space4 }
+    /// A workspace title at a weight of its own (a row decoration's `weight`), at the title's size.
+    static func titleFont(weight: NSFont.Weight) -> NSFont {
+        NSFont.systemFont(ofSize: titleFont.pointSize, weight: weight)
+    }
     static var subtitleFont: NSFont { sized(Typography.caption, weight: .regular) }
     /// One detail line under a row's title (the folder, branch or agent line), as its label lays it out.
     static var detailLineHeight: CGFloat {
