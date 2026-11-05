@@ -12,7 +12,7 @@
 //! run all of it in a temporary folder.
 
 use std::fs;
-use std::io::{self, Read as _};
+use std::io;
 use std::path::{Path, PathBuf};
 
 use sha2::{Digest as _, Sha256};
@@ -77,14 +77,7 @@ fn package_of(target: &Path) -> Option<String> {
 pub fn sha256_file(path: &Path) -> io::Result<String> {
     let mut file = fs::File::open(path)?;
     let mut hasher = Sha256::new();
-    let mut buf = vec![0u8; 1 << 16];
-    loop {
-        let n = file.read(&mut buf)?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
-    }
+    io::copy(&mut file, &mut hasher)?;
     Ok(hasher.finalize().iter().map(|b| format!("{b:02x}")).collect())
 }
 
