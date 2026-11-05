@@ -195,6 +195,9 @@ struct CloudWelcomeTests {
         let counter = CarouselPlayheadReadCounter.install()
         defer { counter.uninstall() }
 
+        func card(headline: String) -> CloudWelcomeView {
+            CloudWelcomeView(nextStep: .upgrade, onNotNow: {}, onNext: { _ in }, posterHeadline: headline)
+        }
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 720),
             styleMask: [.borderless],
@@ -202,25 +205,37 @@ struct CloudWelcomeTests {
             defer: false
         )
         window.isReleasedWhenClosed = false
-        window.contentView = NSHostingView(rootView: CloudWelcomeView(nextStep: .upgrade, onNotNow: {}, onNext: { _ in }))
+        let hosting = NSHostingView(rootView: card(headline: "0"))
+        window.contentView = hosting
         window.orderFrontRegardless()
         defer {
             window.contentView = nil
             window.close()
         }
 
-        // The wall-clock fallback also moves the fill, so the movie must be on screen first.
-        let movieReady = await pump(seconds: 30) {
-            renderedMovieLayers(in: window).contains { $0.isReadyForDisplay && $0.player?.currentItem?.status == .readyToPlay }
+        // The wall-clock fallback also moves the fill, and the old code only read
+        // the time once the duration was known, so both must be settled first.
+        let moviePlaying = await pump(seconds: 30) {
+            renderedMovieLayers(in: window).contains { layer in
+                guard layer.isReadyForDisplay, let player = layer.player, let item = player.currentItem else { return false }
+                return player.timeControlStatus == .playing && item.duration.seconds.isFinite
+            }
         }
-        #expect(movieReady)
+        #expect(moviePlaying)
 
+        // Hosts without a ticking display never fire `.animation`, so each new
+        // input re-runs the TimelineView body directly; a live display adds frames.
         var fills = Set<Int>()
-        let advanced = await pump(seconds: 15) {
-            fills.formUnion(renderedFillOffsets(in: window))
-            return fills.count >= 10
+        for revision in 1...5 {
+            hosting.rootView = card(headline: "\(revision)")
+            _ = await pump(seconds: 5) {
+                let before = fills.count
+                fills.formUnion(renderedFillOffsets(in: window))
+                return fills.count > before
+            }
         }
-        #expect(advanced, "the pager fill took \(fills.count) positions, so its TimelineView body did not keep rendering")
+        let host = "screens \(NSScreen.screens.count), window screen \(window.screen != nil), reduce motion \(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)"
+        #expect(fills.count >= 3, "the pager fill took \(fills.count) positions (\(host)), so its TimelineView body did not re-render")
         #expect(counter.reads == 0)
     }
 
