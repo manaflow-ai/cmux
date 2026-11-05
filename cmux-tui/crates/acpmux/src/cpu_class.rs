@@ -176,6 +176,24 @@ pub struct HarnessState {
     /// Pages it read in from disk or swap: the work a harness does while memory is short and
     /// every thread waits on a page.
     pub pageins: u64,
+    /// Its own program name (`sr2`, `claude`), so an error says which process it read.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub name: String,
+    /// The first process it started, if any: for a launcher (`sr2 claude`) that is its agent. An
+    /// error names it, so a start that stalled before the launcher started its agent reads apart
+    /// from one whose agent is slow (#36028: the stall was in `claude`, after `sr2` started it).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_child: Option<ChildSeen>,
+}
+
+/// The first process a harness started, as a start's deadline error names it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChildSeen {
+    pub pid: u32,
+    pub name: String,
+    pub cpu_ms: u64,
+    pub pageins: u64,
 }
 
 impl HarnessState {
@@ -246,9 +264,10 @@ impl HarnessState {
 impl std::fmt::Display for HarnessState {
     /// One clause for an error a person reads (no vendor names).
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let named = if self.name.is_empty() { String::new() } else { format!(", {}", self.name) };
         write!(
             f,
-            "its agent process (pid {}, {} process{} in all) is alive at {} CPU class (priority {}), ran {} s, used {:.1} s of CPU, {} of {} threads running, {} page-ins",
+            "its agent process (pid {}{named}, {} process{} in all) is alive at {} CPU class (priority {}), ran {} s, used {:.1} s of CPU, {} of {} threads running, {} page-ins",
             self.pid,
             self.processes,
             if self.processes == 1 { "" } else { "es" },
@@ -259,7 +278,22 @@ impl std::fmt::Display for HarnessState {
             self.threads_running,
             self.threads,
             self.pageins,
-        )
+        )?;
+        // Only when it was read: an empty name means the platform names no process.
+        if self.name.is_empty() {
+            return Ok(());
+        }
+        match &self.first_child {
+            Some(child) => write!(
+                f,
+                "; the first process it started is {} (pid {}), which used {:.1} s of CPU and {} page-ins",
+                child.name,
+                child.pid,
+                child.cpu_ms as f64 / 1000.0,
+                child.pageins,
+            ),
+            None => write!(f, "; it has started no process"),
+        }
     }
 }
 
@@ -302,23 +336,25 @@ mod imp {
     /// servers are a handful; the bound keeps a harness that forks a build from costing more.
     const TREE_MAX: usize = 64;
 
-    /// The processes `root` started, and theirs, at most [`TREE_MAX`] in all with `root`. Only
-    /// the descendants of a harness acpmux spawned and holds: no other process is listed.
-    fn tree(root: libc::c_int) -> Vec<libc::c_int> {
-        let mut all = vec![root];
+    /// The processes `root` started, and theirs, at most [`TREE_MAX`] in all with `root`, each
+    /// with the process that started it (`root`'s own is 0). Only the descendants of a harness
+    /// acpmux spawned and holds: no other process is listed.
+    fn tree(root: libc::c_int) -> Vec<(libc::c_int, libc::c_int)> {
+        let mut all = vec![(root, 0)];
         let mut next = 0;
         while next < all.len() && all.len() < TREE_MAX {
+            let parent = all[next].0;
             let mut kids = [0 as libc::c_int; TREE_MAX];
             let bytes = libc::c_int::try_from(std::mem::size_of_val(&kids)).unwrap_or(0);
             // SAFETY: the buffer holds `bytes` bytes of pids, which the kernel fills.
-            let n = unsafe { libc::proc_listchildpids(all[next], kids.as_mut_ptr().cast(), bytes) };
+            let n = unsafe { libc::proc_listchildpids(parent, kids.as_mut_ptr().cast(), bytes) };
             let n = usize::try_from(n).unwrap_or(0).min(TREE_MAX);
             for kid in kids[..n].iter().copied() {
                 if all.len() == TREE_MAX {
                     break;
                 }
-                if kid > 0 && !all.contains(&kid) {
-                    all.push(kid);
+                if kid > 0 && !all.iter().any(|(p, _)| *p == kid) {
+                    all.push((kid, parent));
                 }
             }
             next += 1;
@@ -344,9 +380,31 @@ mod imp {
         };
         let (mut ticks, mut threads, mut running, mut pageins, mut processes) =
             (0u128, 0i32, 0i32, 0u64, 0i32);
+        let to_ms = |ticks: u128| {
+            u64::try_from(ticks.saturating_mul(numer) / denom / 1_000_000).unwrap_or(u64::MAX)
+        };
         // The harness itself, then each process under it that is still there to read.
-        let rest =
-            tree(id).into_iter().skip(1).filter_map(|kid| pidinfo(kid, libc::PROC_PIDTASKINFO));
+        let kids: Vec<(libc::c_int, libc::c_int, libc::proc_taskinfo)> = tree(id)
+            .into_iter()
+            .skip(1)
+            .filter_map(|(kid, parent)| Some((kid, parent, pidinfo(kid, libc::PROC_PIDTASKINFO)?)))
+            .collect();
+        // Its first process: of those it started itself, the one that started first.
+        let first_child = kids
+            .iter()
+            .filter(|(_, parent, _)| *parent == id)
+            .filter_map(|(kid, _, t)| {
+                let b: libc::proc_bsdinfo = pidinfo(*kid, libc::PROC_PIDTBSDINFO)?;
+                Some(((b.pbi_start_tvsec, b.pbi_start_tvusec), *kid, name_of(&b), t))
+            })
+            .min_by_key(|(started, kid, _, _)| (*started, *kid))
+            .map(|(_, kid, name, t)| super::ChildSeen {
+                pid: u32::try_from(kid).unwrap_or(0),
+                name,
+                cpu_ms: to_ms(u128::from(t.pti_total_user.saturating_add(t.pti_total_system))),
+                pageins: u64::try_from(t.pti_pageins).unwrap_or(0),
+            });
+        let rest = kids.iter().map(|(_, _, t)| *t);
         for t in std::iter::once(task).chain(rest) {
             ticks += u128::from(t.pti_total_user.saturating_add(t.pti_total_system));
             threads = threads.saturating_add(t.pti_threadnum);
@@ -354,7 +412,6 @@ mod imp {
             pageins = pageins.saturating_add(u64::try_from(t.pti_pageins).unwrap_or(0));
             processes += 1;
         }
-        let cpu_ns = ticks.saturating_mul(numer) / denom;
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
@@ -365,12 +422,25 @@ mod imp {
             // MAXPRI_THROTTLE: the base priority of a darwinbg task.
             background: task.pti_priority <= 4,
             ran_secs: now.saturating_sub(bsd.pbi_start_tvsec),
-            cpu_ms: u64::try_from(cpu_ns / 1_000_000).unwrap_or(u64::MAX),
+            cpu_ms: to_ms(ticks),
             threads,
             threads_running: running,
             processes,
             pageins,
+            name: name_of(&bsd),
+            first_child,
         })
+    }
+
+    /// A process's program name: its long name, else its short one (both NUL-ended).
+    fn name_of(bsd: &libc::proc_bsdinfo) -> String {
+        let text = |chars: &[libc::c_char]| {
+            let bytes: Vec<u8> =
+                chars.iter().take_while(|c| **c != 0).map(|c| c.to_ne_bytes()[0]).collect();
+            String::from_utf8_lossy(&bytes).into_owned()
+        };
+        let long = text(&bsd.pbi_name);
+        if long.is_empty() { text(&bsd.pbi_comm) } else { long }
     }
 
     pub(super) fn cpu_ticks(pid: u32) -> Option<u64> {
@@ -475,6 +545,49 @@ mod tests {
         let _ = launcher.wait();
         // The launcher alone used a few ms; its agent's loop took far more.
         assert!(state.cpu_ms >= 100, "the agent's CPU time counts: {state:?}");
+        // The error names the launcher and the agent it started, with the agent's own work.
+        assert_eq!(state.name, "sh");
+        let agent = state.first_child.as_ref().expect("the agent the launcher started");
+        assert_eq!(agent.name, "sh");
+        assert!(agent.cpu_ms >= 100, "the agent's own CPU time: {state:?}");
+        let said = state.to_string();
+        assert!(said.contains("; the first process it started is sh (pid "), "{said}");
+    }
+
+    /// #36028: a start's error says which process it read and what its launcher started, so a
+    /// launcher that never started its agent reads apart from an agent that is slow.
+    #[test]
+    fn a_deadline_clause_names_the_launcher_and_the_agent_it_started() {
+        let launcher = HarnessState {
+            pid: 9104,
+            priority: 20,
+            background: false,
+            ran_secs: 87,
+            cpu_ms: 140,
+            threads: 20,
+            threads_running: 0,
+            processes: 2,
+            pageins: 1800,
+            name: "sr2".to_owned(),
+            first_child: Some(ChildSeen {
+                pid: 9120,
+                name: "claude".to_owned(),
+                cpu_ms: 40,
+                pageins: 1700,
+            }),
+        };
+        assert_eq!(
+            launcher.to_string(),
+            "its agent process (pid 9104, sr2, 2 processes in all) is alive at normal CPU class \
+             (priority 20), ran 87 s, used 0.1 s of CPU, 0 of 20 threads running, 1800 page-ins; \
+             the first process it started is claude (pid 9120), which used 0.0 s of CPU and 1700 \
+             page-ins"
+        );
+        let alone = HarnessState { first_child: None, processes: 1, ..launcher.clone() };
+        assert!(alone.to_string().ends_with("; it has started no process"), "{alone}");
+        // A platform that names no process adds nothing.
+        let unnamed = HarnessState { name: String::new(), ..alone };
+        assert!(unnamed.to_string().ends_with(" page-ins"), "{unnamed}");
     }
 
     #[test]
@@ -489,6 +602,8 @@ mod tests {
             threads_running: 0,
             processes: 2,
             pageins: 500,
+            name: String::new(),
+            first_child: None,
         };
         assert!(!idle.worked_since(&idle));
         assert!(HarnessState { pageins: 501, ..idle.clone() }.worked_since(&idle));

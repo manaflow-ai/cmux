@@ -13,6 +13,8 @@ fn harness(cpu_ms: u64, threads_running: i32) -> HarnessSeen {
         threads_running,
         processes: 2,
         pageins: 0,
+        name: String::new(),
+        first_child: None,
     })
 }
 
@@ -67,6 +69,8 @@ fn a_harness_that_only_reads_pages_in_still_works() {
             threads_running: 0,
             processes: 2,
             pageins,
+            name: String::new(),
+            first_child: None,
         })
     };
     let mut watch = StartWatch::default();

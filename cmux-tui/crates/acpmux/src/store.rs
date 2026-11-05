@@ -317,6 +317,12 @@ pub struct SessionMeta {
     /// with "No conversation found with session ID".
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub claude_unstored: bool,
+    /// Its creator asked every start of its agent to wait on the harness rather than a wall
+    /// clock (`_meta.acpmux.waitStart`, `Session::wait_start`; the Chief's own sessions). Kept on
+    /// disk, so a wake after hibernation or a daemon restart waits as its first start did: on
+    /// 2026-11-04 a kept Chief session that woke after a restart died at the 90 s deadline again.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub wait_start: bool,
     /// When (Unix ms) the idle exit hibernated its agent, 0 when no start woke it since
     /// (`hub/idle.rs`): after a restart, opening it wakes it and its wake draws no row, as
     /// before the restart, and the wake's log says how long it slept.

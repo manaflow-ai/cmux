@@ -398,6 +398,7 @@ impl Hub {
             tags: Default::default(),
             unread: false,
             claude_unstored: false,
+            wait_start: false,
             hibernated_ms: 0,
             idle_launch: None,
             moved_to: None,
