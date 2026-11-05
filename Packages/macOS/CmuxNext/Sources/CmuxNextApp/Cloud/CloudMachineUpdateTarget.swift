@@ -93,10 +93,10 @@ nonisolated struct CloudMachineUpdateTarget: DaemonUpdateTarget {
     func update(to build: DaemonBuildCommit, whileBusy: Bool) async -> DaemonUpdateOutcome {
         // Gone or not connected now: try again later. A toggle turned off since the policy read the
         // machine: no update starts; asked again, the machine reports no build and is dropped.
-        guard enabled(), await source.daemon() != nil else { return .busy }
-        // A start brings the machine up now: its agent starts on this daemon, so no restart under it (prod,
-        // 2026-11-05: "started but its agent didn't (cmux-tui connection closed: EOF)"). Mid-turn updates stay.
-        guard !(await source.starting()) else { return .busy }
+        guard enabled(), let daemon = await source.daemon() else { return .busy }
+        // No restart under a start bringing the machine up (prod, 2026-11-05: "cmux-tui connection closed: EOF"); mid-turn
+        // updates stay. A refused daemon is never held: a start cannot connect to it, so it waits for this update.
+        guard daemon.level == .incompatible || !(await source.starting()) else { return .busy }
         var outcome: DaemonUpdateOutcome
         var answer: CloudMoveCLI.Answer?, pinned: String?
         do {

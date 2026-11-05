@@ -69,6 +69,20 @@ struct CloudMachineUpdateTargetTests {
         #expect(fixture.ledger.targets == [CloudMachineUpdateTarget.id("vm-1"): "updated"])
     }
 
+    /// A machine whose daemon the app refused cannot take a start until it is updated: a start waits for that
+    /// update, so it is never held (review of #36555).
+    @Test func aRefusedMachineAStartWaitsOnIsUpdatedAtOnce() async throws {
+        let machine = FakeCloudMachine(build: nil, level: .incompatible,
+                                       answers: [CloudMoveCLI.Answer(ok: true, updated: true, build: Self.bundled)], starts: 1)
+        let fixture = try CloudUpdateFixture()
+        defer { fixture.remove() }
+        await fixture.run(machine)
+
+        #expect(machine.updates == 1)
+        #expect(fixture.clock.sleeps.isEmpty, "the start did not hold the update it waits for")
+        #expect(fixture.states == [.updating, .updated(build: Self.bundled)])
+    }
+
     /// An update already running when a start comes: the start waits until that turn ended
     /// (``DaemonUpdatePolicy/turnRunning(_:)``), so its agent starts on the new daemon, not the one being replaced.
     @Test func aStartWaitsOutAnUpdateThatRunsNow() async throws {
