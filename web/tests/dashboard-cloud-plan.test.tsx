@@ -3,6 +3,7 @@ import { NextIntlClientProvider } from "next-intl";
 import { type QueryClient, QueryObserver } from "@tanstack/react-query";
 import { planPromptOutdated, planPromptQuery, RequiresPro } from "../dashboard-app/components/requires-pro";
 import { planQuery } from "../dashboard-app/queries/billing";
+import { invalidateTeamScope } from "../dashboard-app/queries/teams";
 import { CloudPageFrame } from "../dashboard-app/screens/cloud/cloud-frame";
 import enMessages from "../messages/en.json";
 import { createScreenQueryClient, renderDashboardScreen } from "./helpers/dashboard-spa-render";
@@ -38,6 +39,14 @@ async function renderCloudWithClient(queryClient: QueryClient, search = "") {
 }
 
 describe("dashboard Cloud plan prompt", () => {
+  test("creating or joining a team outdates the previous team's plan answer", async () => {
+    const queryClient = createScreenQueryClient();
+    queryClient.setQueryData(planQuery.queryKey, free);
+    expect(planPromptOutdated(queryClient)).toBe(false);
+    await invalidateTeamScope(queryClient);
+    expect(planPromptOutdated(queryClient)).toBe(true);
+  });
+
   test("a Team subscriber without a personal plan is not asked to buy Pro", async () => {
     const html = await renderCloud(team);
     expect(html).toContain("Cloud machines");

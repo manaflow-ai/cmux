@@ -159,6 +159,7 @@ describe("billing complete route", () => {
   describe("selecting the purchased team", () => {
     const teamSession = (metadata: Record<string, string>) => ({
       id: "cs_team",
+      created: Math.floor(Date.now() / 1000) - 60,
       payment_status: "paid",
       client_reference_id: "buyer-1",
       metadata: { app: "cmux", plan: "team", ...metadata },
@@ -197,6 +198,16 @@ describe("billing complete route", () => {
         expect(selectPurchasedTeam).not.toHaveBeenCalled();
       });
     }
+
+    test("reopening an old completion link does not undo a later team switch", async () => {
+      retrievedSession = {
+        ...teamSession({ stackTeamId: "team-paid", stackUserId: "buyer-1" }),
+        created: Math.floor(Date.now() / 1000) - 26 * 60 * 60,
+      };
+      const response = await complete();
+      expect(selectPurchasedTeam).not.toHaveBeenCalled();
+      expect(response.headers.get("location")).toBe("http://localhost:3777/dashboard/teams/team-paid/billing?welcome=team");
+    });
 
     test("an unpaid Team session selects nothing", async () => {
       retrievedSession = { ...teamSession({ stackTeamId: "team-paid", stackUserId: "buyer-1" }), payment_status: "unpaid" };
@@ -349,6 +360,6 @@ describe("selectPurchasedTeam", () => {
       throw new Error("not a member");
     });
     const stack = { getUser: async () => ({ update }) } as unknown as TeamStackApp;
-    await expect(selectPurchasedTeamService({ userId: "buyer-1", teamId: "team-gone" }, { stack })).rejects.toThrow("not a member");
+    await expect(selectPurchasedTeamService({ userId: "buyer-1", teamId: "team-gone" }, { stack })).rejects.toThrow("Stack team request failed");
   });
 });
