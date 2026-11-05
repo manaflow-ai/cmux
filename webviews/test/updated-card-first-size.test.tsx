@@ -62,7 +62,10 @@ test("the Updated card reports no height until the notes of its span have loaded
         sizes.push(params);
         return Promise.resolve(null);
       }
-      // The span's notes: the build list answers when the test says so (a slow first load).
+      // The span's notes: nothing kept on disk, and the network's build list answers when the test
+      // says so (a slow first load).
+      if (op === "cmux.changelog.list" && (params as { cached?: boolean } | undefined)?.cached === true)
+        return Promise.resolve({ builds: [], current: "1.0.0-nightly.42" });
       if (op === "cmux.changelog.list") return new Promise((resolve) => (answerList = resolve));
       return Promise.reject(new Error(`unavailable ${op}`));
     },
