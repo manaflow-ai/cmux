@@ -50,6 +50,40 @@ import Testing
         #expect(failures.isEmpty, Comment(rawValue: "\(failures.count) invisible group backgrounds:\n" + failures.joined(separator: "\n")))
     }
 
+    /// Glass or solid, the members' line paints what its header bar paints at rest (Lawrence 2026-11-05: the Glass
+    /// group's side line matches the header bar), so over any desktop the two read as one color.
+    @Test(arguments: [SidebarGroupBackgroundStyle.glass, .solid])
+    func membersLinePaintsTheHeaderBarsColor(_ style: SidebarGroupBackgroundStyle) throws {
+        var failures: [String] = []
+        let tints = [GroupTint.none] + GroupColor.allCases.map { GroupTint.palette($0) }
+        for (name, scope) in try GroupPaletteDefaultTests.themes() {
+            for tint in tints {
+                let id = GroupID("grp_line")
+                let header = GroupHeaderRowView(key: .group(id))
+                header.frame = NSRect(x: 0, y: 0, width: 240, height: 24)
+                scope.root(header)
+                let group = CmuxNextSidebar.SidebarGroup(id: id, name: "group", custom: tint.wire, workspaces: [])
+                let row = SidebarRow(key: .group(id), y: 0, height: 24, section: .pinned, group: id, siblingIndex: 0,
+                                     parentIndex: nil, isLastInGroup: false, isCollapsed: false, childCount: 2, groupColor: nil)
+                header.configure(group, row: row, details: GroupHeaderDetails(background: style), animated: false)
+                header.layoutSubtreeIfNeeded()
+                header.updateLayer()
+                let line = GroupLineView()
+                line.frame = NSRect(x: 0, y: 0, width: 2, height: 48)
+                scope.root(line)
+                line.color = tint
+                line.background = style
+                line.updateLayer()
+                let bar = Self.rgba(header.pill.backgroundColor), rail = Self.rgba(line.railShape.fillColor)
+                let apart = max(abs(bar.red - rail.red), abs(bar.green - rail.green), abs(bar.blue - rail.blue), abs(bar.alpha - rail.alpha))
+                if apart > 0.01 {
+                    failures.append("\(name) \(tint.wire): bar \(bar), line \(rail)")
+                }
+            }
+        }
+        #expect(failures.isEmpty, Comment(rawValue: "\(failures.count) lines off their bar:\n" + failures.joined(separator: "\n")))
+    }
+
     /// Switching `sidebar.groupHeader.background` redraws the headers already on screen.
     @Test func changingTheBackgroundStyleRedrawsTheList() {
         var before = SidebarSectionsPreferences()

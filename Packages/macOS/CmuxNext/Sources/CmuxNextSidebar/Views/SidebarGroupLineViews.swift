@@ -54,6 +54,7 @@ final class SidebarGroupLineViews {
                 return view
             }()
             view.color = line.color
+            view.background = line.background
             view.strength = SidebarGroupLine.opacity(level: line.level)
             moves.append((view, line.frame))
         }
@@ -104,6 +105,7 @@ final class SidebarGroupLineViews {
                 view.alphaValue = 1
             }
             view.color = line.color
+            view.background = line.background
             view.strength = SidebarGroupLine.opacity(level: line.level)
         }
     }
@@ -144,6 +146,10 @@ final class GroupLineView: NSView {
     var color: GroupTint = .palette(.grey) {
         didSet { if color != oldValue { needsDisplay = true } }
     }
+    /// The header bar's look: under glass the rail takes the bar's translucent paint (`GroupTint.lineFill`).
+    var background: SidebarGroupBackgroundStyle = .auto {
+        didSet { if background != oldValue { needsDisplay = true } }
+    }
     /// The share of `color` the rail draws (`SidebarGroupLine.opacity(level:)`).
     var strength: CGFloat = 1 {
         didSet { if strength != oldValue { needsDisplay = true } }
@@ -179,7 +185,7 @@ final class GroupLineView: NSView {
         performWithTheme {
             // Under the solid band, the band's rest color (Leo 2026-10-19: bar and line are one color);
             // the quieter looks keep the dot's color.
-            let line = look.style == .band ? color.lineFill(themed: look.themed) : color.lineColor(themed: look.themed)
+            let line = look.style == .band ? color.lineFill(themed: look.themed, background: background) : color.lineColor(themed: look.themed)
             layer?.backgroundColor = NSColor.clear.cgColor
             railShape.fillColor = line.withAlphaComponent(line.alphaComponent * strength).cgColor
         }

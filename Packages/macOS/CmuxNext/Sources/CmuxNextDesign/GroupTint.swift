@@ -109,10 +109,17 @@ public nonisolated enum GroupTint: Hashable, Sendable {
 
     /// A sidebar group's members' line under the solid band: the band's rest color as seen (``GroupBackground/shown``,
     /// Leo 2026-10-19), so bar and line read as one group. No color: the band's neutral fill, as visible as the bar
-    /// (Lawrence 2026-11-05: groups always have a visible background).
-    @MainActor public func lineFill(themed: Bool) -> NSColor {
+    /// (Lawrence 2026-11-05: groups always have a visible background). Under glass it takes the bar's own translucent
+    /// paint (``GroupBackground/fill``), so over a see-through sidebar the line and the bar still show one color.
+    ///
+    /// - Parameters:
+    ///   - themed: Palette colors come from the theme (`sidebar.groupColors` = theme).
+    ///   - background: The `sidebar.groupHeader.background` look the group's header bar draws.
+    /// - Returns: The color to paint the line.
+    @MainActor public func lineFill(themed: Bool, background: SidebarGroupBackgroundStyle = .auto) -> NSColor {
         let tokens = ThemeContext.active ?? ThemeScope.app.tokens
-        return GroupBackground(tint: self, strength: .band, glass: false, themed: themed, tokens: tokens).shown.nsColor
+        let glass = background.drawsGlass(seeThrough: tokens.backgroundOpacity < 1)
+        return GroupBackground(tint: self, strength: .band, glass: glass, themed: themed, tokens: tokens).fill.nsColor
     }
 
     /// A faint wash of the group's color over the sidebar, behind a name in primary ink.

@@ -11,6 +11,8 @@
   States Playground > Group backgrounds. Hovered and dropped states stay visible too (a darkening hover on a bar
   darker than the sidebar), and changing the setting redraws the headers on screen. Regression:
   `GroupHeaderAlwaysVisibleTests`, `GroupBackgroundEveryThemeTests`. Capture tour: `sidebar-group-background`.
+  Under glass the members' line paints the bar's own translucent fill (`GroupTint.lineFill(themed:background:)`),
+  so line and bar stay one color over any desktop (`membersLinePaintsTheHeaderBarsColor`).
 - 2026-11-05: Update in One Click (`updates.oneClickInstall`, off by default; #35951). Leo, verbatim, on the Codex app's
   Update available pill: "codex having this update available and then me clicking it enabling it to auto install and
   restart is... interesting". On, the footer's Update Available button (tooltip "…: Click to Update and Restart") and
