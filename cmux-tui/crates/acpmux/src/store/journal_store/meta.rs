@@ -483,7 +483,11 @@ impl Inner {
             }
         } else {
             let image = serde_json::to_vec(&pending.meta)?;
-            let kept = self.keep_aside_meta(id, pending.lsn, &image)?;
+            // Counted as the image's write is: a failed sync of the kept file or its folder
+            // freezes the store, so no checkpoint retires the image's record (#35905).
+            let kept = self.counted_sync("a kept-aside chat's metadata failed to sync", || {
+                self.keep_aside_meta(id, pending.lsn, &image)
+            })?;
             tracing::warn!(session = %id, kept = %kept.display(), "the chat's folder was removed or replaced outside the store: its metadata is kept aside");
         }
         let mut order = self.order.lock_or_recover();
@@ -561,7 +565,7 @@ impl Inner {
         }
         let mut file = options.open(&path).with_context(|| format!("write {}", path.display()))?;
         file.write_all(image)?;
-        file.sync_all()?;
+        file.sync_all().map_err(SyncFailed).with_context(|| format!("sync {}", path.display()))?;
         drop(file);
         sync_directory(&dir)?;
         Ok(path)
