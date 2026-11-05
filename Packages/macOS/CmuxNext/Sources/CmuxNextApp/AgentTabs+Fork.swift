@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextDaemon
+import CmuxNextTabs
 
 /// Where a forked chat opens (``AgentForkDestination``): every fork entry point (the palette's
 /// Fork Conversation step, the chat's right-click menu, its shortcut, the chat page's own Fork)

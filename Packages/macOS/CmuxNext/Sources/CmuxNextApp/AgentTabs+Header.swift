@@ -2,6 +2,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextTabs
 
 /// The chat header and right-click menu (``AgentChatTabActions``), its toggling quick actions
 /// (``AgentChatSplitToggles``), the header's state, pushed when it changes (``AgentChatHeaderWatch``),
@@ -89,7 +90,7 @@ extension AgentTabStore {
     }
 
     private func openSubagent(_ agent: String, of session: String, focus: Bool, beside provisional: String, machine: String? = nil) -> Bool { // the tracker (AgentSubagentPanes) decides; the app opens and moves the tab
-        let source = resolve(provisional, machine: machine) // one tracker per source chat (AgentSubagentPanes.chat)
+        let source = resolve(provisional, machine: machine ?? "") // one tracker per source chat (AgentSubagentPanes.chat)
         return AgentSubagentPanes.chat(session, source: source).open(agent, focus: focus, chat: provisional, hooks: .init(isOpen: { [weak self] key in self?.subagentTabIsBeside(source, key) ?? false }, focus: { [weak self] key, script in _ = self?.actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: self?.resolve(key) ?? key), arguments: script ? ["focus": .bool(true)] : [:], origin: script ? .script : .user)) },
             // An unfocused tab in the right column is selected there (shown, focus stays); in the chat's own pane it waits in the strip.
             // openOnRight decides again in its turn (RightColumnTurns): the decision that placed it is the one passed to created.
