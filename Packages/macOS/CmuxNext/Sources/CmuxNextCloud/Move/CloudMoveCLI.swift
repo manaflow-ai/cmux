@@ -31,10 +31,13 @@ public nonisolated struct CloudMoveCLI: Sendable {
         public var seedPhase: String?
         public var seedStartedAt: Double?
         public var seedFinishedAt: Double?
+        /// `seed_refused`: the seed plan's code for why the machine can't clone the folder (`not_git`, ...).
+        public var fallbackCode: String?
 
         public init(ok: Bool, errorCode: String? = nil, error: String? = nil, sessionID: String? = nil, transferID: String? = nil,
                     conflicts: [String] = [], side: String? = nil, updated: Bool = false, build: String? = nil, notOlder: Bool = false,
-                    seedState: String? = nil, seedPhase: String? = nil, seedStartedAt: Double? = nil, seedFinishedAt: Double? = nil) {
+                    seedState: String? = nil, seedPhase: String? = nil, seedStartedAt: Double? = nil, seedFinishedAt: Double? = nil,
+                    fallbackCode: String? = nil) {
             self.ok = ok
             self.errorCode = errorCode
             self.error = error
@@ -49,6 +52,7 @@ public nonisolated struct CloudMoveCLI: Sendable {
             self.seedPhase = seedPhase
             self.seedStartedAt = seedStartedAt
             self.seedFinishedAt = seedFinishedAt
+            self.fallbackCode = fallbackCode
         }
     }
 
@@ -284,7 +288,8 @@ public nonisolated struct CloudMoveCLI: Sendable {
                             seedState: object["seed_state"] as? String,
                             seedPhase: object["seed_phase"] as? String,
                             seedStartedAt: object["seed_started_at"] as? Double,
-                            seedFinishedAt: object["seed_finished_at"] as? Double)
+                            seedFinishedAt: object["seed_finished_at"] as? Double,
+                            fallbackCode: object["fallback_code"] as? String)
         return (answer, object, result.status)
     }
 }

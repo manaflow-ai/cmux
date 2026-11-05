@@ -1,6 +1,7 @@
 import CmuxNextCloud
 import CmuxNextDesign
 import AppKit
+import os
 
 /// A Cloud chat start whose machine can't clone the folder from its git remote (cmux-tui
 /// `link start-chat copy --on-seed-refusal ask` answering `seed_refused`): the person is asked
@@ -14,12 +15,15 @@ public nonisolated struct CloudSeedRefusal: Equatable, Sendable {
     /// cmux-tui's words: why the machine can't clone it, and the copy's files and size.
     public let message: String
     public let machine: String
+    /// The seed plan's code for the refusal (`not_git`, `submodule_local_work`, ...), for the log.
+    public let fallbackCode: String?
 
     /// The refusal in `answer`, or nil for any other answer.
     public init?(_ answer: CloudMoveCLI.Answer, machine: String) {
         guard !answer.ok, answer.errorCode == Self.code else { return nil }
         message = answer.error ?? Self.code
         self.machine = machine
+        fallbackCode = answer.fallbackCode
     }
 
     public var spec: CmuxDialogSpec {
@@ -37,6 +41,8 @@ public nonisolated struct CloudSeedRefusal: Equatable, Sendable {
                                                   _ copy: (CloudMoveCLI.SeedRefusal) async throws -> (CloudMoveCLI.Answer, Copied)) async throws -> (CloudMoveCLI.Answer, Copied) {
         let first = try await copy(.ask)
         guard let refused = CloudSeedRefusal(first.0, machine: machine) else { return first }
+        Logger(subsystem: "com.cmuxterm.app.next", category: "cloud").info(
+            "cloud seed refused on \(machine, privacy: .public): \(refused.fallbackCode ?? "unknown", privacy: .public)")
         guard await refused.confirmed(in: window()) else { throw declined(refused.message) }
         return try await copy(.copy)
     }
