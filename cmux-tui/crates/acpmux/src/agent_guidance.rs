@@ -272,7 +272,7 @@ pub fn materialize_user_plugin(
         all.push(0);
     }
     let hash = crate::sha256::sha256_hex(&all);
-    let dir = state_dir.join(format!("user-{}", &hash[..16]));
+    let dir = state_dir.join(format!("user-{}", hash.get(..16).unwrap_or(&hash)));
     if dir.join(".claude-plugin/plugin.json").is_file() {
         return Ok(Some(dir));
     }
