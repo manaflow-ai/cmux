@@ -80,14 +80,19 @@ impl TranscriptTail {
         self.restarts
     }
 
-    /// Whether the last [`read_next`] stopped at [`CHUNKS_PER_READ`] with bytes still unread.
+    /// Whether the last [`read_next`] stopped with bytes maybe still unread: at
+    /// [`CHUNKS_PER_READ`], or at a request that failed after earlier chunks were read.
     pub fn more(&self) -> bool {
         self.more
     }
 
     /// The `Range` header value for the next read: one closed chunk from the offset.
     pub fn range(&self) -> String {
-        format!("bytes={}-{}", self.offset, self.offset.saturating_add(self.chunk.saturating_sub(1)))
+        format!(
+            "bytes={}-{}",
+            self.offset,
+            self.offset.saturating_add(self.chunk.saturating_sub(1))
+        )
     }
 
     /// Takes one read's answer and returns the whole lines it completed, in order, without
@@ -259,7 +264,8 @@ async fn size_of(http: &reqwest::Client, url: &reqwest::Url) -> Result<Option<u6
 /// `/v1/vms/{vm}/files/content?path=<transcript>`, on a client that carries its key) and returns
 /// the whole lines they complete. It reads chunk by chunk until a short one, at most
 /// [`CHUNKS_PER_READ`] of them (then [`TranscriptTail::more`] is true). A shrunk file is read
-/// again from its start in the same call.
+/// again from its start in the same call. A failed first request is the error; a failed later one
+/// returns the lines read before it, with `more` set.
 pub async fn read_next(
     http: &reqwest::Client,
     url: reqwest::Url,
@@ -270,17 +276,17 @@ pub async fn read_next(
     let mut chunks: usize = 0;
     tail.more = false;
     while chunks < CHUNKS_PER_READ {
-        let offset = tail.offset();
-        let mut answer = get(http, &url, &tail.range()).await?;
-        if answer.status == 416 && answer.range.and_then(|r| r.size).is_none() {
-            let size = size_of(http, &url).await?;
-            answer.range = Some(ContentRange { start: None, size });
-        }
-        let status = answer.status;
-        let read =
-            classify(status, answer.body, offset, answer.range).ok_or(TailError::Status(status))?;
-        let full =
-            matches!(&read, TailRead::Bytes(b) if status == 206 && len_u64(b) >= tail.chunk);
+        let (status, read) = match next_read(http, &url, tail).await {
+            Ok(answer) => answer,
+            // The offset already stands past the lines read so far: hand them over, and have
+            // the caller read again, where the failure surfaces on its own.
+            Err(_) if chunks > 0 => {
+                tail.more = true;
+                return Ok(lines);
+            }
+            Err(error) => return Err(error),
+        };
+        let full = matches!(&read, TailRead::Bytes(b) if status == 206 && len_u64(b) >= tail.chunk);
         if read == TailRead::Shrunk {
             shrinks = shrinks.saturating_add(1);
             tail.take(read);
@@ -297,6 +303,24 @@ pub async fn read_next(
     }
     tail.more = chunks >= CHUNKS_PER_READ;
     Ok(lines)
+}
+
+/// One ranged read from `tail`'s offset, classified: the answer's status and what it read.
+async fn next_read(
+    http: &reqwest::Client,
+    url: &reqwest::Url,
+    tail: &TranscriptTail,
+) -> Result<(u16, TailRead), TailError> {
+    let offset = tail.offset();
+    let mut answer = get(http, url, &tail.range()).await?;
+    if answer.status == 416 && answer.range.and_then(|r| r.size).is_none() {
+        let size = size_of(http, url).await?;
+        answer.range = Some(ContentRange { start: None, size });
+    }
+    let status = answer.status;
+    let read =
+        classify(status, answer.body, offset, answer.range).ok_or(TailError::Status(status))?;
+    Ok((status, read))
 }
 
 #[cfg(test)]
@@ -512,10 +536,7 @@ mod tests {
         let (url, server) = server(vec![(502, Vec::new(), Vec::new())]).await;
         let http = reqwest::Client::new();
         let mut tail = TranscriptTail::with_chunk(4);
-        assert!(matches!(
-            read_next(&http, url, &mut tail).await,
-            Err(TailError::Status(502))
-        ));
+        assert!(matches!(read_next(&http, url, &mut tail).await, Err(TailError::Status(502))));
         assert_eq!(tail.offset(), 0);
         server.await.unwrap();
     }
