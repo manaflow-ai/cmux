@@ -879,3 +879,33 @@ async fn unfinished_pipe_cannot_hold_the_join_lock_forever() {
     assert_eq!(result.status.code(), Some(2));
     assert!(!String::from_utf8_lossy(&result.stderr).contains("cmj_incomplete"));
 }
+
+#[tokio::test]
+async fn leave_on_a_copied_home_never_revokes_the_original_and_removes_only_the_copy() {
+    let home = tempfile::tempdir().unwrap();
+    // Any request here would revoke the original box's enrollment from the copy.
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    for marked in [true, false] {
+        cloned_record(home.path(), &origin, marked);
+        let config = home.path().join("config.json");
+        std::fs::write(
+            &config,
+            json!({"meshRelay": {"url": origin, "credential": "join"}}).to_string(),
+        )
+        .unwrap();
+        std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let output = leave(home.path(), &[]).await;
+        assert_exit(&output, 0);
+        let body: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(body["hub"], "not_asked_copy", "marked {marked}");
+        assert_eq!(body["hubRevoked"], false);
+        assert!(body["hint"].as_str().is_some_and(|hint| hint.contains("new join line")), "{body}");
+        assert_left(home.path());
+    }
+    listener.set_nonblocking(true).unwrap();
+    assert!(
+        matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock),
+        "the copy called the hub"
+    );
+}
