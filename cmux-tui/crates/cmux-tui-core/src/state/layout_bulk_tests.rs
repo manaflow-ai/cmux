@@ -282,25 +282,115 @@ fn close_other_workspaces_from_home_closes_the_rest_and_keeps_home() {
     mux.shutdown();
 }
 
-/// The result names only the workspaces the call closed: a chosen workspace
-/// with no tab has nothing to close and stays.
+/// "i tried to close a bunch of workspaces, but they all suddenly came back"
+/// (Lawrence 2026-11-05): a sidebar close of 919 rows sent the tabbed ones as
+/// one `layout.bulk` and each empty one as its own `close-workspace`; the 641
+/// singles overflowed the connection's request queue, and the bulk failed
+/// whole on one tab the daemon no longer had (`unknown surface 166888`), so
+/// every row came back. One selection closes all of it in one commit and one
+/// group: the empty workspaces too (`layout-bulk-bare-v1`), and an id that is
+/// already gone counts as closed (`gone_ids`), never a refusal.
 #[test]
-fn a_workspace_selection_reports_only_the_workspaces_it_closed() {
+fn a_workspace_selection_closes_empty_and_gone_workspaces_in_one_group() {
     let mux = Mux::new_for_test("bulk-empty", SurfaceOptions::default());
-    let empty = empty_workspace(&mux, "empty");
-    let full = workspace_public(&mux, workspace_of(&mux, terminal_tabs(&mux, 1)[0]));
+    let kept = workspace_public(&mux, workspace_of(&mux, terminal_tabs(&mux, 1)[0]));
+    let empties = (0..40).map(|n| empty_workspace(&mux, &format!("empty-{n}"))).collect::<Vec<_>>();
+    let full = workspace_public(&mux, workspace_of(&mux, terminal_tabs(&mux, 2)[0]));
+    let gone = workspace_public(&mux, workspace_of(&mux, terminal_tabs(&mux, 1)[0]));
+    mutate(
+        &mux,
+        "layout.bulk",
+        json!({"verb": "close", "level": "workspace", "selector": "selection", "ids": [gone]}),
+        "close-gone-first",
+    );
+    let before = live_workspaces(&mux);
+    let mut ids = empties.clone();
+    ids.push(full.clone());
+    ids.push(gone.clone());
 
     let closed = mutate(
         &mux,
         "layout.bulk",
-        json!({"verb": "close", "level": "workspace", "selector": "selection", "ids": [empty, full]}),
+        json!({"verb": "close", "level": "workspace", "selector": "selection", "ids": ids, "end_terminals": true}),
         "selection",
     );
-    assert_eq!(closed["workspace_ids"], json!([full]));
+    let mut expected = empties.clone();
+    expected.push(full.clone());
+    assert_eq!(closed["workspace_ids"], json!(expected), "every live chosen workspace closed");
+    assert_eq!(closed["gone_ids"], json!([gone]), "an already-closed id is reported, not refused");
     let live = mux.with_state(|state| {
         state.workspaces.iter().map(|workspace| workspace.public_id.to_string()).collect::<Vec<_>>()
     });
-    assert!(live.contains(&empty), "the empty workspace stays: {live:?}");
+    assert_eq!(live, vec![kept], "nothing chosen stays open");
+    assert_eq!(live_workspaces(&mux), before - 41);
+    let listed = groups(&mux);
+    assert_eq!(listed[0]["kind"], "workspace");
+    assert_eq!(listed[0]["member_count"], 41, "one gesture, one group: {listed:?}");
+
+    let reopened = mutate(&mux, "closed.reopen", json!({}), "reopen");
+    assert_eq!(reopened["workspace_ids"].as_array().unwrap().len(), 41);
+    assert_eq!(live_workspaces(&mux), before, "one Reopen Closed brings all of them back");
+}
+
+/// A selection of only empty workspaces closes them (no tab to close is not
+/// "nothing to close"); a selection of only gone ids commits nothing.
+#[test]
+fn a_selection_of_only_empty_or_gone_workspaces() {
+    let mux = Mux::new_for_test("bulk-only-empty", SurfaceOptions::default());
+    terminal_tabs(&mux, 1);
+    let empties = (0..3).map(|n| empty_workspace(&mux, &format!("e{n}"))).collect::<Vec<_>>();
+    let before = live_workspaces(&mux);
+    let closed = mutate(
+        &mux,
+        "layout.bulk",
+        json!({"verb": "close", "level": "workspace", "selector": "selection", "ids": empties}),
+        "empties",
+    );
+    assert_eq!(closed["workspace_ids"], json!(empties));
+    assert_eq!(live_workspaces(&mux), before - 3);
+    assert_eq!(groups(&mux).len(), 1);
+
+    let again = mutate(
+        &mux,
+        "layout.bulk",
+        json!({"verb": "close", "level": "workspace", "selector": "selection", "ids": empties}),
+        "empties-again",
+    );
+    assert_eq!(again["workspace_ids"], json!([]));
+    assert_eq!(again["gone_ids"], json!(empties));
+    assert_eq!(groups(&mux).len(), 1, "nothing closed, no group");
+}
+
+/// A tab a bulk close chose can be gone by the time the close commits (a
+/// terminal exited, another close ran): the close removes the rest, and the
+/// workspaces it empties still close. Before, the whole batch failed with
+/// `unknown surface N` and nothing closed.
+#[test]
+fn a_bulk_close_skips_a_tab_that_left_before_it_committed() {
+    let mux = Mux::new_for_test("bulk-stale-tab", SurfaceOptions::default());
+    terminal_tabs(&mux, 1);
+    let first = terminal_tabs(&mux, 2);
+    let second = terminal_tabs(&mux, 1);
+    let before = live_workspaces(&mux);
+    mux.close_tabs(vec![first[1]], false, &WorkspaceMutation::daemon_local("race")).unwrap();
+    let surfaces = vec![first[0], first[1], second[0]];
+    let outcome = mux
+        .close_tabs_for_bulk(
+            surfaces,
+            true,
+            "layout.bulk",
+            crate::resource::ResourceOperation::WorkspaceClose,
+            &json!({"test": "stale"}),
+            &WorkspaceMutation::daemon_local("bulk-stale"),
+            true,
+            json!({}),
+        )
+        .unwrap();
+    assert!(!outcome.replayed);
+    for surface in [first[0], second[0]] {
+        assert_eq!(mux.with_state(|state| state.pane_of(surface)), None, "the live tabs closed");
+    }
+    assert_eq!(live_workspaces(&mux), before - 2, "both emptied workspaces close");
 }
 
 /// A pinned workspace stays when its siblings close, unless the call
