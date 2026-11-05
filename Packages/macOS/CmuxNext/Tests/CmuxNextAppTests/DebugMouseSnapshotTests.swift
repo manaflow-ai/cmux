@@ -1,7 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextControl
-import CmuxNextDaemon
+@testable import CmuxNextDaemon
 import Foundation
 import Testing
 
