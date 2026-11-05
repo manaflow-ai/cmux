@@ -142,5 +142,5 @@ test("a background command's end reads Background command completed, its command
   const failed = renderToStaticMarkup(
     <BackgroundTaskNote task={{ toolCallId: "y", command: "pytest -x", state: "failed" }} />,
   );
-  expect(words(failed)).toContain("pytest -x Background command failed");
+  expect(words(failed)).toContain("Background command failed pytest -x");
 });

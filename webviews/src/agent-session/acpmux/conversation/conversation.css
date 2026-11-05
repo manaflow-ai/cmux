@@ -3415,7 +3415,6 @@ button.cv-video-frames__frame:focus-visible {
 }
 .cv-bgtask__owner {
   color: var(--cv-text-muted);
-  margin-inline-end: var(--cv-tool-gap);
 }
 .cv-bgtask__owner[role="link"] {
   text-decoration: underline;
@@ -3431,7 +3430,6 @@ button.cv-video-frames__frame:focus-visible {
   white-space: nowrap;
 }
 .cv-bgtask__state {
-  margin-inline-start: var(--cv-tool-gap);
   color: var(--cv-text-muted);
   font-size: var(--text-detail);
 }
