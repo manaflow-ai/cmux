@@ -24,13 +24,18 @@ one resume when all of these hold, newest failed run first:
     day) and it holds no notarization recovery artifact, which
     continue-nightly-next.sh publishes once Apple accepts;
   - no resume of any run is queued or running, and this run has been resumed
-    fewer than --max-resumes times (default 2; 0 turns this off).
+    fewer than --max-resumes times (default 2; 0 turns this off);
+  - no newer nightly-next push run is on its way (pending, queued or
+    running). Since cmux#36111 one push run goes at a time on the one nightly
+    mini, and the newest push's own build supersedes this one, so a resume
+    would only take the mini ahead of it (run 41995666665 resumed 41976650433
+    while 41982716550 and the pending 42001889615 waited, 2026-11-05).
 A resume is told apart by its title, "Resume nightly-next run ID attempt N"
 (nightly.yml's run-name). Until nightly-next's nightly.yml carries that title
 nothing is dispatched, because the count could not see earlier resumes.
 
-Nothing is cancelled. A resume runs in its own concurrency group beside any
-build of the newer tip (the freshness rule), and publication stays latest-wins.
+Nothing is cancelled. A resume runs in its own concurrency group, and
+publication stays latest-wins.
 The dispatched run re-validates everything above it needs before signing.
 
 usage: nightly_next_unsigned_resume.py --repo OWNER/NAME [--max-resumes 2] [--dry-run]
@@ -83,6 +88,13 @@ def failed_push_runs(runs: list[dict], feed_build: int) -> list[dict]:
              if run.get("event") == "push" and run.get("head_branch") == BRANCH and run.get("status") == "completed"
              and run.get("conclusion") in FAILED and int(run["id"]) * 100 + 99 > feed_build]
     return sorted(found, key=lambda run: int(run["id"]), reverse=True)
+
+
+def newer_push_on_its_way(runs: list[dict], run_id: int) -> dict | None:
+    """A nightly-next push run newer than `run_id` that has not ended, whose own build supersedes it."""
+    return next((run for run in runs
+                 if run.get("event") == "push" and run.get("head_branch") == BRANCH and run.get("status") in ACTIVE
+                 and int(run["id"]) > run_id), None)
 
 
 def producer_attempt(jobs: list[dict]) -> int | str:
@@ -168,6 +180,10 @@ def decide(gh: GitHub, feed_build: int, runs: list[dict], max_resumes: int, name
     notes = []
     for run in failed_push_runs(runs, feed_build)[:CANDIDATES_READ]:
         run_id = int(run["id"])
+        newer = newer_push_on_its_way(runs, run_id)
+        if newer:
+            return (f"waiting: newer push run {newer.get('html_url', newer.get('id'))} is {newer.get('status')}; "
+                    f"its build supersedes run {run_id}")
         attempt = producer_attempt(all_jobs(gh, run_id))
         if isinstance(attempt, str):
             notes.append(f"run {run_id}: {attempt}")

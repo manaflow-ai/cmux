@@ -66,8 +66,8 @@ jobs:
       # nightly-next with nightly_next_unsigned_run, which signs and publishes
       # that app without compiling. One resume at a time, at most
       # NIGHTLY_NEXT_MAX_UNSIGNED_RESUMES (2; 0 turns it off) per failed run,
-      # only for a build newer than the feed. Nothing is cancelled: a newer tip
-      # still builds beside it (scripts/ci/nightly_next_unsigned_resume.py,
+      # only for a build newer than the feed, and never while a newer push run
+      # is on its way. Nothing is cancelled (scripts/ci/nightly_next_unsigned_resume.py,
       # tested by tests/test_nightly_next_unsigned_resume.py).
       - name: Resume a failed nightly-next signing from its saved unsigned app
         continue-on-error: true
