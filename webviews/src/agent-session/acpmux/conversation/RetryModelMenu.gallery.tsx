@@ -38,7 +38,7 @@ const open: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('[role="menu"]') !== null);
 };
 
-// The chat's last turn (turns.ts marks it retryable with the prompt it sends again).
+// The chat's last turn (turns.ts marks it retryable and its retryTarget, with the prompt it sends again).
 const lastTurn = {
   id: "summary-2",
   version: 1,
@@ -47,7 +47,7 @@ const lastTurn = {
   status: "completed",
   text: "Added retry to the uploader.",
   retryable: true,
-  retryTarget: true,
+  retryTarget: true as const,
   prompt: "Add retry to the uploader",
   retryRowId: "user-1",
 };

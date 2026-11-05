@@ -98,7 +98,13 @@ test("a tool-only last turn's footer shows to carry its Retry", () => {
 test("Retry stays on the person's last prompt's footer when a notification's turn follows", () => {
   const prompt = (id: string, at: number, text: string): AcpmuxRow => ({ id, version: 1, at, kind: "user", text });
   const reply = (id: string, at: number, text: string): AcpmuxRow => ({ id, version: 1, at, kind: "assistant", text });
-  const summary = (id: string, at: number): AcpmuxRow => ({ id, version: 1, at, kind: "turnSummary", status: "completed" });
+  const summary = (id: string, at: number): AcpmuxRow => ({
+    id,
+    version: 1,
+    at,
+    kind: "turnSummary",
+    status: "completed",
+  });
   const notice: AcpmuxRow = {
     id: "n",
     version: 1,

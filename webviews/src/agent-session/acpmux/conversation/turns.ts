@@ -149,7 +149,8 @@ export const isEmptyFooter = (row: AcpmuxRow) =>
 /// The footer with the person's last prompt to send again (TurnRows.tsx TurnFooter's Retry): the
 /// chat's last turn, or the last one a prompt opened when every turn after it came from a notice
 /// or a reminder (`retryTarget`). transcriptGrid.ts rowMark and model.ts isBlankFooter repeat it inline.
-export const offersRetry = (row: AcpmuxRow) => row.retryTarget === true && Boolean(row.prompt) && Boolean(row.retryRowId);
+export const offersRetry = (row: AcpmuxRow) =>
+  row.retryTarget === true && Boolean(row.prompt) && Boolean(row.retryRowId);
 
 /// A turn's prompt that Retry can send again: not a notification or acpmux's inbox notice
 /// (incomingMessage.ts), and with text. A turn whose prompt is not one leaves Retry with the turn
