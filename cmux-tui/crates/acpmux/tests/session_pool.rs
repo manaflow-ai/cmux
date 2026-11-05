@@ -1714,10 +1714,12 @@ async fn a_pooled_claude_taken_under_a_name_runs_under_it_and_follows_a_rename()
     rpc.call("_acpmux/rename", json!({"sessionId": claimed, "newName": "lead"})).await;
     let names = renamed_to(&renamed, "lead");
     assert_eq!(names.last().map(String::as_str), Some("lead"), "{names:?}");
-    // None of it is the chat's: no turn, no message.
+    // None of it is the chat's: no update carries it (the event log also keeps Claude Code's raw
+    // lines, which do).
     let events = daemon.events(&claimed);
     assert!(
-        !events.iter().any(|e| e.to_string().contains("Session renamed to")),
+        !events.iter().any(|e| e["msg"]["method"] == "session/update"
+            && e.to_string().contains("Session renamed to")),
         "the chat saw a rename: {events:?}"
     );
     let _ = std::fs::remove_file(&renamed);
