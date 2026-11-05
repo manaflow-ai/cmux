@@ -33,7 +33,11 @@ reads its output with the new code.
   module before it (or to none, which means native), and those bytes are not loaded again until the file
   holds different bytes.
 - **Wired in the daemon:** `agent_login::hot::offer` (the sign-in output parser) asks the module first
-  and falls back to `parse::offer`. `is_pure_read` is hosted and measured, but the write journal has no
+  and falls back to `parse::offer`. The daemon's first call loads the module inline, once (40 to 140 ms
+  in a debug daemon), so that call already gets the module's answer; every later change loads on the
+  watcher thread. `bench.sh` runs the daemon's sign-in end to end (`tests/agent_login.rs`, stand-in
+  `claude` and `codex` CLIs over a connection) with the module: it passes with the real module and
+  fails with a `no-offer` variant, which proves the daemon asked the module. `is_pure_read` is hosted and measured, but the write journal has no
   production caller yet, so nothing calls it in the daemon.
 
 ## Numbers (fleet)
@@ -145,6 +149,9 @@ bench against native, the swap and rollback runs under a calling thread, and `ca
 --features hot-modules`; the report is `hot-bench.json` in the artifact.
 
 ## Next
+
+0. macOS fleet numbers (the ones above are Linux x86_64); nobody pays for the feature when it is off,
+   so this does not hold the prototype.
 
 1. Split `host_load`'s pure command reading into its own file and host it (it runs per tool call).
 2. A `cmux dev hot` verb that builds the guest and points a running debug daemon at it, so nobody sets

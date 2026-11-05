@@ -163,6 +163,9 @@ impl HotModule {
     pub fn new(path: &Path, options: Options) -> Result<Self, String> {
         let path = crate::trust::check(path)?;
         let mut config = Config::new();
+        // On by default with the `component-model` feature; said here so a default change in a
+        // later wasmtime cannot turn every load into a refusal.
+        config.wasm_component_model(true);
         config.consume_fuel(options.fuel_per_call.is_some());
         let engine = Engine::new(&config).map_err(|e| format!("wasmtime engine: {e}"))?;
         Ok(Self(Arc::new(Shared {
