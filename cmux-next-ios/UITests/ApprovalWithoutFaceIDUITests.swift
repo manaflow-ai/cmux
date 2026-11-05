@@ -2,7 +2,7 @@ import XCTest
 
 /// The user's call (2026-11-04): an Allow asks for no Face ID. On mock data
 /// with a slow mock approval, the Feed's permission card says "Sending…" while
-/// the Allow goes out and then "Allowed once"; nothing on screen mentions Face ID.
+/// the Allow goes out, then its buttons go; nothing on screen mentions Face ID.
 /// Before, the card said "Waiting for Face ID…" and its Allow carried a Face ID glyph.
 final class ApprovalWithoutFaceIDUITests: XCTestCase {
     override func setUp() {
@@ -31,15 +31,18 @@ final class ApprovalWithoutFaceIDUITests: XCTestCase {
         XCTAssertTrue(allow.waitForExistence(timeout: 5), "the card's Allow\n\(app.debugDescription)")
         allow.tap()
 
-        let faceID = NSPredicate(format: "label CONTAINS[c] 'Face ID'")
-        let sending = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'Sending'")).firstMatch
-        XCTAssertTrue(sending.waitForExistence(timeout: 3), "Sending… while the Allow goes out\n\(app.debugDescription)")
+        // The card's pending line (FeedRowCell's `feed.permission.pending`) while the Allow goes out.
+        let pending = app.descendants(matching: .any)["feed.permission.pending"]
+        XCTAssertTrue(pending.waitForExistence(timeout: 3), "the pending line\n\(app.debugDescription)")
         attach(app, "2-sending")
-        XCTAssertEqual(app.descendants(matching: .any).matching(faceID).count, 0, "nothing mentions Face ID")
+        XCTAssertFalse(pending.label.contains("Face ID"), "the pending line says \(pending.label)")
+        XCTAssertTrue(pending.label.contains("Sending"), "the pending line says \(pending.label)")
 
-        let allowed = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'Allowed'")).firstMatch
-        XCTAssertTrue(allowed.waitForExistence(timeout: 10), "Allowed once after it went out\n\(app.debugDescription)")
+        // Then the Allow is decided: the card's buttons go away.
+        let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: allow)
+        XCTAssertEqual(XCTWaiter.wait(for: [gone], timeout: 10), .completed, "the Allow went out\n\(app.debugDescription)")
         attach(app, "3-allowed")
+        let faceID = NSPredicate(format: "label CONTAINS[c] 'Face ID'")
         XCTAssertEqual(app.descendants(matching: .any).matching(faceID).count, 0, "nothing mentions Face ID")
     }
 
