@@ -51,6 +51,7 @@ import {
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { headerState, useHeaderState } from "./headerState";
 import { PullRequestChip } from "./PullRequestChip";
+import { TopRightLayouts } from "./TopRightLayouts";
 import { WorktreePill } from "./WorktreePill";
 import { useWorktree } from "./worktreePillModel";
 import { useWorktreeOps } from "./worktreeOps";
@@ -225,7 +226,7 @@ function ChatHeaderToolsView({
   // header never moves its controls from Swift into the web page when the experiment is enabled.
   const glassSwitch = useExperimentSwitch(GLASS_TOOLBAR_SWITCH);
   const glassLook = glass ?? (glassSwitch ? experimentArm(glassToolbarLook) : "off");
-  const { lit, pullRequest, headerControls, headerMotion, headerIcons: iconsPicked } = useHeaderState();
+  const { lit, pullRequest, headerControls, headerMotion, headerIcons: iconsPicked, topRightLayout } = useHeaderState();
   const style = motion ?? headerMotion;
   // The glass capsule holds every split action (Split Down and New tab too, which the plain row keeps in
   // "..." by default); the saved list itself is not changed.
@@ -382,8 +383,21 @@ function ChatHeaderToolsView({
     onSideTabs,
     t,
   });
-  // The three controls and the glass toolbar draw their own sets; the contextual styles apply to the plain row.
-  const headerIcons = glassLook === "off" && (controls ?? headerControls) !== "trio" ? iconsPicked : "standard";
+  // A consolidated layout (Debug Settings `agentChat.topRight.consolidate`) draws its own web controls in
+  // place of the row, so the native row's copy of the buttons stays off while one is chosen. The glass
+  // toolbar and the three controls, when picked, keep their own layout.
+  const consolidated =
+    topRightLayout !== "row" &&
+    glassLook === "off" &&
+    (controls ?? headerControls) !== "trio" &&
+    tabTools &&
+    actions.length > 0
+      ? topRightLayout
+      : undefined;
+  // The three controls, the glass toolbar and a consolidated layout draw their own sets; the contextual
+  // styles apply to the plain row.
+  const headerIcons =
+    glassLook === "off" && (controls ?? headerControls) !== "trio" && !consolidated ? iconsPicked : "standard";
   // The contextual styles draw only the icons relevant to the chat now (headerRelevance.ts).
   const relevance = headerRelevance({ style: headerIcons, tools, lit, previewUrl });
   const customize = onCustomize
@@ -410,7 +424,7 @@ function ChatHeaderToolsView({
           },
         ]
       : [];
-  const native = useNativeRowTools(nativeRowTools, relevance.shown, {
+  const native = useNativeRowTools(consolidated ? undefined : nativeRowTools, relevance.shown, {
     customize,
     glass: glassLook !== "off",
     extra: [
@@ -454,14 +468,16 @@ function ChatHeaderToolsView({
   // A pane too narrow for every button folds the trailing ones into "..." instead of cutting them off.
   const toolsRef = useRef<HTMLDivElement>(null);
   const webButtons = !native && !trio && tabTools && actions.length > 0;
+  // The plain row's own buttons: a consolidated layout draws its set instead.
+  const rowButtons = webButtons && !consolidated;
   // Peek draws the rest hidden at the row's leading end, shown on hover; the native row has no hover
   // layer of its own, so there they wait in "..." as in `contextual`.
   const peek = headerIcons === "contextualPeek" && !native;
   // Peek's dormant icons take room too: a narrow pane folds them first, then the trailing shown ones.
   const candidates = peek ? [...relevance.shown, ...relevance.dormant] : relevance.shown;
-  const fold = useHeaderFold(toolsRef, webButtons ? candidates.length : 0);
-  const drawn = new Set(webButtons ? candidates.slice(0, candidates.length - fold) : []);
-  const folded = webButtons ? candidates.filter((tool) => !drawn.has(tool)) : [];
+  const fold = useHeaderFold(toolsRef, rowButtons ? candidates.length : 0);
+  const drawn = new Set(rowButtons ? candidates.slice(0, candidates.length - fold) : []);
+  const folded = rowButtons ? candidates.filter((tool) => !drawn.has(tool)) : [];
   // Dormant icons wait at the top of "..." unless Peek draws them.
   live.current.overflow = trio
     ? tools.filter((tool) => tool.id !== "terminal" && tool.id !== "browser" && tool.id !== "newTab")
@@ -540,7 +556,11 @@ function ChatHeaderToolsView({
       </button>
     );
   };
-  const buttons = webButtons && shown.length > 0 && shown.map(renderTool);
+  const buttons = consolidated ? (
+    <TopRightLayouts layout={consolidated} tools={tools} shortcuts={shortcuts} />
+  ) : (
+    webButtons && shown.length > 0 && shown.map(renderTool)
+  );
   // The inbox with no open asks is dormant too in the contextual styles.
   const inboxDormant = headerIcons !== "standard" && !inboxRelevant;
   const dormantTools = peek ? relevance.dormant.filter((tool) => drawn.has(tool)).map(renderTool) : [];
@@ -638,6 +658,7 @@ function ChatHeaderToolsView({
     <div
       ref={toolsRef}
       className="acpmux-header-tools"
+      data-top-right={consolidated}
       onPointerEnter={onPointerEnter}
       data-header-icons={headerIcons === "standard" ? undefined : headerIcons}
       data-header-motion={style === "still" ? undefined : style}
