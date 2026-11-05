@@ -27,6 +27,7 @@ extension PaletteController {
             return current != settings
         }
         if changed { model.frecencyRevision += 1 }
+        model.remembersSearches = settings.remembersSearches
     }
 
     /// The scope a run of `id` opens (`PaletteScopeDescriptor.openAction`): Toggle Setting opens

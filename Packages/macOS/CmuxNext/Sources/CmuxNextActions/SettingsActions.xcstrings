@@ -1,6 +1,32 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "action.palette.clearSearchHistory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Clear Palette Search History"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "مسح سجل البحث في اللوحة"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Obriši historiju pretrage palete"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Ryd paletsøgehistorik"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Suchverlauf der Palette löschen"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Borrar historial de búsqueda de la paleta"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Effacer l’historique de recherche de la palette"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Cancella cronologia di ricerca della palette"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "パレットの検索履歴を消去"}},
+        "km": {"stringUnit": {"state": "translated", "value": "សម្អាត​ប្រវត្តិ​ស្វែងរក​ក្នុង​ផ្ទាំង​ពាក្យ​បញ្ជា"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "팔레트 검색 기록 지우기"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Tøm søkehistorikk for paletten"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Wyczyść historię wyszukiwania palety"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Limpar histórico de pesquisa da paleta"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Очистить историю поиска палитры"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ล้างประวัติการค้นหาในพาเลต"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Palet arama geçmişini temizle"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Очистити історію пошуку палітри"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Xóa lịch sử tìm kiếm của bảng lệnh"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "清除面板搜索历史"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "清除面板搜尋記錄"}}
+      }
+    },
     "argument.value.section.development": {
       "extractionState": "manual",
       "localizations": {

@@ -19,10 +19,13 @@ public protocol PaletteUsageStore: AnyObject {
     func setHidden(key: String, hidden: Bool)
     /// Reset Ranking: forgets row `key`'s uses and learned picks.
     func forget(key: String)
+    /// Clear Search History: forgets every row's uses and learned picks (hidden rows stay hidden).
+    func clearHistory()
 }
 
 /// A history kept in this process and saved with `persistence` (tests, and
-/// an older daemon without `palette-usage-v1`). It has no learned picks.
+/// an older daemon without `palette-usage-v1`). It learns picks per query
+/// start the way the daemon does.
 @MainActor
 public final class LocalPaletteUsageStore: PaletteUsageStore {
     public private(set) var history: FrecencyStore
@@ -36,6 +39,7 @@ public final class LocalPaletteUsageStore: PaletteUsageStore {
 
     public func recordUse(key: String, query: String, at now: Date) {
         history.record(key, at: now)
+        history.recordPick(key, query: query, at: now)
         persistence?.save(history)
     }
 
@@ -47,6 +51,11 @@ public final class LocalPaletteUsageStore: PaletteUsageStore {
 
     public func forget(key: String) {
         history.forget(key)
+        persistence?.save(history)
+    }
+
+    public func clearHistory() {
+        history.clear()
         persistence?.save(history)
     }
 }

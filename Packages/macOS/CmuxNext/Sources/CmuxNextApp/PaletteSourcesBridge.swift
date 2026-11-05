@@ -35,7 +35,8 @@ enum PaletteSourcesBridge {
             var aliases: [String: [String]] = [:]
             for (id, words) in setting.aliases { aliases[canonical(id), default: []] += words }
             var seen = Set<String>()
-            return PaletteRankSettings(aliases: aliases, pins: setting.pins.map(canonical).filter { seen.insert($0).inserted })
+            return PaletteRankSettings(aliases: aliases, pins: setting.pins.map(canonical).filter { seen.insert($0).inserted },
+                                       remembersSearches: setting.remembersSearches)
         }
         // Theme rows draw the theme's swatch strip (R98), from the catalog's
         // cache (read off the main thread at launch).
@@ -116,6 +117,7 @@ enum PaletteSourcesBridge {
             for group in AppPaletteNavigationSource.groups(services) {
                 for id in group.workspaceIDs where groupNames[id] == nil { groupNames[id] = group.name }
             }
+            let ranks = services.windows.active?.sidebar?.model.workspaceRanks() ?? [:]
             let subagents = ChiefSubagentIDs.live
             let closing = TabSearchFactsBuilder.closing(services), resolver = TabTitleResolver(services: services)
             return services.machines.allWorkspaces.map { workspace, daemon in // another machine's rows name it
@@ -132,7 +134,8 @@ enum PaletteSourcesBridge {
                                         isSelected: workspace.id == shown, unreadCount: workspace.unreadCount,
                                         groupName: groupNames[workspace.id], machineName: onThisMac ? nil : services.machines.machineName(daemon.machineID),
                                         agentID: agentID,
-                                        keywords: lone.map { PaletteWorkspace.loneTabWords(title: resolver.title($0), url: $0.url, session: $0.agentSession?.session) } ?? [])
+                                        keywords: lone.map { PaletteWorkspace.loneTabWords(title: resolver.title($0), url: $0.url, session: $0.agentSession?.session) } ?? [],
+                                        sidebarRank: ranks[workspace.id])
             }
         }
 

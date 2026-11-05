@@ -47,7 +47,7 @@ public final class NavigationPaletteProvider: PaletteProvider {
         let recency = recencyRanks(entries)
         return distinctTitles(entries).map { entry in
             let boost = recency[entry.itemID].map { max(0, TabSearchPlan.recencyBoost - TabSearchPlan.recencyStep * $0) } ?? 0
-            return item(entry, recencyBoost: boost, source: source)
+            return item(entry, recencyBoost: boost + PaletteSidebarPrior().bias(rank: entry.sidebarRank), source: source)
         }
     }
 
@@ -99,7 +99,8 @@ public final class NavigationPaletteProvider: PaletteProvider {
             item = PaletteItem(
                 id: entry.itemID, title: entry.title, subtitle: PaletteStrings.groupWorkspaceCount(count),
                 accessory: PaletteStrings.kindGroup, symbol: "folder", section: groupSection,
-                keywords: [PaletteStrings.groupKeyword] + entry.keywords, primary: open, frecencyKey: entry.itemID)
+                keywords: [PaletteStrings.groupKeyword] + entry.keywords, primary: open, frecencyKey: entry.itemID,
+                rankBias: recencyBoost)
             item.ball = entry.color.map(PaletteBall.init)
         case .pane:
             item = PaletteItem(

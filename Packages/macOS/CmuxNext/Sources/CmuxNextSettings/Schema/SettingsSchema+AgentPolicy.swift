@@ -296,6 +296,8 @@ extension SettingsSchema {
         // A pin leads the empty palette and an alias wins its word: an agent could put Close Window
         // under the user's Return.
         "palette.aliases": .userOnly, "palette.pins": .userOnly,
+        // Whether the palette records what the person runs.
+        "palette.searchHistory": .privacy,
         "history.terminalCommands": .privacy,
         "history.commandRetentionDays": .privacy,
         "history.closed.maxGroups": .privacy,

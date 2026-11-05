@@ -119,36 +119,31 @@ final class DaemonPaletteUsageStore: PaletteUsageStore {
     }
 
     func recordUse(key: String, query: String, at now: Date) {
+        change("a run", local: { $0.recordUse(key: key, query: query, at: now) }, daemon: [.record(key: key, query: query)])
+    }
+
+    var canHideRows: Bool { if case .daemon = owner { true } else { false } }
+
+    func setHidden(key: String, hidden: Bool) { if case .daemon = owner { enqueue(.hide(key: key, hidden: hidden)) } }
+
+    func forget(key: String) { change("Reset Ranking", local: { $0.forget(key: key) }, daemon: [.forget(key: key)]) }
+
+    /// Clear Search History: the mirror empties now (hidden rows stay); the daemon forgets each row it held.
+    func clearHistory() {
+        change("Clear Search History", local: { $0.clearHistory() }, daemon: history.rowKeys.sorted().map { .forget(key: $0) }) { self.history.clear() }
+    }
+
+    /// One write: to the local history, or (dropped while the daemon is away) to the daemon after `mirror`.
+    private func change(_ what: String, local apply: (LocalPaletteUsageStore) -> Void, daemon writes: [Write], mirror: (() -> Void)? = nil) {
         switch owner {
         case .local:
-            local.recordUse(key: key, query: query, at: now)
+            apply(local)
             history = local.history
-        case .away:
-            Self.logger.info("palette usage: daemon away, one run not recorded")
+        case .away: Self.logger.info("palette usage: daemon away, \(what, privacy: .public) not sent")
         case .daemon:
-            enqueue(.record(key: key, query: query))
-        }
-    }
-
-    var canHideRows: Bool {
-        if case .daemon = owner { return true }
-        return false
-    }
-
-    func setHidden(key: String, hidden: Bool) {
-        guard case .daemon = owner else { return }
-        enqueue(.hide(key: key, hidden: hidden))
-    }
-
-    func forget(key: String) {
-        switch owner {
-        case .local:
-            local.forget(key: key)
-            history = local.history
-        case .away:
-            Self.logger.info("palette usage: daemon away, Reset Ranking not sent")
-        case .daemon:
-            enqueue(.forget(key: key))
+            mirror?()
+            if mirror != nil { onChange?() }
+            writes.forEach(enqueue)
         }
     }
 
