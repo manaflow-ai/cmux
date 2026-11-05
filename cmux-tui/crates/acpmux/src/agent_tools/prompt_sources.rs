@@ -123,6 +123,22 @@ impl AgentTools {
                 false,
             ));
         }
+        if claude && let Some(dir) = &self.user_plugin_dir {
+            // The person's own skills (`agent_guidance.rs`), as Claude Code lists them.
+            for skill in crate::agent_guidance::user_skills(&dir.join("skills")) {
+                let text = format!("name: {}\ndescription: {}", skill.name, skill.description);
+                parts.push(with_text(
+                    source(
+                        format!("skill-{}-{}", crate::agent_guidance::USER_PLUGIN_NAME, skill.name),
+                        "skill-listing",
+                        format!("Your skill: {}:{}", crate::agent_guidance::USER_PLUGIN_NAME, skill.name),
+                        "skill-listing",
+                    ),
+                    &text,
+                    true,
+                ));
+            }
+        }
         if claude && self.plugin_dir.is_some() {
             for (path, body) in SKILL_FILES {
                 let Some(name) = path.strip_suffix("/SKILL.md") else { continue };
@@ -174,6 +190,7 @@ mod tests {
                 })
                 .collect(),
             plugin_dir: Some("/private/plugin".into()),
+            user_plugin_dir: None,
             displays: None,
         }
     }

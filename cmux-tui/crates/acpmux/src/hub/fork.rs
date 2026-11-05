@@ -311,7 +311,7 @@ impl Hub {
             && (empty || (matches!(made, Made::Fresh) && parent_meta.cmux_context.is_none()))
         {
             let cfg = self.config.read().await;
-            Some(crate::context_inventory::snapshot(&cfg, &cwd))
+            Some(crate::context_inventory::snapshot_for(&cfg, &cwd, &parent_meta.harness))
         } else {
             parent_meta.cmux_context.clone()
         };
