@@ -1,0 +1,469 @@
+{
+ "id": "px-keys-held-2w-s1r",
+ "priority": "P1",
+ "title": "PIXEL: Ctrl-Shift-L held, then Ctrl-Shift-H x30 every 33 ms, on p0 (p0 W | p1 W (normal-screen shells, wrapped solid-color lines)), at x1, Reduce Motion (x1 and Reduce Motion: any bench build)",
+ "why": "Lawrence 2026-11-03: resizing columns and splits is not pixel perfect when animated. Loud fixture colors (shell #FF00FF, terminal ground #00FFFF, tab strips #000000, rings #FF0000/#FFFFFF/#000000) make any gap, overlap or lag visible; judge_pixel.py reads every pane edge, tab strip and divider per film frame from the exact scan lines.",
+ "source": "PIXEL PERFECT kit (video-cases/gen_pixel.py)",
+ "budget_seconds": 67,
+ "estimate_seconds": 56,
+ "recordings": [
+  "px-keys-held-2w-s1r-s1",
+  "px-keys-held-2w-s1r-reduce"
+ ],
+ "options": {
+  "key_path": "real"
+ },
+ "steps": [
+  {
+   "do": "settings_file",
+   "title": "set-up: shell #FF00FF (app theme Nord), terminal ground #00FFFF, tab strips #000000, agent ground #0000FF, no close warning, new columns share the strip, no hover cards",
+   "set": {
+    "sidebar": {
+     "hoverCards": {
+      "enabled": false
+     }
+    },
+    "appearance": {
+     "theme": "Builtin Dark",
+     "appTheme": "Nord",
+     "themeEdits": {
+      "Nord/background": "#FF00FF",
+      "Builtin Dark/background": "#00FFFF"
+     },
+     "surfaces": {
+      "terminal": {
+       "color": "#00FFFF",
+       "opacity": 1
+      },
+      "tabBar": {
+       "color": "#000000",
+       "opacity": 1
+      },
+      "agentPane": {
+       "color": "#0000FF",
+       "opacity": 1
+      },
+      "newTabPage": {
+       "color": "#0000FF",
+       "opacity": 1
+      }
+     }
+    },
+    "app": {
+     "warnBeforeClosingTab": false
+    },
+    "layout": {
+     "newColumnWidth": "fitScreen"
+    }
+   }
+  },
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "skip_first_run_history"
+  },
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "name": "px-keys-held-2w-s1r"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "name_pane",
+   "as": "home"
+  },
+  {
+   "do": "window_place",
+   "title": "set-up: the window at 90% x 90% of the screen",
+   "fraction": [
+    0.05,
+    0.05,
+    0.9,
+    0.9
+   ]
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace for the case"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "p0"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "file",
+   "path": "/tmp/jr-tui-border.py",
+   "text": "#!/usr/bin/env python3\n\"\"\"Pixel-border terminal fixture for real-app resize films (PIXEL PERFECT kit, video-cases/gen_pixel.py).\n\nOne file, standard library only, Python 3.9 (the fleet minis' /usr/bin/python3). gen_pixel.py writes it to the\nmini with the driver's `file` step (/tmp/jr-tui-border.py) and types `python3 /tmp/jr-tui-border.py --fill ...`\ninto each terminal pane, as the TUI kit's load is started.\n\nOn the alternate screen, every cell gets an explicit 24-bit background (SGR 48;2), so no cell shows the terminal\ntheme's background; only Ghostty's padding (the strip outside the whole cells) does, and the cases set that theme\ncolor to a different loud color (#00FFFF). The picture, 0-based rows and columns:\n\n  ring 1   the outermost row and column on each side (row 0, row R-1, column 0, column C-1): --ring1 (#FF0000)\n  ring 2   the next ones (row 1, row R-2, column 1, column C-2): --ring2 (#FFFFFF)\n  ring 3   the third ones (row 2, row R-3, column 2, column C-3): --ring3 (#000000)\n  fill     every other cell: --fill (one loud color per pane, e.g. #FFFF00, #00FF00, #0000FF)\n  ruler    column index mod 10 on row --ruler-at (default 3) and row index mod 10 on column --ruler-at, from\n           --ruler-at to the last cell inside ring 3; a multiple of 10 is drawn inverted. Default 3, the first\n           row and column inside the rings, so every ring cell stays one solid color for the scan judge;\n           --ruler-at 2 draws the ruler on ring 3 itself, 0 turns it off.\n  centre   --label, COLSxROWS, the frame counter and the SIGWINCH count, in the middle rows\n\nRing cells hold no glyph: along any scan line a ring is one run of one color, exactly one cell wide.\n\nIt redraws the whole screen inside a synchronized update (mode 2026: the terminal shows each frame whole) at once\non every SIGWINCH (the self-pipe wakes it) and every 1/--fps s (default 60; a late frame is drawn at once, never\nskipped). Echo and canonical input are off while it runs (a stray key never paints the screen); Ctrl-C (SIGINT),\nSIGTERM and SIGHUP end it: the alternate screen is left, autowrap, the cursor and the tty modes are put back, exit 0.\n\n  tui_border.py --fill '#FFFF00' --label p0 [--fps 60] [--duration 0] [--frames 0] [--log PATH]\n  tui_border.py --size 40x12 --frames 1 --fill '#00FF00'    # one frame for a size, for tests (no tty needed)\n\n--log writes JSON lines (wall time.time(), mono time.monotonic()) for the start, each SIGWINCH and the end.\n\"\"\"\nimport argparse\nimport json\nimport os\nimport re\nimport select\nimport signal\nimport sys\nimport time\n\nBSU = \"\\x1b[?2026h\"  # begin synchronized update: the terminal shows the frame whole\nESU = \"\\x1b[?2026l\"\nRESET = \"\\x1b[0m\"\nALT_ON = \"\\x1b[?1049h\"\nALT_OFF = \"\\x1b[?1049l\"\nHIDE = \"\\x1b[?25l\"\nSHOW = \"\\x1b[?25h\"\nWRAP_OFF = \"\\x1b[?7l\"\nWRAP_ON = \"\\x1b[?7h\"\nRINGS = 3\n\n\nclass Quit(Exception):\n    pass\n\n\ndef _quit(signum, _frame):\n    raise Quit(signum)\n\n\ndef calm():\n    \"\"\"First thing in a clean-up: a second signal (SIGHUP after SIGTERM when the pane closes) must not cut the\n    restore sequence short.\"\"\"\n    for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):\n        signal.signal(sig, signal.SIG_IGN)\n\n\ndef color(text):\n    m = re.fullmatch(r\"#?([0-9a-fA-F]{6})\", text or \"\")\n    if not m:\n        raise argparse.ArgumentTypeError(\"a color is #RRGGBB, for example #FFFF00\")\n    v = m.group(1)\n    return int(v[0:2], 16), int(v[2:4], 16), int(v[4:6], 16)\n\n\ndef parse_size(text):\n    m = re.fullmatch(r\"(\\d+)x(\\d+)\", text or \"\")\n    if not m:\n        raise argparse.ArgumentTypeError(\"size is COLSxROWS, for example 120x40\")\n    return int(m.group(1)), int(m.group(2))\n\n\ndef bg(rgb):\n    return \"\\x1b[48;2;%d;%d;%dm\" % rgb\n\n\ndef fg(rgb):\n    return \"\\x1b[38;2;%d;%d;%dm\" % rgb\n\n\nINK_DARK, INK_LIGHT = (104, 104, 104), (152, 152, 152)\n\n\ndef ink_on(rgb):\n    \"\"\"A text color that reads on RGB and is none of the fixture's loud colors: every channel strictly between the\n    judge's 96 and 160 (\"other\": never a ring, a fill, the shell or the ground). The darker gray on a light fill.\"\"\"\n    luma = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]\n    return INK_DARK if luma > 110 else INK_LIGHT\n\n\nclass Out:\n    \"\"\"Whole writes to a file descriptor (a frame never goes out half because of a short write).\"\"\"\n\n    def __init__(self, fd=1):\n        self.fd = fd\n\n    def write(self, text):\n        view = memoryview(text.encode(\"utf-8\"))\n        while view:\n            try:\n                n = os.write(self.fd, view)\n            except BlockingIOError:\n                select.select([], [self.fd], [], 1.0)\n                continue\n            view = view[n:]\n\n\nclass Log:\n    def __init__(self, path):\n        self.f = open(path, \"a\", encoding=\"utf-8\") if path else None\n\n    def event(self, ev, **fields):\n        if self.f:\n            fields.update(ev=ev, wall=round(time.time(), 6), mono=round(time.monotonic(), 6))\n            self.f.write(json.dumps(fields, sort_keys=True) + \"\\n\")\n            self.f.flush()\n\n    def close(self):\n        if self.f:\n            self.f.close()\n            self.f = None\n\n\ndef ring_of(r, c, rows, cols):\n    \"\"\"0, 1, 2 for the rings (0 outermost), RINGS for a fill cell.\"\"\"\n    return min(r, c, rows - 1 - r, cols - 1 - c, RINGS)\n\n\nclass Picture:\n    \"\"\"The frame for one size. The rings, the fill and the ruler only change with the size, so they are built\n    once per size (`static`); each frame adds the centre lines (`frame`).\"\"\"\n\n    def __init__(self, a, cols, rows):\n        self.a, self.cols, self.rows = a, cols, rows\n        self.colors = [a.ring1, a.ring2, a.ring3, a.fill]\n        self.tens = {}  # row -> the ruler columns of that row whose index is a multiple of 10\n        self.static = self._static()\n\n    def _row(self, r, cells=None):\n        \"\"\"Row R as SGR runs; `cells` {column: char} puts a glyph in those cells (the cell keeps its ring or fill\n        background; the glyph is gray, never a fixture color; a ruler multiple of 10 takes the other gray).\"\"\"\n        cols, rows = self.cols, self.rows\n        cells = cells or {}\n        parts, last = [], None\n        for c in range(cols):\n            k = ring_of(r, c, rows, cols)\n            ch = cells.get(c, \" \")\n            ink = None\n            if ch != \" \":\n                ink = ink_on(self.colors[k])\n                if ch.isdigit() and c in self.tens.get(r, ()):\n                    ink = INK_LIGHT if ink == INK_DARK else INK_DARK\n            style = (k, ink)\n            if style != last:\n                parts.append(RESET + bg(self.colors[k]) + (fg(ink) if ink else \"\"))\n                last = style\n            parts.append(ch)\n        return \"\\x1b[%d;1H\" % (r + 1) + \"\".join(parts)\n\n    def _ruler_cells(self, r):\n        \"\"\"The ruler's glyphs on row R: column index mod 10 along row `at` (columns at..C-1-at) and row index mod\n        10 down column `at` (rows at+1..R-1-at).\"\"\"\n        at, cols, rows = self.a.ruler_at, self.cols, self.rows\n        cells, tens = {}, set()\n        if at <= 0 or at > min(cols, rows) // 2 - 1:\n            return cells\n        if r == at:\n            for c in range(at, cols - at):\n                cells[c] = str(c % 10)\n                if c % 10 == 0:\n                    tens.add(c)\n        elif at < r < rows - at:\n            cells[at] = str(r % 10)\n            if r % 10 == 0:\n                tens.add(at)\n        self.tens[r] = tens\n        return cells\n\n    def _static(self):\n        lines = [self._row(r, self._ruler_cells(r)) for r in range(self.rows)]\n        return lines\n\n    def centre(self, frame, winch):\n        a = self.a\n        texts = [(\"%s  %dx%d\" % (a.label, self.cols, self.rows)).strip(), \"frame %06d\" % frame, \"winch %d  fps %g\" % (winch, a.fps)]\n        top = self.rows // 2 - len(texts) // 2\n        out = {}\n        inner = self.cols - 2 * (RINGS + 2)  # never over a ring, the ruler column or the cell next to it\n        for i, text in enumerate(texts):\n            r = top + i\n            if r <= RINGS or r >= self.rows - 1 - RINGS or inner <= 0:\n                continue\n            text = text[:inner]\n            start = (self.cols - len(text)) // 2\n            cells = self._ruler_cells(r)\n            cells.update({start + j: ch for j, ch in enumerate(text)})\n            out[r] = self._row(r, cells)\n        return out\n\n    def frame(self, frame, winch):\n        lines = list(self.static)\n        for r, line in self.centre(frame, winch).items():\n            lines[r] = line\n        return BSU + \"\".join(lines) + RESET + ESU\n\n\ndef term_size(fd, fixed):\n    if fixed:\n        return fixed\n    try:\n        size = os.get_terminal_size(fd)\n        return max(1, size.columns), max(1, size.lines)\n    except OSError:\n        return 80, 24\n\n\ndef quiet_tty(fd):\n    \"\"\"Echo and canonical input off, signals kept (Ctrl-C is SIGINT); the old modes, or None without a tty.\"\"\"\n    try:\n        import termios\n        old = termios.tcgetattr(fd)\n        new = list(old)\n        new[3] &= ~(termios.ECHO | termios.ICANON)\n        termios.tcsetattr(fd, termios.TCSADRAIN, new)\n        return old\n    except (ImportError, OSError, ValueError):\n        return None\n\n\ndef restore_tty(fd, old):\n    \"\"\"The tty's modes back, with TCSAFLUSH: input typed while the fixture ended is dropped, so the shell never reads\n    keys that arrived with its echo off.\"\"\"\n    if old is None:\n        return\n    try:\n        import termios\n        termios.tcsetattr(fd, termios.TCSAFLUSH, old)\n    except (ImportError, OSError, ValueError):\n        pass\n\n\ndef run(a):\n    out = Out()\n    if a.size and a.frames == 1 and not os.isatty(1):\n        # One frame for a fixed size (tests): no screen modes, no signals.\n        cols, rows = a.size\n        out.write(Picture(a, cols, rows).frame(1, 0))\n        return 0\n    log = Log(a.log)\n    rfd, wfd = os.pipe()\n    os.set_blocking(rfd, False)\n    os.set_blocking(wfd, False)\n    winches = []\n\n    def on_winch(_sig, _frame):\n        winches.append(time.monotonic())\n\n    signal.set_wakeup_fd(wfd)\n    signal.signal(signal.SIGWINCH, on_winch)\n    for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):\n        signal.signal(sig, _quit)\n    old_tty = quiet_tty(0)\n    cols, rows = term_size(1, a.size)\n    picture = Picture(a, cols, rows)\n    period = 1.0 / a.fps if a.fps > 0 else None\n    start = time.monotonic()\n    frame = n_winch = 0\n    due = start\n    try:\n        out.write(ALT_ON + HIDE + WRAP_OFF)\n        log.event(\"start\", program=\"tui_border\", cols=cols, rows=rows, fill=\"#%02X%02X%02X\" % a.fill, label=a.label)\n        while True:\n            now = time.monotonic()\n            if a.duration and now - start >= a.duration:\n                break\n            if winches:\n                n_winch += len(winches)\n                log.event(\"sigwinch\", n=n_winch, at=[round(t, 6) for t in winches])\n                del winches[:]\n                size = term_size(1, a.size)\n                if size != (cols, rows):\n                    cols, rows = size\n                    picture = Picture(a, cols, rows)\n                due = now  # redraw at once\n            if now >= due:\n                frame += 1\n                out.write(picture.frame(frame, n_winch))\n                if a.frames and frame >= a.frames:\n                    break\n                if period:\n                    due += period\n                    if due < time.monotonic():  # late: the next frame is due one period from now\n                        due = time.monotonic() + period\n                else:\n                    due = float(\"inf\")\n            timeout = max(0.0, due - time.monotonic()) if due != float(\"inf\") else 0.25\n            if a.duration:\n                timeout = min(timeout, max(0.0, start + a.duration - time.monotonic()))\n            ready, _, _ = select.select([rfd], [], [], min(timeout, 0.25))\n            if ready:\n                try:\n                    os.read(rfd, 4096)\n                except BlockingIOError:\n                    pass\n    except Quit:\n        pass\n    finally:\n        calm()\n        signal.set_wakeup_fd(-1)\n        out.write(ESU + RESET + WRAP_ON + SHOW + ALT_OFF)\n        restore_tty(0, old_tty)\n        log.event(\"end\", frames=frame, winch=n_winch)\n        log.close()\n    return 0\n\n\ndef parser():\n    ap = argparse.ArgumentParser(description=__doc__.split(\"\\n\\n\")[0], formatter_class=argparse.RawDescriptionHelpFormatter,\n                                 epilog=__doc__.split(\"\\n\\n\", 1)[1])\n    ap.add_argument(\"--fill\", type=color, default=color(\"#FFFF00\"), help=\"every cell inside the rings (default #FFFF00)\")\n    ap.add_argument(\"--ring1\", type=color, default=color(\"#FF0000\"), help=\"the outermost row and column (default #FF0000)\")\n    ap.add_argument(\"--ring2\", type=color, default=color(\"#FFFFFF\"), help=\"the second ring (default #FFFFFF)\")\n    ap.add_argument(\"--ring3\", type=color, default=color(\"#000000\"), help=\"the third ring (default #000000)\")\n    ap.add_argument(\"--label\", default=\"\", help=\"the pane's name, shown in the centre\")\n    ap.add_argument(\"--fps\", type=float, default=60.0, help=\"full redraws a second (default 60; 0: only on SIGWINCH)\")\n    ap.add_argument(\"--ruler-at\", type=int, default=3, help=\"the ruler's row and column, 0-based (default 3; 0: none)\")\n    ap.add_argument(\"--duration\", type=float, default=0.0, help=\"seconds to run (0: until a signal)\")\n    ap.add_argument(\"--frames\", type=int, default=0, help=\"stop after N frames (0: no limit)\")\n    ap.add_argument(\"--size\", type=parse_size, help=\"COLSxROWS instead of the terminal's size (tests)\")\n    ap.add_argument(\"--log\", help=\"JSON lines: start, every SIGWINCH, end\")\n    return ap\n\n\ndef main(argv=None):\n    return run(parser().parse_args(argv))\n\n\nif __name__ == \"__main__\":\n    sys.exit(main())\n",
+   "title": "set-up: the terminal fixture pixel/tui_border.py"
+  },
+  {
+   "do": "file",
+   "path": "/tmp/jr-pixel-page.html",
+   "text": "<!doctype html>\n<!--\nPixel-border browser fixture for real-app resize films (PIXEL PERFECT kit, video-cases/gen_pixel.py). No network:\neverything is in this file. gen_pixel.py writes it to the mini (/tmp/jr-pixel-page.html, the driver's `file` step) and\nnavigates a browser pane to file:///tmp/jr-pixel-page.html?bg=FFFF00&label=p1 (colors are hex without '#').\n\n  bg     the body's loud background (default FFFF00)\n  x y z  the three borders of a fixed overlay at inset 0, from the outside in: 1 CSS px of x (default FF0000),\n         inside it 2 CSS px of y (default FFFFFF), inside that 3 CSS px of z (default 000000): the same three colors,\n         in the same order, as the terminal fixture's rings (pixel/tui_border.py), so the judge reads both alike\n  label  the pane's name, shown in the middle\n\nExact CSS px: the borders are CSS borders of fixed boxes (box-sizing: border-box); at devicePixelRatio 2 they are 2, 4\nand 6 device px. Device px: a canvas at the viewport's device-pixel size (innerWidth x devicePixelRatio) draws a\nruler (a tick every 10 CSS px along the top and the left, inside the borders; longer at 50, a number at 100) and a\nblock of 1-device-pixel stripes next to it, which shows crisp only when the canvas maps 1:1 to device pixels. The\nmiddle text shows innerWidth x innerHeight, devicePixelRatio, the device size and a requestAnimationFrame counter;\neach frame checks the size and redraws the canvas in the same frame when it changed. The ticks, stripes and text are\ngrays with every channel between 96 and 160, never one of the fixture's color classes (the judge classes the corners of\nthe color cube).\n-->\n<html>\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width\">\n<title>pixel fixture</title>\n<style>\n  html, body { margin: 0; padding: 0; overflow: hidden; width: 100%; height: 100%; }\n  body { font: 600 16px/1.35 Menlo, \"SF Mono\", monospace; }\n  .ring { position: absolute; top: 0; right: 0; bottom: 0; left: 0; box-sizing: border-box; border-style: solid; }\n  #r1 { position: fixed; border-width: 1px; z-index: 3; pointer-events: none; }\n  #r2 { border-width: 2px; }\n  #r3 { border-width: 3px; }\n  #ruler { position: fixed; left: 0; top: 0; z-index: 2; pointer-events: none; }\n  #info { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 1; white-space: pre;\n          text-align: center; }\n</style>\n</head>\n<body>\n<canvas id=\"ruler\"></canvas>\n<div id=\"info\"></div>\n<div id=\"r1\" class=\"ring\"><div id=\"r2\" class=\"ring\"><div id=\"r3\" class=\"ring\"></div></div></div>\n<script>\n(function () {\n  \"use strict\";\n  var q = new URLSearchParams(location.search);\n  function hex(name, fallback) {\n    var v = (q.get(name) || fallback).replace(/^#/, \"\");\n    return /^[0-9a-fA-F]{6}$/.test(v) ? \"#\" + v.toUpperCase() : \"#\" + fallback;\n  }\n  var bg = hex(\"bg\", \"FFFF00\"), x = hex(\"x\", \"FF0000\"), y = hex(\"y\", \"FFFFFF\"), z = hex(\"z\", \"000000\");\n  var label = (q.get(\"label\") || \"\").slice(0, 24);\n  function luma(c) {\n    var n = parseInt(c.slice(1), 16);\n    return 0.2126 * (n >> 16) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255);\n  }\n  // Grays whose every channel lies between the judge's 96 and 160: never a fixture color class (a ring, a fill, the\n  // shell); the darker one on a light background.\n  var ink = luma(bg) > 110 ? \"#686868\" : \"#989898\", other = luma(bg) > 110 ? \"#989898\" : \"#686868\";\n  document.documentElement.style.background = bg;\n  document.body.style.background = bg;\n  document.body.style.color = ink;\n  document.getElementById(\"r1\").style.borderColor = x;\n  document.getElementById(\"r2\").style.borderColor = y;\n  document.getElementById(\"r3\").style.borderColor = z;\n  document.title = \"pixel \" + (label || bg);\n\n  var canvas = document.getElementById(\"ruler\"), ctx = canvas.getContext(\"2d\");\n  var info = document.getElementById(\"info\");\n  var BORDER = 6; // 1 + 2 + 3 CSS px\n  var drawn = \"\";\n\n  function drawRuler(w, h, dpr) {\n    var dw = Math.round(w * dpr), dh = Math.round(h * dpr);\n    canvas.width = dw;\n    canvas.height = dh;\n    canvas.style.width = w + \"px\";\n    canvas.style.height = h + \"px\";\n    ctx.setTransform(1, 0, 0, 1, 0, 0);\n    ctx.clearRect(0, 0, dw, dh);\n    var inner = Math.round(BORDER * dpr), unit = Math.max(1, Math.round(dpr));\n    ctx.fillStyle = ink;\n    ctx.font = Math.round(9 * dpr) + \"px Menlo, monospace\";\n    ctx.textBaseline = \"top\";\n    // Ticks every 10 CSS px from the page's origin, drawn from the inner edge of the borders inward.\n    for (var cx = 10; cx < w - BORDER; cx += 10) {\n      var len = cx % 100 === 0 ? 14 : cx % 50 === 0 ? 9 : 5;\n      ctx.fillRect(Math.round(cx * dpr), inner, unit, Math.round(len * dpr));\n      if (cx % 100 === 0) ctx.fillText(String(cx), Math.round(cx * dpr) + 2 * unit, inner + Math.round(15 * dpr));\n    }\n    for (var cy = 10; cy < h - BORDER; cy += 10) {\n      var len2 = cy % 100 === 0 ? 14 : cy % 50 === 0 ? 9 : 5;\n      ctx.fillRect(inner, Math.round(cy * dpr), Math.round(len2 * dpr), unit);\n      if (cy % 100 === 0) ctx.fillText(String(cy), inner + Math.round(16 * dpr), Math.round(cy * dpr) + unit);\n    }\n    // 1-device-pixel stripes (16 x 16 device px) just inside the top-left corner: crisp only at 1:1 device pixels.\n    var sx = inner + Math.round(30 * dpr), sy = inner + Math.round(30 * dpr);\n    for (var i = 0; i < 16; i++) {\n      ctx.fillStyle = i % 2 ? ink : other;\n      ctx.fillRect(sx + i, sy, 1, 16);\n      ctx.fillRect(sx + 20, sy + i, 16, 1);\n    }\n  }\n\n  var frames = 0;\n  function tick() {\n    frames += 1;\n    var w = window.innerWidth, h = window.innerHeight, dpr = window.devicePixelRatio || 1;\n    var key = w + \"x\" + h + \"@\" + dpr;\n    if (key !== drawn) {\n      drawRuler(w, h, dpr);\n      drawn = key;\n    }\n    info.textContent = (label ? label + \"  \" : \"\") + bg + \"\\n\" + w + \"x\" + h + \" css px  dpr \" + dpr + \"\\n\" +\n      Math.round(w * dpr) + \"x\" + Math.round(h * dpr) + \" device px\\nraf \" + frames;\n    window.requestAnimationFrame(tick);\n  }\n  window.addEventListener(\"resize\", function () {\n    var w = window.innerWidth, h = window.innerHeight, dpr = window.devicePixelRatio || 1;\n    if (w + \"x\" + h + \"@\" + dpr !== drawn) {\n      drawRuler(w, h, dpr);\n      drawn = w + \"x\" + h + \"@\" + dpr;\n    }\n  });\n  window.requestAnimationFrame(tick);\n  window.__pixelFixture = function () {\n    return {w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio, raf: frames, bg: bg, x: x, y: y, z: z,\n            label: label};\n  };\n})();\n</script>\n</body>\n</html>\n",
+   "title": "set-up: the browser fixture pixel/page.html"
+  },
+  {
+   "do": "px_tunable",
+   "key": "browserResize.pageBackdrop",
+   "value": false,
+   "title": "set-up: a Chromium page that lags shows the gap (browserResize.pageBackdrop off, where the store takes it)"
+  },
+  {
+   "do": "type",
+   "text": "clear; for i in $(seq 1 12); do if [ $((i % 2)) = 0 ]; then c='255;128;0'; else c='128;0;255'; fi; printf '\\033[48;2;%sm%*s\\033[0m\\n' \"$c\" $((COLUMNS * 2 + 5)) ''; done",
+   "enter": true,
+   "mark": "wrap-p0",
+   "title": "set-up: p0 prints 12 solid-color lines, each two pane widths and 5 cells, so each wraps"
+  },
+  {
+   "do": "expect",
+   "title": "set-up: p0's prompt is back after the wrapped lines",
+   "since": "wrap-p0",
+   "timeout": 8,
+   "all": [
+    {
+     "daemon_prompt": true
+    }
+   ]
+  },
+  {
+   "do": "action",
+   "action": "splitRight",
+   "title": "set-up: splitRight (p1)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "p1"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "clear; for i in $(seq 1 12); do if [ $((i % 2)) = 0 ]; then c='255;128;0'; else c='128;0;255'; fi; printf '\\033[48;2;%sm%*s\\033[0m\\n' \"$c\" $((COLUMNS * 2 + 5)) ''; done",
+   "enter": true,
+   "mark": "wrap-p1",
+   "title": "set-up: p1 prints 12 solid-color lines, each two pane widths and 5 cells, so each wraps"
+  },
+  {
+   "do": "expect",
+   "title": "set-up: p1's prompt is back after the wrapped lines",
+   "since": "wrap-p1",
+   "timeout": 8,
+   "all": [
+    {
+     "daemon_prompt": true
+    }
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "px_film",
+   "name": "px-keys-held-2w-s1r-s1",
+   "steps": [
+    {
+     "do": "rk_focus",
+     "pane": "p0",
+     "title": "set-up: focus p0 (cmux pane focus)"
+    },
+    {
+     "do": "px_equalize",
+     "panes": [
+      "p0",
+      "p1"
+     ],
+     "title": "set-up: equalize p0 | p1 (every film starts alike)"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0,
+     "title": "the layout and the load settle (nothing observable to wait on)"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8,
+     "title": "the layout and the load settle (nothing observable to wait on)"
+    },
+    {
+     "do": "px_record_start",
+     "name": "px-keys-held-2w-s1r-s1",
+     "seconds": 11.6,
+     "require_hz": 120,
+     "mbps": 60,
+     "fixture": {
+      "p0": {
+       "kind": "wrap",
+       "fill": "#FF8000"
+      },
+      "p1": {
+       "kind": "wrap",
+       "fill": "#8000FF"
+      }
+     },
+     "spring": null,
+     "input": "held keys",
+     "title": "start the 120 Hz movie, the trace and scan lines across every pane border and tab strip (px-keys-held-2w-s1r-s1)",
+     "lines_per_pane": [
+      0.15,
+      0.3,
+      0.45,
+      0.6,
+      0.75
+     ]
+    },
+    {
+     "do": "rk_hold",
+     "key": "l",
+     "modifiers": [
+      "control",
+      "shift"
+     ],
+     "seconds": 1.5,
+     "mark": "hold",
+     "title": "Ctrl-Shift-L held 1.5 s (debug.key auto-repeat)"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.57,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "rk_press",
+     "key": "h",
+     "modifiers": [
+      "control",
+      "shift"
+     ],
+     "count": 30,
+     "gap_ms": 33,
+     "mark": "burst",
+     "title": "Ctrl-Shift-H x30, 33 ms apart (real HID)"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.57,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "video_stop",
+     "name": "px-keys-held-2w-s1r-s1",
+     "tail": 0.4,
+     "title": "the motion ends; stop the recording (px-keys-held-2w-s1r-s1)"
+    }
+   ],
+   "after": [],
+   "title": "film px-keys-held-2w-s1r-s1: every motion.spring.* response / 1",
+   "speed": 1.0
+  },
+  {
+   "do": "px_film",
+   "name": "px-keys-held-2w-s1r-reduce",
+   "steps": [
+    {
+     "do": "rk_focus",
+     "pane": "p0",
+     "title": "set-up: focus p0 (cmux pane focus)"
+    },
+    {
+     "do": "px_equalize",
+     "panes": [
+      "p0",
+      "p1"
+     ],
+     "title": "set-up: equalize p0 | p1 (every film starts alike)"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0,
+     "title": "the layout and the load settle (nothing observable to wait on)"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8,
+     "title": "the layout and the load settle (nothing observable to wait on)"
+    },
+    {
+     "do": "px_record_start",
+     "name": "px-keys-held-2w-s1r-reduce",
+     "seconds": 11.4,
+     "require_hz": 120,
+     "mbps": 60,
+     "fixture": {
+      "p0": {
+       "kind": "wrap",
+       "fill": "#FF8000"
+      },
+      "p1": {
+       "kind": "wrap",
+       "fill": "#8000FF"
+      }
+     },
+     "spring": null,
+     "input": "held keys",
+     "title": "start the 120 Hz movie, the trace and scan lines across every pane border and tab strip (px-keys-held-2w-s1r-reduce)",
+     "lines_per_pane": [
+      0.15,
+      0.3,
+      0.45,
+      0.6,
+      0.75
+     ]
+    },
+    {
+     "do": "rk_hold",
+     "key": "l",
+     "modifiers": [
+      "control",
+      "shift"
+     ],
+     "seconds": 1.5,
+     "mark": "hold",
+     "title": "Ctrl-Shift-L held 1.5 s (debug.key auto-repeat)"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "rk_press",
+     "key": "h",
+     "modifiers": [
+      "control",
+      "shift"
+     ],
+     "count": 30,
+     "gap_ms": 33,
+     "mark": "burst",
+     "title": "Ctrl-Shift-H x30, 33 ms apart (real HID)"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "video_stop",
+     "name": "px-keys-held-2w-s1r-reduce",
+     "tail": 0.4,
+     "title": "the motion ends; stop the recording (px-keys-held-2w-s1r-reduce)"
+    }
+   ],
+   "after": [],
+   "title": "film px-keys-held-2w-s1r-reduce: Reduce Motion",
+   "reduce": true
+  },
+  {
+   "do": "rk_focus",
+   "pane": "p0",
+   "title": "set-up: focus p0 (cmux pane focus)"
+  },
+  {
+   "do": "settings_file",
+   "title": "clean-up: the fixture colors off (the next journey's theme is its own)",
+   "set": {
+    "appearance": {
+     "appTheme": "followTerminal"
+    }
+   },
+   "unset": [
+    "appearance.themeEdits",
+    "appearance.surfaces",
+    "sidebar.hoverCards"
+   ]
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "mark": "ctrlc",
+   "title": "after: a real HID Ctrl-C ends p0's load program"
+  },
+  {
+   "do": "expect",
+   "title": "after: the shell's prompt is back (the fixture ended)",
+   "since": "ctrlc",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_prompt": true
+    },
+    {
+     "app_prompt": true
+    }
+   ]
+  },
+  {
+   "do": "type",
+   "text": "echo rv-done-${nonce}",
+   "enter": true,
+   "mark": "after"
+  },
+  {
+   "do": "expect",
+   "title": "p0 echoes the line: app, daemon and frame",
+   "since": "after",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "rv-done-${nonce}"
+    },
+    {
+     "app_text_line": "rv-done-${nonce}"
+    },
+    {
+     "frame_text": "rv-done-${nonce}"
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "px_springs",
+   "reset": true,
+   "title": "clean-up: springs and Reduce Motion back"
+  },
+  {
+   "do": "px_tunable",
+   "key": "browserResize.pageBackdrop",
+   "value": null,
+   "title": "clean-up: the page backdrop back"
+  },
+  {
+   "do": "px_agent_css",
+   "remove": true,
+   "title": "clean-up: agent-pane/theme.css removed"
+  },
+  {
+   "do": "settings_file",
+   "title": "clean-up: the fixture colors off (the next journey's theme is its own)",
+   "set": {
+    "appearance": {
+     "appTheme": "followTerminal"
+    }
+   },
+   "unset": [
+    "appearance.themeEdits",
+    "appearance.surfaces",
+    "sidebar.hoverCards"
+   ]
+  }
+ ]
+}

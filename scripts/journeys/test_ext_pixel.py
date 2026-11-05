@@ -1212,8 +1212,18 @@ class PixelCasesTests(unittest.TestCase):
             self.assertFalse([s["id"] for s in specs if "-sw-" in s["id"]], "switch variants only with --switch")
             s1r = {s["id"]: s for s in specs if s["id"].endswith("-s1r")}
             # one per case (px-keys-held-2-tabclose the 12th, px-close-pane-3t the 13th, px-keys-held-2-tabclose-narrow the 14th,
-            # px-keys-rk-3t the 15th, px-keys-held-2-dt and px-col-drag-2-dt the 16th and 17th: S5 m16 item 5, docked DevTools)
-            self.assertEqual(len(s1r), 17)
+            # px-keys-rk-3t the 15th, px-keys-held-2-dt and px-col-drag-2-dt the 16th and 17th: S5 m16 item 5, docked DevTools;
+            # px-keys-single-2w, px-keys-held-2w and px-col-drag-2w the 18th to 20th: cmux-ad m18, the text re-wrap fixture)
+            self.assertEqual(len(s1r), 20)
+            # cmux-ad m18: the wrap cases' two panes are normal-screen shells that print wrapped solid-color lines (never the
+            # alternate-screen border fixture, which Ghostty does not re-wrap), filmed with five scan rows per pane.
+            for jid in ("px-keys-single-2w-s1r", "px-keys-held-2w-s1r", "px-col-drag-2w-s1r"):
+                typed = [st["text"] for st in s1r[jid]["steps"] if st["do"] == "type" and "COLUMNS * 2 + 5" in st.get("text", "")]
+                self.assertEqual(len(typed), 2, jid)
+                self.assertFalse([st for st in s1r[jid]["steps"] if st["do"] == "type" and "jr-tui-border" in st.get("text", "")], jid)
+                starts = [st for f in s1r[jid]["steps"] if f["do"] == "px_film" for st in f["steps"] if st["do"] == "px_record_start"]
+                self.assertEqual([st["lines_per_pane"] for st in starts], [[0.15, 0.3, 0.45, 0.6, 0.75]] * 2, jid)
+                self.assertEqual({v["kind"] for v in starts[0]["fixture"].values()}, {"wrap"}, jid)
             narrow = [st for f in s1r["px-keys-held-2-tabclose-narrow-s1r"]["steps"] if f["do"] == "px_film" for st in f["steps"]]
             shrink = [st for st in narrow if st["do"] == "rk_press" and st["key"] == "h" and st.get("count") == 30]
             self.assertEqual(len(shrink), 4)  # per film: the 30 x Ctrl-Shift-H set-up and the play's own burst, 2 films

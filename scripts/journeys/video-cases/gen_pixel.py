@@ -115,7 +115,7 @@ SPEEDS_LOWPROMPT = (("s1", 1.0), ("s025", 0.25))
 # The bar over the low prompt (a color no fixture uses): lowprompt_rows.py finds it on the scan column through the pane.
 LOW_PROMPT_BAR = "#FF8000"
 # Seconds, from the first rounds (cmux22, 2026-11-03: a pane's set-up took 1-3 s); MARGIN on top.
-EST_BASE, EST_PANE, EST_FOCUS, EST_FILM, EST_REBUILD, EST_AFTER = 12, {"tui": 4, "page": 12, "agent": 5, "shell": 4, "shellz": 4}, 1, 9, 7, 8
+EST_BASE, EST_PANE, EST_FOCUS, EST_FILM, EST_REBUILD, EST_AFTER = 12, {"tui": 4, "page": 12, "agent": 5, "shell": 4, "shellz": 4, "wrap": 4}, 1, 9, 7, 8
 EST_TAB = 5  # one more terminal tab with its fixture (px_tab_new, the neutral prompt, the TUI)
 MARGIN, BUDGET_MIN = 1.2, 40
 H, J, K, L = (("h", ["control", "shift"]), ("j", ["control", "shift"]), ("k", ["control", "shift"]),
@@ -226,6 +226,28 @@ def start_low_prompt_zebra(name):
              "timeout": 8, "all": [{"daemon_contains": "lpbar"}, {"daemon_prompt": True}]}]
 
 
+# cmux-ad m18 (Lead 13889): in every frame of a key resize and a divider drag, a terminal's text is re-wrapped at that frame's
+# pane size. The border fixture runs on the alternate screen, which Ghostty never re-wraps (as Ghostty.app), so it cannot show
+# it. The wrap fixture: a shell (normal screen) with WRAP_LINES lines, each 2 x $COLUMNS + 5 cells of one solid color (WRAP_A
+# and WRAP_B in turn), so each line wraps; a frame re-wrapped at its pane size shows every full row of color ending within one
+# cell of the grid's last whole cell. wrap_check.py reads it (pixel-perfect 2026-11-05).
+WRAP_A, WRAP_B, WRAP_LINES = "#FF8000", "#8000FF", 12
+WRAP_SCAN_LINES = (0.15, 0.3, 0.45, 0.6, 0.75)
+
+
+def start_wrap(name):
+    """A shell in NAME (normal screen) that prints WRAP_LINES solid-color lines, each 2 x $COLUMNS + 5 cells, so each wraps."""
+    mark = f"wrap-{name}"
+    rgb = lambda hexa: ";".join(str(int(hexa[i:i + 2], 16)) for i in (1, 3, 5))
+    a, b = rgb(WRAP_A), rgb(WRAP_B)
+    text = (f"clear; for i in $(seq 1 {WRAP_LINES}); do if [ $((i % 2)) = 0 ]; then c='{a}'; else c='{b}'; fi; "
+            f"printf '\\033[48;2;%sm%*s\\033[0m\\n' \"$c\" $((COLUMNS * 2 + 5)) ''; done")
+    return [{"do": "type", "text": text, "enter": True, "mark": mark,
+             "title": f"set-up: {name} prints {WRAP_LINES} solid-color lines, each two pane widths and 5 cells, so each wraps"},
+            {"do": "expect", "title": f"set-up: {name}'s prompt is back after the wrapped lines", "since": mark,
+             "timeout": 8, "all": [{"daemon_prompt": True}]}]
+
+
 def new_pane(name, action):
     """A new terminal pane by the app's action (splitRight, splitDown, newColumn, newRow) on the focused pane."""
     return [{"do": "action", "action": action, "title": f"set-up: {action} ({name})"},
@@ -250,6 +272,8 @@ def make_kind(name, kind, fill):
         return start_low_prompt(name)
     if kind == "shellz":
         return start_low_prompt_zebra(name)
+    if kind == "wrap":
+        return start_wrap(name)
     if kind == "page":
         return [{"do": "px_page", "pane": name, "bg": fill, "label": name, "title": f"set-up: page.html in a browser tab of {name} ({fill})"}]
     if kind == "agent":
@@ -279,9 +303,10 @@ class Layout:
         steps = []
         for name, kind, fill, how in self.panes:
             if how is None:
-                if kind != "tui":
+                if kind not in ("tui", "wrap"):
+                    # The wrap fixture is a shell at its prompt: the after check's Ctrl-C leaves that prompt.
                     raise ValueError("p0 is a terminal fixture (the after check types into it)")
-                steps += start_tui(name, fill)
+                steps += make_kind(name, kind, fill)
                 continue
             action, after = how
             if after:
@@ -380,6 +405,10 @@ C2ST = Layout("2st", "columns p0 T | (p1 T / p2 T)",
 C2X = Layout("2x", "columns p0 T | (p1 T | p2 T)",
              [("p0", "tui", YELLOW, None), ("p1", "tui", GREEN, ("newColumn", None)), ("p2", "tui", YELLOW, ("splitRight", None))],
              window=[0.0, 0.05, 1.0, 0.9])
+# cmux-ad m18: two wrap fixtures side by side (start_wrap): the keys on p0 and divider 0 move both panes' widths, so each frame
+# shows one pane growing and one shrinking, each to be re-wrapped at its width.
+W2 = Layout("2w", "p0 W | p1 W (normal-screen shells, wrapped solid-color lines)",
+            [("p0", "wrap", WRAP_A, None), ("p1", "wrap", WRAP_B, ("splitRight", None))])
 C3 = Layout("c3", "columns p0 T | p1 T | p2 A",
             [("p0", "tui", YELLOW, None), ("p1", "tui", GREEN, ("newColumn", None)), ("p2", "agent", AGENT_FILL, ("newColumn", None))])
 
@@ -408,7 +437,7 @@ class Case:
     drives it, so no curve is declared), and its rebuild after the recording (a close)."""
 
     def __init__(self, cid, title, layout, play, spring, input_kind, before=None, rebuild=None, play_seconds=None,
-                 fixture_tunables=(), speeds=None, setup=None, frames=False):
+                 fixture_tunables=(), speeds=None, setup=None, frames=False, lines=None):
         self.cid, self.title, self.layout, self.play, self.spring = cid, title, layout, play, spring
         self.input, self.before, self.rebuild = input_kind, before or [], rebuild or []
         self.play_seconds = play_seconds
@@ -421,6 +450,8 @@ class Case:
         self.setup = list(setup or [])
         # debug.frames per film (main ms per frame, raw; <film>.frames.json): the main-thread time of every motion frame.
         self.frames = frames
+        # The scan rows per pane, as fractions of its height (None: px_record_start's own, 0.3 and 0.7).
+        self.lines = tuple(lines) if lines else None
 
     def fixture_steps(self, when):
         return [{"do": "px_tunable", "key": key, "value": value, "required": True,
@@ -438,6 +469,8 @@ class Case:
                  "title": f"start the 120 Hz movie, the trace and scan lines across every pane border and tab strip ({name})"}
         if self.spring:
             start["spring_default"] = {"response": RESPONSE[self.spring], "damping": DAMPING[self.spring]}
+        if self.lines:
+            start["lines_per_pane"] = list(self.lines)
         frames_on = [{"do": "rpc", "method": "debug.frames", "params": {"action": "start"},
                       "title": "debug.frames start (main ms per frame)"}] if self.frames else []
         frames_off = [{"do": "rpc", "method": "debug.frames", "params": {"action": "stop", "raw": True}, "keep": "frames",
@@ -711,6 +744,16 @@ def cases():
     play, secs = col_drag_play(0)
     out.append(Case(f"px-col-drag-{T2.key}-dt", f"divider 0 dragged 150 pt right slowly and back fast, DevTools docked below p1's page "
                     f"({T2.text})", T2, play, None, "drag (docked DevTools)", play_seconds=secs, setup=devtools_setup("p1"), frames=True))
+    # cmux-ad m18 text re-wrap (pixel-perfect, R-HARNESS's m18 judge): the single presses, the held keys and the column drag on
+    # two wrap fixtures, five scan rows per pane (wrap_check.py classifies each row per frame: a full row of color, or a
+    # line's short last row).
+    out.append(Case(f"px-keys-single-{W2.key}", f"Ctrl-Shift-L, H, J, K on p0 ({W2.text})", W2, keys_play, "move", "keys",
+                    before=[focus("p0")], play_seconds=lambda s: 4 * (0.1 + land(s)), lines=WRAP_SCAN_LINES))
+    out.append(Case(f"px-keys-held-{W2.key}", f"Ctrl-Shift-L held, then Ctrl-Shift-H x30 every 33 ms, on p0 ({W2.text})", W2,
+                    held_play, None, "held keys", before=held_start(), play_seconds=lambda s: 2.6 + 2 * land(s), lines=WRAP_SCAN_LINES))
+    play, secs = col_drag_play(0)
+    out.append(Case(f"px-col-drag-{W2.key}", f"divider 0 dragged 150 pt right slowly and back fast ({W2.text})", W2, play, None,
+                    "drag", play_seconds=secs, lines=WRAP_SCAN_LINES))
     # Stage S1B 1b (frame-owner-s1b): a tab closes while the held key resizes its pane; every tab outlined, so the judge can
     # read each tab cell against its strip. One tab back in p0 after each film, so the next starts with 3 tabs again.
     out.append(Case(f"px-keys-held-{T2T.key}-tabclose",
