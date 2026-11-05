@@ -1,0 +1,24 @@
+import React from "react";
+import { type AcpmuxRow } from "../model";
+
+export type MeasurableRenderer = React.ComponentType<RowProps> & {
+  measure?: (row: AcpmuxRow, width: number) => number;
+};
+
+export type NativeRegistry = Record<string, MeasurableRenderer>;
+
+/// `onOpenDiff` opens the changes of the turn holding `rowId`, at `path` when given; focus
+/// returns to `opener` when the view closes.
+export type OpenDiff = (rowId: string, path?: string, opener?: HTMLElement) => void;
+
+export type RowProps = {
+  row: AcpmuxRow;
+  /// Whether a reply draws its own action row (model.ts `hasReplyActions`, from the row after it).
+  replyActions?: boolean;
+  sessionId?: string;
+  onToggleActivity: (id: string) => void;
+  expanded: boolean;
+  controls?: string;
+  onOpenDiff?: OpenDiff;
+  githubRepository?: string;
+};

@@ -35,8 +35,9 @@ GUARDED: dict[str, tuple[str, ...]] = {
     # Cheap one-step checks, but each label event still queued a runner on a saturated pool: bots set
     # and clear risk, hold and landing labels on hundreds of open pull requests.
     "merge-freeze.yml": ("freeze-ok",),
-    "pr-capture-check.yml": ("media-tour", "media-tour-mac"),
-    "pr-perf-section-check.yml": ("perf", "performance"),
+    # Its capture step reads the media-tour labels and its perf section step the perf labels
+    # (tests/test_pr_body_checks.py pins which step runs on which label).
+    "pr-body-checks.yml": ("media-tour", "media-tour-mac", "perf", "performance"),
 }
 
 # GUARDED workflows whose label events arrive as pull_request_target.

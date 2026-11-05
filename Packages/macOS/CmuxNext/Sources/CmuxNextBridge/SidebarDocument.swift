@@ -49,6 +49,12 @@ public final class SidebarDocument {
     /// `workspace` (of `session`): `sections` would list it after every placed row for that hop. Only while `shown`
     /// lags: a workspace a current projection does not place (its adopt still on the way, or refused) lists its own
     /// row, so a pending row never stands in for it for long.
+    /// The document has applied a change its shown projection does not hold yet (it is rebuilt a hop later).
+    public var catchingUp: Bool {
+        guard let store, store.shown != nil else { return false }
+        return store.version != store.shownVersion
+    }
+
     public func awaitsPlacement(_ workspace: WorkspaceModel, session: String?) -> Bool {
         guard let store, let shown = store.shown, store.version != store.shownVersion,
               let ref = SidebarDocSections.ref(of: workspace, session: session) else { return false }
