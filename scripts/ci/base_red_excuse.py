@@ -78,6 +78,14 @@ class RateLimitedRead(Exception):
     """
 
 
+def rate_limited_classes() -> tuple:
+    """What main() reports as a rate limit, as one flat tuple. A reader without RateLimited leaves it the empty
+    tuple, and `except ((), RateLimitedRead)` is a TypeError on every other refusal ("catching classes that do not
+    inherit from BaseException"), which would break the ordinary exit-1 path. Read at call time, so a caller that
+    loads a reader with RateLimited (main's) is honoured."""
+    return ((RateLimited,) if isinstance(RateLimited, type) else tuple(RateLimited)) + (RateLimitedRead,)
+
+
 def rate_limit_aware(github):
     """GITHUB with every rate-limited read raised as RateLimitedRead instead (above). Reads are
     looked up on each call, so a caller that replaces one (the tests' fakes) is still read."""
@@ -1444,7 +1452,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         audit = judge(args.repo, args.base, args.sha, args.run, GitHub(), checks=args.check,
                       flake_state=test_reds.load_flake_state(args.flake_state, fetch=True))
-    except (RateLimited, RateLimitedRead) as error:
+    except rate_limited_classes() as error:
         print(f"rate-limited: {error}", file=sys.stderr)
         return 3
     except Infra as error:

@@ -2468,6 +2468,20 @@ class Script(unittest.TestCase):
                 unittest.mock.patch.object(excuse.test_reds, "load_flake_state", lambda *a, **k: None):
             self.assertEqual(excuse.main(["--repo", HQ, "--base", "main", "--sha", HEAD, "--check", "x"]), 3)
 
+    def test_an_ordinary_refusal_still_exits_1_with_this_branchs_reader(self):
+        # Not patched: this branch's main_fix_evidence.py has no RateLimited, so excuse.RateLimited is the empty
+        # tuple. A handler written `except (RateLimited, RateLimitedRead)` is then `except ((), RateLimitedRead)`,
+        # a TypeError on every ordinary refusal ("catching classes that do not inherit from BaseException"), so
+        # main() would crash instead of saying "not excused" (review of #35947, F1).
+        self.assertEqual(excuse.rate_limited_classes(), (excuse.RateLimitedRead,))
+
+        def judge(*args, **kwargs):
+            raise excuse.Refused("no failed job found on the head to compare with the base")
+
+        with unittest.mock.patch.object(excuse, "judge", judge), \
+                unittest.mock.patch.object(excuse.test_reds, "load_flake_state", lambda *a, **k: None):
+            self.assertEqual(excuse.main(["--repo", REPO, "--base", "main", "--sha", HEAD, "--check", "x"]), 1)
+
     def test_a_rate_limited_read_leaves_judge_as_no_verdict(self):
         class RateLimited(excuse.Refused):
             pass
