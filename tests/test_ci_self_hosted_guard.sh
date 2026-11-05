@@ -1661,7 +1661,13 @@ selector = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
             "(startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && "
             "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6') || "
             "'blacksmith-2vcpu-ubuntu-2404' }}")
-if job.get("runs-on") != selector or "environment" in job:
+# The classic one-mini switch (tests/test_classic_nightly_one_mini.py) may lead the same selector: a main push or
+# schedule then takes vars.CI_CLASSIC_NIGHTLY_MINI, which runner_label_policy.py holds to cmux15's nightly label.
+classic_mini = selector.replace(
+    "'ubuntu-24.04' || ",
+    "'ubuntu-24.04' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && "
+    "vars.CI_CLASSIC_NIGHTLY_MINI || ", 1)
+if job.get("runs-on") not in (selector, classic_mini) or "environment" in job:
     sys.exit(0)
 if re.search(r"\bsecrets\b|create-github-app-token|\bprivate-key\b",
              json.dumps([document.get("env"), job]), re.IGNORECASE):
