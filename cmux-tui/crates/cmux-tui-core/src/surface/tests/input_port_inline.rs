@@ -98,22 +98,24 @@ fn a_connections_keys_share_one_kernel_queue_for_their_room_check() {
 /// writes for the same frame, byte for byte, or the host reads a corrupt stream.
 #[test]
 fn the_inline_frame_header_is_the_encoders_header() {
-    for payload in [&b"k"[..], &[0u8; 1024][..], &b""[..]] {
-        let mut frame = Frame::new(MessageKind::Input, payload.to_vec());
-        frame.version = 7;
-        let encoded = crate::terminal_host_protocol::encode_frame(&frame).unwrap();
-        let header = crate::terminal_host_protocol::input_frame_header(
-            7,
-            MessageKind::Input,
-            u32::try_from(payload.len()).unwrap(),
-        );
-        assert_eq!(
-            &encoded[..header.len()],
-            &header[..],
-            "the header of a {}-byte key",
-            payload.len()
-        );
-        assert_eq!(&encoded[header.len()..], payload);
+    for kind in [MessageKind::Input, MessageKind::Paste] {
+        for payload in [&b"k"[..], &[0u8; 1024][..], &b""[..]] {
+            let mut frame = Frame::new(kind, payload.to_vec());
+            frame.version = 7;
+            let encoded = crate::terminal_host_protocol::encode_frame(&frame).unwrap();
+            let header = crate::terminal_host_protocol::input_frame_header(
+                7,
+                kind,
+                u32::try_from(payload.len()).unwrap(),
+            );
+            assert_eq!(
+                &encoded[..header.len()],
+                &header[..],
+                "the header of a {}-byte {kind:?}",
+                payload.len()
+            );
+            assert_eq!(&encoded[header.len()..], payload);
+        }
     }
 }
 
@@ -205,6 +207,18 @@ fn keys_to_a_host_that_stopped_reading_never_block_their_requests() {
             "the keys reached the host in another order, more than once, or not at all"
         );
     });
+    // The host read everything: the socket has room again, so once the port is idle the next key goes inline (on
+    // macOS this proves that the connection's room-check queue reports room again after the socket was full). With
+    // the port's writer held, a key that went to the port instead would miss the read.
+    let pty = surface.as_pty().expect("a terminal");
+    wait_until("the port is idle", || pty.input_port.idle_for_test());
+    let _held = pty.input_port.pause_writes_for_test();
+    surface.write_bytes_replying(b"next", InputReply::Accepted).expect("the key after the drain");
+    assert_eq!(
+        input_frames(&mut host, Duration::from_millis(300)),
+        [b"next".to_vec()],
+        "after the host read everything, the next key did not go inline"
+    );
 }
 
 /// Order across the two paths: a key written inline, a write the port's writer holds, a key queued behind it, then
