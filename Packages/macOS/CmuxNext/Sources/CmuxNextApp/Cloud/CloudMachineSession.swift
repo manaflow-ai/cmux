@@ -155,11 +155,11 @@ final class CloudMachineSession {
     /// auto-pause parks idle machines, and its link connects once the record
     /// is live (`CloudService.reconcile`). An app link connects as before
     /// (its connect starts a paused machine for a click); a live legacy link
-    /// reconnects by itself, so nothing else changes. A paused app-link machine attached by a script (a
-    /// start, `cmux cloud start-chat`) resumes the same way: its script connect skips a paused machine.
+    /// reconnects by itself, so nothing else changes. A paused app-link machine resumes the same way for any origin: the
+    /// platform refuses a link to a paused machine (`cloud.machine.paused`), so a connect there, a person's too, failed at once.
     func attach(origin: CloudLinkOrigin = .user) {
         guard !machine.shownStatus.isChanging else { return }
-        if appLink != nil, origin == .user || machine.shownStatus != .paused { return connect(origin: origin) }
+        if appLink != nil, machine.shownStatus != .paused || resumer == nil { return connect(origin: origin) }
         // A live legacy machine with no connection: its link may be waiting out a backoff after a
         // failed start (or never started); the attach retries it now instead of doing nothing.
         if machine.shownStatus != .paused {
@@ -197,7 +197,7 @@ final class CloudMachineSession {
             recoverInterruptedMutation()
             let retry = retryIfHopFails && linkEnded != nil
             retryIfHopFails = false
-            if retry, !reconnectAfterHop { connect(origin: .user) }
+            if retry, !reconnectAfterHop { retryNow() }
             if reconnectAfterHop {
                 reconnectAfterHop = false
                 appTicket = nil
@@ -409,10 +409,10 @@ final class CloudMachineSession {
         }
     }
 
-    /// Retry on the record as it stands (the caller just read it): connect the link again.
+    /// Retry on the record as it stands (the caller just read it): connect the link again, or resume a paused app-link machine first (``attach(origin:)``; the platform refuses its link).
     func retryNow() {
         if case .failed = linkPhase { linkPhase = .starting }
-        connect(origin: .user)
+        if appLink != nil, machine.shownStatus == .paused, resumer != nil { attach() } else { connect(origin: .user) }
     }
 
     /// After `cmux link machine update` ran here (``CloudMachineUpdates``): connect to the daemon

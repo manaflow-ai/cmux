@@ -39,6 +39,7 @@ function evaluate(value: string, ctx: { inputs: Inputs; out: string; snapshot: s
     if (presence) return ctx.missing === presence[1] ? "" : "yes";
     const plan = expr.match(/^steps\.plan\.outputs\.(\w+)$/);
     if (plan) return ctx.plan[plan[1]!] ?? "";
+    if (expr === "(inputs.layered && !inputs.dev_tree) && '60' || '120'") return ctx.inputs.layered && !ctx.inputs.dev_tree ? "60" : "120";
     const ternary = expr.match(/^inputs\.(\w+) && '([^']*)' \|\| '([^']*)'$/);
     if (ternary) return ctx.inputs[ternary[1] as keyof Inputs] ? ternary[2]! : ternary[3]!;
     const input = expr.match(/^inputs\.(\w+)$/);
@@ -126,11 +127,13 @@ describe("cloud-vm-image-bake.yml", () => {
     const smoke = await runStep("Smoke", inputs, dir);
     expect(smoke.result.status).toBe(0);
     expect(smoke.argv.some((a) => a.startsWith("../images/cmux-vm/inventory.ts --out-dir"))).toBe(true);
-    expect(smoke.argv.some((a) => a.startsWith("../images/cmux-vm/smoke.ts"))).toBe(true);
+    expect(smoke.argv.some((a) => a.startsWith("../images/cmux-vm/smoke.ts") && a.includes("--idle-seconds 60 "))).toBe(true);
     const dir2 = mkdtempSync(path.join(tmpdir(), "cmux-layered-devtree-"));
     dirs.push(dir2);
     const devTree = await runStep("Bake", { ...inputs, dev_tree: true }, dir2);
     expect(devTree.argv.at(-1)).toBe(`../images/cmux-vm/bake.ts --tag ci-4242-1 --out-dir ${devTree.out} --agent-tools --dev-tree`);
+    const devTreeSmoke = await runStep("Smoke", { ...inputs, dev_tree: true }, dir2);
+    expect(devTreeSmoke.argv.some((a) => a.startsWith("../images/cmux-vm/smoke.ts") && a.includes("--idle-seconds 120 "))).toBe(true);
   });
 
   test("team_vm is a boolean input that defaults to off", () => {
@@ -188,7 +191,7 @@ describe("cloud-vm-image-bake.yml", () => {
 
       const smoke = await runStep("Smoke", inputs, dir);
       expect(smoke.result.status).toBe(0);
-      expect(smoke.argv.at(-1)).toBe(`../images/cmux-vm/smoke.ts --snapshot sh-test --tag ${tag} --clones 2 --out-dir ${smoke.out}${teamVm ? " --team-vm" : ""}`);
+      expect(smoke.argv.at(-1)).toBe(`../images/cmux-vm/smoke.ts --snapshot sh-test --tag ${tag} --clones 2 --idle-seconds 120 --out-dir ${smoke.out}${teamVm ? " --team-vm" : ""}`);
 
       // What bake.ts and smoke.ts write into the out dir.
       const name = `cmuxnp-dev-vmimg-${tag}`;

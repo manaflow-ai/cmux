@@ -42,8 +42,9 @@ const label = (name: string): string | undefined => {
 
 /**
  * Mints the box's join token for `user` in `team`. A deployment without the platform binding (local, tests), or whose
- * platform refuses (4xx), mints none and pairs as before; a platform that refuses or cannot be reached fails the approval before any install or
- * host is written, so a retry finishes it.
+ * platform refuses (4xx: no machine join there, or its own role rule), mints none and pairs as before. Only a platform
+ * that cannot be reached, or answers 5xx or a bad body, fails the approval before any install or host is written, so a
+ * retry finishes it.
  */
 export const mintPairMachineJoin = async (env: Pick<Env, "PLATFORM" | "INTERNAL_TOKEN">, input: { team: string; user: string; name: string }): Promise<Minted> => {
   if (!env.PLATFORM || !env.INTERNAL_TOKEN) return { ok: true, join: null }

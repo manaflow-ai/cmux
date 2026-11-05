@@ -81,7 +81,7 @@ pub fn serve_terminal_host_stdio(
     // close or a service-manager stop (PID 1) ends it (cx-t2sqm.17).
     let watched = shared.clone();
     host_signals::on_orphan_check(Box::new(move || {
-        host_orphan_grace().is_some()
+        effective_orphan_grace().is_some()
             && watched.active_client_streams.load(Ordering::Acquire) == 0
             && orphaned_for(HOST_SIGTERM_ORPHAN_MIN)
     }));
@@ -143,6 +143,18 @@ pub fn serve_terminal_host_stdio(
     // leave behind an undiscoverable terminal process.
     write_record_deferring_dir_sync(Path::new(&launch.record_path), &record)?;
     guard.published = true;
+    // Its record directory removed (a deleted throwaway HOME, a wiped state
+    // directory), this host can never be adopted again: it then ends its
+    // terminal once no client has served it for a short gap, in every build
+    // (#36625). A host its daemon still serves keeps running.
+    let removal_waker = shared.clone();
+    if let Err(error) = sys::follow_record_root_removal(record_root, move || {
+        eprintln!("terminal-host: its record directory was removed; it can no longer be adopted");
+        mark_record_root_removed();
+        removal_waker.accept_waker.wake();
+    }) {
+        eprintln!("terminal-host: cannot watch its record directory: {error}");
+    }
     host_signals::set_breadcrumb_path(
         Path::new(&launch.record_path).with_extension("signals"),
         record.terminal_id.clone(),
@@ -199,11 +211,11 @@ pub fn serve_terminal_host_stdio(
     // included), so a deleted throwaway build does not hold a PTY until
     // reboot. Any accepted connection restarts the clock, so a restarted
     // daemon's adoption always wins.
-    let orphan_grace = host_orphan_grace();
     let mut orphan_since: Option<Instant> = None;
     let mut orphan_ended = false;
     loop {
         let now = Instant::now();
+        let orphan_grace = effective_orphan_grace();
         if !shared.launch_owner_claimed.load(Ordering::Acquire)
             && now >= launch_owner_deadline
             && shared
@@ -249,9 +261,10 @@ pub fn serve_terminal_host_stdio(
                 {
                     orphan_ended = true;
                     eprintln!(
-                        "terminal-host: no client for {} s (owner daemon gone); ending the \
+                        "terminal-host: no client for {} s (owner daemon gone{}); ending the \
                          terminal",
-                        orphan_grace.as_secs()
+                        orphan_grace.as_secs(),
+                        if record_root_removed() { ", record directory removed" } else { "" }
                     );
                     mark_owner_gone();
                     shared.request_termination();

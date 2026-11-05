@@ -5,7 +5,7 @@ import CmuxNextIcons
 /// The right sidebar's Machines section (AppKit): this Mac, then a header per kind (Cloud, SSH,
 /// Servers, Joined) over its machines, then Add Machine…, laid out as ``MachineSectionStyle`` says. Every
 /// icon sits in one column and every name starts on one line; text takes three theme inks
-/// (``MachineSectionInk``). A machine that joined with a one-line token (Labs `labs.machineJoin`) is
+/// (``MachineSectionInk``). A machine that joined through the hub (a pair code or a one-line token) is
 /// a ``JoinedMachineRowView`` with its "…" menu, in its link's group or the Joined group. Rows take
 /// value snapshots and an action bundle, never a store.
 public final class MachineSectionView: NSView {
@@ -63,6 +63,47 @@ public final class MachineSectionView: NSView {
     /// The shown views top to bottom, each with the gap above it.
     private var arranged: [(view: NSView, gap: CGFloat)] = []
     private var shown = false
+
+    /// The joined rows' store this section keeps aging while it is on screen (``followAging(_:)``).
+    private weak var agingStore: JoinedMachineStore?
+
+    /// While this section is in a window and not hidden (itself or the whole panel), `store` re-checks
+    /// its online rows once their heartbeat would pass the hub's 90 s window; hidden or out of the
+    /// window, the deadline stops (``JoinedMachineStore/startAging(_:visible:)``).
+    public func followAging(_ store: JoinedMachineStore) {
+        agingStore = store
+        followVisibility()
+    }
+
+    /// On screen: in a window, not hidden, and the window not occluded.
+    var isOnScreen: Bool {
+        guard let window, !isHiddenOrHasHiddenAncestor else { return false }
+        return window.occlusionState.contains(.visible)
+    }
+
+    private func followVisibility() {
+        guard let agingStore else { return }
+        if window != nil, !isHiddenOrHasHiddenAncestor {
+            agingStore.startAging(self) { [weak self] in self?.isOnScreen ?? false }
+        } else {
+            agingStore.stopAging(self)
+        }
+    }
+
+    override public func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        followVisibility()
+    }
+
+    override public func viewDidHide() {
+        super.viewDidHide()
+        followVisibility()
+    }
+
+    override public func viewDidUnhide() {
+        super.viewDidUnhide()
+        followVisibility()
+    }
 
     public init(actions: Actions) {
         self.actions = actions
