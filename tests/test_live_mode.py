@@ -244,6 +244,33 @@ class LiveModeTests(unittest.TestCase):
         self.assertEqual(launched[-1], old_inode)  # the old build is what started last
         self.assertIsNone(written[-1])  # the state says the swap did not happen
 
+    def test_a_second_start_or_stop_is_refused_while_one_runs(self):
+        root = live_mode.cache_root("t")
+        with live_mode.SwapLock(root):
+            with self.assertRaises(live_mode.Refused) as refused:
+                with live_mode.SwapLock(root):
+                    pass
+        self.assertIn("another live mode start or stop runs", str(refused.exception))
+        with live_mode.SwapLock(root):  # free again once the first ends
+            pass
+
+    def test_a_failed_swap_puts_labs_live_code_back(self):
+        writes, saved = [], live_mode.live_code_setting
+        live_mode.live_code_setting = lambda path, on: writes.append(on)
+
+        def failing():
+            raise live_mode.Refused("did not answer")
+
+        try:
+            with self.assertRaises(live_mode.Refused):
+                live_mode.with_setting_back("sock", True, True, failing)
+            with self.assertRaises(live_mode.Refused):
+                live_mode.with_setting_back("sock", True, False, failing)  # unchanged: nothing to undo
+            self.assertEqual(live_mode.with_setting_back("sock", True, True, lambda: "ok"), "ok")
+        finally:
+            live_mode.live_code_setting = saved
+        self.assertEqual(writes, [False])
+
     def test_status_with_no_app_running(self):
         args = live_mode.argparse.Namespace(socket=os.path.join(self.dir, "none.sock"), tag="t", tree=ROOT)
         self.assertEqual(live_mode.line(live_mode.status(args)), "Swift live mode: off (cmux DEV t is not running)")

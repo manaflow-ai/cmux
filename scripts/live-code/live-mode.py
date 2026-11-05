@@ -438,6 +438,41 @@ def tree_hash(tree):
         return out.stdout.strip() if out.returncode == 0 else ""
 
 
+class SwapLock:
+    """One start or stop at a time per tag: a second one is refused at once instead of renaming
+    bundles under the first or quitting a process the first already replaced."""
+
+    def __init__(self, root):
+        root.mkdir(parents=True, exist_ok=True)
+        self.file = open(root / "swap.lock", "w")
+
+    def __enter__(self):
+        try:
+            fcntl.flock(self.file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            self.file.close()
+            raise Refused("another live mode start or stop runs for this build; wait for it") from None
+        return self
+
+    def __exit__(self, *exc):
+        fcntl.flock(self.file, fcntl.LOCK_UN)
+        self.file.close()
+
+
+def with_setting_back(path, on, changed, swap_it):
+    """Runs the swap; if it fails after Labs > Live Code was changed for it, puts the setting back,
+    so a failed start leaves no normal build watching and a failed stop no live build blind."""
+    try:
+        return swap_it()
+    except Refused:
+        if changed:
+            try:
+                live_code_setting(path, not on)
+            except (OSError, ValueError, Refused):
+                pass
+        raise
+
+
 class BuildLock:
     """One optimized build at a time per tag (the watcher's background one, or stop's)."""
 
@@ -500,6 +535,11 @@ def start(args):
     ident = identify(path)
     tag = ident.get("tag") or args.tag or os.environ.get("CMUX_TAG") or ""
     root = cache_root(slug(tag))
+    with SwapLock(root):
+        return start_locked(args, path, identify(path), tag, root)
+
+
+def start_locked(args, path, ident, tag, root):
     state = read_state(root)
     app = ident["app_bundle_path"]
     if state.get("mode") == "live" and state.get("binary") == binary_id(app):
@@ -536,7 +576,8 @@ def start(args):
     def swapped(binary):
         write_state(root, {**state, "binary": binary} if binary else {**state, "mode": "normal", "binary": None})
 
-    result = swap(path, ident, into=entry / "live.app", keep_as=root / "before.app", swapped=swapped)
+    result = with_setting_back(path, True, setting != "unchanged", lambda: swap(
+        path, ident, into=entry / "live.app", keep_as=root / "before.app", swapped=swapped))
     state["binary"] = result["binary"]
     # The person's edits since the live build compiled: in right away, then every save (watch).
     patchable, waiting = changed_sources(load_sources(built_from), swift_sources(args.tree))
@@ -552,6 +593,11 @@ def stop(args):
     ident = identify(path)
     tag = ident.get("tag") or args.tag or os.environ.get("CMUX_TAG") or ""
     root = cache_root(slug(tag))
+    with SwapLock(root):
+        return stop_locked(args, path, identify(path), tag, root)
+
+
+def stop_locked(args, path, ident, tag, root):
     state = read_state(root)
     app = ident["app_bundle_path"]
     if state.get("mode") != "live" or state.get("binary") != binary_id(app):
@@ -576,7 +622,8 @@ def stop(args):
     def swapped(binary):
         write_state(root, {**off, "binary": binary} if binary else state)
 
-    result = swap(path, ident, into=into, keep_as=entry / "live.app", swapped=swapped)
+    result = with_setting_back(path, False, setting != "unchanged", lambda: swap(
+        path, ident, into=into, keep_as=entry / "live.app", swapped=swapped))
     if not args.discard:
         (root / "edited.json").unlink(missing_ok=True)  # edited.app is installed now
     write_state(root, {**off, "binary": result["binary"]})
@@ -617,8 +664,16 @@ def watch(args):
             applied = apply_edits(tree, entry, patchable)
             print(f"{now()} saved {len(patchable) + len(waiting)} file(s): patch exit {applied['exit']}"
                   + (f"; waiting for the stop build: {', '.join(waiting)}" if waiting else ""), flush=True)
-            if waiting:
-                write_state(root, {**state, "waiting": sorted(set(state.get("waiting") or []) | set(waiting))})
+            # What waits is what differs from the live build now: a reverted file no longer waits.
+            still = changed_sources(load_sources(entry / "sources.json"), now_sources)[1]
+            if still != (state.get("waiting") or []):
+                try:
+                    with SwapLock(root):  # never over a start or stop's state
+                        fresh = read_state(root)
+                        if fresh.get("mode") == "live" and fresh.get("binary") == state.get("binary"):
+                            write_state(root, {**fresh, "waiting": still})
+                except Refused:
+                    pass  # a start or stop runs; the next save writes it
         if time.monotonic() - last_save >= QUIET_S:
             tree_id = tree_hash(tree)
             if tree_id and tree_id != built_tree and read_json(root / "edited.json").get("tree") != tree_id:
