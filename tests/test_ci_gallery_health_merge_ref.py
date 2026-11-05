@@ -191,5 +191,140 @@ class GalleryHealthBrowserConsistency(unittest.TestCase):
             self.assertEqual(launches.read_text().splitlines(), [browser, browser])
 
 
+def triggers() -> dict:
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    return workflow.get("on", workflow.get(True))
+
+
+def glob_regex(pattern: str) -> re.Pattern[str]:
+    """A GitHub paths pattern (`**`, `*`) as a regular expression over one repo path."""
+    out, index = "", 0
+    while index < len(pattern):
+        if pattern.startswith("**/", index):
+            out, index = out + "(?:.*/)?", index + 3
+        elif pattern.startswith("**", index):
+            out, index = out + ".*", index + 2
+        elif pattern[index] == "*":
+            out, index = out + "[^/]*", index + 1
+        else:
+            out, index = out + re.escape(pattern[index]), index + 1
+    return re.compile(out + r"\Z")
+
+
+def triggered(path: str, patterns: list[str]) -> bool:
+    """GitHub's rule: the last pattern that matches decides, a `!` pattern excluding."""
+    hit = False
+    for pattern in patterns:
+        if glob_regex(pattern.lstrip("!")).match(path):
+            hit = not pattern.startswith("!")
+    return hit
+
+
+def tracked(*paths: str) -> list[str]:
+    return subprocess.run(["git", "-C", str(ROOT), "ls-files", "--", *paths], check=True,
+                          capture_output=True, text=True).stdout.split()
+
+
+class GalleryHealthPathRouting(unittest.TestCase):
+    """A pull request runs gallery health only when a path the gallery render reads changes.
+
+    2026-11-05 CI audit (cmuxterm-hq plans/ci/baggage-2026-11-05.md): ~403,000 runner-minutes in 14 days, the
+    most expensive check on the base. Leo, 2026-11-05: "we're kind of pushing a lot of frontiers here. We are at
+    the same time, like doing a lot of goofy stuff and, like, keeping around a lot of baggage."
+    """
+
+    def test_a_pull_request_and_a_push_route_on_the_same_paths(self) -> None:
+        on = triggers()
+        self.assertEqual(on["pull_request"]["paths"], on["push"]["paths"])
+        self.assertEqual(on["pull_request"]["branches"], ["feat-cmux-next"])
+
+    def test_what_the_render_reads_triggers_it(self) -> None:
+        paths = triggers()["pull_request"]["paths"]
+        for path in (
+            "webviews/src/agent-session/acpmux/conversation/conversation.css",
+            "webviews/src/gallery/frame/main.ts",
+            "webviews/dev-server/galleryHost.ts",
+            "webviews/scripts/gallery/touched.ts",
+            "webviews/scripts/agent-pane/bundle.mjs",
+            "webviews/scripts/pages/gen-strings.mjs",
+            "webviews/vite.config.gallery.ts",
+            "webviews/bun.lock",
+            "scripts/gallery-matrix/bun.lock",
+            "scripts/gallery-matrix/health.ts",
+            "scripts/ci/test_reds.py",
+            ".github/workflows/gallery-health.yml",
+            "Resources/ghostty/themes/Token Dark",
+        ):
+            self.assertTrue(triggered(path, paths), path)
+
+    def test_what_the_render_never_reads_does_not_trigger_it(self) -> None:
+        paths = triggers()["pull_request"]["paths"]
+        for path in (
+            "webviews/src/agent-session/acpmux/conversation/scrollAnchor.test.ts",
+            "webviews/test/transcript-cohesion.browser.test.ts",
+            "webviews/bench/hover-sweep.ts",
+            "webviews/scripts/check-design-tokens.ts",
+            "webviews/README.md",
+            "bun.lock",
+            "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppDelegate.swift",
+        ):
+            self.assertFalse(triggered(path, paths), path)
+
+    def test_every_broad_touched_path_triggers_it(self) -> None:
+        # touched.ts's EVERYTHING list re-renders every entry; each of its files must start the workflow. The
+        # repository's root bun.lock is the one exception: neither install here (webviews/, scripts/gallery-matrix/)
+        # reads it.
+        source = (ROOT / "webviews/scripts/gallery/touched.ts").read_text(encoding="utf-8")
+        block = source[source.index("const EVERYTHING"):source.index("];", source.index("const EVERYTHING"))]
+        broad = [re.compile(body) for body in re.findall(r"^\s*/(.+)/,\s*$", block, re.M)]
+        self.assertGreater(len(broad), 5)
+        paths = triggers()["pull_request"]["paths"]
+        files = [path for path in tracked(".") if any(pattern.search(path) for pattern in broad)]
+        missed = [path for path in files if path != "bun.lock" and not triggered(path, paths)]
+        self.assertEqual(missed, [])
+
+    def test_every_file_the_gallery_imports_from_outside_webviews_triggers_it(self) -> None:
+        # A gallery file, a component or a stylesheet that imports a fixture, a schema or a font from outside
+        # webviews/: that file changes what renders, so it must start the workflow.
+        paths = triggers()["pull_request"]["paths"]
+        pattern = re.compile(r"""(?:\bfrom\s*|\bimport\s*\(?\s*|@import\s+(?:url\()?|new URL\(\s*)["'](\.{1,2}/[^"'?]+)""")
+        missed = set()
+        for name in tracked("webviews/src", "webviews/dev-server", "webviews/scripts/gallery",
+                            "webviews/scripts/agent-pane", "webviews/scripts/pages"):
+            if not re.search(r"\.(ts|tsx|js|mjs|css)$", name) or re.search(r"\.test\.tsx?$", name):
+                continue
+            text = (ROOT / name).read_text(encoding="utf-8", errors="replace")
+            for match in pattern.finditer(text):
+                target = os.path.normpath(os.path.join(os.path.dirname(name), match.group(1)))
+                # Inside webviews/, only a test helper a gallery stage imports (test/latency/mock-host.ts) sits
+                # outside the routed folders.
+                if target.startswith("webviews/") and not target.startswith("webviews/test/"):
+                    continue
+                if (ROOT / target).is_file() and not triggered(target, paths):
+                    missed.add(f"{target} (from {name})")
+        self.assertEqual(sorted(missed), [])
+
+    def test_the_string_catalogs_the_gallery_build_reads_trigger_it(self) -> None:
+        # gallery:build runs gen-strings.mjs, which reads these catalogs into the pages' strings.
+        paths = triggers()["pull_request"]["paths"]
+        source = (ROOT / "webviews/scripts/pages/gen-strings.mjs").read_text(encoding="utf-8")
+        sources = re.search(r'const sources = "([^"]+)"', source).group(1)
+        files = {f.replace("${sources}", sources) for f in re.findall(r'file: [`"]([^`"]+)[`"]', source)}
+        files |= set(re.findall(r'inputs: \["([^"]+)"', source))
+        self.assertGreater(len(files), 10)
+        self.assertEqual(sorted(f for f in files if not triggered(f, paths)), [])
+
+    def test_a_dispatch_renders_every_entry(self) -> None:
+        # The nightly full render of the base: a main-side dispatcher starts it on feat-cmux-next, since a
+        # schedule on this branch never fires.
+        self.assertIn("workflow_dispatch", triggers())
+        run = step("Choose the entries to render")["run"]
+        branch = run[run.index('[ "$EVENT" = workflow_dispatch ]'):]
+        branch = branch[:branch.index("elif", 1)]
+        self.assertIn("echo .github/workflows/gallery-health.yml", branch)
+        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        self.assertIn("github.event_name", workflow["concurrency"]["group"])
+
+
 if __name__ == "__main__":
     unittest.main()
