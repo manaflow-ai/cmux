@@ -55,10 +55,10 @@ test("a wrapping card keeps enough of one long paragraph to fill its lines", () 
 });
 
 test("a paste's size says its lines (when more than one) and its characters", () => {
-  const t = ((key: string, values?: Record<string, unknown>) =>
+  const t = ((key: string, values?: Record<string, string | number>) =>
     key === "composer.pastedChars"
-      ? `${values?.count} characters`
-      : `${values?.count} ${values?.n === 1 ? "line" : "lines"}`) as Translate;
+      ? `${values?.count ?? ""} characters`
+      : `${values?.count ?? ""} ${values?.n === 1 ? "line" : "lines"}`) as Translate;
   expect(pastedSize(t, "en", "x".repeat(4_200))).toBe("4.2K characters");
   expect(pastedSize(t, "en", Array.from({ length: 42 }, () => "x".repeat(42)).join("\n"))).toBe(
     "42 lines · 1.8K characters",
