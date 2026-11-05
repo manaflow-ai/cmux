@@ -75,6 +75,26 @@ class AffectedTests(unittest.TestCase):
             sent |= set(env.split("=", 1)[1].splitlines())
         self.assertEqual(sent, set(affected_tests.web_tests(ROOT)))
 
+    def test_an_unmapped_webviews_file_runs_every_web_test_not_every_suite(self):
+        result = plan(["webviews/scripts/" + "zz-unmapped-baseline.jsonl"])
+        self.assertFalse(result["all"], result["reasons"])
+        sent = set()
+        for u in result["units"]:
+            for a in u["argv"]:
+                if a.startswith("CMUX_WEB_TEST_FILES="):
+                    sent |= set(a.split("=", 1)[1].splitlines())
+        self.assertEqual(sent, set(affected_tests.web_tests(ROOT)))
+        self.assertNotIn("rust", names(result))
+
+    def test_unit_names_are_unique_and_web_plans_take_the_web_workflows_python_tests(self):
+        for files in (["webviews/src/agent-session/acpmux/App.tsx"], ["cmux-tui/crates/cmux-config/src/lib.rs"], []):
+            with self.subTest(files=files):
+                result = plan(files, everything=not files)
+                self.assertEqual(len(names(result)), len(set(names(result))))
+        argv = [a for u in plan(["webviews/src/agent-session/acpmux/App.tsx"])["units"] for a in u["argv"]]
+        for test in affected_tests.web_workflow_python_tests(ROOT):
+            self.assertIn(test, argv)
+
     def test_no_empty_web_unit(self):
         for u in plan(["plans/cmux-next/actions.md"])["units"]:
             for a in u["argv"]:

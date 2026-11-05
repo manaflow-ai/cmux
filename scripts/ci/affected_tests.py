@@ -114,6 +114,13 @@ def webviews_source_changed(files: list[str]) -> list[str]:
     return [f for f in files if f.startswith(focused_tests.WEB + "src/") and not focused_tests.WEB_TEST.search(f)]
 
 
+def web_workflow_python_tests(root: Path) -> list[str]:
+    """Python tests the webviews workflow (ci-web.yml) runs in its jobs: they go with every-web-test plans."""
+    path = root / ".github/workflows/ci-web.yml"
+    found = re.findall(r"python3 ((?:[\w.-]+/)*test_[\w-]+\.py)", path.read_text()) if path.is_file() else []
+    return sorted({t for t in found if (root / t).is_file()})
+
+
 def tests_naming(root: Path, paths: list[str]) -> tuple[dict[str, list[str]], list[str]]:
     """Swift test targets and webviews tests whose source names one of `paths` (a docs or plans file a
     test reads by path, such as plans/cmux-next/actions.md): ({package: [targets]}, [web tests])."""
@@ -287,7 +294,8 @@ def everything_reasons(files: list[str], focused: dict) -> list[str]:
     if len(files) > MAX_FILES:
         reasons.append(f"{len(files)} changed paths (over {MAX_FILES})")
     reasons += [f"{p}: decides or runs the selection" for p in files if p in SELF_INPUTS]
-    reasons += [f"{p}: no rule maps it to tests" for p in focused.get("unmapped", [])]
+    # An unmapped webviews path (a fixture, a baseline, a build script) runs every webviews test instead.
+    reasons += [f"{p}: no rule maps it to tests" for p in focused.get("unmapped", []) if not p.startswith(focused_tests.WEB)]
     return reasons
 
 
@@ -319,17 +327,23 @@ def plan(root: Path, base: str, head: str, files: list[str] | None, shards: int,
                     (focused_tests.swift_package(root, path) or (None,))[0] or focused_tests.swift_package_root(root, path))
                 if pkg:
                     targets[pkg] = swift_test_targets(root, pkg)
+        web_python: list[str] = []
         named_swift, named_web = tests_naming(root, focused.get("docs", []))
         for pkg, names in named_swift.items():
             targets.setdefault(pkg, []).extend(names)
         p.swift({k: sorted(set(v)) for k, v in targets.items() if v}, focused["swift_deferred"] or "test targets that import a changed target")
-        if webviews_source_changed(files):
+        if webviews_source_changed(files) or any(f.startswith(focused_tests.WEB) for f in focused.get("unmapped", [])):
             p.web(None)
+            web_python = web_workflow_python_tests(root)
         elif focused["web"] or named_web:
             p.web(focused["web"] + [{"path": t, "why": "names a changed file"} for t in named_web
                                     if t not in {f["path"] for f in focused["web"]}])
-        p.python([item["path"] for item in focused["python"]])
+        lanes = python_lane_tests(root)
+        lane_paths = [item["path"] for item in focused["python"]]
+        lane_paths += [t for t in web_python if lanes.get(t) == LINUX_PYTHON_LANE and t not in lane_paths]
+        p.python(lane_paths)
         extra = extra_python(root, files)
+        extra += [t for t in web_python if t not in lanes and t not in extra]
         if extra:
             p.python_extra(extra, f"{len(extra)} Python tests outside the lane registry")
         p.native([item["manifest"] for item in focused["native"]])
