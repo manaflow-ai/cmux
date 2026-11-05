@@ -193,7 +193,10 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
               if (!effect || effect.getComputedTiming().iterations === Infinity) return false;
               return effect.getKeyframes().some((frame) => "opacity" in frame || "transform" in frame);
             });
-          if (visual.length) animating.push(id);
+          if (visual.length)
+            animating.push(
+              `${id}:${visual.map((animation) => (animation as CSSAnimation).animationName ?? animation.id).join("+")}`,
+            );
         }
         frames.push({
           jump: jump
@@ -368,7 +371,9 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
         infoChangeKinds: [...new Set(watched.infoChanges)].slice(0, 8),
         infoReplaced: watched.infoReplaced,
       };
-      console.info(`chat-scroll-nightly: ${JSON.stringify(summary)}`);
+      // One short line per entry: the hosted log cuts long lines.
+      for (const [key, value] of Object.entries(summary))
+        console.info(`chat-scroll-nightly ${name} ${key}: ${JSON.stringify(value)}`);
       await page.close();
 
       // The run went where the repros are: older pages landed while the wheel moved up.
