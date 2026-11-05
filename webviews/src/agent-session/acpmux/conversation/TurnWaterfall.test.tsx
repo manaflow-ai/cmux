@@ -6,6 +6,7 @@ import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { TurnFooter } from "./TurnRows";
+import { SummaryRow } from "../rows/SummaryRow";
 import { TurnWaterfall } from "./TurnWaterfall";
 import { TurnActionsContext } from "./turnActions";
 import { turnView } from "./turns";
@@ -133,7 +134,7 @@ test("a long thought is never the slowest: the tag names a call", () => {
   expect(chart.slowest).toBe(2);
 });
 
-test("a background shell that ends after the summary gives the footer a new version, so its Timeline redraws", () => {
+test("a background shell that ends after the summary changes the footer's end key, so its memoized row redraws", () => {
   const shell = (endedAt?: number): AcpmuxActivity => ({
     kind: "tool",
     text: "bun test",
@@ -159,10 +160,14 @@ test("a background shell that ends after the summary gives the footer a new vers
       new Set(),
       { agentFamily: "claude", now: 10_000 },
     ).find((row) => row.kind === "turnSummary")!;
-  expect(footer(5_000).version).not.toBe(footer().version);
+  expect(workEnds(footer(5_000).turnWork)).not.toBe(workEnds(footer().turnWork));
+  // The row's memo compares that key beside the version (rows/SummaryRow.tsx).
+  const memo = (SummaryRow as unknown as { compare: (a: { row: AcpmuxRow }, b: { row: AcpmuxRow }) => boolean }).compare;
+  expect(memo({ row: footer() }, { row: footer(5_000) })).toBe(false);
+  expect(memo({ row: footer(5_000) }, { row: footer(5_000) })).toBe(true);
 });
 
-test("64 more background ends still move the footer's version part, where a count of them wrapped", () => {
+test("the end key is exact: 64 more ends, or one end a few ms later, still change it", () => {
   const ended = (n: number): AcpmuxActivity[] =>
     Array.from({ length: n }, (_, at) => ({
       kind: "tool",
@@ -176,5 +181,15 @@ test("64 more background ends still move the footer's version part, where a coun
       },
     }));
   expect(workEnds(ended(65))).not.toBe(workEnds(ended(1)));
-  expect(workEnds(undefined)).toBe(0);
+  const later = ended(1);
+  later[0]!.tool!.background!.endedAt! += 64;
+  expect(workEnds(later)).not.toBe(workEnds(ended(1)));
+  expect(workEnds(undefined)).toBe("");
+});
+
+test("two spans of one reused call id draw under their own keys", () => {
+  const markup = renderToStaticMarkup(
+    <TurnWaterfall row={{ at: 2_000, durationMs: 2_000 }} work={[call("same", 0, 500), call("same", 1_000, 1_500)]} />,
+  );
+  expect(markup.match(/cv-waterfall__span/g)?.length).toBe(2);
 });

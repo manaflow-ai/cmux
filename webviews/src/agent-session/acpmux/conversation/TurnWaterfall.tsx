@@ -133,7 +133,8 @@ export function TurnWaterfall({
         {withLabel && <span className="cv-waterfall__time">{time}</span>}
       </>
     );
-    const key = span.toolId ?? `thought:${at}`;
+    // A harness may reuse a call id, so the span's place keys it.
+    const key = `${at}:${span.toolId ?? "thought"}`;
     return span.toolId && showCall ? (
       <li key={key}>
         <button
@@ -176,9 +177,9 @@ export function TurnWaterfall({
                 <span className="cv-waterfall__name">{t(LANE_NAMES[tone])}</span>
               </span>
               <span className="cv-waterfall__track">
-                {spans.map((span) => (
+                {spans.map((span, at) => (
                   <span
-                    key={span.toolId ?? `${span.from}`}
+                    key={`${at}:${span.toolId ?? "thought"}`}
                     className={`cv-waterfall__bar is-${span.tone}${span.failed ? " is-failed" : ""}${span === slowest ? " is-slowest" : ""}`}
                     style={place(span)}
                     title={`${spanLabel(t, span.item)} · ${spanTime(t, span.to - span.from)}`}

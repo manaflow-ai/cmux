@@ -41,7 +41,7 @@ import { isWaitingMessage } from "./pendingMessages";
 import { appendLaneNotice } from "./laneNoticeBatches";
 import { agentMessage } from "./agentMessages";
 import { turnCopyParts } from "./turnCopy";
-import { turnWork, workEnds } from "./waterfallSpans";
+import { turnWork } from "./waterfallSpans";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
 import { isThought, thoughtDuration } from "./thoughts";
 import {
@@ -1269,13 +1269,11 @@ function shapeTurn(
       }),
     // A turn is either stopped or failed, so Continue's bit serves both.
     version:
-      version * 1024 +
+      version * 16 +
       (retryable ? 1 : 0) +
       (resumable || continuable ? 2 : 0) +
       (retryTarget ? 4 : 0) +
-      (changedFiles ? 8 : 0) +
-      // A background shell that ended after the summary moves its Timeline bar, so the footer redraws.
-      16 * workEnds(work),
+      (changedFiles ? 8 : 0),
   });
   // Anything after the summary (late tool updates, or a turn the agent started on its own)
   // draws as it came.
