@@ -10,7 +10,8 @@
 #
 # CMUX_ZIG_FETCH_ATTEMPTS (default 4), CMUX_ZIG_FETCH_TIMEOUT_S per attempt
 # (default 120; needs `timeout`, else unbounded) and CMUX_ZIG_FETCH_BACKOFF_S
-# (default 5, times the attempt number) bound the total.
+# (default 5, times the attempt number) bound the total. ZIG names the zig to
+# run (default: zig on PATH), for a tree that needs another Zig than PATH's.
 set -euo pipefail
 
 [[ $# -eq 1 ]] || { echo "usage: $0 <zig project dir>" >&2; exit 2; }
@@ -18,11 +19,12 @@ dir="$1"
 attempts="${CMUX_ZIG_FETCH_ATTEMPTS:-4}"
 limit="${CMUX_ZIG_FETCH_TIMEOUT_S:-120}"
 backoff="${CMUX_ZIG_FETCH_BACKOFF_S:-5}"
+zig="${ZIG:-zig}"
 bound=()
 command -v timeout >/dev/null 2>&1 && bound=(timeout "$limit")
 
 for ((attempt = 1; attempt <= attempts; attempt++)); do
-  if (cd "$dir" && ${bound[@]+"${bound[@]}"} zig build --fetch=all); then
+  if (cd "$dir" && ${bound[@]+"${bound[@]}"} "$zig" build --fetch=all); then
     exit 0
   fi
   echo "zig build --fetch=all in $dir failed (attempt $attempt of $attempts)" >&2

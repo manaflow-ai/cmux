@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery fixtures (sample prompts and image names), not shipped UI.
 // The images a sent prompt carries, above its bubble (UserBubble.tsx SentImages): each a rounded
-// thumbnail cropped to fill a fixed height, its slot held while acpmux reads it, named on hover by
+// thumbnail of the whole image at most 120px tall, its slot held while acpmux reads it, named on hover by
 // its file name or, for a pasted screenshot, its size; one that cannot be drawn says so.
 import { useEffect, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
@@ -8,7 +8,7 @@ import type { PromptImage } from "../model";
 import { primeSentImages } from "./imageEntries";
 import { ImageViewerContext } from "./imageViewerContext";
 import { TurnActionsContext } from "./turnActions";
-import { SentImages } from "./UserBubble";
+import { SentImages, UserBubble } from "./UserBubble";
 
 type Shot = { width: number; height: number; hue: number };
 type Props = {
@@ -17,6 +17,8 @@ type Props = {
   /// The pane's own paste: acpmux's echo names each image (by the SHA-256 of its bytes) before
   /// the pane has primed it, and acpmux's read never answers; the pane's priming draws it.
   primedLate?: boolean;
+  /// Also sends the first image inside a prompt's text (InlinePromptContent.tsx).
+  inline?: boolean;
 };
 
 /// A screenshot-like image `shot.width`×`shot.height`: a title bar, a sidebar and lines of text.
@@ -73,12 +75,12 @@ function GalleryPrimedLate({ images }: Props) {
   return named ? <GallerySentImages images={named} pending /> : null;
 }
 
-function GallerySentImages({ images, pending = false, primedLate = false }: Props) {
+function GallerySentImages({ images, pending = false, primedLate = false, inline = false }: Props) {
   if (primedLate) return <GalleryPrimedLate images={images} />;
-  return <GalleryShownImages images={images} pending={pending} />;
+  return <GalleryShownImages images={images} pending={pending} inline={inline} />;
 }
 
-function GalleryShownImages({ images, pending = false }: Props) {
+function GalleryShownImages({ images, pending = false, inline = false }: Props) {
   const [actions] = useState(() => {
     const urls = new Map(
       images.map((image) => [image.id, image.broken ? "data:image/png;base64,AAAA" : image.shot && paint(image.shot)]),
@@ -94,6 +96,24 @@ function GalleryShownImages({ images, pending = false }: Props) {
           <SentImages images={images} />
           <div className="ui-glass cv-user__bubble">Why does the sidebar overlap the toolbar here?</div>
         </div>
+        {inline && (
+          <div className="cv-user" style={{ padding: 16 }}>
+            <UserBubble
+              row={{
+                id: "inline",
+                version: 1,
+                kind: "user",
+                at: 1,
+                inlineParts: [
+                  { kind: "text" as const, text: "This strip " },
+                  { kind: "image" as const, ...images[0]!, placed: true as const },
+                  { kind: "text" as const, text: " runs past the bubble." },
+                ],
+              }}
+              text="This strip runs past the bubble."
+            />
+          </div>
+        )}
       </TurnActionsContext.Provider>
     </ImageViewerContext.Provider>
   );
@@ -115,8 +135,21 @@ export default componentEntry<Props>({
   load: async () => GallerySentImages,
   variants: {
     pasted: {
-      note: "Three pasted screenshots (square, wide, tall): each fills a fixed-height rounded thumbnail; hover names its size.",
+      note: "Three pasted screenshots (square, wide, tall): each the whole image at most 120px tall; hover names its size.",
       props: { images: pasted },
+    },
+    "wide-strip": {
+      note: "A strip cut from a chat (1568×74, Leo's 2026-11-05 capture): the whole strip at 320px wide, never a magnified crop of its middle.",
+      props: {
+        images: [{ id: "w", mimeType: "image/png", name: "image.png", shot: { width: 1568, height: 74, hue: 250 } }],
+      },
+    },
+    narrow: {
+      note: "The wide strip in a narrow chat, above a prompt and inside one: each scales down to the bubble, whole, never past its edge.",
+      props: {
+        images: [{ id: "w", mimeType: "image/png", name: "image.png", shot: { width: 1568, height: 74, hue: 250 } }],
+        inline: true,
+      },
     },
     named: {
       note: "Dropped files keep their names on hover.",

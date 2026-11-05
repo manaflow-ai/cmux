@@ -67,7 +67,10 @@ public actor CloudTunnelHub {
     static let restartWindow: Duration = .seconds(600)
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.hub")
 
-    static func seconds(since instant: ContinuousClock.Instant) -> String { CloudMachineLink.seconds(since: instant) }
+    static func seconds(since instant: ContinuousClock.Instant) -> String {
+        let elapsed = instant.duration(to: .now)
+        return String(format: "%.1f s", Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18)
+    }
 
     /// 32 bytes from the system's cryptographic generator, hex encoded.
     static func makeClientToken() -> String {
