@@ -38,6 +38,9 @@ struct CloseDuringCreateNoReappearTests {
                 _ = services.registry.perform("newTab", invocation: ActionInvocation(arguments: ["name": .string("doomed-01")]))
             }
             let key = try #require(PendingWorkspaceRows.shared.rows(in: window).last?.id, "Cmd-N drew no pending row")
+            // The press queues its create on a later main-actor turn; a person's next key press comes after that.
+            try await PinnedPageTests.until({ WorkspaceLanes.shared.outstandingCreates(in: window) > 0 }, within: .seconds(5),
+                                            report: { "the create never entered the window's lane" })
             work += services.registry.capturingWork { _ = services.registry.perform("closeWorkspace") }
 
             let seen = Seen()
