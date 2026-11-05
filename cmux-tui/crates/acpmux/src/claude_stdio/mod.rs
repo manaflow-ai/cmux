@@ -783,8 +783,11 @@ impl Translator {
         held
     }
 
-    /// Error answers for the steered prompts Claude Code never echoed: the
-    /// turn ended without reading them (no echo support).
+    /// The answers of the steered prompts Claude Code never echoed: the turn ended
+    /// without reading them (acpmux always asks for echoes, `--replay-user-messages`,
+    /// and Claude Code echoes each line it reads). Each answers `STEER_NO_TURN`, so the
+    /// hub runs it as the next prompt (`hub/steer_end.rs`), never "Not sent" (Leo,
+    /// 2026-11-05: "WTF IS THIS").
     async fn fail_steers(&self) -> Vec<Message> {
         let mut batches = self.batches.lock().await;
         let mut steers = self.steers.lock().await;
@@ -798,10 +801,7 @@ impl Translator {
         drop(batches);
         let failed = failed.into_iter().map(|(_, id)| {
             let id: Id = serde_json::from_str(&id).unwrap_or(Value::String(id));
-            Message::err(
-                id,
-                RpcError::internal("steer: the turn ended before Claude Code read the message"),
-            )
+            Message::err(id, RpcError::invalid_params(STEER_NO_TURN))
         });
         held.into_iter().chain(failed).collect()
     }
