@@ -225,6 +225,9 @@ jobs:
           # A team image must also pass the /srv/team check.
           TEAM_VM: ${{ inputs.team_vm && '--team-vm' || '' }}
           NATIVE_RECEIVER: ${{ inputs.native_receiver && '--native-receiver' || '' }}
+          # A per-commit (layered) bake samples idle CPU over the idle-wakeup check's own minute; the weekly full
+          # bake keeps the two-minute sample.
+          IDLE_SECONDS: ${{ inputs.layered && '60' || '120' }}
         run: |
           set -euo pipefail
           # A layered bake left its builder for the SBOM and file manifest (inventory.ts); they run beside the
@@ -236,7 +239,7 @@ jobs:
           fi
           smoke_status=0
           # shellcheck disable=SC2086
-          bun ../images/cmux-vm/smoke.ts --snapshot "$SNAPSHOT" --tag "$TAG" --clones "$CLONES" --out-dir "$OUT_DIR" $PROBES $TEAM_VM $NATIVE_RECEIVER | tee "$OUT_DIR/smoke.out" || smoke_status=$?
+          bun ../images/cmux-vm/smoke.ts --snapshot "$SNAPSHOT" --tag "$TAG" --clones "$CLONES" --idle-seconds "$IDLE_SECONDS" --out-dir "$OUT_DIR" $PROBES $TEAM_VM $NATIVE_RECEIVER | tee "$OUT_DIR/smoke.out" || smoke_status=$?
           if [ -n "$inventory_pid" ]; then
             inventory_status=0
             wait "$inventory_pid" || inventory_status=$?
