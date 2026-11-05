@@ -144,15 +144,15 @@ import Testing
     }
 
     @Test func untitledHoveredTabWithStatusGivesTheCloseItsIconSlot() {
-        // Wide enough for the icon and the x, too narrow for a title: the status draws on the icon,
+        // Wide enough for the icon and the x, too narrow for a title (an inactive tab, whose x shows only on hover): the status draws on the icon,
         // so the x takes the icon's centered slot instead of drawing beside it.
         let width = metrics.faviconCloseWidth
         let plain = TabChromeVisibility.resolve(
-            width: width, isPinned: false, isSelected: true, isHovered: true,
+            width: width, isPinned: false, isSelected: false, isHovered: true,
             style: .chrome, metrics: metrics)
         #expect(plain.showsIcon && plain.showsClose && !plain.showsTitle)
         let busy = TabChromeVisibility.resolve(
-            width: width, isPinned: false, isSelected: true, isHovered: true,
+            width: width, isPinned: false, isSelected: false, isHovered: true,
             hasStatus: true, style: .chrome, metrics: metrics)
         #expect(!busy.showsIcon && busy.showsClose && busy.centersContent && busy.closeReplacesStatus)
         let pill = metrics.pillFrame(slotWidth: width, height: metrics.tabHeight)
@@ -166,6 +166,34 @@ import Testing
             width: width, isPinned: false, isSelected: true, isHovered: false,
             hasStatus: true, style: .chrome, metrics: metrics)
         #expect(rest.showsClose && !rest.closeReplacesStatus)
+    }
+
+    @Test func hoveringANarrowSelectedTabKeepsTheStatusBesideItsRestingClose() {
+        // Codex review of #36837 (F1): the x already shows at rest, so hover changes nothing and the
+        // status stays beside it, at every narrow width, titled or not, and along a width path.
+        let narrowest = min(metrics.minInactiveTabWidth, metrics.chrome.minInactiveWidth)
+        let roomyFrom = metrics.contentLeadingInset + metrics.contentTrailingInset + metrics.closeMinContentsWidth
+        var widths: [CGFloat] = []
+        var width = narrowest
+        while width < roomyFrom { widths.append(width); width += 4 }
+        #expect(!widths.isEmpty)
+        for width in widths {
+            let rest = TabChromeVisibility.resolve(
+                width: width, isPinned: false, isSelected: true, isHovered: false,
+                hasStatus: true, style: .chrome, metrics: metrics)
+            let hovered = TabChromeVisibility.resolve(
+                width: width, isPinned: false, isSelected: true, isHovered: true,
+                hasStatus: true, style: .chrome, metrics: metrics)
+            #expect(rest.showsClose && hovered.showsClose)
+            #expect(!hovered.closeReplacesStatus, "width \(width)")
+            #expect(hovered == rest, "width \(width)")
+        }
+        let forms = TabChromeVisibility.path(
+            widths: widths, from: TabChromeVisibility.resolve(
+                width: widths[0], isPinned: false, isSelected: true, isHovered: true,
+                hasStatus: true, style: .chrome, metrics: metrics),
+            isPinned: false, isSelected: true, isHovered: true, hasStatus: true, style: .chrome, metrics: metrics)
+        #expect(forms.allSatisfy { !$0.closeReplacesStatus })
     }
 
     @Test func statusNeverGivesWayToACloseThatDoesNotShow() {

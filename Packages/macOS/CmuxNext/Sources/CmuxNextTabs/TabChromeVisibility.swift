@@ -73,8 +73,11 @@ public struct TabChromeVisibility: Hashable, Sendable {
         let showsIcon = iconFits || !showsClose
         let titleWidth = available - metrics.iconSize - metrics.iconTitleSpacing
         let showsTitle = iconFits && titleWidth >= metrics.titleMinVisibleWidth
+        // An x the tab shows at rest (a narrow selected tab) already sits beside the status: hover keeps that
+        // form, so the status stays (the x only replaces a status where hover brings the x).
+        let closeAtRest = style == .chrome && isSelected && !roomy && isClosable
         return TabChromeVisibility(showsIcon: showsIcon, showsTitle: showsTitle, showsClose: showsClose, centersContent: !showsTitle)
-            .yieldingStatus(isHovered && hasStatus)
+            .yieldingStatus(isHovered && hasStatus && !closeAtRest)
     }
 
     /// This form with the x standing in for a status when `replaces` and the x shows: a tab without a
@@ -143,7 +146,7 @@ public struct TabChromeVisibility: Hashable, Sendable {
         }, from: start.showsTitle)
         return rest.indices.map { index in
             TabChromeVisibility(showsIcon: icon[index], showsTitle: title[index], showsClose: close[index], centersContent: !title[index])
-                .yieldingStatus(isHovered && hasStatus)
+                .yieldingStatus(rest[index].closeReplacesStatus)
         }
     }
 

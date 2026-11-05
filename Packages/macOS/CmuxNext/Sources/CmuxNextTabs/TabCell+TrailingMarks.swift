@@ -66,15 +66,21 @@ extension TabCell {
         [statusGlyphLayer?.layer, badgeLayer, isSpinnerExiting ? nil : spinnerLayer?.layer].compactMap(\.self)
     }
 
+    /// The marks an untitled tab draws on its icon, which give way with the icon when the x takes its slot.
+    var iconMarkLayers: [CALayer] { statusMarkLayers + [themeBadgeLayer].compactMap(\.self) }
+
     /// Shows or hides a status mark the hovered x stands in for. `was`: its opacity before the layout,
-    /// which set it shown; a change fades on the hover curve when `animated`, else lands at once.
-    private func setStatusMark(_ layer: CALayer, shown: Bool, was: Float, animated: Bool) {
+    /// which set it shown (or, with `landsShown`, left it as it was); a change fades on the hover curve
+    /// when `animated`, else lands at once.
+    func setStatusMark(_ layer: CALayer, shown: Bool, was: Float, animated: Bool, landsShown: Bool = false) {
         let target: Float = shown ? 1 : 0
         if animated, was != target {
             Motion.tabs.set(layer, "opacity", to: target, fade: .hover, from: layer.presentation()?.opacity ?? was)
         } else if !shown {
             layer.removeAnimation(forKey: "opacity")
             layer.opacity = 0
+        } else if landsShown {
+            layer.opacity = 1
         }
     }
 
