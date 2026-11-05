@@ -31,7 +31,8 @@ public nonisolated struct CloudSeedRefusal: Equatable, Sendable {
     }
 
     /// `copy` asking first (`.ask`); a refused seed asks the person in `window` and copies only on their
-    /// Copy (`.copy`). Their Cancel, a dismissal or no window throws `declined(reason)`.
+    /// Copy (`.copy`). Their Cancel, a dismissal or no window throws `declined(reason)`. The whole folder
+    /// never goes silently: a 12.8 GB copy ran a 16 GB machine's disk out.
     @MainActor public static func copying<Copied>(machine: String, in window: @MainActor () -> NSWindow?, declined: (String) -> any Error,
                                                   _ copy: (CloudMoveCLI.SeedRefusal) async throws -> (CloudMoveCLI.Answer, Copied)) async throws -> (CloudMoveCLI.Answer, Copied) {
         let first = try await copy(.ask)
