@@ -34,12 +34,14 @@ package final class AgentRenderWindows {
     /// Moves a hidden tab's `chrome` into its render window, with `webView`
     /// (a WebKit page) first responder there. A Chromium tab's content view
     /// entering a window presents the tab (its pane's Chromium window moves
-    /// there and activates it). True when it moved; false when the tab
-    /// already has a window (a pane shows it, or it is parked).
+    /// there and activates it). True when it moved; false when a window
+    /// shows the tab (a pane, or this render window already).
     package func keepRendering(tabID: String, chrome: NSView, webView: WKWebView?) -> Bool {
         // A chrome its pane parked hidden (`PaneContentView+Parking`) is a
-        // background tab too.
-        guard chrome.window == nil || chrome.isHidden else { return false }
+        // background tab too, and so is one in a parked workspace (hidden in
+        // place, still in the window): its pane takes it back when the
+        // workspace shows (`PaneContentView.viewDidUnhide`).
+        guard chrome.window == nil || chrome.isHiddenOrHasHiddenAncestor else { return false }
         parked.removeValue(forKey: tabID)?.finish()
         let panel = AgentRenderPanel(viewport: Self.viewport, screens: NSScreen.screens.map(\.frame), privateCalls: privateCalls)
         panel.onRelease = { [weak self, weak panel] in
@@ -78,12 +80,15 @@ package final class AgentRenderPanel: NSPanel {
 
     private let privateCalls: WebKitPrivateCalls
 
+    /// Every render window's identifier: a pane whose content is in one takes it back when it shows.
+    package static let windowIdentifier = NSUserInterfaceItemIdentifier("cmux.agentRenderWindow")
+
     package init(viewport: NSSize, screens: [NSRect], privateCalls: WebKitPrivateCalls) {
         self.privateCalls = privateCalls
         super.init(contentRect: AgentRenderWindows.frame(for: viewport, screens: screens),
                    styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         isReleasedWhenClosed = false
-        identifier = NSUserInterfaceItemIdentifier("cmux.agentRenderWindow")
+        identifier = Self.windowIdentifier
         hasShadow = false
         isOpaque = false
         backgroundColor = .clear

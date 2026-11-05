@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextBrowser
+import CmuxNextBrowserHost
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextSettings
@@ -437,6 +438,12 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding {
         updateBand()
         reparentRootedThemeScope()
         stripView.reparentRootedThemeScope()
+    }
+
+    /// Its parked workspace shows: content an agent drove off screen meanwhile (`AgentRenderWindows`) comes back.
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        if let view = content, !hostsContent, view.window?.identifier == AgentRenderPanel.windowIdentifier { show(view) }
     }
 
     override func viewDidMoveToSuperview() {
