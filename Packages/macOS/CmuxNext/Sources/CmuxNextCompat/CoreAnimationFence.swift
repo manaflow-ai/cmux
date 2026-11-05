@@ -185,6 +185,7 @@ public nonisolated struct CoreAnimationFenceLaunchProbe: Sendable {
             let data = (try? JSONSerialization.data(withJSONObject: line, options: [.sortedKeys])) ?? Data()
             fputs("FENCE-PROBE \(String(decoding: data, as: UTF8.self))\n", stderr)
         }
+        thread.name = "cmux.spike.fence-probe"
         thread.start()
     }
 }

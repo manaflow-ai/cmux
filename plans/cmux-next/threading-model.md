@@ -142,6 +142,8 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   `com.cmuxterm.next.daemon.exit.<pid>`, `com.cmuxterm.next.retry-wake`, `com.cmuxterm.next.process-progress`
 - Control: `com.cmuxterm.next.control.accept`, `com.cmuxterm.next.control.<id>`
 - Cloud credentials: `cmux.cloud.link-credential`
+- Spike (scratch/frame-owner-s4-fence-spike-nomerge, never merged): `cmux.spike.fence-probe` (two per DEV launch:
+  one Core Animation transaction that joins a fence, a port release and one stderr line; it blocks on nothing)
 - Terminal: `com.cmuxterm.next.terminal.output`, `com.cmuxterm.next.localpty.read`, `com.cmuxterm.next.localpty.write`
 - Settings and files: `com.cmuxterm.next.settings.watcher`, `cmux.files.fsevents`, `cmux.files.tree-fsevents`,
   `com.cmuxterm.home.cache` (the `HomeCache` actor's executor, user-initiated: its file writes block this queue,
