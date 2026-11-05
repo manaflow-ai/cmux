@@ -11,7 +11,7 @@ import Testing
 
 #if DEBUG
 @MainActor
-@Suite("Workspace group numbered selection", .serialized)
+@Suite("Workspace group numbered selection", .serialized, .exclusiveAppContext)
 struct WorkspaceGroupNumberedSelectionTests {
     @Test func controlTwoSkipsAnchorRepresentedByGroupHeader() throws {
         let appDelegate = try #require(AppDelegate.shared)

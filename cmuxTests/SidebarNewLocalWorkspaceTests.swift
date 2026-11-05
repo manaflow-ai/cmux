@@ -190,7 +190,7 @@ struct SidebarNewLocalWorkspaceTests {
         #expect(created.currentDirectory == fixture.root.path)
     }
 
-    @Test func commandNWithoutAWindowKeepsTheInitialWorkspace() throws {
+    @Test(.exclusiveAppContext) func commandNWithoutAWindowKeepsTheInitialWorkspace() throws {
         // App-host tests run with Chief on, and a new window then also gets a Home
         // workspace. This case counts only the window's initial workspace.
         let defaults = UserDefaults.standard
