@@ -84,3 +84,23 @@ test("a Claude sign-in failure on a team Cloud machine says it takes no personal
   expect(isTeamMachineSignIn("rate-limited", team)).toBe(false);
   expect(failureCopy(t, "429 Too Many Requests", team)).toBe("turn.failure.rateLimited");
 });
+
+// Lucas's fresh Codex chat failed with only "failed to load workspace requirements: invalid input
+// parameter" under "ran into a problem and stopped". The card says which settings to check, and the
+// file Codex names when it names one; a cloud bundle that timed out or refused a sign-in keeps its kind.
+test("Codex's own settings that fail to load name what to fix", () => {
+  const t = ((key: string, values?: Record<string, string | number>) =>
+    values?.path ? `${key} ${values.path}` : key) as Translate;
+  const codex = { name: "Codex", harness: "codex" };
+  const bare = "failed to load workspace requirements: invalid input parameter";
+  expect(failureKind(bare, codex)).toBe("codex-config");
+  expect(failureKind("failed to reload workspace requirements: invalid input parameter")).toBe("codex-config");
+  expect(failureCopy(t, bare, codex)).toBe("turn.failure.codexConfig");
+  const at = "failed to load workspace requirements: invalid configuration at /Users/l/.codex/config.toml:3:1";
+  expect(failureCopy(t, at, codex)).toBe("turn.failure.codexConfigAt /Users/l/.codex/config.toml");
+  expect(failureRecovery("codex-config")).toBe("retry");
+  expect(failureKind("failed to load workspace requirements: cloud config: request timed out")).toBe("unreachable");
+  expect(failureKind("failed to load workspace requirements: cloud config: authentication failed (HTTP 401)")).toBe(
+    "auth",
+  );
+});
