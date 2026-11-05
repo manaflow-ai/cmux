@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 584,
+  "count": 585,
   "sections": [
     {
       "id": "general",
@@ -1077,6 +1077,14 @@
             ".",
             "none"
           ]
+        },
+        {
+          "key": "palette.searchHistory",
+          "title": "Remember Palette Searches",
+          "help": "The row you pick for what you typed comes first the next time you type it, and rows you use often rank higher. Off, the palette records nothing and ranks by match and sidebar order only.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Command Palette"
         },
         {
           "key": "picker.pinned",
