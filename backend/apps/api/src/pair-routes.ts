@@ -198,7 +198,7 @@ export const pairApprove = async (
   const enrolled = await env.TEAM_DO.get(env.TEAM_DO.idFromName(team)).enrollServer(
     team,
     principal,
-    { install, name, platform: rec.info.platform, wg_public_key: rec.wg_public_key, ...(network ? { network: networkLocator(network) } : {}) },
+    { install, name, platform: rec.info.platform, wg_public_key: rec.wg_public_key, ...(network ? { network: networkLocator(network) } : {}), pairing: { code, invite: rec.invite ?? null } },
     `pair:${code}:${rec.thumbprint}:host`
   )
   if (!enrolled.ok) {

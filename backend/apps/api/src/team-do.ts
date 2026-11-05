@@ -594,7 +594,7 @@ export class TeamDO extends OwnerDO<TeamState> {
   async enrollServer(
     entity: string,
     principal: Principal,
-    params: { install: string; name: string; platform: string; wg_public_key: string; network?: typeof ServerNetworkReservation.Type },
+    params: { install: string; name: string; platform: string; wg_public_key: string; network?: typeof ServerNetworkReservation.Type; pairing?: { code: string; invite: string | null } },
     idempotencyKey: string
   ): Promise<{ ok: true; host: string } | { ok: false; code: string; message: string; refused?: true }> {
     this.bind(entity)
@@ -609,6 +609,19 @@ export class TeamDO extends OwnerDO<TeamState> {
       return { ok: false, code: "auth.forbidden", message: value.message, refused: true }
     }
     return { ok: true, host: value.id }
+  }
+
+  /**
+   * RPC from the Worker after a server's own install signed itself out (`install.sign_out`, already
+   * committed by UserDO): its host leaves the directory (`server.signed_out`). Answers the host and
+   * the pairing that made it, if it is still live, so the Worker can spend that code and invite.
+   */
+  async serverSignedOut(entity: string, install: string): Promise<{ host: string | null; pairing?: { code: string; invite: string | null } }> {
+    this.bind(entity)
+    const res = this.submitSystem("server.signed_out", { install }, `server-signed-out:${install}`)
+    const reply = res.frames.find((f) => f.t === "result" || f.t === "reject")
+    if (!reply || reply.t !== "result") throw new Error(reply && reply.t === "reject" ? `${reply.code}: ${reply.message}` : "server.signed_out: no reply")
+    return reply.value as { host: string | null; pairing?: { code: string; invite: string | null } }
   }
 
   /** The owner's UserDO for revocation pushes; tests replace it to fail the RPC. */

@@ -34,7 +34,7 @@ import { signState, verifyState } from "./integrations/state.ts"
 import type { ReadResult, SubmitResult } from "./owner-do.ts"
 import type { RedeemResult } from "./user-do.ts"
 import { pairApprove, pairPreview } from "./pair-routes.ts"
-import { pairInvite } from "./pair-invite-routes.ts"
+import { pairInvite, revokeServerPairing, type ServerPairingRef } from "./pair-invite-routes.ts"
 import { avatarGetRoute, avatarSetRoute, conversationMutate, conversationRead } from "./home-routes.ts"
 import { linkVerifiedAddress } from "./home-requests.ts"
 import { homeSearch, type SearchParams } from "./home-search.ts"
@@ -376,6 +376,16 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           })
           return toResponse(payload.op, home.frames)
         }
+        // A paired server's own install signs itself out (`cmux server unpair`): its host leaves the team
+        // directory first and the pairing code and invite that made it are spent, then UserDO revokes the
+        // install. In this order a failure leaves the install's token working, so the box's retry (the
+        // same steps, all idempotent) finishes the job; the other order would strand the host.
+        if (payload.op === "install.sign_out" && principal.kind === "install" && principal.install_kind === "daemon" && principal.install && principal.team) {
+          const team = principal.team
+          const install = principal.install
+          const out = yield* Effect.tryPromise({ try: () => rpc<{ host: string | null; pairing?: ServerPairingRef }>(env.TEAM_DO.get(env.TEAM_DO.idFromName(team)).serverSignedOut(team, install)), catch: unreachable })
+          if (out.pairing) yield* Effect.tryPromise({ try: () => revokeServerPairing(env, out.pairing!), catch: unreachable })
+        }
         const { frames } = yield* submitTo(def.owner, payload.op === "user.ensure" ? personalPrincipal(submitter) : submitter, frame)
         const response = toResponse(payload.op, frames)
         if (payload.op === "integration.connect" && response.ok) {
@@ -388,9 +398,12 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
         }
         // A revoked server also loses its install key: TeamDO pushes the revocation to the owner's UserDO now and retries until it lands.
         if ((payload.op === "server.revoke" || payload.op === "host.remove") && response.ok && typeof (response.value as { install?: unknown }).install === "string") {
-          const v = response.value as { host: string; install: string }
+          const v = response.value as { host: string; install: string; pairing?: ServerPairingRef }
           const team = principal.team!
           const flushed = yield* Effect.tryPromise({ try: () => rpc<{ revoked: Array<string> }>(env.TEAM_DO.get(env.TEAM_DO.idFromName(team)).flushServerRevocations(team)), catch: unreachable })
+          // The pairing code and invite that made it are spent, so that key cannot be approved or begin again with them.
+          // A failure answers retryable; the retry replays the same revoke result and spends them again (idempotent).
+          if (v.pairing) yield* Effect.tryPromise({ try: () => revokeServerPairing(env, v.pairing!), catch: unreachable })
           return { ...response, value: payload.op === "server.revoke" ? { host: v.host, install_revoked: flushed.revoked.includes(v.install) } : { host: v.host } }
         }
         // The personal team exists once the user exists (a team of one, identity spec section 2).

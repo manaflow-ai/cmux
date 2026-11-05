@@ -87,6 +87,61 @@ pub(super) fn begin(ctx: &Context<'_>, args: &Args) -> Result<Output> {
     Ok(output(value, invite.is_some().then_some(name.as_str())))
 }
 
+/// `cmux server unpair [--local]` (`cmux unpair`): sign this machine out of
+/// cmux Cloud, then forget its pairing here, and say what was done.
+pub(super) fn unpair(ctx: &Context<'_>, args: &Args) -> Result<Output> {
+    let path = path(ctx, true)?;
+    let local_only = args.has("local");
+    let value = if local_only {
+        pairing::unpair(&path, &NoBackend, true)?
+    } else {
+        pairing::unpair(&path, &Network::with_client_version(&ctx.running_cmux)?, false)?
+    };
+    let human = unpair_text(&messages::current(), &value);
+    Ok(Output::new(value, human))
+}
+
+/// `--local` never reaches the backend.
+struct NoBackend;
+
+impl pairing::Transport for NoBackend {
+    fn health(&self, _api: &str) -> Result<Value> {
+        Err(Error::unreachable(pairing::unpair::UNREACHABLE))
+    }
+    fn begin(&self, _api: &str, _body: &Value) -> Result<Value> {
+        Err(Error::unreachable(pairing::unpair::UNREACHABLE))
+    }
+    fn wait(
+        &self,
+        _api: &str,
+        _begun: &cmux_server_core::pairing::enrollment::Begun,
+    ) -> Result<cmux_server_core::pairing::enrollment::Waited> {
+        Err(Error::unreachable(pairing::unpair::UNREACHABLE))
+    }
+}
+
+/// One line per thing done: Cloud first, then the local record.
+fn unpair_text(messages: &messages::Messages, value: &Value) -> String {
+    let host = value.get("host").and_then(Value::as_str).unwrap_or_default();
+    let mut out = String::new();
+    match value.get("cloud").and_then(Value::as_str) {
+        Some("signed_out") => out.push_str(&messages.unpair_signed_out.replace("{host}", host)),
+        Some("already_revoked") => out.push_str(messages.unpair_already_revoked),
+        Some("skipped") => out.push_str(messages.unpair_skipped),
+        _ => {}
+    }
+    if !out.is_empty() {
+        out.push('\n');
+    }
+    out.push_str(if value.get("removed").and_then(Value::as_bool) == Some(true) {
+        messages.unpair_removed
+    } else {
+        messages.unpair_nothing
+    });
+    out.push('\n');
+    out
+}
+
 /// What a person reads while the machine waits: the code to type into Add
 /// Server, or after an invite, who confirms this machine and the words to
 /// compare with theirs.
