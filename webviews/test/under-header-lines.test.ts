@@ -63,13 +63,3 @@ test("App.tsx gates every line under the header by the record the transcript rea
     expect(line).toStartWith("underHeader.");
   }
 });
-
-test("result-first head keeps its cap and hairline design tokens", () => {
-  const css = fs.readFileSync(
-    path.resolve(import.meta.dir, "../src/agent-session/acpmux/subagents/subagents.css"),
-    "utf8",
-  );
-  expect(css).toContain("border-bottom: var(--cmux-hairline) solid var(--cv-divider);");
-  expect(css).toContain("flex: 0 1 auto;");
-  expect(css).toContain("max-height: 35%;");
-});

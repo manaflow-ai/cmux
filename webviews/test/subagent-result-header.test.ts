@@ -68,13 +68,6 @@ await requireBrowserLane("subagent-result-header.test.ts", async () => {
         };
       });
       console.log(`subagent-result-header ${variant} ${JSON.stringify(geometry)}`);
-      expect(geometry.transcriptHeight).toBeGreaterThan(0);
-      expect(geometry.transcriptTop).toBeGreaterThanOrEqual(geometry.headBottom - 0.5);
-      if (variant === "dock-long") {
-        dockLongHeadHeight = geometry.headHeight;
-        expect(geometry.reportScrollHeight).toBeGreaterThan(geometry.reportClientHeight);
-      }
-      if (variant === "dock-short") dockShortHeadHeight = geometry.headHeight;
       if (variant === "one-tab") {
         const bottomHit = await page.evaluate(() => {
           const report = document.querySelector<HTMLElement>(".cv-subagent-result__report")!;
@@ -106,6 +99,13 @@ await requireBrowserLane("subagent-result-header.test.ts", async () => {
         expect(bottomHit.lastVisible).toBe(true);
         expect(bottomHit.inLastLine).toBe(true);
       }
+      expect(geometry.transcriptHeight).toBeGreaterThan(0);
+      expect(geometry.transcriptTop).toBeGreaterThanOrEqual(geometry.headBottom - 0.5);
+      if (variant === "dock-long") {
+        dockLongHeadHeight = geometry.headHeight;
+        expect(geometry.reportScrollHeight).toBeGreaterThan(geometry.reportClientHeight);
+      }
+      if (variant === "dock-short") dockShortHeadHeight = geometry.headHeight;
       await page.close();
     }
     expect(dockShortHeadHeight).toBeGreaterThan(0);
