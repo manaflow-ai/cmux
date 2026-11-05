@@ -109,8 +109,8 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 help: SettingsText.keyed("settings.agentPane.display.senderIcon.badge.help",
                                          "The small colored glyph on a sender's icon that tells sessions of one model family apart."),
                 .choice([
-                    SettingChoice("diamond", SettingsText.keyed("settings.choice.diamond", "Diamond")),
-                    SettingChoice("robot", SettingsText.keyed("settings.choice.robot", "Robot")),
+                    SettingChoice("diamond", SettingsText.keyed("settings.choice.diamond", "Diamond Icon")),
+                    SettingChoice("robot", SettingsText.keyed("settings.choice.robot", "Robot Icon")),
                     SettingChoice("none", SettingsText.keyed("settings.choice.none", "None")),
                 ]),
                 .string("diamond"), ["sender", "icon", "badge", "diamond", "sparkle", "robot", "bot", "color", "session", "agent"]),

@@ -9,7 +9,6 @@ import { memo, useMemo, useState } from "react";
 import { useT, type Translate } from "../i18n";
 import { agentTone } from "../subagents/agentTones";
 import { SenderIcon } from "../subagents/SenderIcon";
-import { TonedIcon } from "../subagents/TonedIcon";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import type { AcpmuxSessionEntry } from "../sessionList";
