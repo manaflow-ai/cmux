@@ -107,6 +107,20 @@ class SideInstanceRemakeTests(unittest.TestCase):
         self.assertEqual(self.make(nightly), first)
         self.assertEqual([p for p in state if not p.exists()], [])
 
+    def test_remake_refuses_while_a_helper_of_the_copy_runs(self):
+        first = self.make(self.app("nightly", "com.cmuxterm.app.nightly", "cmux-next"))
+        state = self.state_of(first)
+        # The app quit (no pid recorded) but its terminal daemon still runs from the copy.
+        ps = self.tmp / "bin/ps"
+        ps.write_text(f"#!/bin/sh\necho '  4242 {first['app']}/Contents/MacOS/cmux-daemon'\n")
+        ps.chmod(0o755)
+        result = subprocess.run(["bash", str(SCRIPT), "make", "pr-1", "--from", str(self.app("dev", "com.cmuxterm.app.debug.next", "next"))],
+                                env=self.env, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("stop pr-1 first", result.stderr)
+        self.assertEqual([p for p in state if not p.exists()], [])
+        self.assertIn(f"bundle={first['bundle']}", (self.tmp / "side/pr-1/.side-instance").read_text())
+
     def test_remove_clears_the_current_identity(self):
         ident = self.make(self.app("nightly", "com.cmuxterm.app.nightly", "cmux-next"))
         state = self.state_of(ident)

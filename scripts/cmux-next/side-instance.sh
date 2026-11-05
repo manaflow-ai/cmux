@@ -103,7 +103,8 @@ case "$cmd" in
     [[ "$label" =~ ^[A-Za-z0-9\ \#._-]+$ ]] || die "the label takes letters, digits, spaces and # . _ -"
     old_bundle="" old_key=""
     if [[ -f "$marker" ]]; then
-      if running; then die "$name is running; side-instance.sh stop $name first"; fi
+      # Its daemon and helpers outlive the app and use the state a new identity clears.
+      if running || [[ -n "$(copy_pids)" ]]; then die "$name is running; side-instance.sh stop $name first"; fi
       # The identity this make replaces: a copy remade from another app (a nightly, then a rebuild's
       # DEV build) gets another bundle id or key, and the old one's state would be left behind.
       old_bundle="$(sed -n 's/^bundle=//p' "$marker")" old_key="$(sed -n 's/^key=//p' "$marker")"
