@@ -355,7 +355,7 @@ fn a_followup_report_stays_with_the_new_assignment_in_another_conversation() {
         rx.recv_timeout(Duration::from_secs(2))
             .unwrap()
             .unwrap()
-            .starts_with("outcome: done")
+            .starts_with("outcome: submitted")
     );
     h.agents.hold(false);
     h.agents.release();

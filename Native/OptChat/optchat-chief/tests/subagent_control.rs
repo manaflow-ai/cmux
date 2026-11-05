@@ -84,6 +84,10 @@ fn wait_for(h: &mut Harness, what: impl Fn(&Harness) -> bool) {
 #[test]
 fn a_tell_to_a_starting_subagent_waits_and_follows_its_task() {
     let mut h = Harness::new(default_script());
+    // The harness traces nothing by default; this test reads the flush's event.
+    let traces = h.dir.path().join("traces");
+    h.brain
+        .set_trace(optchat_chief::trace::Trace::open(&traces, false).unwrap());
     h.agents.inner.lock().unwrap().slow_session =
         Some(("optchat-sub".into(), Duration::from_millis(400)));
     let sp = spawner(&h);
@@ -117,7 +121,7 @@ fn a_tell_to_a_starting_subagent_waits_and_follows_its_task() {
     // Issue 36496: the held messages were handed to its session, not seen
     // taken, so the flush is traced (and noted) as submitted, never delivered.
     let traced = |ev: &str| -> usize {
-        std::fs::read_dir(h.dir.path().join("traces"))
+        std::fs::read_dir(&traces)
             .into_iter()
             .flatten()
             .flatten()
