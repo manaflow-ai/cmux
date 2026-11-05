@@ -22,8 +22,8 @@ extension CaptureSceneRegistry {
         let fixture = tab == .computer
         var page: TopHomePageView?, opened = false
         frames.start()
-        let settled = await frames.settled(until: { // Home may mount a frame later in a new capture window.
-            if page == nil, let shown = controller.topPages.views[.home] as? TopHomePageView { page = shown; shown.show(ConversationID(chief)) }
+        let settled = await frames.settled(until: { [services] in // Docked Home (its Messages view) or classic Home; it may mount a frame later.
+            if page == nil, let shown = HomeDockTab.view(services)?.messages ?? (controller.topPages.views[.home] as? TopHomePageView) { page = shown; shown.show(ConversationID(chief)) }
             guard let host = page?.host else { return false }
             if !opened { opened = host.debugShowProfile(tab, fixtureComputer: fixture) }
             return opened && host.panel.view.debugSettled(tab, fixtureComputer: fixture)
