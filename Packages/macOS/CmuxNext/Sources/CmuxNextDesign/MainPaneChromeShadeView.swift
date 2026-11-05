@@ -15,6 +15,11 @@ public final class MainPaneChromeShadeView: NSView {
     private var radius: CGFloat = 0
     private var alpha: CGFloat = 0
     private var cardsObservation: AnyObject?
+    /// The card this shade leaves out, in this view's coordinates, and its corner radius.
+    public var cardRect: CGRect { card }
+    public var cardRadius: CGFloat { radius }
+    /// Called after the card moved, resized or rounded (the sidebar's corner treatment, `SidebarCornerChaos`).
+    public var onCardChange: (() -> Void)?
     /// The shown workspace's pane cards; a sync of theirs reshapes the shade.
     public weak var paneCards: (any PaneCardSource)? {
         didSet {
@@ -50,10 +55,12 @@ public final class MainPaneChromeShadeView: NSView {
     /// `alpha` is 0.
     public func update(card: CGRect, radius: CGFloat, alpha: CGFloat) {
         guard card != self.card || radius != self.radius || alpha != self.alpha || shade.frame != bounds || Metrics.floatingPanes else { return }
+        let moved = card != self.card || radius != self.radius
         self.card = card
         self.radius = radius
         self.alpha = alpha
         rebuild()
+        if moved { onCardChange?() }
     }
 
     private func rebuild() {

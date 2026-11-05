@@ -1,0 +1,8 @@
+{
+  "title": "Sidebar Thunderdome E (chaos mode): the corner where the sidebar meets the tab strip, chrome.cornerChaos = bracket, comfortable density, on the showcase fixture. Record it with: cmux-ci capture SHA --state scripts/cmux-next/media/states/corner-chaos-bracket.json",
+  "launch_args": ["--showcase"],
+  "steps": [
+    {"title": "Comfortable density", "cmux": ["settings", "set", "appearance.density", "comfortable"], "wait": 2},
+    {"title": "Corner chaos: bracket", "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "chrome.cornerChaos", "value": "bracket"}}, "wait": 2, "optional": "debug.tunables is DEBUG only"}
+  ]
+}
