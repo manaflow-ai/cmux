@@ -94,13 +94,13 @@ export function BackgroundTaskNote({ task }: { task: AcpmuxBackgroundTask }) {
         <span className="cv-tool__text cv-bgtask__text">
           {owner && (
             <span className="cv-bgtask__owner" {...ownerProps}>
-              {owner}
-            </span>{" "}
+              {owner}{" "}
+            </span>
           )}
           {lead && (
-            <>
-              <span className="cv-bgtask__state">{lead}</span>{" "}
-            </>
+            <span className="cv-bgtask__state">
+              {lead}{" "}
+            </span>
           )}
           <code className="cv-bgtask__command">{task.command || command}</code>
         </span>
