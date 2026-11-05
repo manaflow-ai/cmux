@@ -89,6 +89,29 @@ if [[ "$(uname -s)" == Linux && "$(uname -m)" == x86_64 ]] && ! command -v mold 
     echo "notice: mold download failed; the mold variants are skipped"
   fi
 fi
+# cargo-nextest, when tests are asked for and it is missing: its pinned release, checked against the
+# sha256 GitHub publishes.
+if [[ -n "$tests" ]] && ! command -v cargo-nextest >/dev/null; then
+  nextest_version=0.9.151
+  case "$(uname -s)-$(uname -m)" in
+    Linux-x86_64) nextest_target=x86_64-unknown-linux-gnu nextest_sha=1d4ce302b820c41f4b89c5fb9bce45f0f0c94882c1cf08fc360caf08be6e7df4 ;;
+    Linux-aarch64) nextest_target=aarch64-unknown-linux-gnu nextest_sha=3e35e8f6913af92558ba09d7155f74e35dd1f0024ef3cd891637433ae4eacbdd ;;
+    Darwin-*) nextest_target=universal-apple-darwin nextest_sha=d1d7d025d4bfc9fb154cd76aea3949bd78534829a0589abefa6e5dd4edb135dd ;;
+    *) nextest_target="" ;;
+  esac
+  nextest_dir="$scratch/nextest"
+  nextest_tgz="$nextest_dir/cargo-nextest.tar.gz"
+  mkdir -p "$nextest_dir/bin"
+  if [[ -n "$nextest_target" ]] \
+    && curl -fsSL --retry 3 -o "$nextest_tgz" "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-$nextest_version/cargo-nextest-$nextest_version-$nextest_target.tar.gz" \
+    && python3 -c 'import hashlib,sys; sys.exit(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest()!=sys.argv[2])' "$nextest_tgz" "$nextest_sha"; then
+    tar -xzf "$nextest_tgz" -C "$nextest_dir/bin"
+    export PATH="$nextest_dir/bin:$PATH"
+    cargo-nextest nextest --version || true
+  else
+    echo "notice: cargo-nextest download failed; test-nextest is skipped"
+  fi
+fi
 # blaze, when asked for: its pinned release, checked against the sha256 GitHub publishes, with its
 # home (daemon state, build directory) outside the checkout; the toolchain download
 # happens here, before any clock starts.
