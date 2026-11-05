@@ -136,7 +136,9 @@ extension SidebarListView {
             guard let row = displayed.row(for: .workspace(ws.id)), let section = sections[row.section] else {
                 // A session a folded parent hides: the parent's roll-up counts its state, so the list lays out
                 // again when that state moves, not on each step or title it reports.
-                if SidebarSessionTree.shared.drawn?.patchChangesRollUp(from: previous, to: ws) == true { heightChanged = true }
+                if SidebarSessionTree.shared.drawn?.patchChangesRollUp(from: previous, to: ws, lists: model.listsHolding(ws.id)) == true {
+                    heightChanged = true
+                }
                 continue
             }
             let o = options ?? self.options(includeGap: true)

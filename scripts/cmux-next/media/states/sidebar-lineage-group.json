@@ -1,0 +1,13 @@
+{
+  "title": "Sidebar lineage nesting in a group (#28103): Release week with two agent-started children, Settings pass folded behind its count (a parent below the top level starts folded) and Release notes open, first with nesting off (flat, as before) then on (the new default). Record it with: cmux-ci capture SHA --state scripts/cmux-next/media/states/sidebar-lineage-group.json",
+  "steps": [
+    {"title": "Turn lineage nesting off for the before state", "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "sidebar.lineageNesting", "value": false}}, "wait": 2, "shot": false},
+    {"title": "Show the lineage group fixture", "rpc": {"method": "debug.sidebar_nested_fixture", "params": {"scenario": "lineageGroup"}}, "wait": 1.5, "shot": false,
+     "optional": "a build from before the lineageGroup fixture scenario"},
+    {"title": "Before: nesting off, every member at the top of its group", "wait": 0.5},
+    {"title": "Turn lineage nesting on (the default)", "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "sidebar.lineageNesting", "value": true}}, "wait": 2, "shot": false},
+    {"title": "Show the fixture again: its parents join the live lineage", "rpc": {"method": "debug.sidebar_nested_fixture", "params": {"scenario": "lineageGroup"}}, "wait": 1.5, "shot": false,
+     "optional": "a build from before the lineageGroup fixture scenario"},
+    {"title": "After: Settings pass and Release notes under Release week, Settings pass folded behind its count", "wait": 0.5}
+  ]
+}

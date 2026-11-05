@@ -37,6 +37,13 @@ public nonisolated struct SidebarNeedsYou: Hashable, Sendable {
 
     public var isEmpty: Bool { items.isEmpty && unread == 0 }
 
+    /// The tree the tray reads: the drawn one while `sidebar.sessionTree` is on, else none. Lineage nesting (on by
+    /// default, #28103) sets the tree for everyone, but the tray stays the session tree's own (router review on
+    /// #28103 at 4a493007): nesting alone draws no tray and no bottom inset.
+    public static func trayTree(_ drawn: SidebarSessionTreeState?, sessionTree: Bool) -> SidebarSessionTreeState? {
+        sessionTree ? drawn : nil
+    }
+
     public static func make(_ sections: [SidebarSection], tree: SidebarSessionTreeState?) -> SidebarNeedsYou {
         var result = SidebarNeedsYou()
         guard let tree else { return result }

@@ -11,7 +11,11 @@ extension WorkspaceRowView {
         onSelect = { [weak list] in list?.model.click(id) }
         // Redraw now: left to the tree's observation, the fold would wait
         // out the calm-movement hold until the pointer leaves the sidebar.
-        onToggleTree = { [weak list] in SidebarSessionTree.shared.toggle(id); list?.reload(animated: true) }
+        // The row's own chevron says which way it goes: a parent below the top level starts folded.
+        onToggleTree = { [weak list, weak self] in
+            SidebarSessionTree.shared.toggle(id, folded: self?.treeFold == .collapsed)
+            list?.reload(animated: true)
+        }
         onToggleAudio = { [weak list] in list?.model.send(.toggleWorkspaceAudio(id)) }
         // An expanded row's hover pin (cx-13w3): nil while the App offers none.
         isPinned = { [weak list] in list?.model.workspacePin?.isPinned(id) }

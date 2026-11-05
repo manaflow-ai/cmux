@@ -48,73 +48,128 @@ nonisolated extension SidebarLayout {
 
     /// `drawn` with the workspaces marked Done moved behind one fold entry (`doneFoldIndex`) at the end, and after it
     /// when the person opened the fold; then, past `rowLimit`, the rest behind a "Show N more" entry (`limiting`).
-    /// Unchanged while filtering (a match shows where it is) or with the session tree (it nests rows under others).
-    /// The active workspace keeps its place.
+    /// Unchanged while filtering (a match shows where it is). With the session tree a top-level row moves with the
+    /// rows nested under it (its run): a Done root takes its subtree into the fold, a nested row stays under its parent.
+    /// The active workspace keeps its place, and so does a run that holds it.
     /// `limits` names the entries the limit counts and may hide: a section's groups and items always show.
     static func foldingDone(_ drawn: [(index: Int, depth: Int)], workspace: (Int) -> SidebarWorkspace?, fold id: SidebarDoneFoldID,
                             limits: (Int) -> Bool = { _ in true }, options o: SidebarLayoutOptions) -> [(index: Int, depth: Int)] {
-        guard o.filterMatches == nil, o.sessionTree == nil else { return drawn }
-        var shown: [(index: Int, depth: Int)] = []
-        var done: [(index: Int, depth: Int)] = []
-        var archived: [(index: Int, depth: Int)] = []
-        for entry in drawn {
-            let ws = workspace(entry.index)
-            if o.foldsArchived, let ws, ws.isArchived, ws.id != o.activeWorkspaceID {
-                archived.append(entry)
-            } else if o.foldsDone, let ws, ws.taskStatus == .done, ws.id != o.activeWorkspaceID {
-                done.append(entry)
+        guard o.filterMatches == nil else { return drawn }
+        var shown: [[(index: Int, depth: Int)]] = []
+        var done: [[(index: Int, depth: Int)]] = []
+        var archived: [[(index: Int, depth: Int)]] = []
+        for run in runs(drawn) {
+            let holdsActive = run.contains { workspace($0.index)?.id == o.activeWorkspaceID }
+            let ws = workspace(run[0].index)
+            if o.foldsArchived, let ws, ws.isArchived, !holdsActive {
+                archived.append(run)
+            } else if o.foldsDone, let ws, ws.taskStatus == .done, !holdsActive {
+                done.append(run)
             } else {
-                shown.append(entry)
+                shown.append(run)
             }
         }
         var listed = limiting(shown, workspace: workspace, limits: limits, list: id, options: o)
-        if !done.isEmpty { listed += [(doneFoldIndex, done.count)] + (o.openDoneFolds.contains(id.of(.done)) ? done : []) }
+        if !done.isEmpty {
+            let folded = Array(done.joined())
+            listed += [(doneFoldIndex, folded.count)] + (o.openDoneFolds.contains(id.of(.done)) ? folded : [])
+        }
         if !archived.isEmpty {
-            listed += [(archivedFoldIndex, archived.count)] + (o.openDoneFolds.contains(id.of(.archived)) ? archived : [])
+            let folded = Array(archived.joined())
+            listed += [(archivedFoldIndex, folded.count)] + (o.openDoneFolds.contains(id.of(.archived)) ? folded : [])
         }
         return listed
     }
 
+    /// `drawn` cut into runs: each top-level entry (depth 0) with the nested entries drawn right after it.
+    /// Without the session tree every entry is its own run.
+    static func runs(_ drawn: [(index: Int, depth: Int)]) -> [[(index: Int, depth: Int)]] {
+        var runs: [[(index: Int, depth: Int)]] = []
+        for entry in drawn {
+            if entry.depth > 0, !runs.isEmpty { runs[runs.count - 1].append(entry) } else { runs.append([entry]) }
+        }
+        return runs
+    }
+
     /// `shown` past `rowLimit` rows (`sidebar.groupRowLimit`): the first ones, those that need you and the active one,
     /// then a "Show N more" entry for the rest; opened, every row then a "Show fewer" entry. A list one row over the
-    /// limit shows whole: a row that hides one row saves nothing.
-    private static func limiting(_ shown: [(index: Int, depth: Int)], workspace: (Int) -> SidebarWorkspace?, limits: (Int) -> Bool,
+    /// limit shows whole: a row that hides one row saves nothing. A run (`runs`) counts, stays or hides as one row.
+    private static func limiting(_ shown: [[(index: Int, depth: Int)]], workspace: (Int) -> SidebarWorkspace?, limits: (Int) -> Bool,
                                  list id: SidebarDoneFoldID, options o: SidebarLayoutOptions) -> [(index: Int, depth: Int)] {
-        let limited = shown.filter { limits($0.index) }.count
-        guard o.rowLimit > 0, limited > o.rowLimit + 1 else { return shown }
-        if o.openShowMore.contains(id) { return shown + [(showMoreIndex, 0)] }
+        let all = Array(shown.joined())
+        let limited = shown.filter { limits($0[0].index) }.count
+        guard o.rowLimit > 0, limited > o.rowLimit + 1 else { return all }
+        if o.openShowMore.contains(id) { return all + [(showMoreIndex, 0)] }
         var kept: [(index: Int, depth: Int)] = []
+        var hidden = 0
         var n = 0
-        for entry in shown {
-            guard limits(entry.index) else { kept.append(entry); continue }
-            let stays = workspace(entry.index).map { $0.id == o.activeWorkspaceID || $0.agentChip == .needsYou } ?? false
-            if n < o.rowLimit || stays { kept.append(entry) }
+        for run in shown {
+            guard limits(run[0].index) else { kept += run; continue }
+            let stays = run.contains { entry in
+                workspace(entry.index).map { $0.id == o.activeWorkspaceID || $0.agentChip == .needsYou } ?? false
+            }
+            if n < o.rowLimit || stays { kept += run } else { hidden += run.count }
             n += 1
         }
-        return kept.count == shown.count ? shown : kept + [(showMoreIndex, shown.count - kept.count)]
+        return hidden == 0 ? all : kept + [(showMoreIndex, hidden)]
     }
 
     /// Whether a drag of `dragged` unfolds every list: it carries a row the fold would hide or draw below it (marked
     /// Done, not the active one). Such a row would leave its slot (`displayLayout` slides the dragged rows as one), or
     /// make or drop a "Done (N)" row the drag's base rows lack, so the drag draws as it did before it kept the folds.
-    /// A drag of rows that never fold keeps them: it moves no fold row and changes no fold's count.
-    static func dragUnfolds(_ dragged: [SidebarWorkspace], options o: SidebarLayoutOptions) -> Bool {
-        guard o.foldsDone || o.foldsArchived || o.archiveSection, o.filterMatches == nil, o.sessionTree == nil else { return false }
-        return dragged.contains {
+    /// A drag of rows that never fold keeps them: it moves no fold row and changes no fold's count. Archived rows
+    /// (`foldsArchived`, or the Archive section) fold the same way.
+    /// With the session tree the fold moves runs (`foldingDone`), so a drag also unfolds when it carries a row under a
+    /// folding ancestor (that root's run folds with it, and with the dragged row gone from the base rows a run that held
+    /// the active row folds too), or when a folding row sits under a dragged one (the base rows lack its parent, so it
+    /// draws as a top-level row the fold takes). `workspace` looks those rows up by id (the model's); the walk
+    /// follows `parents` across lists, so it may unfold a drag the fold would not move: that drag draws as it did
+    /// before drags kept the folds, never with a moved row.
+    static func dragUnfolds(_ dragged: [SidebarWorkspace], workspace: (WorkspaceID) -> SidebarWorkspace? = { _ in nil },
+                            options o: SidebarLayoutOptions) -> Bool {
+        guard o.foldsDone || o.foldsArchived || o.archiveSection, o.filterMatches == nil else { return false }
+        let folds: (SidebarWorkspace) -> Bool = {
             $0.id != o.activeWorkspaceID
                 && ((o.foldsDone && $0.taskStatus == .done) || ((o.foldsArchived || o.archiveSection) && $0.isArchived))
         }
+        if dragged.contains(where: folds) { return true }
+        guard let parents = o.sessionTree?.parents, !parents.isEmpty else { return false }
+        // `id`'s parent chain, nearest first, cycle-safe.
+        func ancestors(of id: WorkspaceID) -> [WorkspaceID] {
+            var seen: Set<WorkspaceID> = [id]
+            var found: [WorkspaceID] = []
+            var next = parents[id]
+            while let parent = next, seen.insert(parent).inserted {
+                found.append(parent)
+                next = parents[parent]
+            }
+            return found
+        }
+        let ids = Set(dragged.map(\.id))
+        if ids.contains(where: { id in ancestors(of: id).contains { workspace($0).map(folds) ?? false } }) { return true }
+        return parents.keys.contains { child in
+            !ids.contains(child) && ancestors(of: child).contains(where: ids.contains) && (workspace(child).map(folds) ?? false)
+        }
     }
 
-    /// The `drawn` entry a drop gap opens before in a list that draws a fold (a drag keeps the folds): the first row
-    /// drawn before the fold whose model index is at or past the gap's, else the fold row. That is where the dropped
-    /// row (never Done) will show: a hidden index between two drawn rows, the list's end, and, with the fold open, an
-    /// index of a Done row drawn below the fold all open the gap among the rows above it. Nil when the list draws no
-    /// fold or the gap is elsewhere (`openGapIfNeeded` places it as before).
+    /// `gapEntry`'s answer when the gap opens after the list's last drawn entry.
+    static let gapAtEnd = Int.min
+
+    /// The `drawn` entry a drop gap opens before in a list whose drawn order is not its model order: one that draws a
+    /// fold (a drag keeps the folds) or nests rows (the session tree's lineage). The dropped row (never Done, started
+    /// by no agent) draws as a top-level row in model order, after every run (`runs`) whose root comes before it, so
+    /// the gap opens before the first drawn top-level row whose model index is at or past the gap's, else before the
+    /// first fold row, else after the last entry (`gapAtEnd`). A hidden index between two drawn rows, an index nested
+    /// under an earlier root (#28103 review: `[parent, other, child]` draws `[parent, child, other]`, and a drop at
+    /// child's index lands after `other`), the list's end and, with a fold open, an index of a Done row drawn below
+    /// the fold all open the gap where the row will show. Nil when the list draws in model order or the gap is
+    /// elsewhere (`openGapIfNeeded` places it by model index, as before).
     static func gapEntry(_ drawn: [(index: Int, depth: Int)], gap: DropPosition?, section: SectionID, group: GroupID?, count: Int) -> Int? {
-        guard let gap, gap.section == section, gap.group == group, gap.index <= count, drawn.contains(where: { $0.index < 0 }) else { return nil }
-        // Shown rows come first in model order, then the fold rows and an open fold's Done rows (`foldingDone`).
-        return drawn.first { $0.index < 0 || $0.index >= gap.index }?.index
+        guard let gap, gap.section == section, gap.group == group, gap.index <= count,
+              drawn.contains(where: { $0.index < 0 || $0.depth > 0 }) else { return nil }
+        // Shown runs come first, by their roots' model order, then the fold rows and an open fold's rows (`foldingDone`).
+        // A fold entry's `depth` is its count, so it is told apart by its index alone.
+        return drawn.first { $0.index < 0 || ($0.depth == 0 && $0.index >= gap.index) }?.index ?? gapAtEnd
     }
 
     /// Appends the row of a `foldingDone` entry (`doneFoldIndex`, `archivedFoldIndex` or `showMoreIndex`) at `y`: one

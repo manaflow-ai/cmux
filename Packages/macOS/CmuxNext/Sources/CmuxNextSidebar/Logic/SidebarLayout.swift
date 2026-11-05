@@ -323,8 +323,10 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
 
             // One node at its model index (drops resolve by it, whatever the drawn order).
             // `tree`: the session tree's depth, chevron and roll-up (`treeRows`).
-            func emit(_ index: Int, _ entry: (node: SidebarNode, children: [SidebarWorkspace]), tree: TreeRow = TreeRow()) {
-                openGapIfNeeded(section: section.id, group: nil, index: index)
+            // `opensGap` false: the list placed its drop gap by drawn order (`gapEntry`).
+            func emit(_ index: Int, _ entry: (node: SidebarNode, children: [SidebarWorkspace]), tree: TreeRow = TreeRow(),
+                      opensGap: Bool = true) {
+                if opensGap { openGapIfNeeded(section: section.id, group: nil, index: index) }
                 switch entry.node {
                 case let .workspace(ws):
                     var content = o.rowContent(ws, machine: machineLabel)
@@ -398,8 +400,17 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                         return
                     }
                     let fold = SidebarDoneFoldID(section: section.id, group: group.id)
-                    let drawn = Self.foldingDone(Self.treeOrder(Self.workspaceIDs(members), parents: o.sessionTree?.parents),
-                                                 workspace: { if case let .workspace(ws) = members[$0] { ws } else { nil } }, fold: fold, options: o)
+                    let memberWorkspace: (Int) -> SidebarWorkspace? = { if case let .workspace(ws) = members[$0] { ws } else { nil } }
+                    let memberTree = Self.treeRows(Self.workspaceIDs(members), workspace: memberWorkspace, tree: o.sessionTree, filtering: filtering)
+                    // Only parents carry a chevron or a roll-up, so only they are looked up: a 10k-member group with
+                    // no lineage hashes nothing here (SidebarHugeGroupTests.oneGroup10k's open).
+                    let memberTreeRow = Dictionary(memberTree.lazy.filter { $0.fold != nil }.map { ($0.index, $0) },
+                                                   uniquingKeysWith: { first, _ in first })
+                    // `treeRows` already applies the session-tree fold predicate. Reusing its
+                    // filtered order keeps descendants of collapsed/deep-folded parents out of
+                    // the drawn rows while retaining their roll-up metadata.
+                    let drawn = Self.foldingDone(memberTree.map { (index: $0.index, depth: $0.depth) },
+                                                 workspace: memberWorkspace, fold: fold, options: o)
                     let foldedGap = Self.gapEntry(drawn, gap: o.gap, section: section.id, group: group.id, count: members.count)
                     for (position, (childIndex, depth)) in drawn.enumerated() {
                         if childIndex == foldedGap, let gap = o.gap { openGapIfNeeded(section: section.id, group: group.id, index: gap.index) }
@@ -409,7 +420,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                             continue
                         }
                         let member = members[childIndex]
-                        openGapIfNeeded(section: section.id, group: group.id, index: childIndex)
+                        if foldedGap == nil { openGapIfNeeded(section: section.id, group: group.id, index: childIndex) }
                         guard case let .workspace(ws) = member else {
                             guard case let .item(item) = member else { continue }
                             // A link, tab or app member: the listed item's row (`.item`), indented under the group's line.
@@ -426,6 +437,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                         }
                         var content = o.rowContent(ws, machine: machineLabel)
                         content.treeDepth = depth
+                        (content.treeFold, content.rollUp) = (memberTreeRow[childIndex]?.fold, memberTreeRow[childIndex]?.rollUp)
                         let h = m.height(for: content)
                         rows.append(SidebarRow(
                             key: .workspace(ws.id), y: y, height: h, section: section.id,
@@ -435,6 +447,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                         ))
                         y += h + m.rowSpacing
                     }
+                    if foldedGap == Self.gapAtEnd, let gap = o.gap { openGapIfNeeded(section: section.id, group: group.id, index: gap.index) }
                     // The next row follows the last member by the row spacing alone (Leo 2026-10-21: no padding after groups).
                     openGapIfNeeded(section: section.id, group: group.id, index: members.count)
                 }
@@ -455,9 +468,13 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                 let foldedGap = Self.gapEntry(drawn, gap: o.gap, section: section.id, group: nil, count: nodes.count)
                 for (index, depth) in drawn {
                     if index == foldedGap, let gap = o.gap { openGapIfNeeded(section: section.id, group: nil, index: gap.index) }
-                    guard index < 0 else { emit(index, nodes[index], tree: treeRow[index] ?? TreeRow(index: index, depth: depth)); continue }
+                    guard index < 0 else {
+                        emit(index, nodes[index], tree: treeRow[index] ?? TreeRow(index: index, depth: depth), opensGap: foldedGap == nil)
+                        continue
+                    }
                     Self.appendFold(index, fold, count: depth, parent: nil, color: nil, last: false, options: o, to: &rows, y: &y, metrics: m)
                 }
+                if foldedGap == Self.gapAtEnd, let gap = o.gap { openGapIfNeeded(section: section.id, group: nil, index: gap.index) }
                 openGapIfNeeded(section: section.id, group: nil, index: nodes.count)
                 continue
             }

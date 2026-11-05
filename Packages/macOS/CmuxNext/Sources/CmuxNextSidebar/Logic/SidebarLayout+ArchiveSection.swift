@@ -5,8 +5,9 @@ import CoreGraphics
 // whose workspaces are all archived, leaves its list for one "Archive (N)" row at the bottom of the sidebar, closed by
 // default. Opened, the row lists them under it, dimmed: whole groups and loose archived workspaces in document order,
 // then archived members of groups that stay. No list draws an "Archived (N)" row of its own. The active
-// workspace keeps its place (a click moves no row); a filter, the session tree and Group by Status list every row in
-// place, as before.
+// workspace keeps its place (a click moves no row); a filter and Group by Status list every row in place, as before.
+// With the session tree (lineage nesting is on by default, #28103) a row whose parent moved to the archive draws as a
+// root of its list, and the archive's rows nest among themselves.
 nonisolated extension SidebarLayout {
     /// The sidebar split for the Archive section: what the lists draw, what the archive holds, and its count.
     struct ArchiveSplit {
@@ -19,9 +20,9 @@ nonisolated extension SidebarLayout {
         var count: Int
     }
 
-    /// Whether this layout draws the Archive section: on, and no filter, session tree or Group by Status.
+    /// Whether this layout draws the Archive section: on, and no filter or Group by Status.
     static func drawsArchiveSection(_ o: SidebarLayoutOptions) -> Bool {
-        o.archiveSection && o.filterMatches == nil && o.sessionTree == nil && !o.grouping.byStatus
+        o.archiveSection && o.filterMatches == nil && !o.grouping.byStatus
     }
 
     /// Splits `sections` for the Archive section; `active` keeps its place in its list.
