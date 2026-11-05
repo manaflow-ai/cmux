@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
 
 // A strip under the window's traffic lights (minimal titlebar, sidebar
 // hidden, the top-left pane) starts its tabs after them. Only strips whose
