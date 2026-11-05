@@ -141,7 +141,10 @@ fn a_synchronized_update_is_one_frame_for_a_render_viewer() {
     let _viewer = surface.attach_render_stream().unwrap();
 
     let before = feed_sync_output(pty, b"\x1b[1;1Hbefore");
-    assert!(wait_for_built(pty, before, Duration::from_secs(5)).is_some(), "plain output built no frame");
+    assert!(
+        wait_for_built(pty, before, Duration::from_secs(5)).is_some(),
+        "plain output built no frame"
+    );
 
     let half = feed_sync_output(pty, b"\x1b[?2026h\x1b[2J\x1b[1;1Hhalf");
     std::thread::sleep(Duration::from_millis(200));

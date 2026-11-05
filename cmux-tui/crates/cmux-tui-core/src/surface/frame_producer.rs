@@ -260,9 +260,10 @@ fn run() {
                 // screen whose update never ended.
                 Produced::Held(until) => {
                     let flag = if announce { ANNOUNCE } else { 0 };
-                    let _ = slot.requested.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |old| {
-                        Some(((old & !ANNOUNCE).max(requested)) | (old & ANNOUNCE) | flag)
-                    });
+                    let _ =
+                        slot.requested.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |old| {
+                            Some(((old & !ANNOUNCE).max(requested)) | (old & ANNOUNCE) | flag)
+                        });
                     order += 1;
                     waiting.push(Reverse(Deadline(until, order, Arc::downgrade(&slot))));
                 }
@@ -337,7 +338,9 @@ fn produce(slot: &Slot, surface: &Weak<Surface>, requested: u64, announce: bool)
     // Only a render viewer draws the half-drawn screen; with none, no frame is
     // built and the output event is not held.
     let viewed = pty.render.lock().is_ok_and(|render| !render.taps.is_empty());
-    if let Some(until) = sync_hold(slot, viewed && term.mode(SYNCHRONIZED_OUTPUT, false), Instant::now()) {
+    if let Some(until) =
+        sync_hold(slot, viewed && term.mode(SYNCHRONIZED_OUTPUT, false), Instant::now())
+    {
         return Produced::Held(until);
     }
     let generation = requested.max(pty.render_generation.load(Ordering::Acquire));
