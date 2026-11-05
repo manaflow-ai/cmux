@@ -532,7 +532,7 @@ async fn status_records_the_person_and_grants_its_own_machines_on_an_older_join(
     std::fs::write(&path, json!({"credential":CREDENTIAL,"machine_id":"machine_test","team_id":"team_test","name":"test","hub_origin":origin,"last_heartbeat":null,"revoked":false,"wgPublicKey":"key"}).to_string()).unwrap();
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
     let config = home.path().join("config.json");
-    std::fs::write(&config, json!({"meshRelay": {"url": origin, "credential": "join", "controlFrom": [{"daemonId": "d1", "ops": ["stop"]}]}}).to_string()).unwrap();
+    std::fs::write(&config, json!({"meshRelay": {"url": origin, "credential": "join", "teamMessaging": false, "controlFrom": [{"daemonId": "d1", "ops": ["stop"]}]}}).to_string()).unwrap();
     std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o600)).unwrap();
     let result = tokio::time::timeout(
         Duration::from_secs(10),
@@ -554,6 +554,7 @@ async fn status_records_the_person_and_grants_its_own_machines_on_an_older_join(
         json!([{"daemonId": "d1", "ops": ["stop"]}, {"sameUser": true, "ops": ["start", "resume", "stop"]}])
     );
     assert_eq!(relay["credential"], "join");
+    assert_eq!(relay["teamMessaging"], false, "the owner's choice stays");
     server.join().unwrap();
 }
 

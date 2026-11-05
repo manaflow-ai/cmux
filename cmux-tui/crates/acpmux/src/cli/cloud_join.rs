@@ -133,12 +133,15 @@ fn save(record: &MachineCredential) -> Result<()> {
 
 fn configure_mesh_relay(hub: &str) -> Result<()> {
     let mut config = crate::config::Config::load()?;
-    let control_from = joined_control_from(config.mesh_relay.take());
+    let previous = config.mesh_relay.take();
+    // The owner's own choice of team messaging stays across a rejoin or a repair.
+    let team_messaging = previous.as_ref().is_none_or(|relay| relay.team_messaging);
+    let control_from = joined_control_from(previous);
     config.mesh_relay = Some(crate::mesh_http::MeshRelayConfig {
         url: hub.to_owned(),
         token_command: Vec::new(),
         credential: Some("join".to_owned()),
-        team_messaging: true,
+        team_messaging,
         control_from,
     });
     config.save_with_writer(|path, bytes| recovery::write_durable(path, bytes, true))
@@ -146,15 +149,18 @@ fn configure_mesh_relay(hub: &str) -> Result<()> {
 
 /// Adds the `sameUser` entry to a joined `meshRelay` that has none. True when it changed
 /// config.json. A relay that is not the join's, or none, is left alone.
-fn add_same_user_control(hub: &str) -> Result<bool> {
+fn add_same_user_control() -> Result<bool> {
     let _lock = join_lock()?;
-    let relay = crate::config::Config::load()?.mesh_relay;
-    let joined = relay.as_ref().is_some_and(|relay| relay.credential.as_deref() == Some("join"));
-    if !joined || relay.is_some_and(|relay| relay.control_from.iter().any(|entry| entry.same_user))
+    let mut config = crate::config::Config::load()?;
+    let Some(relay) = config.mesh_relay.as_mut() else { return Ok(false) };
+    if relay.credential.as_deref() != Some("join")
+        || relay.control_from.iter().any(|entry| entry.same_user)
     {
         return Ok(false);
     }
-    configure_mesh_relay(hub)?;
+    // Only the entry is added; every other relay setting stays as the owner left it.
+    relay.control_from.push(crate::mesh_http::MeshControlFrom::same_user());
+    config.save_with_writer(|path, bytes| recovery::write_durable(path, bytes, true))?;
     Ok(true)
 }
 
@@ -402,7 +408,7 @@ pub async fn status(hub: Option<String>, json_out: bool) -> Result<()> {
                 }
                 // A machine joined before `sameUser` existed has `controlFrom: []`: add the
                 // person's own machines now. The daemon reads controlFrom at its start.
-                if user_id.is_some() && add_same_user_control(&record.hub_origin)? {
+                if user_id.is_some() && add_same_user_control()? {
                     out["controlFromAdded"] = json!("sameUser");
                     out["restartNeeded"] = json!(true);
                 }
