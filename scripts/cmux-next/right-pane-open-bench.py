@@ -346,6 +346,7 @@ class Chat:
             self.stress.action("closeTab", target=f"tab:{tab}", focus=False)
         STRESS.wait(lambda: not (self.tabs() - before), 10, step=0.1)
         STRESS.wait(lambda: len(self.stress.panes(self.stress.workspace(self.workspace))) <= 1, 10, step=0.1)
+        left = sorted(self.tabs() - before)
         problem = None
         for _ in range(3):
             try:
@@ -357,9 +358,9 @@ class Chat:
                 problem = str(error)[:600]
                 time.sleep(0.5)  # test script: an open's own focus move ends before the retry
         time.sleep(0.6)  # test script: the close's own motion ends before the next click
-        if problem:
-            panes = self.stress.panes(self.stress.workspace(self.workspace))
-            return {"focus": problem, "panes": [{"id": p.get("id"), "tabs": [(t.get("id"), t.get("kind"), t.get("page"))
+        panes = self.stress.panes(self.stress.workspace(self.workspace))
+        if problem or left or len(panes) > 1:
+            return {"focus": problem, "left_tabs": left, "panes": [{"id": p.get("id"), "tabs": [(t.get("id"), t.get("kind"), t.get("page"))
                                                  for t in p.get("tabs") or []]} for p in panes]}
         return None
 
@@ -421,7 +422,7 @@ def measure(run, chat, surface, label, round_index):
         record["error"] = "the click opened no tab"
     record["close"] = chat.close_new(before)
     if record["close"]:
-        say(f"right-pane-open: {label}: the chat's pane did not take focus back: {json.dumps(record['close'])[:800]}")
+        say(f"right-pane-open: {label}: the close left the layout changed (the next open runs in it): {json.dumps(record['close'])[:800]}")
     return record
 
 
