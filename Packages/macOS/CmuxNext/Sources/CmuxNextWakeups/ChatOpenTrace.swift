@@ -92,7 +92,7 @@ public final class ChatOpenTrace {
         /// A shown page (its cover gone): ``page`` once it painted in this open (``Mark/pagePainted``),
         /// or once the pane has the page's painted answer for this chat (`paneHasPainted`).
         public static func shownPage(paintedInOpen: Bool, paneHasPainted: Bool) -> Surface {
-            paintedInOpen ? .page : .pageEmpty
+            paintedInOpen || paneHasPainted ? .page : .pageEmpty
         }
     }
 
