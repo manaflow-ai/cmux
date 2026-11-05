@@ -314,7 +314,7 @@ extension AgentTabStore {
             services.paneController(for: pane)?.selectWhenReportedKeepingFocus(surface: tab.surface)
         }
         tabs.showSplit = { [weak services] chat, key, focus in // the chat's pane: the split's provisional one has no controller yet
-            guard let services, let (_, pane) = services.locateTabOnAnyMachine(chat), let content = services.paneController(for: pane)?.workspace else { return { _ in } }
+            guard let services, let (_, pane) = services.locateTab(chat), let content = services.paneController(for: pane)?.workspace else { return { _ in } }
             let intent = focus ? content.beginFocusIntent() : nil
             if let intent { content.focus.expect(.tab(key), generation: intent) }
             BenchSpans.measure("split.layout") { content.applyCurrent() }

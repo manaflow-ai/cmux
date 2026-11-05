@@ -61,7 +61,7 @@ public nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHost
                                   "%@ could not confirm what kind of Cloud machine it is, so no agent chat starts there.", machine)
         case AgentSessionAttachClient.startUnsupported, "agent_session.unsupported":
             RefusalStrings.format("handlers.refusal.agentRemoteStart.updateRemote",
-                                  "The cmux-tui on %@ cannot start agent chats yet. Update cmux-tui on that machine.", machine)
+                                  "cmux on %@ can't start agent chats yet. Update cmux on that machine.", machine)
         case "agent_session.acpmux_unavailable":
             RefusalStrings.format("handlers.refusal.agentRemoteStart.agentServiceDown",
                                   "The agent service on %@ did not start.", machine)

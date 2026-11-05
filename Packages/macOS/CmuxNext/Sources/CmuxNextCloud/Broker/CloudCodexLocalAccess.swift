@@ -15,8 +15,12 @@ public import Foundation
 ///
 /// Only the file store is read (`cli_auth_credentials_store` unset or `"file"`): in keyring or auto
 /// mode the file may be stale and the Keychain item is Codex's own, so nothing is offered.
-// TRANSITIONAL namespace-type -- https://github.com/manaflow-ai/cmux/pull/36071 ships it all-static; an injected reader replaces it there
-public nonisolated enum CloudCodexLocalAccess {
+public nonisolated struct CloudCodexLocalAccess: Sendable {
+    /// The Codex home this reads (``home(environment:userHome:)``).
+    public let home: URL
+
+    public init(home: URL) { self.home = home }
+
     /// A token with less left than this is not offered: the machine would need a renewal at once.
     public static let minimumLifetime: TimeInterval = 15 * 60
     /// `auth.json` is a few KiB; anything larger is not Codex's.
@@ -34,10 +38,10 @@ public nonisolated enum CloudCodexLocalAccess {
     /// The Mac's current Codex access, or nil when there is none cmux may use: no ChatGPT sign-in, an
     /// API key sign-in, keyring storage, a file that is not the person's private regular file, or a
     /// token with less than ``minimumLifetime`` left. Blocking file IO: call it off the main actor.
-    public static func read(home: URL, now: Date = Date()) -> CloudCodexAccessGrant? {
-        guard usesFileStore(config: home.appendingPathComponent("config.toml")),
-              let data = privateFile(home.appendingPathComponent("auth.json")) else { return nil }
-        return grant(authJSON: data, now: now)
+    public func read(now: Date = Date()) -> CloudCodexAccessGrant? {
+        guard Self.usesFileStore(config: home.appendingPathComponent("config.toml")),
+              let data = Self.privateFile(home.appendingPathComponent("auth.json")) else { return nil }
+        return Self.grant(authJSON: data, now: now)
     }
 
     /// The access-only grant in an `auth.json`'s bytes (pure; tests pass fixtures).
@@ -50,7 +54,7 @@ public nonisolated enum CloudCodexLocalAccess {
               let access = tokens["access_token"] as? String, !access.isEmpty, access.utf8.count < 16_384,
               access.utf8.allSatisfy({ $0 > 32 && $0 < 127 }),
               let account = (tokens["account_id"] as? String) ?? accountClaim(access), !account.isEmpty,
-              let expiry = expiry(access) else { return nil }
+              let expiry = expiry(access, now: now) else { return nil }
         guard expiry.timeIntervalSince(now) >= minimumLifetime else { return nil }
         return CloudCodexAccessGrant(accessToken: access, chatgptAccountID: account, expiresAt: expiry)
     }
@@ -92,14 +96,18 @@ public nonisolated enum CloudCodexLocalAccess {
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
     }
 
-    static func expiry(_ jwt: String) -> Date? {
-        guard let exp = claims(jwt)?["exp"] as? Double, exp > 0 else { return nil }
+    static func expiry(_ jwt: String, now: Date) -> Date? {
+        // NumericDate: JSONSerialization gives an NSNumber, integral or not.
+        // Within a year of now at most: a far or non-finite one is malformed (and would trap as an Int64).
+        guard let exp = (claims(jwt)?["exp"] as? NSNumber)?.doubleValue, exp.isFinite, exp > 0,
+              exp < now.timeIntervalSince1970 + 366 * 86_400 else { return nil }
         return Date(timeIntervalSince1970: exp)
     }
 
     /// The ChatGPT account id in the access token's auth claim, for an `auth.json` without `account_id`.
     static func accountClaim(_ jwt: String) -> String? {
-        let auth = claims(jwt)?["https://api.openai.com/auth"] as? [String: Any]
-        return auth?["chatgpt_account_id"] as? String
+        let all = claims(jwt)
+        let auth = all?["https://api.openai.com/auth"] as? [String: Any]
+        return (auth?["chatgpt_account_id"] as? String) ?? (all?["chatgpt_account_id"] as? String)
     }
 }

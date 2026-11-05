@@ -64,6 +64,20 @@ docstrings of `eval.py` and `input_ab.py`):
 
 A count nobody could measure is null, never left out, so two runs line up key by key.
 
+## Bench VM (`scripts/measure/cu-driver-bench.sh`)
+
+The first stage of the bench: the pinned Lume (`pins.json` `lume`) clones the pinned
+`trycua/macos-tahoe-cua:26.5.2` image (`image`; a moved tag is refused) for one run, sets 6 CPUs,
+12 GB and 1920x1080, boots it headless, records what the guest has (`vm.json`: macOS, display,
+SIP, Xcode tools, Homebrew, Python, Node, and whether the Claude route answers), then deletes the
+clone. Lume's image cache stays on the worker, so the 23 GB pull happens once.
+
+```
+cmux-ci run --class exclusive --measurement --label measure --label macos-26 \
+  --script scripts/measure/cu-driver-bench.sh --ref SHA --artifact artifacts/cu-driver-bench.tgz \
+  [--target-worker aws-m4pro-8] [--arg=base_url=http://HOST:PORT] --timeout 7200
+```
+
 ## Not here yet
 
 - **Cua Driver Bench v2** (trycua/cua `libs/cua-driver-bench`, FSL-1.1-MIT: it is run, never

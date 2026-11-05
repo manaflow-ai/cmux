@@ -205,6 +205,7 @@ pub use spawn::expand_env_value;
 pub mod approvers;
 pub(crate) mod key_route;
 pub mod mac_approvers;
+pub mod no_session;
 mod own_host;
 mod peer_cache;
 #[cfg(all(test, target_os = "linux"))]
@@ -1374,6 +1375,7 @@ impl Hub {
             steering: AtomicBool::new(steering),
             backgrounds_work: AtomicBool::new(backgrounds_work),
             person: AtomicBool::new(false),
+            wait_start: AtomicBool::new(false),
             steer_now: Default::default(),
             steer_end: tokio::sync::watch::channel(None).0,
             fork_from: StdMutex::new(None),

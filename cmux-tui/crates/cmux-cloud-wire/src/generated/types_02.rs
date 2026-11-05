@@ -896,3 +896,11 @@ wire_enum! {
         Aarch64 = "aarch64",
     }
 }
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PairingInvite {
+    pub invite: PairingInviteCode,
+    pub display: String,
+    pub expires_at: i64,
+    pub watch_secret: String,
+}

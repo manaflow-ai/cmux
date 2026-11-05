@@ -311,7 +311,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 "agentPane.links.outsideRoots", "agentPane.images.remote", "agentPane.editedFiles.show",
                 "agentPane.editedFiles.maxRows", "agentPane.editedFiles.scope",
             ]),
-            group("settings.group.computerUse"),
+            group("settings.group.computerUse"), group("settings.group.cmuxRemote"),
             // The free AI model while signed out (cx-ds09i).
             group("settings.group.freeModel"),
             // What this Mac does while agents work (keep awake).
