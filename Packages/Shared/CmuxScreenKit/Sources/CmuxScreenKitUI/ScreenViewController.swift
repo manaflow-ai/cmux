@@ -56,6 +56,8 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     /// Stream mode: the Mac's video, and its displays (each streams on its own).
     private var videoView: ScreenVideoView?
     private var streamDisplays: [CGSize] = []
+    /// The decoded video's pixel size (stream mode; nil before the first frame).
+    private var videoSize: CGSize?
     /// The 2 s viewer demand reports (stream mode).
     private var demandReports: Task<Void, Never>?
 
@@ -145,6 +147,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         videoView = video
         video.onSize = { [weak self] size in
             guard let self else { return }
+            videoSize = size
             applyFrameSize(streamLayoutSize(for: size))
         }
         video.onFrame = { [weak self] in self?.session.perf?.streamFrame() }
@@ -156,6 +159,8 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
             pageControl.numberOfPages = sizes.count
             pageControl.currentPage = current
             pageControl.isHidden = sizes.count < 2
+            // A video size that came before the displays: lay it out at the display's size now.
+            if let videoSize { applyFrameSize(streamLayoutSize(for: videoSize)) }
         }
         // How large the stream shows, every 2 s: the Mac captures no larger than that.
         demandReports?.cancel()

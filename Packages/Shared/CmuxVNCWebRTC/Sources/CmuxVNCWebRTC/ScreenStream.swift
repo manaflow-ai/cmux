@@ -233,8 +233,13 @@ public protocol ScreenBackend: AnyObject, Sendable {
     /// Captures at most `fps` frames per second from now on.
     func setFrameRate(_ fps: Int)
     /// Captures at most `pixels` on the picture's long edge (the viewer's
-    /// demand; nil: the display's own size). A source that can't scale ignores it.
+    /// demand; nil: the display's own size). Only for a source that
+    /// ``scalesToDemand``.
     func setMaximumLongEdge(_ pixels: Int?)
+    /// Whether ``setMaximumLongEdge(_:)`` scales the picture. A source that
+    /// can't (the Screen Sharing loopback) keeps the full size, and so does
+    /// the encoder's bitrate ceiling.
+    var scalesToDemand: Bool { get }
 }
 
 /// Sources that do not know their display's rate (the Screen Sharing
@@ -244,6 +249,7 @@ public extension ScreenBackend {
     var inputCapabilities: [String] { [] }
     func setFrameRate(_ fps: Int) {}
     func setMaximumLongEdge(_ pixels: Int?) {}
+    var scalesToDemand: Bool { false }
 }
 
 /// The Mac side of a screen stream: answers a viewer with the screen as a
@@ -599,7 +605,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
     /// (``ViewerDemand``), the source captures at it and the encoder's
     /// bitrate follows the smaller picture.
     private func applyDemand(_ input: ScreenInput, session: Session) {
-        guard let longEdge = input.i else { return }
+        guard let longEdge = input.i, session.backend.scalesToDemand else { return }
         let now = Double(DispatchTime.now().uptimeNanoseconds) / 1e9
         let changed = session.lock.withLock { () -> Int?? in
             let display = session.displays.indices.contains(session.current) ? session.displays[session.current] : .zero
@@ -613,6 +619,15 @@ public final class ScreenStreamHost: @unchecked Sendable {
         applyQuality(session)
     }
 
+    /// The long edge the source captures at and the encoder sizes its
+    /// bitrate for: the viewer's demand, but only under an adaptive quality
+    /// (a fixed preset keeps the full display, its own scale-down) and only
+    /// for a source that scales. A source that can't keeps sending the full
+    /// picture, so the bitrate must not shrink under it.
+    static func captureCap(_ demand: Int?, quality: ScreenQuality, scales: Bool) -> Int? {
+        scales && (quality == .auto || quality == .smooth) ? demand : nil
+    }
+
     /// Sets the encoder and the source for the session's quality and the
     /// rate both displays agree on. True when the rate changed (the viewer
     /// hears it with the next displays message).
@@ -621,8 +636,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
         let hostRate = session.backend.maximumFrameRate
         let (quality, size, cap, fps, changed) = session.lock.withLock { () -> (ScreenQuality, CGSize, Int?, Int, Bool) in
             let display = session.displays.indices.contains(session.current) ? session.displays[session.current] : .zero
-            // The picture as captured: a fixed preset keeps the full display (its own scale-down).
-            let cap = session.quality == .auto || session.quality == .smooth ? session.demand.cap : nil
+            let cap = Self.captureCap(session.demand.cap, quality: session.quality, scales: session.backend.scalesToDemand)
             let size = ViewerDemand.fit(display, cap: cap)
             let fps = session.quality.frameRate(hostMaximum: hostRate, viewerMaximum: session.viewerFrameRate)
             defer { session.frameRate = fps }

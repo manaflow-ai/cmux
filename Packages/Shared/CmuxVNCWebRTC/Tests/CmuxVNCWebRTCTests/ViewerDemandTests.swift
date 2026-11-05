@@ -97,6 +97,17 @@ struct ViewerDemandTests {
         #expect(portrait == CGSize(width: 540, height: 960))
     }
 
+    /// Only a source that scales gets the cap: the Screen Sharing loopback
+    /// keeps sending the full display, so its bitrate keeps the full size.
+    @Test func onlyAScalingSourceTakesTheCap() {
+        #expect(ScreenStreamHost.captureCap(1280, quality: .auto, scales: true) == 1280)
+        #expect(ScreenStreamHost.captureCap(1280, quality: .smooth, scales: true) == 1280)
+        #expect(ScreenStreamHost.captureCap(1280, quality: .auto, scales: false) == nil, "a loopback source")
+        #expect(ScreenStreamHost.captureCap(nil, quality: .auto, scales: true) == nil)
+        #expect(ScreenStreamHost.captureCap(1280, quality: .high, scales: true) == nil, "a fixed preset")
+        #expect(!RecordingBackend().scalesToDemand, "a source scales only when it says so")
+    }
+
     /// The viewer's report goes as a `view` message the host reads, never as input.
     @Test func theReportIsAViewMessage() throws {
         let input = ScreenInput(t: ScreenStreamViewer.viewDemandMessage, d: true, i: 1280)

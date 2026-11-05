@@ -157,6 +157,8 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         reconfigure(generation: generation)
     }
 
+    public var scalesToDemand: Bool { true }
+
     /// Captures the display scaled down to at most `pixels` on its long edge
     /// (the viewer's demand; nil: its full size). ScreenCaptureKit scales,
     /// so the encoder gets the smaller picture with no extra copy.
