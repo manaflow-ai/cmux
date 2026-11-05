@@ -377,7 +377,7 @@ extension AgentTabStore {
             return folders
         }
         tabs.shareMachineWithMeScoped = { [weak services, weak tabs] key in
-            guard let services, let tabs, let machine = tabs.remoteMachineID(of: key), let session = services.machines.session(machine) else {
+            guard let services, let tabs, let machine = tabs.remoteMachineID(of: key.key), let session = services.machines.session(machine) else {
                 return .refused(code: "unavailable", message: CloudShareStrings.notCloudMachine)
             }
             return await CloudMachineShare.shareWithMe(session, cloud: services.cloud)
@@ -392,7 +392,7 @@ extension AgentTabStore {
                 return AgentTabRefusedHost(refusal: AgentRemoteStartRefusal(code: AgentRemoteStartRefusal.hostMismatchCode, machine: record.hostName ?? record.host))
             }
             let machine = record.hostName ?? services.machines.machineName(daemon.machineID) ?? daemon.machineID
-            let session = record.session ?? tabs.sessions[tabs.resolve(key)]
+            let session = record.session ?? tabs.sessions[tabs.resolvedKey(key)]
             guard !daemon.isLocal, daemon.supports(DaemonCapability.agentSessionAttach.rawValue), daemon.remoteEndpoint != nil else {
                 // A chat this app started on that machine says what to do there; an older tab
                 // recorded for another Mac keeps the "runs on" notice.
@@ -443,7 +443,7 @@ extension AgentTabStore {
                 guard daemon.supports(DaemonCapability.agentSessionStart.rawValue) else { return AgentTabRefusedHost(refusal: .startUnsupported(machine: machine)) }
                 host.start = { [weak tabs] cwd, harness, model, personKey in
                     guard let tabs else { throw CancellationError() }
-                    return try await tabs.startRemoteChat(key, machine: machine, cwd: cwd, harness: harness, model: model, personKey: personKey,
+                    return try await tabs.startRemoteChat(key.key, machine: machine, cwd: cwd, harness: harness, model: model, personKey: personKey,
                                                           ownerLink: links?.ownerLink, teammate: links?.teammate, reconnect: reconnect, endpoint: endpoint)
                 }
             }

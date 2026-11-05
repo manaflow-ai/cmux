@@ -121,7 +121,7 @@ extension AgentTabStore {
             } catch {
                 // A cancelled creation stays in the log until the store's close of its tab commits.
                 if !(error is CancellationError) || !store.creations.wasCancelled(transaction) { store.rejectIntent(transaction) }
-                self?.release(key)
+                self?.release(key, machine: daemon.machineID)
                 throw error
             }
         }
@@ -228,8 +228,8 @@ extension AgentTabStore {
         if let store = tabStores.removeValue(forKey: scoped) { tabStores[realKey] = store }
         if checkpointFocusTab == key { checkpointFocusTab = real }
         // The provisional alias goes once the tree settles: live callbacks then name the store tab (conversion, project reads).
-        if let view = views[real] { wire(view.model, key: real) }
-        seenLive.remove(key)
+        if let view = views[realKey] { wire(view.model, key: real, machine: scoped.machine) }
+        seenLive.remove(scoped)
     }
 
     /// Local tab `key` adopts the prewarmed `spare` as its page; the chat it becomes still opens tabs (cx-ckt2z).
@@ -238,7 +238,7 @@ extension AgentTabStore {
     func adoptSpare(_ spare: AgentPaneView, key: AgentTabKey, page: AgentPaneNewTab) {
         standaloneViews.remove(spare)
         (views[key], spare.model.allowsTabConversion) = (spare, true)
-        wire(spare.model, key: key.key)
+        wire(spare.model, key: key.key, machine: key.machine)
         spare.adoptNewTab(page)
     }
 
@@ -264,7 +264,7 @@ extension AgentTabStore {
         AgentPaneSpareOutcome.adopted.trace()
         standaloneViews.remove(spare)
         (views[key], spare.model.allowsTabConversion) = (spare, true)
-        wire(spare.model, key: key.key)
+        wire(spare.model, key: key.key, machine: key.machine)
         return true
     }
 
@@ -342,12 +342,19 @@ extension AgentTabStore {
     /// A tab this client closed (``TabContentCache/release(_:)``). A tab the trees still list (the
     /// close failed, or its event has not arrived) keeps its page until its tree drops it.
     func releaseIfGone(_ key: String) {
-        if lookup(resolve(key)) == nil { release(resolve(key)) }
+        let scoped = tabKey(key)
+        if record(for: scoped) == nil, !scoped.machine.isEmpty {
+            release(scoped.key, machine: scoped.machine)
+        } else if record(for: scoped) == nil {
+            release(resolve(key))
+        }
     }
 
     /// Stops tab `key`'s page and forgets its view state.
-    func release(_ key: String) {
-        if let view = views.removeValue(forKey: key) {
+    func release(_ key: String, machine: String? = nil) {
+        let scoped = tabKey(key, machine: machine)
+        let key = scoped.key
+        if let view = views.removeValue(forKey: scoped) {
             // Its machine link is no longer pushed; the last page gone ends that observation.
             machineLink.forget(view)
             // An untouched new tab page goes back to the pool (no teardown, no rebuild, R81); a
@@ -358,23 +365,27 @@ extension AgentTabStore {
                 retirer.retire(view)
             }
         }
-        notices[key] = nil
-        sessions[key] = nil
-        newTabPages[key] = nil
-        seeds[key] = nil
-        remoteSeeds[key] = nil
-        remoteCreations[key] = nil
-        remoteStarts.removeValue(forKey: key)?.cancel()
+        notices[scoped] = nil
+        sessions[scoped] = nil
+        newTabPages[scoped] = nil
+        seeds[scoped] = nil
+        remoteSeeds[scoped] = nil
+        remoteCreations[scoped] = nil
+        remoteStarts.removeValue(forKey: scoped)?.cancel()
         adoptions = adoptions.filter { $0.value != key }
-        aliases = aliases.filter { $0.value != key }
-        remoteAliases = remoteAliases.filter { $0.value != key && $0.key != key }
+        for entry in aliases.entries where (entry.key.machine == scoped.machine || entry.key.machine.isEmpty) && (entry.value == key || entry.key.key == key) {
+            aliases.removeValue(forKey: entry.key)
+        }
+        for entry in remoteAliases.entries where (entry.key.machine == scoped.machine || entry.key.machine.isEmpty) && (entry.value == key || entry.key.key == key) {
+            remoteAliases.removeValue(forKey: entry.key)
+        }
         linkedSessions.remove(key)
-        pendingTurns[key] = nil
-        wakeStates[key] = nil
-        tabStores[key] = nil
+        pendingTurns[scoped] = nil
+        wakeStates[scoped] = nil
+        tabStores[scoped] = nil
         unsentDrafts.set("", for: key)
         launchImages.drop(key)
-        seenLive.remove(key)
+        seenLive.remove(scoped)
         forgetUnusedStores()
         stopCustomizationWhenUnused()
     }
@@ -384,21 +395,24 @@ extension AgentTabStore {
     /// not listed yet (its creation just answered) is kept.
     func releaseGoneTabs(in store: DaemonStore) {
         guard store.liveTabListRevision != nil else { return }
-        for (key, owner) in tabStores where owner === store {
-            if store.liveTreeLists(tab: key) == true {
-                seenLive.insert(key)
-            } else if seenLive.contains(key) {
-                release(key)
+        for entry in tabStores.entries where entry.value === store {
+            let scoped = entry.key
+            if store.liveTreeLists(tab: scoped.key) == true {
+                seenLive.insert(scoped)
+            } else if seenLive.contains(scoped) {
+                release(scoped.key, machine: scoped.machine)
             }
         }
-        aliases = aliases.filter { store.liveTreeLists(tab: $0.key) == true || !ProvisionalTab.isProvisional($0.key) }
+        for entry in aliases.entries where tabStores[entry.key] === store && !store.liveTreeLists(tab: entry.value) && ProvisionalTab.isProvisional(entry.key.key) {
+            aliases.removeValue(forKey: entry.key)
+        }
     }
 
     /// Follows tab `key` in `store`'s tree, so its view state goes when the tree drops it.
     func track(_ key: String, in store: DaemonStore, machine: String? = nil) {
         let scoped = tabKey(key, machine: machine)
         tabStores[scoped] = store
-        if store.liveTreeLists(tab: key) == true { seenLive.insert(key) }
+        if store.liveTreeLists(tab: key) == true { seenLive.insert(scoped) }
         let id = ObjectIdentifier(store)
         guard watches[id] == nil else { return }
         // task-owner: stored in watches; cancelled once no tab belongs to the store

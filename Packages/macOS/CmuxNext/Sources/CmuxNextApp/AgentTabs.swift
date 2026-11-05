@@ -180,7 +180,7 @@ final class AgentTabStore {
     /// A provisional tab's id -> the store's id once the creation answered (``AgentTabStore/rekey(_:to:)``): one page.
     var aliases: AgentTabMap<String> = .init()
     /// Tabs a live tree has listed: only those can be gone from it.
-    var seenLive: Set<String> = []
+    var seenLive: Set<AgentTabKey> = []
     /// The tree each opened or shown tab belongs to, so a tab closed out of sight (by the CLI,
     /// another client, its pane closing) lets its view state go once that tree is live without it.
     var tabStores: AgentTabMap<DaemonStore> = .init()
@@ -418,8 +418,11 @@ final class AgentTabStore {
     /// when the state has one unambiguous owner; callers with a pane should always pass its daemon.
     func tabKey(_ key: String, machine: String? = nil) -> AgentTabKey {
         if let machine { return AgentTabKey(machine: machine, key: resolve(key, machine: machine)) }
-        let candidates = Set(views.entries.map { $0.key } + sessions.entries.map { $0.key } + tabStores.entries.map { $0.key })
-            .filter { $0.key == key || $0.key == aliases[key] }
+        var candidates = Set(views.entries.map { $0.key } + sessions.entries.map { $0.key } + tabStores.entries.map { $0.key })
+            .filter { $0.key == key || $0.key == aliases[AgentTabKey(machine: $0.machine, key: key)] }
+        candidates.formUnion(listTabsScoped().filter { tab in
+            tab.key == key || resolve(tab.key, machine: tab.machine) == key
+        }.map { AgentTabKey(machine: $0.machine, key: $0.key) })
         return candidates.count == 1 ? candidates[0] : AgentTabKey(machine: "", key: resolve(key))
     }
 
@@ -507,7 +510,7 @@ final class AgentTabStore {
             (model.remoteChat, model.neverPooled) = (true, true)
             guard let view = makeView(model) else { return nil }
             views[tabKey] = view
-            track(key, in: store)
+            track(key, in: store, machine: tabKey.machine)
             return view
         }
         // A new chat on another machine starts there from its seed (``startRemoteChat``): the
@@ -525,7 +528,7 @@ final class AgentTabStore {
         // new-conversation-tab replied): it stays the chat, never the page (cx-vurv).
         if local, seed == nil, newTabPages[tabKey] == nil, tabStores[tabKey] == nil, (sessions[tabKey] ?? record.session) == nil,
            !linkedSessions.contains(tabKey.key) {
-            newTabPages[key] = firstPage(cwd: nil, token: firstPageToken(of: key, in: store))
+            newTabPages[tabKey] = firstPage(cwd: nil, token: firstPageToken(of: key, in: store))
         }
         // A New Tab page made now (Cmd-N's first page, a restored page) adopts the prewarmed spare
         // when there is one: no cold load and React mount on the open path (cx-ec99).
@@ -534,7 +537,7 @@ final class AgentTabStore {
         if local, kind == .local, sessions[tabKey] == nil, record.session == nil, let newTab = newTabPages[tabKey],
            seed?.holdsOnlyFolder ?? true, wakeStates[tabKey] == nil, !relaunchWake.mayHold(key), let spare = takeSpare?() {
             adoptSpare(spare, key: tabKey, page: newTab.page)
-            track(key, in: store)
+            track(key, in: store, machine: tabKey.machine)
             onPageBuilt?(key)
             return spare
         }
@@ -545,7 +548,7 @@ final class AgentTabStore {
                                                 wake: wakeStates[tabKey] != nil || relaunchWake.mayHold(key))
             .adopted(chiefKeeps: chiefKeepsSession),
            let spare = takeConnectedSpare?(), adoptSpare(spare, key: tabKey, session: session, revealTurn: pendingTurns.removeValue(forKey: tabKey)) {
-            track(key, in: store)
+            track(key, in: store, machine: tabKey.machine)
             onPageBuilt?(key)
             return spare
         }
@@ -586,7 +589,7 @@ final class AgentTabStore {
             return nil
         }
         views[tabKey] = view
-        track(key, in: store)
+        track(key, in: store, machine: tabKey.machine)
         onPageBuilt?(key)
         return view
     }
