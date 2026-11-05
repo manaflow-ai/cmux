@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextHomeEngine
+import CmuxNextDesign
 import Foundation
 import Testing
 
@@ -95,6 +96,29 @@ import Testing
         let wake = card.reactionRows.canWake.convert(card.reactionRows.canWake.bounds, to: card).maxX
         let model = card.model.convert(card.model.bounds, to: card).maxX
         #expect(abs(wake - model) < 1, "Can Wake's picker is as wide as Model's")
+        // Runs On (Details) is a field in the same column, as wide and as tall as the pickers.
+        let chip = ChiefTeleportChip(model: ChiefTeleportModel(showing: .thisMac, phase: .idle, destinations: []))
+        card.showTeleport(chip)
+        card.showSection(.details)
+        card.layoutSubtreeIfNeeded()
+        #expect(chip.style == .field)
+        let runsOn = chip.convert(chip.bounds, to: card)
+        #expect(abs(runsOn.minX - column) < 1, "Runs On starts at \(runsOn.minX), not the column's \(column)")
+        #expect(abs(runsOn.maxX - model) < 1, "Runs On is as wide as the pickers")
+        #expect(runsOn.height >= Metrics.controlHeight - 0.5)
+    }
+
+    /// The control bar spans its width: the status at the leading edge, the button at the trailing edge.
+    @Test func controlBarPutsItsButtonAtTheTrailingEdge() {
+        let bar = HomeChiefComputerControlBar()
+        bar.chief = { "mario" }
+        bar.source = HomeChiefComputerControlSource(state: { .init(holder: .human) }, observe: { _ in NSObject() },
+                                                    takeOver: {}, handBack: {})
+        bar.isHidden = false
+        bar.frame = NSRect(x: 0, y: 0, width: 300, height: 40)
+        bar.layoutSubtreeIfNeeded()
+        #expect(abs(bar.button.frame.maxX - (bar.bounds.width - bar.edgeInsets.right)) < 1, "button at \(bar.button.frame.maxX)")
+        #expect(bar.status.frame.minX <= bar.edgeInsets.left + 1)
     }
 
     /// The capture scene's fixture computer keeps its control bar through the host's own reads.

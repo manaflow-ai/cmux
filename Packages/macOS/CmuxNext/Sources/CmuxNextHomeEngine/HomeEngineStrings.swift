@@ -104,7 +104,7 @@ public nonisolated enum HomeEngineStrings {
     static var defaultValue: String { String(localized: "home.engine.default", defaultValue: "Default", table: "Home", bundle: .module) }
     /// The card's Reactions block (a416): whether a tapback can wake the Chief, and its classifier.
     static var reactionsSection: String { String(localized: "home.engine.reactions", defaultValue: "Reactions", table: "Home", bundle: .module) }
-    static var reactionsCanWake: String { String(localized: "home.engine.reactions.canWake", defaultValue: "Can Wake the Chief", table: "Home", bundle: .module) }
+    static var reactionsCanWake: String { String(localized: "home.engine.reactions.canWake", defaultValue: "Wake Chief", table: "Home", bundle: .module) }
     static var reactionsOn: String { String(localized: "home.engine.reactions.on", defaultValue: "On", table: "Home", bundle: .module) }
     static var reactionsOff: String { String(localized: "home.engine.reactions.off", defaultValue: "Off", table: "Home", bundle: .module) }
     static var reactionClassifier: String { String(localized: "home.engine.reactions.classifier", defaultValue: "Classifier", table: "Home", bundle: .module) }

@@ -54,6 +54,8 @@ public final class HomeChiefComputerControlBar: NSStackView {
         super.init(frame: .zero)
         orientation = .horizontal
         alignment = .centerY
+        // The status takes the free width, so the button sits at the trailing edge (gravity areas would pack both leading).
+        distribution = .fill
         spacing = Metrics.space3
         edgeInsets = NSEdgeInsets(top: Metrics.space3, left: Metrics.space5, bottom: Metrics.space3, right: Metrics.space3)
         wantsLayer = true

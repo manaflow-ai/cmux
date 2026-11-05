@@ -16197,7 +16197,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Can Wake the Chief"
+            "value": "Wake Chief"
           }
         },
         "ja": {
@@ -16209,115 +16209,115 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يمكنها إيقاظ Chief"
+            "value": "إيقاظ Chief"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mogu probuditi Chiefa"
+            "value": "Budi Chiefa"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kan vække Chief"
+            "value": "Væk Chief"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Können den Chief wecken"
+            "value": "Chief wecken"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pueden despertar al Chief"
+            "value": "Despertar al Chief"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Peuvent réveiller le Chief"
+            "value": "Réveiller le Chief"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Possono svegliare il Chief"
+            "value": "Svegliare il Chief"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "អាចដាស់ Chief"
+            "value": "ដាស់ Chief"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief를 깨울 수 있음"
+            "value": "Chief 깨우기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kan vekke Chief"
+            "value": "Vekk Chief"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mogą budzić Chiefa"
+            "value": "Budzenie Chiefa"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Podem acordar o Chief"
+            "value": "Acordar o Chief"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Могут будить Chief"
+            "value": "Будить Chief"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ปลุก Chief ได้"
+            "value": "ปลุก Chief"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief'i uyandırabilir"
+            "value": "Chief'i uyandır"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Можуть будити Chief"
+            "value": "Будити Chief"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Có thể đánh thức Chief"
+            "value": "Đánh thức Chief"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "可唤醒 Chief"
+            "value": "唤醒 Chief"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "可喚醒 Chief"
+            "value": "喚醒 Chief"
           }
         }
       }
