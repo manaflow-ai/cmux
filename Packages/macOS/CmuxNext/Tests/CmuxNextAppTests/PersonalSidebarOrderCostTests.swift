@@ -43,6 +43,6 @@ import Testing
             _ = PersonalSidebar.order(models, rows: byKey, orderedRows: personal.workspacesInOrder)
         }
         let elapsed = Date().timeIntervalSince(started) * 1_000
-        print("WORKSPACE-ORDER-BENCH n=1000 runs=10 total_ms=\(String(format: \"%.2f\", elapsed)) per_pass_ms=\(String(format: \"%.2f\", elapsed / 10))")
+        print("WORKSPACE-ORDER-BENCH n=1000 runs=10 total_ms=\(String(format: "%.2f", elapsed)) per_pass_ms=\(String(format: "%.2f", elapsed / 10))")
     }
 }
