@@ -387,6 +387,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/set_directories",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/mcp/reconnect",
       "params": true,
       "result": true
@@ -1532,6 +1538,18 @@
     {
       "kind": "request",
       "name": "_acpmux/chat/route.set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/accounts",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/account/set",
       "params": true,
       "result": true
     },

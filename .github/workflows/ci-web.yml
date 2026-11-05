@@ -461,7 +461,7 @@ jobs:
             exit "$status"
           fi
           python3 ../scripts/ci/fast_gate_webviews_checks.py --no-install --repo .. --base "$BASE_REF" || status=1
-          for check in check:design-tokens check:menu-gutters check:layers check:type-scale check:motion-scale check:surface-roles check:layout-grid check:design-scale check:status-glyphs check:system-blue check:text-focus check:toast-targets check:dialog-keys check:switch-fetches check:session-info-names check:attachment-caps; do
+          for check in check:design-tokens check:menu-gutters check:transcript-icons check:icon-scale check:layers check:type-scale check:motion-scale check:surface-roles check:layout-grid check:design-scale check:status-glyphs check:system-blue check:text-focus check:toast-targets check:dialog-keys check:switch-fetches check:session-info-names check:attachment-caps; do
             bun run "$check" || echo "::warning title=webviews $check (warn-only)::see the step log"
           done
           # Format and lint apart: `vp check` stops at its first red, so a format red hid every lint finding.
@@ -647,7 +647,8 @@ jobs:
     needs: [web-subarea-scope, react-apps-check-shard]
     if: ${{ github.event_name == 'pull_request' && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'push' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-32vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_32) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) }}
-    timeout-minutes: 40
+    # 55: the base replay and the head re-run of up to 25 files each (13 files took about 6 minutes alone).
+    timeout-minutes: 55
     name: react-apps-base-check (${{ matrix.shard }})
     strategy:
       fail-fast: false
@@ -781,14 +782,17 @@ jobs:
           python3 "$runner/guards_new_reds.py" --new-files --flaky "$flaky" "$HEAD_RESULTS" "$BASE_RESULTS" \
             > "$RUNNER_TEMP/head-rerun-files" || : > "$RUNNER_TEMP/head-rerun-files"
           count="$(grep -c . "$RUNNER_TEMP/head-rerun-files" || true)"
-          echo "rerun=$([ "$status" -ne 0 ] && [ "$count" -ge 1 ] && [ "$count" -le 10 ] && echo true || echo false)" >> "${GITHUB_OUTPUT:-/dev/null}"
+          echo "rerun=$([ "$status" -ne 0 ] && [ "$count" -ge 1 ] && [ "$count" -le 25 ] && echo true || echo false)" >> "${GITHUB_OUTPUT:-/dev/null}"
           exit "$status"
 
       # A red the base replay passed is re-run once, alone, on the head before it is charged to the
       # change: the head shard retries a red file alone only while its retry budget lasts, so a late
       # red on a long shard was never retried. #27710 (run 41525196343) went red on three
       # gallery-frame timeouts its shards had no budget left to retry; the base push after it merged
-      # passed all three. At most 10 files: a change with more reds than that is not flaking.
+      # passed all three. At most 25 files: a shard that ran out of budget keeps many files red at once,
+      # every one a timeout or an unretried first failure, so 10 skipped the very case this re-run is for.
+      # #35163 (run 41890002293) was charged with 13 such files at three heads (16 and 13 at the earlier
+      # two); the base replay passed every one. A change with more than 25 is not flaking.
       - name: Check out the head again
         if: ${{ steps.base.outputs.rerun == 'true' }}
         run: git checkout -q --detach "$GITHUB_SHA"

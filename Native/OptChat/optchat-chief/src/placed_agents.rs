@@ -70,6 +70,25 @@ fn placed_in(spawns: &Value) -> HashSet<String> {
         .collect()
 }
 
+/// A closed summary of session `id`, for one the machine daemon lacks.
+fn closed(id: &str) -> SessionSummary {
+    SessionSummary {
+        session_id: id.into(),
+        name: String::new(),
+        harness: String::new(),
+        cwd: String::new(),
+        status: cmux_chief::acp::SessionStatus::Closed,
+        pending_permissions: 0,
+        state_seq: 0,
+        last_seq: None,
+        turn_count: None,
+        preview: None,
+        last_prompt: None,
+        last_message: None,
+        tags: Default::default(),
+    }
+}
+
 /// The Chief's acpmux port on a machine it moved to: the home daemon's port,
 /// with the placed sessions' calls on the machine daemon's port.
 pub struct PlacedPort {
@@ -89,6 +108,11 @@ impl PlacedPort {
         placed: HashSet<String>,
     ) -> Arc<PlacedPort> {
         Arc::new(PlacedPort { home, here, placed })
+    }
+
+    /// The sessions a move placed on this machine's daemon.
+    pub fn placed(&self) -> &HashSet<String> {
+        &self.placed
     }
 
     fn port(&self, session: &str) -> &dyn AgentPort {
@@ -123,15 +147,30 @@ impl PlacedPort {
     }
 
     /// The machine link's events as the brain gets them: only those about a
-    /// placed session. Its list is each placed session's change; its link
+    /// placed session. Its list is each placed session's change (closed for
+    /// one it lacks); its link
     /// going down or ending is not the Chief's (the home link's is).
     pub fn here_events(&self, event: AgentEvent) -> Vec<AgentEvent> {
         match event {
-            AgentEvent::Up(list) => list
-                .into_iter()
-                .filter(|s| self.placed.contains(&s.session_id))
-                .map(AgentEvent::SessionChanged)
-                .collect(),
+            AgentEvent::Up(list) => {
+                let mut gone: Vec<&String> = self
+                    .placed
+                    .iter()
+                    .filter(|id| !list.iter().any(|s| &s.session_id == *id))
+                    .collect();
+                gone.sort();
+                // A placed session the machine daemon lacks has ended: the
+                // home list no longer judges it (Brain::set_reported_elsewhere).
+                let gone: Vec<AgentEvent> = gone
+                    .into_iter()
+                    .map(|id| AgentEvent::SessionChanged(closed(id)))
+                    .collect();
+                list.into_iter()
+                    .filter(|s| self.placed.contains(&s.session_id))
+                    .map(AgentEvent::SessionChanged)
+                    .chain(gone)
+                    .collect()
+            }
             AgentEvent::SessionChanged(s) if self.placed.contains(&s.session_id) => {
                 vec![AgentEvent::SessionChanged(s)]
             }
@@ -454,6 +493,17 @@ mod tests {
         assert_eq!(asked.len(), 1);
         assert!(port.here_events(AgentEvent::Down).is_empty());
         assert!(port.here_events(AgentEvent::Ended).is_empty());
+    }
+
+    #[test]
+    fn a_handed_over_session_the_machine_daemon_lacks_is_reported_closed() {
+        let (_, _, port) = moved();
+        let up = port.here_events(AgentEvent::Up(vec![summary("s-person")]));
+        assert!(
+            matches!(&up[..], [AgentEvent::SessionChanged(s)]
+                if s.session_id == "s-work" && s.status == SessionStatus::Closed),
+            "{up:?}"
+        );
     }
 
     #[test]

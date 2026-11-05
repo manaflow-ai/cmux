@@ -3,7 +3,7 @@
 // matrix manifest (scripts/gallery-matrix) and the native gallery (CmuxNextGallery
 // GalleryEnvironment) read the same names: entry, variant, locale, theme, colorScheme, fontFamily,
 // fontSize, density, scale, width, height, reducedMotion, highContrast, dynamicSize, windowKey,
-// frame, window, zoom, layout, source. The web gallery alone also reads accent and background.
+// frame, window, zoom, layout, source. The web gallery alone also reads accent, background and load.
 // The shell keeps it in its own URL and passes the same query to every stage frame; the matrix
 // runner builds frame URLs from it. Defaults are left out of the query, so links stay short.
 import { DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME } from "./theme/ghostty";
@@ -62,6 +62,15 @@ export const SCALES = [0.8, 0.9, 1, 1.1, 1.25, 1.5] as const;
 export const BACKGROUNDS = ["none", "light", "dark", "busy"] as const;
 export type GalleryBackground = (typeof BACKGROUNDS)[number];
 
+/**
+ * The machine's load (frame/load.ts): `none` is an idle Mac, the app's best case; `busy` and
+ * `saturated` take part of every frame from the page's main thread, plus a periodic long task, as a
+ * build, a few busy chats and a browser beside cmux do. A state is tried under the contention people
+ * run it in, not only on an idle machine.
+ */
+export const LOADS = ["none", "busy", "saturated"] as const;
+export type GalleryLoad = (typeof LOADS)[number];
+
 export type GalleryEnv = {
   locale: string;
   /** The Ghostty theme the window shows (a shipped theme's file name). */
@@ -72,6 +81,8 @@ export type GalleryEnv = {
   /** The picture behind the window (BACKGROUNDS); absent is `none`, an opaque window. Web only for
    * now (outside the shared vectors: the native gallery has no background control yet). */
   background?: GalleryBackground;
+  /** The machine's load (LOADS); absent is `none`, an idle machine. Web only. */
+  load?: GalleryLoad;
   /** The window appearance; `auto` is the theme's own (dark when its background is darker). */
   colorScheme: "auto" | "dark" | "light";
   /** Empty: the page's own font. */
@@ -126,7 +137,7 @@ export const DEFAULT_ENV: GalleryEnv = {
 
 export const ZOOMS = ["fit", 0.5, 0.75, 1] as const;
 
-const KEYS = [...Object.keys(DEFAULT_ENV), "accent", "background"] as (keyof GalleryEnv)[];
+const KEYS = [...Object.keys(DEFAULT_ENV), "accent", "background", "load"] as (keyof GalleryEnv)[];
 
 /**
  * The theme when the query names none: the app's default pair (Apple System Colors), on the side
@@ -168,6 +179,8 @@ export function readEnv(params: URLSearchParams): GalleryEnv {
   const background = params.get("background");
   if (background !== "none" && (BACKGROUNDS as readonly string[]).includes(background ?? ""))
     env.background = background as GalleryBackground;
+  const load = params.get("load");
+  if (load !== "none" && (LOADS as readonly string[]).includes(load ?? "")) env.load = load as GalleryLoad;
   const scheme = params.get("colorScheme");
   if (scheme === "dark" || scheme === "light") env.colorScheme = scheme;
   env.theme = params.get("theme") || defaultTheme(env.colorScheme);
@@ -205,7 +218,8 @@ export function writeEnv(env: GalleryEnv, params = new URLSearchParams()): URLSe
       value === fallback ||
       value === undefined ||
       (key === "accent" && value === "neutral") ||
-      (key === "background" && value === "none")
+      (key === "background" && value === "none") ||
+      (key === "load" && value === "none")
     )
       continue;
     params.set(key, typeof value === "boolean" ? "1" : String(value));

@@ -19,7 +19,23 @@ extension HomeStore {
     /// loaded run has a message with it. Reads the transcript, so an observer follows new reports.
     public func agentThread(_ peer: String, in conversation: ConversationID) -> HomeAgentThread? {
         let items = transcript(for: conversation)
-        return agentMessages[conversation]?.thread(peer: peer, in: items)
+        return agentMessages[conversation]?.thread(peer: peer, in: items, me: me?.id)
+    }
+
+    /// The person wrote `text` to agent `peer` from the agent pane: it goes to the Chief's chat as a
+    /// ``HomeAgentNote`` (`[to <peer>] <text>`), so the Chief reads it, relays it to the agent and keeps it in
+    /// its log, and the agent's chat shows it labelled "You" at once. A send that fails shows Not Delivered
+    /// in the chat, as any send.
+    ///
+    /// - Parameters:
+    ///   - text: What the person wrote (trimmed; empty sends nothing).
+    ///   - peer: The agent's id.
+    ///   - conversation: The Chief's chat.
+    /// - Throws: What ``perform(_:key:)`` throws.
+    public func sendAgentNote(_ text: String, to peer: String, in conversation: ConversationID) async throws {
+        let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !words.isEmpty else { return }
+        try await perform(.sendMessage(conversation: conversation, parts: [.text(HomeAgentNote(peer: peer, text: words).message)]))
     }
 
     /// The person opened agent `peer`'s chat: its newest report so far is read, so its pill's unread dot

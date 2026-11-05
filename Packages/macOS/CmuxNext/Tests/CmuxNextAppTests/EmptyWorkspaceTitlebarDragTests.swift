@@ -15,7 +15,7 @@ import Testing
         let empty = EmptyWorkspaceView()
         let stack = try #require(empty.subviews.first as? NSStackView)
         #expect(stack.arrangedSubviews.first?.accessibilityLabel() == "cmux")
-        #expect((stack.arrangedSubviews.first as? NSTextField)?.stringValue == EmptyWorkspaceArt.wordmark)
+        #expect((stack.arrangedSubviews.first as? NSTextField)?.stringValue == CmuxWordmarkLabel.wordmark)
     }
 
     @Test func aPressInTheEmptyWorkspacesTopRowMovesTheWindow() throws {

@@ -142,7 +142,10 @@ its replies (optchat-chief `workspaces::subagent_link`, opened by the existing s
 link in the chat: no button. Pill titles: the `Title:` line, else the first clause at a word edge (~32
 characters); the pill clips the rest.
 
-Slice 3 (not started; needs owner changes, owned by a963/a964 and the Chief producer):
+Slice 3 (steps 1 and 2 built in Home; needs owner changes, owned by a963/a964 and the Chief producer):
+- Owner part shipped: a963's subagent `place` and `epoch` in host/spawns landed on feat-cmux-next
+  (ded88aaa..ad4816c7). Home reads them into `HomeAgentSessionRef`; the session id stays the same across a
+  move, and the agent pane follows an agent by its session id and re-attaches where a higher epoch says.
 - The composer's send: the person's message must reach the subagent through the Chief and be recorded
   in the Chief's run with its sender. Needs a `tell` input field `from` (or `_meta.cmux.sender`) in
   optchat-chief, and `HomeIntent.agentNote(peer, text)` through the owner so the Chief sees it.

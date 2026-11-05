@@ -22,6 +22,7 @@ extension SettingDescriptor {
     public func accepts(_ value: JSONValue) -> Bool {
         if path == CustomDensitiesSetting().configPath { return CustomDensitiesSetting.accepts(value) }
         if path == CommandLabelsSetting().configPath { return CommandLabelsSetting.accepts(value) }
+        if path == ThemeFileSetting.path { return value.stringValue.map(ThemeFileSetting.isValidName) ?? false }
         if path == ChatSettings.rootsPath {
             guard let items = value.arrayValue else { return false }
             let validator = ChatRootValidator()

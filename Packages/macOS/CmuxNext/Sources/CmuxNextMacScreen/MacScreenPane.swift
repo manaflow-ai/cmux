@@ -346,6 +346,9 @@ public final class MacScreenPaneView: NSView {
         super.layout()
         chrome.toolbar.frame = CGRect(x: 0, y: 0, width: bounds.width, height: Self.toolbarHeight)
         capture.frame = screenRect
+        // Auto streams at the pane's size; the next session (Connect, a quality change) reads it.
+        let pixels = Int((screenRect.width * (window?.backingScaleFactor ?? 2)).rounded(.up))
+        if pixels > 0, let session = model.session, session.paneWidthPixels != pixels { session.paneWidthPixels = pixels }
         if let geometry {
             video.frame = geometry.imageRect.offsetBy(dx: capture.frame.minX, dy: capture.frame.minY)
         } else {

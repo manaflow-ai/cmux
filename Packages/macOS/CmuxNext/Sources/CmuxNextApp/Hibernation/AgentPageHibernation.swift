@@ -124,7 +124,7 @@ final class AgentPageHibernation: HiddenChatPagesHost {
               page.draft?.isEmpty != false, view.model.sessionId == nil, tabs.sessions[key] == nil,
               !view.model.shell.hasRuns, !view.showsCrashNotice,
               let (record, _) = tabs.lookup(key), record.session == nil,
-              AgentPaneHostKind(record, localHost: tabs.localHost, chiefHost: tabs.chiefHost, listedHere: true) == .local,
+              tabs.hostKind(record, listedHere: true) == .local,
               tabs.daemonForTab(key)?.isLocal != false else { return false }
         return tabs.remoteSeeds[key] == nil && tabs.remoteCreations[key] == nil && tabs.remoteStarts[key] == nil
     }
@@ -140,7 +140,7 @@ final class AgentPageHibernation: HiddenChatPagesHost {
         // A crashed page keeps its notice: a rebuild would reload it without the person's Reload.
         guard let view = tabs.views[key], !view.showsCrashNotice, !(onScreen && AgentPaneHibernationCapture(view: view).isOnScreen), view.model.newTab == nil, !view.model.shell.hasRuns,
               tabs.newTabPages[key] == nil, let (record, _) = tabs.lookup(key),
-              AgentPaneHostKind(record, localHost: tabs.localHost, chiefHost: tabs.chiefHost, listedHere: true) == .local,
+              tabs.hostKind(record, listedHere: true) == .local,
               tabs.daemonForTab(key)?.isLocal != false else { return false }
         return (tabs.sessions[key] ?? view.model.sessionId ?? record.session) != nil
             && tabs.remoteSeeds[key] == nil && tabs.remoteCreations[key] == nil && tabs.remoteStarts[key] == nil
@@ -154,7 +154,7 @@ final class AgentPageHibernation: HiddenChatPagesHost {
         if view.showsCrashNotice || view.model.newTab != nil || tabs.newTabPages[stored] != nil { return false }
         // The Chief's own chats stay as they are.
         if let (record, _) = tabs.lookup(stored),
-           AgentPaneHostKind(record, localHost: tabs.localHost, chiefHost: tabs.chiefHost, listedHere: true) == .chief {
+           tabs.hostKind(record, listedHere: true) == .chief {
             return false
         }
         return !(onScreen && AgentPaneHibernationCapture(view: view).isOnScreen)

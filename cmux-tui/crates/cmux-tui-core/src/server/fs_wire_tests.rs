@@ -73,6 +73,10 @@ fn the_gate_admits_exactly_the_seven_fs_ops() {
     for cmd in crate::git_seed::GIT_SEED_COMMANDS {
         assert!(gate.admit(&peer(), &json!({ "id": 1, "cmd": cmd, "job": "x" }).to_string()));
     }
+    for cmd in crate::blob_fetch::BLOB_FETCH_COMMANDS {
+        assert!(gate.admit(&peer(), &json!({ "id": 1, "cmd": cmd, "job": "x" }).to_string()));
+    }
+    assert!(!gate.admit(&peer(), r#"{"id":1,"cmd":"blob.fetch.list"}"#));
     for frame in [
         r#"{"id":1,"cmd":"git.seed.cancel"}"#,
         r#"{"id":1,"cmd":"git.seed.start","protocol":"cmux.protocol/2"}"#,

@@ -275,6 +275,9 @@ mod inbound;
 // What the log keeps of Claude's raw assistant and user lines (`logged_bodies.rs`).
 mod logged_bodies;
 pub use logged_bodies::leave_out_bodies;
+mod live_name;
+#[cfg(test)]
+mod live_name_tests;
 mod loops;
 #[cfg(test)]
 mod loops_tests;
@@ -354,6 +357,12 @@ pub const SIDE_QUESTION: &str = "_acpmux/claude/side_question";
 /// makes its own recap (`away_summary`) only in its terminal UI, from the terminal's focus;
 /// under `-p` it never does.
 pub const RECAP: &str = "_acpmux/claude/recap";
+
+/// The internal ACP request that gives the running Claude Code the session's new name
+/// (`hub/live_name.rs`), `{sessionId, name}`: its `/rename` line between turns (`live_name.rs`).
+/// The answer is `{renamed: true}`, or `RENAME_BUSY` while a turn runs.
+pub const RENAME: &str = "_acpmux/claude/rename";
+pub use live_name::{RENAME_BUSY, RENAME_IN_FLIGHT, RENAME_UNSUPPORTED};
 
 /// The chat's own session recap switch (`hub/away_recap.rs`): `default` follows the app's
 /// `agents.chats.sessionRecap`, `on` and `off` override it for this chat. acpmux keeps it; Claude
@@ -505,6 +514,8 @@ pub struct Translator {
     /// The `uuid` of the turn's prompt line until Claude Code echoes it
     /// (`isReplay` carries the line's `uuid`).
     prompt_echo: Mutex<Option<String>>,
+    /// The `/rename` lines written and not yet answered, oldest first (`live_name.rs`).
+    renaming: Mutex<std::collections::VecDeque<live_name::Rename>>,
     /// Prompts still unanswered when the next one went out: acpmux ended
     /// their turn itself (a Stop Claude Code answered late, `hub/cancel.rs`).
     /// Claude Code's result for them comes before it reads the next prompt,
@@ -705,6 +716,7 @@ impl Translator {
             in_turn: AtomicBool::new(false),
             turn_output: AtomicBool::new(false),
             prompt_echo: Mutex::new(None),
+            renaming: Mutex::new(std::collections::VecDeque::new()),
             abandoned: Mutex::new(Vec::new()),
             steers: Mutex::new(std::collections::VecDeque::new()),
             steer_lines: Mutex::new(HashMap::new()),
@@ -783,8 +795,11 @@ impl Translator {
         held
     }
 
-    /// Error answers for the steered prompts Claude Code never echoed: the
-    /// turn ended without reading them (no echo support).
+    /// The answers of the steered prompts Claude Code never echoed: the turn ended
+    /// without reading them (acpmux always asks for echoes, `--replay-user-messages`,
+    /// and Claude Code echoes each line it reads). Each answers `STEER_NO_TURN`, so the
+    /// hub runs it as the next prompt (`hub/steer_end.rs`), never "Not sent" (Leo,
+    /// 2026-11-05: "WTF IS THIS").
     async fn fail_steers(&self) -> Vec<Message> {
         let mut batches = self.batches.lock().await;
         let mut steers = self.steers.lock().await;
@@ -798,10 +813,7 @@ impl Translator {
         drop(batches);
         let failed = failed.into_iter().map(|(_, id)| {
             let id: Id = serde_json::from_str(&id).unwrap_or(Value::String(id));
-            Message::err(
-                id,
-                RpcError::internal("steer: the turn ended before Claude Code read the message"),
-            )
+            Message::err(id, RpcError::invalid_params(STEER_NO_TURN))
         });
         held.into_iter().chain(failed).collect()
     }

@@ -169,7 +169,9 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                     LinkRow("Join the cmux Discord", symbol: "bubble.left.and.bubble.right", url: "https://discord.gg/xsgFEVrWCZ")
                     LinkRow("Follow @cmux on X", symbol: "at", url: "https://x.com/cmux")
                     LinkRow("cmux on GitHub", symbol: "chevron.left.forwardslash.chevron.right", url: "https://github.com/manaflow-ai/cmux")
-                    LinkRow("Report a problem", symbol: "flag", url: "https://github.com/manaflow-ai/cmux/issues")
+                    // The Mac's Send Feedback (Help menu): the same new-issue page.
+                    LinkRow("Send feedback", symbol: "envelope", url: "https://github.com/manaflow-ai/cmux/issues/new")
+                        .accessibilityIdentifier("settings.sendFeedback")
                     CopyLogsRow()
                     LinkRow("Terms of Use", symbol: "doc.text", url: "https://cmux.com/terms-of-service")
                     LinkRow("Privacy Policy", symbol: "hand.raised", url: "https://cmux.com/privacy-policy")
@@ -566,7 +568,7 @@ private struct DeveloperSection: View {
     let store: AppStore
     @AppStorage(DeveloperOptions.mockDataKey) private var mockData = false
     @AppStorage(DeveloperOptions.launchDemoKey) private var launchDemo = ""
-    @AppStorage(DeveloperOptions.slowFaceIDKey) private var slowFaceID = false
+    @AppStorage(DeveloperOptions.slowApprovalKey) private var slowApproval = false
     @State private var launchedWithMock = DeveloperOptions.mockData
 
     var body: some View {
@@ -578,9 +580,9 @@ private struct DeveloperSection: View {
             }
             .disabled(mock.forced)
             .accessibilityIdentifier("settings.developer.mock")
-            // Mock approvals wait 2 s, so "Waiting for Face ID…" can be seen.
-            Toggle(isOn: $slowFaceID) {
-                SettingsLabel("Slow mock Face ID", symbol: "faceid")
+            // Mock approvals wait 2 s, so "Sending…" can be seen.
+            Toggle(isOn: $slowApproval) {
+                SettingsLabel("Slow mock approval", symbol: "hourglass")
             }
             .disabled(!mock.on)
             Picker(selection: $launchDemo) {

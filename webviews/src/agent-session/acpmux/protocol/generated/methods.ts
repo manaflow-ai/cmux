@@ -56,6 +56,7 @@ export interface AcpmuxRequests {
   "_acpmux/forum/announce": { params: unknown; result: unknown };
   "_acpmux/forum/rules": { params: unknown; result: unknown };
   "_acpmux/set_tools": { params: unknown; result: unknown };
+  "_acpmux/set_directories": { params: unknown; result: unknown };
   "_acpmux/mcp/reconnect": { params: unknown; result: unknown };
   "_acpmux/subagent_stop": { params: unknown; result: unknown };
   "_acpmux/subagent_transcript": { params: unknown; result: unknown };
@@ -235,6 +236,8 @@ export interface AcpmuxRequests {
   "_acpmux/route/test": { params: unknown; result: unknown };
   "_acpmux/route/default.set": { params: unknown; result: unknown };
   "_acpmux/chat/route.set": { params: unknown; result: unknown };
+  "_acpmux/accounts": { params: unknown; result: unknown };
+  "_acpmux/account/set": { params: unknown; result: unknown };
   "_acpmux/web_modes": { params: unknown; result: unknown };
   "_acpmux/web_token_rotate": { params: unknown; result: unknown };
   "_acpmux/reload_config": { params: unknown; result: unknown };
@@ -367,6 +370,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/forum/announce", kind: "request", acp: false, typed: false },
   { name: "_acpmux/forum/rules", kind: "request", acp: false, typed: false },
   { name: "_acpmux/set_tools", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/set_directories", kind: "request", acp: false, typed: false },
   { name: "_acpmux/mcp/reconnect", kind: "request", acp: false, typed: false },
   { name: "_acpmux/subagent_stop", kind: "request", acp: false, typed: false },
   { name: "_acpmux/subagent_transcript", kind: "request", acp: false, typed: false },
@@ -550,6 +554,8 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/route/test", kind: "request", acp: false, typed: false },
   { name: "_acpmux/route/default.set", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chat/route.set", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/accounts", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/account/set", kind: "request", acp: false, typed: false },
   { name: "_acpmux/web_modes", kind: "request", acp: false, typed: false },
   { name: "_acpmux/web_token_rotate", kind: "request", acp: false, typed: false },
   { name: "_acpmux/reload_config", kind: "request", acp: false, typed: false },

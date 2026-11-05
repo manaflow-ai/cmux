@@ -247,6 +247,32 @@ fn appends_past_the_pending_cap_fail_without_waiting() {
     assert_eq!(journal.append(1, Class::Ack, &too_large), Err(AppendError::TooLarge));
 }
 
+/// `check_append` says what `append` would do: a caller that checks under its own lock, writes
+/// elsewhere, then appends, is never refused after it wrote (acpmux's journal store).
+#[test]
+fn check_append_says_what_append_would_do() {
+    let storage = SimStorage::new(36);
+    let config = Config { max_pending_bytes: 4096, ..quick() };
+    let (journal, _, _) = open_at(&storage, config, 0).unwrap_or_else(|e| panic!("{e}"));
+    storage.set_sync_delay(Duration::from_millis(500));
+    let big = vec![b'a'; 1000];
+    let mut refused = false;
+    for _ in 0..50 {
+        let checked = journal.check_append(big.len());
+        let appended = journal.append(1, Class::Ack, &big).map(|_| ());
+        assert_eq!(checked, appended, "check_append and append disagree");
+        if appended == Err(AppendError::Backlog) {
+            refused = true;
+            break;
+        }
+    }
+    assert!(refused, "the pending cap never refused an append");
+    assert_eq!(journal.check_append(crate::MAX_PAYLOAD_LEN + 1), Err(AppendError::TooLarge));
+    storage.set_sync_delay(Duration::ZERO);
+    assert!(journal.seal(WAIT).is_ok());
+    assert_eq!(journal.check_append(1), Err(AppendError::Closed));
+}
+
 #[test]
 fn a_sealed_journal_refuses_appends() {
     let storage = SimStorage::new(10);
@@ -909,6 +935,115 @@ fn torn_lsns_hidden_behind_a_recovery_copy_are_never_given_out_again() {
     assert_eq!(journal.append(1, Class::Ack, b"after"), Ok(6), "{report:?}");
 }
 
+// ---------------------------------------------------------------- retirement (S2)
+
+/// 60 acked records over many 200-byte segments, sealed; and the config.
+fn many_segments(seed: u64) -> (SimStorage, Config) {
+    let storage = SimStorage::new(seed);
+    let config = Config { segment_bytes: 200, ..quick() };
+    let (journal, _, _) = open_at(&storage, config.clone(), 0).unwrap_or_else(|e| panic!("{e}"));
+    for lsn in 1..=60 {
+        let got = journal.append(3, Class::Ack, &payload(lsn)).unwrap_or_else(|e| panic!("{e}"));
+        journal.wait_durable(got, WAIT).unwrap_or_else(|e| panic!("{e}"));
+    }
+    assert_eq!(journal.seal(WAIT), Ok(60));
+    drop(journal);
+    (storage.restart(Crash::Process), config)
+}
+
+fn segment_count(storage: &SimStorage) -> usize {
+    storage.names_in(&dir()).iter().filter(|name| name.ends_with(".seg")).count()
+}
+
+#[test]
+fn retirement_deletes_only_the_segments_a_compaction_point_covers() {
+    let (storage, config) = many_segments(60);
+    let (journal, _, _) = open_at(&storage, config.clone(), 40).unwrap_or_else(|e| panic!("{e}"));
+    let before = segment_count(&storage);
+    let retired = journal.retire_through(40).unwrap_or_else(|e| panic!("{e}"));
+    assert!(retired >= 5, "{retired} of {before} segments retired");
+    assert_eq!(segment_count(&storage), before - retired);
+    assert_eq!(journal.stats().segments_retired, u64::try_from(retired).unwrap_or(0));
+    assert_eq!(journal.retire_through(40).unwrap_or_else(|e| panic!("{e}")), 0, "covered once");
+    drop(journal);
+    // The deletes were made durable: an OS crash keeps them, and every record after 40 is kept.
+    let restarted = storage.restart(Crash::Os);
+    assert_eq!(segment_count(&restarted), before - retired);
+    let (journal, report, seen) =
+        open_at(&restarted, config.clone(), 40).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(segment_count(&restarted), before - retired + 1, "the open made one segment");
+    assert_eq!(lsns(&seen), (41..=60).collect::<Vec<_>>(), "{report:?}");
+    assert!(report.damage.is_empty(), "{report:?}");
+    assert_eq!(journal.append(3, Class::Ack, b"after"), Ok(61));
+    drop(journal);
+    // A compaction point older than the retired segments is told, not hidden.
+    let (_, report, _) =
+        open_at(&restarted.restart(Crash::Process), config, 0).unwrap_or_else(|e| panic!("{e}"));
+    assert!(matches!(report.damage.first(), Some(Damage::Missing { after: 0, .. })), "{report:?}");
+}
+
+#[test]
+fn a_crash_at_any_point_of_a_retirement_keeps_every_record_after_it() {
+    let (base, config) = many_segments(61);
+    // Every storage operation of one retirement is a crash point once.
+    let probe = base.snapshot(Crash::Process);
+    let (journal, _, _) = open_at(&probe, config.clone(), 40).unwrap_or_else(|e| panic!("{e}"));
+    let before = probe.ops();
+    assert!(journal.retire_through(40).unwrap_or_else(|e| panic!("{e}")) >= 5);
+    let operations = probe.ops() - before;
+    drop(journal);
+    for crash in [Crash::Process, Crash::Os, Crash::PowerLoss] {
+        for at in 1..=operations {
+            let storage = base.snapshot(Crash::Process);
+            let (journal, _, _) =
+                open_at(&storage, config.clone(), 40).unwrap_or_else(|e| panic!("{e}"));
+            storage.crash_after(at);
+            assert!(journal.retire_through(40).is_err(), "{crash:?} at op {at}: no crash");
+            drop(journal);
+            let restarted = storage.restart(crash);
+            let (journal, report, seen) = open_at(&restarted, config.clone(), 40)
+                .unwrap_or_else(|e| panic!("{crash:?} at op {at}: {e}"));
+            assert_eq!(lsns(&seen), (41..=60).collect::<Vec<_>>(), "{crash:?} at {at}: {report:?}");
+            assert!(report.damage.is_empty(), "{crash:?} at op {at}: {report:?}");
+            assert_eq!(journal.append(3, Class::Ack, b"after"), Ok(61), "{crash:?} at op {at}");
+        }
+    }
+}
+
+#[test]
+fn retirement_never_deletes_the_segment_the_writer_appends_to() {
+    let (storage, config) = many_segments(62);
+    let (journal, _, _) = open_at(&storage, config.clone(), 60).unwrap_or_else(|e| panic!("{e}"));
+    // Past the durable LSN: capped at it.
+    journal.retire_through(Lsn::MAX).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(segment_count(&storage), 1, "only the newest segment is left");
+    assert_eq!(journal.append(3, Class::Ack, b"after"), Ok(61));
+    journal.wait_durable(61, WAIT).unwrap_or_else(|e| panic!("{e}"));
+    drop(journal);
+    let (_, report, seen) =
+        open_at(&storage.restart(Crash::Os), config, 60).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(lsns(&seen), vec![61], "{report:?}");
+    assert!(report.damage.is_empty(), "{report:?}");
+}
+
+#[test]
+fn retirement_keeps_segments_the_writer_made_after_the_point() {
+    let storage = SimStorage::new(63);
+    let config = Config { segment_bytes: 200, ..quick() };
+    let (journal, _, _) = open_at(&storage, config.clone(), 0).unwrap_or_else(|e| panic!("{e}"));
+    for lsn in 1..=30 {
+        let got = journal.append(3, Class::Ack, &payload(lsn)).unwrap_or_else(|e| panic!("{e}"));
+        journal.wait_durable(got, WAIT).unwrap_or_else(|e| panic!("{e}"));
+    }
+    // The point is in the middle of what this writer wrote.
+    journal.retire_through(12).unwrap_or_else(|e| panic!("{e}"));
+    drop(journal);
+    let (_, report, seen) =
+        open_at(&storage.restart(Crash::Os), config, 12).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(lsns(&seen), (13..=30).collect::<Vec<_>>(), "{report:?}");
+    assert!(report.damage.is_empty(), "{report:?}");
+}
+
 // ---------------------------------------------------------------- real file system
 
 #[test]
@@ -986,4 +1121,27 @@ fn a_journal_in_a_symlinked_folder_opens_and_round_trips() {
         .unwrap_or_else(|e| panic!("reopen {}: {e}", dir.display()));
         assert_eq!(seen, vec![1], "{}", dir.display());
     }
+}
+
+/// The journal's id is the same after a reopen (and after its segments are retired, one is always
+/// kept), and another journal has another one: a caller that keeps LSNs outside the journal tells
+/// them apart by it.
+#[test]
+fn the_journal_id_survives_a_reopen_and_differs_between_journals() {
+    let storage = SimStorage::new(90);
+    let (journal, _, _) = open(&storage);
+    let id = journal.journal_id();
+    assert_ne!(id, 0, "a journal id of 0");
+    for lsn in 1..=20u64 {
+        assert_eq!(journal.append(7, Class::Ack, &payload(lsn)), Ok(lsn));
+    }
+    journal.wait_durable(20, WAIT).unwrap_or_else(|error| panic!("wait: {error}"));
+    journal.retire_through(20).unwrap_or_else(|error| panic!("retire: {error}"));
+    assert_eq!(journal.seal(WAIT), Ok(20));
+    drop(journal);
+    let (journal, _, _) = open_at(&storage.restart(Crash::Process), quick(), 20)
+        .unwrap_or_else(|error| panic!("open: {error}"));
+    assert_eq!(journal.journal_id(), id, "a reopen changed the journal's id");
+    let (other, _, _) = open(&SimStorage::new(91));
+    assert_ne!(other.journal_id(), id, "two journals with one id");
 }

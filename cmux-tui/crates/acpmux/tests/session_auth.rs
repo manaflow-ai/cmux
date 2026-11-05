@@ -791,7 +791,7 @@ async fn session_auth_asks_the_peer_and_answers_for_a_peer_that_is_down() {
         let out = c.auth(old).await;
         assert_eq!(state(&out), ("unknown", "none"), "{out}");
         assert_eq!(out["host"], "old", "{out}");
-        assert!(out["detail"].as_str().unwrap().contains("acpmux host update old"), "{out}");
+        assert!(out["detail"].as_str().unwrap().contains("acpmux machine update old"), "{out}");
     }
     let routed = json!({"target": {"harness": "fake", "host": "old", "routeId": "old-route"}});
     let out = c.auth(routed).await;

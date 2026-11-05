@@ -93,7 +93,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             }
             if params["panel"]?.boolValue == true { services.home.chatColorsPanel.show(conversation: id, name: "", over: view.window) }
             return .object(["ok": .bool(true), "conversation": .string(id), "colors": .string(store.colors(for: id).hexSummary)])
-        case "menu":
+        case "menu": if let row = params["choose"]?.stringValue { return .object(["ok": .bool(view.debugChooseMenuItem(row, onBubble: params["text"]?.stringValue ?? ""))]) } // {choose, text}: that row of the bubble's menu
             let titles = view.debugMenuTitles(mine: params["mine"]?.boolValue ?? false) ?? []
             return .object(["ok": .bool(!titles.isEmpty), "items": .array(titles.map { .string($0) })])
         case "link":
@@ -166,9 +166,9 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             guard let fixture = shownFixture else { return .object(["error": .string("stream needs the Home fixture (debug.home_native_fixture.open)")]) }
             ok = fixture.debugStream(params["text"]?.stringValue ?? "", done: params["done"]?.boolValue ?? false)
         case "agent_messages":
-            // The fixture's Chief run with messages to five agents and one report (they fold under its reply).
+            // The fixture's Chief run with messages to five agents and one report; `pill` opens one, `say` writes it.
             guard let fixture = shownFixture else { return .object(["error": .string("agent_messages needs the native Home fixture (debug.home_native_fixture.open)")]) }
-            ok = fixture.debugAgentMessages(notes: params["notes"]?.boolValue ?? false, open: params["open"]?.boolValue ?? false, group: params["group"]?.boolValue ?? false, step: params["step"]?.intValue ?? 0, pill: params["pill"]?.stringValue)
+            ok = fixture.debugAgentMessages(notes: params["notes"]?.boolValue ?? false, open: params["open"]?.boolValue ?? false, group: params["group"]?.boolValue ?? false, step: params["step"]?.intValue ?? 0, pill: params["pill"]?.stringValue, say: params["say"]?.stringValue)
         case "live":
             // The fixture's Chief works: its typing bubble and the status line above it, one frame per
             // step of `steps` (default "Reading", "Starting agents"), the last begun `elapsed` s ago.

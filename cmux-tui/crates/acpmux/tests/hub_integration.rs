@@ -25,6 +25,8 @@ use tokio::sync::mpsc;
 #[path = "hub_integration/idle_census.rs"]
 mod idle_census;
 
+#[path = "hub_integration/acp_schema.rs"]
+mod acp_schema;
 #[path = "hub_integration/agent_digest.rs"]
 mod agent_digest;
 #[path = "hub_integration/agent_inbox.rs"]

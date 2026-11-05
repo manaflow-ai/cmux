@@ -59,7 +59,11 @@ public final class ComputerUseHelperV2 {
     public var machineConsent: @Sendable () async -> Data? = { nil }
     /// Records a call the helper refused for consent ("screen" or "control").
     public var consentRefused: @Sendable (String) async -> Void = { _ in }
-    private let spawner: any ComputerUseHelperV2Spawning
+    private let localSpawner: any ComputerUseHelperV2Spawning
+    /// The running child's spawner: the local one, or a remote worker's (cmux Remote).
+    var spawner: any ComputerUseHelperV2Spawning
+    /// cmux Remote's worker instead of a helper this app starts (ComputerUseHelperV2+Remote.swift).
+    public var remote: (any ComputerUseRemoteSpawning)?
     private let clock: any Clock<Duration>
     private let readyTimeout: Duration
     private let exitGrace: Duration
@@ -68,7 +72,7 @@ public final class ComputerUseHelperV2 {
     private var controlLog: Task<Void, Never>?
     /// The helper's host consent connection, while it runs.
     private var hostLink: ComputerUseHelperV2HostLink?
-    private var generation = 0
+    var generation = 0
     private let restarts: ComputerUseHelperRestarts
     /// Only explicit setup clicks; never persisted across app launches.
     private var pendingPermissions: Set<String> = []
@@ -86,6 +90,7 @@ public final class ComputerUseHelperV2 {
         self.acpmux = acpmux
         self.staging = staging
         self.spawner = spawner
+        self.localSpawner = spawner
         self.clock = clock
         self.readyTimeout = readyTimeout
         self.exitGrace = exitGrace
@@ -155,6 +160,12 @@ public final class ComputerUseHelperV2 {
         let current = generation
         guard enabled else { return await stop() }
         if case .running = state { return }
+        if let remote, await remote.isAvailable() {
+            guard current == generation else { return }
+            return await applyRemote(remote, generation: current)
+        }
+        guard current == generation else { return }
+        spawner = localSpawner
         guard let embedded = helperApp() else { return unavailable("the cmux Computer Use (dev) helper is not in this build") }
         let runningCheck = await staging.runningCheck(for: embedded)
         guard current == generation else { return }
@@ -187,6 +198,11 @@ public final class ComputerUseHelperV2 {
             spawner.terminate(spawned.pid)
             return unavailable("the running helper pid \(spawned.pid) failed its signature check")
         }
+        await configureStarted(spawned, executable: executable, generation: current)
+    }
+
+    /// Configures a started helper or worker and serves it until it exits.
+    func configureStarted(_ spawned: ComputerUseHelperV2Child, executable: URL, generation current: Int) async {
         let secret = Self.makeSecret()
         // The host link's own secret: sent only on the helper's stdin, never written to disk.
         let hostSecret = Self.makeSecret()
@@ -342,7 +358,7 @@ public final class ComputerUseHelperV2 {
         }
     }
 
-    private func unavailable(_ reason: String) {
+    func unavailable(_ reason: String) {
         pendingPermissions.removeAll()
         helperV2Logger.error("cmux Computer Use helper v2 unavailable: \(reason, privacy: .public)")
         state = .unavailable(reason)

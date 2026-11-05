@@ -206,6 +206,7 @@ pub fn build_capabilities() -> Vec<&'static str> {
             && *capability != crate::fs_ops::FS_WRITE_NOFOLLOW_CAPABILITY
             && *capability != crate::git_seed::GIT_SEED_CAPABILITY
             && *capability != crate::git_seed::GIT_SEED_EXPORT_CAPABILITY
+            && *capability != crate::blob_fetch::BLOB_FETCH_CAPABILITY
             && *capability != BROWSER_RUNTIME_CAPABILITY
     });
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
@@ -418,6 +419,7 @@ pub(super) fn advertised_capabilities(
         crate::request_origin::page_router_table::PAGE_ROUTER_CAPABILITY,
         crate::request_origin::page_router_table::PAGE_EVENTS_CAPABILITY,
         crate::browser_host::BROWSER_HOST_PROVIDER_CAPABILITY,
+        crate::remote_host::REMOTE_HOST_CAPABILITY,
         crate::mux::FRONTEND_BROWSER_ACTIVATE_CAPABILITY,
         crate::mux::FRONTEND_BROWSER_INSERT_AFTER_CAPABILITY,
         clipboard_read::CAPABILITY,
@@ -433,6 +435,8 @@ pub(super) fn advertised_capabilities(
     capabilities.extend(crate::fs_ops::advertised());
     #[cfg(unix)]
     capabilities.extend(crate::git_seed::advertised());
+    #[cfg(unix)]
+    capabilities.extend(crate::blob_fetch::advertised());
     #[cfg(unix)]
     capabilities.push(BROWSER_RUNTIME_CAPABILITY);
     capabilities

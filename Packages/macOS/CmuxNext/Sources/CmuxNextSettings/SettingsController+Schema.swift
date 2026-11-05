@@ -39,6 +39,9 @@ extension SettingsController {
             linked.append((path: customDensity, value: nil))
         }
         if let value, !descriptor.accepts(value) { throw SettingRefused(key: descriptor.id, value: value) }
+        // A write never copies the theme file's own entries into cmux-next.json (Theme Studio writes
+        // the whole edits map it shows, which holds the file's colors).
+        let value = strippingThemeFileEntries(descriptor, value)
         // Before the write, so an observer of the new value already sees what the hook recorded;
         // the hook's undo runs if the write fails.
         let undo = writer == .user ? userWillWrite?(descriptor, value) : nil

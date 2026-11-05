@@ -500,17 +500,8 @@ impl Hub {
             && running.as_ref().is_some_and(|t| t.persons)
             && !super::digest::inbox_digest::is_digest(opts.provenance.as_ref())
             && !super::subsession_guard::is_family_prompt(opts.provenance.as_ref());
-        // Nor does the person's own prompt go into a turn another agent's message started (an
-        // inbox notice, a digest, a peer's prompt): that turn's reply answers the agent, and the
-        // person's words went unanswered (Leo, 2026-11-04: "... isn't even responding to me").
-        // It queues as the next turn of its own, and while it waits no notice or other agent's
-        // steer keeps the running turn going (`inbox.rs` `persons_prompt_waits`). Its steer into
-        // its own turn, Send now and a steer-only prompt still go in.
-        let agents_turn_held = !from_agent
-            && !opts.send_now
-            && !opts.steer_only
-            && running.as_ref().is_some_and(|t| t.from_agents)
-            && super::inbox::persons_prompt(opts.agent.as_deref(), opts.provenance.as_ref());
+        // The person's own steer goes into any running turn, one another agent's message started
+        // too (Leo, 2026-11-05: "WHY THE FUCK ARE MY MESSAGES BEING QUEUED INSTEAD OF STEERING").
         let trigger = crate::prompt_provenance::is_trigger(opts.provenance.as_ref());
         let trigger_held = trigger || running.as_ref().is_some_and(|t| t.trigger);
         if steer
@@ -529,8 +520,7 @@ impl Hub {
             && !notice_held
             && !review_held
             && !prompt_held
-            && !persons_held
-            && !agents_turn_held;
+            && !persons_held;
         if steer && opts.steer_only && !steer_now {
             if review_held && running.is_some() {
                 return Err(super::inbox::review_box_steer_refused());
@@ -694,11 +684,6 @@ impl Hub {
             .noticed(super::prompt_line::is_notice(provenance.as_ref()))
             .by_person(persons);
         turn.trigger = trigger;
-        // Another agent's message, or acpmux's notice or digest of them, started it: the person's
-        // prompt does not steer into it (above).
-        turn.from_agents = run.agent.is_some()
-            || super::inbox::is_notice(run.provenance.as_ref())
-            || super::digest::inbox_digest::is_digest(run.provenance.as_ref());
         let retry = super::subagent_retry::is_retry(run.provenance.as_ref());
         let mut cloud_exec = if let Some(envelope) = cloud_turn.as_ref() {
             if envelope.session != session.id
@@ -754,9 +739,17 @@ impl Hub {
         // A lane's report to a parent whose close began since `queue_slot` checked is refused
         // (`lane_reports.rs`). Checked once the turn is set: `kill` marks the close before it
         // clears the turn, so a close that began any time before this check is seen.
-        if super::queue::refuses_closing_run(session, run.provenance.as_ref()) {
+        // Nor does any parent take one once a shutdown began: no agent may start from then on
+        // (`shutdown.rs`), and the shutdown sets that before it ends the lane turns it cuts.
+        let refused = if super::queue::refuses_closing_run(session, run.provenance.as_ref()) {
+            Some(super::queue::closing_error())
+        } else if super::queue::is_lane_report(run.provenance.as_ref()) && self.shutting_down() {
+            Some(super::shutdown::shutting_down_error())
+        } else {
+            None
+        };
+        if let Some(e) = refused {
             *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = None;
-            let e = super::queue::closing_error();
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
             return Err(e);
@@ -1137,6 +1130,7 @@ impl Hub {
                 let kept = super::fallback_start::ConversationMark::of(session);
                 let turn = session.turn();
                 self.detach_child(session).await;
+                self.resume_before_turn();
                 *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = turn;
                 self.set_status(session, SessionStatus::Running);
                 {
@@ -1250,6 +1244,7 @@ impl Hub {
                     (Err(e2), _) => {
                         let turn = session.turn();
                         self.detach_child(session).await;
+                        self.resume_before_turn();
                         *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = turn;
                         self.set_status(session, SessionStatus::Running);
                         kept.restore(session);
@@ -2163,6 +2158,8 @@ impl Hub {
         };
         self.append(session, "mux", "renamed", json!({"from": old, "to": name}));
         self.save_meta_answered(session)?;
+        // Its running Claude Code takes the name too (`live_name.rs`).
+        self.rename_live_claude(session);
         Ok(())
     }
 

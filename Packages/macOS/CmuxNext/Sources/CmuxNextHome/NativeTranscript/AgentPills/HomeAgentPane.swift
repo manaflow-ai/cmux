@@ -33,6 +33,25 @@ final class HomeAgentPane {
         select(peer)
     }
 
+    /// Opens agent `peer` (a click on its pill) as a real cmux pane beside Home when it can (user 2026-11-04,
+    /// msg 21663: "just open it as pane to right side"): `outside` gets the Chief's link to the agent's session
+    /// (where it runs now) and its report is seen. With no link, or when `outside` could not open it, its chat
+    /// opens in this pane instead (``open(_:)``), so the click always shows it.
+    ///
+    /// - Parameters:
+    ///   - peer: The agent's id.
+    ///   - outside: Opens the link beside Home; true when it did.
+    /// - Returns: True when it opened beside Home; false when it opened in this pane.
+    @discardableResult
+    func open(_ peer: String, outside: (URL) -> Bool) -> Bool {
+        if let link = content(peer, now: Date())?.workspaceLink, outside(link) {
+            threads.markAgentSeen(peer, in: conversation)
+            return true
+        }
+        open(peer)
+        return false
+    }
+
     /// Shows agent `peer`'s tab and marks its newest report seen.
     func select(_ peer: String) {
         guard tabs.contains(peer) else { return }
@@ -57,9 +76,33 @@ final class HomeAgentPane {
         if let selected { threads.markAgentSeen(selected, in: conversation) }
     }
 
+    /// The person sent `text` to agent `peer` from its tab's composer.
+    func send(_ text: String, to peer: String) {
+        let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard tabs.contains(peer), !words.isEmpty else { return }
+        threads.sendToAgent(words, peer: peer, in: conversation)
+    }
+
     /// What agent `peer`'s tab shows now; nil when no run has a message with it.
     func content(_ peer: String, now: Date) -> HomeAgentChatContent? {
-        threads.agentThread(peer, in: conversation).map { HomeAgentChatContent($0, now: now) }
+        threads.agentThread(peer, in: conversation).map {
+            HomeAgentChatContent($0, now: now, session: threads.agentSession(peer, in: conversation))
+        }
+    }
+
+    /// Go to workspace on agent `peer`'s tab: where its session runs at this moment (a read, then a
+    /// re-attach when it moved), so the button opens the place it went, never the one it left.
+    ///
+    /// - Returns: The link to open; nil when the agent has no workspace link.
+    func goToWorkspace(_ peer: String) async -> URL? {
+        _ = await threads.followAgentSessions([peer], in: conversation)
+        return content(peer, now: Date())?.workspaceLink
+    }
+
+    /// Reads where the open agents run now (a tab opened or selected): a moved one re-attaches, and its tab
+    /// redraws with the new place.
+    func followSessions() async {
+        _ = await threads.followAgentSessions(tabs, in: conversation)
     }
 
     /// Agent `peer`'s title for its tab (its id when its chat is not loaded).

@@ -1,4 +1,5 @@
 import CmuxNextCompat
+public import CmuxNextWakeups
 
 /// Bounded waits on main-actor state for the Cloud flows.
 @MainActor
@@ -6,13 +7,19 @@ public struct CloudWait {
     public init() {}
     /// Whether `condition` holds within `limit`: an observation, bounded by a one-shot deadline.
     public static func holds(within limit: Duration, until condition: @escaping @MainActor @Sendable () -> Bool) async -> Bool {
+        await holds(within: limit, clock: ContinuousClock(), until: condition)
+    }
+
+    /// ``holds(within:until:)`` with its deadline on `clock` (a test's ``ManualClock``).
+    public static func holds<C: Clock & Sendable>(within limit: Duration, clock: C,
+                                                  until condition: @escaping @MainActor @Sendable () -> Bool) async -> Bool where C.Duration == Duration {
         if condition() { return true }
         // concurrency-allow: the observation task exits on cancellation; this bounds a machine link's start
         return await withTaskGroup(of: Bool.self) { group -> Bool in
             group.addTask { await observe(condition) }
             group.addTask {
                 // wakeup-allow: one-shot deadline for a machine link to come up
-                try? await Task.sleep(for: limit)
+                try? await clock.sleep(for: limit)
                 return false
             }
             defer { group.cancelAll() }
@@ -20,17 +27,32 @@ public struct CloudWait {
         }
     }
 
-    /// Whether `condition` holds within `tries` waits of `each`: `redial` runs before each wait, so a link
-    /// that ended while the condition did not hold yet is dialed again (a new machine's daemon may answer
-    /// a little after its record runs). The first wait that sees `condition` hold ends the tries.
-    public static func holds(tries: Int, each: Duration, redial: @MainActor () -> Void,
+    /// How a start's wait spaces its redials (``holds(within:redialing:redial:until:)``): 1 s growing to 10 s, so a
+    /// new machine's receiver that answers half a minute after its record runs is dialed again within seconds.
+    public static let startRedial = Backoff(initial: .seconds(1), maximum: .seconds(10))
+
+    /// Whether `condition` holds within `limit`: `redial` runs first and again after each of `backoff`'s delays,
+    /// so a link that ended while the condition did not hold yet is dialed again (a new machine's daemon may
+    /// answer a little after its record runs). Never past `limit`, and never without a delay between redials.
+    public static func holds(within limit: Duration, redialing backoff: Backoff, redial: @MainActor () -> Void,
                              until condition: @escaping @MainActor @Sendable () -> Bool) async -> Bool {
-        var up = false
-        for _ in 0..<tries where !up {
+        await holds(within: limit, redialing: backoff, clock: ContinuousClock(), redial: redial, until: condition)
+    }
+
+    /// ``holds(within:redialing:redial:until:)`` with its deadline and delays on `clock` (a test's ``ManualClock``).
+    public static func holds<C: Clock & Sendable>(within limit: Duration, redialing backoff: Backoff, clock: C, redial: @MainActor () -> Void,
+                                                  until condition: @escaping @MainActor @Sendable () -> Bool) async -> Bool where C.Duration == Duration {
+        let deadline = clock.now.advanced(by: limit)
+        var backoff = backoff
+        // wakeup-allow: each pass waits one backoff delay (at least its initial's floor) and ends at the deadline
+        while !Task.isCancelled {
+            let left = clock.now.duration(to: deadline)
+            guard left > .zero else { break }
             redial()
-            up = await holds(within: each, until: condition)
+            if await holds(within: min(backoff.next(), left), clock: clock, until: condition) { return true }
         }
-        return up
+        // The deadline passed or the wait was cancelled: a change racing either is not this wait's answer.
+        return false
     }
 
     /// Waits within `limit` for a link to come up: nil once `connected`, else `failure`, or `deadline`

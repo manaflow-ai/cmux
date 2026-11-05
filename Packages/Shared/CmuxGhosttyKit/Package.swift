@@ -111,14 +111,27 @@ import PackageDescription
 // embedder mode committed under the lock and deadlocked against main's
 // commit (cmux S4 films with the switch on, STATUS 9732).
 //
-// Since 7d43bb68b..a6b9048e9 (release/cmux-sync-20261104, ghostty-next PR
-// #74): the fork takes upstream Ghostty main c7f68a7f4 (2026-11-03, after
-// v1.4.0) and needs Zig 0.17.0. Upstream's main-thread CVDisplayLink start and
-// stop (ffaaf5d7a) ends the freeze where ghostty_surface_free joined a
-// renderer stuck in CVDisplayLinkStop (cmux #35300). Upstream also declares
+// Since 7d43bb68b..6cc749a8a (release/cmux-9ce9b7d0-e2, fork PRs #72, #73 and #75):
+// the host-frame present's lock-span rule in ghostty.h (#72), each surface's
+// thread wakes counted by source in ghostty_surface_render_counters (#73), and,
+// with the embedder presenting host sizes, a frame kept for its present that
+// the layer cannot show in its bounds wakes no main-queue block (#75; cmux
+// FRAME OWNER S4's held-key cost: one main wake per moving terminal and frame).
+//
+// Since 6cc749a8a..12ec155e1 (fork PRs #77 and #79): an off-main present begins
+// a Core Animation transaction only for a frame it shows (#79; cmux FRAME
+// OWNER S4 profile 4b41c42c: each frame that went through main committed an
+// empty transaction on the GPU completion thread), and one shared drop rule
+// with its test (#77).
+//
+// Since 12ec155e1..706c6963a (ghostty-next PR #74 and its sync-line ports
+// #76, #78, #80 of #75, #77, #79; same source tree as the sync head
+// 30db97abe): the fork takes upstream Ghostty main c7f68a7f4 (2026-11-03,
+// after v1.4.0) and needs Zig 0.17.0. Upstream's main-thread CVDisplayLink
+// start and stop (ffaaf5d7a) ends the freeze where ghostty_surface_free joined
+// a renderer stuck in CVDisplayLinkStop (cmux #35300). Upstream also declares
 // pointer nullability in ghostty.h (0e067ded7, assume_nonnull); the fork's
-// declarations are annotated to match, and the Swift callers follow it. The
-// release line's PRs #72 and #73 (host-frame lock span, wake counters) are in.
+// declarations are annotated to match, and the Swift callers follow it.
 //
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
@@ -143,8 +156,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-a6b9048e90787a723d75bcf5a260614d0aae625f-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "4268d3d8d1c7591d71fddea13a108d99161961ae49abd38c21a15fbf51ce4aba"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-706c6963a17d1861f2bcc44257f735e543d559f8-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "b6c617d988219fc8e8876938b9d97adf952baf578d8a49e792c193971de473c6"
         ),
     ]
 )

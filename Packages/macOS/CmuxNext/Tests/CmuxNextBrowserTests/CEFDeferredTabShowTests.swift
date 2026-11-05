@@ -244,6 +244,53 @@ import Testing
         #expect(TabSpyShim.resizeSyncs.last?.timeoutMs == 0, "a page in its own window stops waiting when the drag lands")
     }
 
+    /// cmux-ad m6 1b, the interim browser contract for key resizes (FRAME OWNER REFACTOR, STATUS 11198; Lawrence: "tabbar
+    /// moves smoothly on ctrl shift hjkl but browsers/terminals do not anymore"). Through a key resize's hold the page keeps
+    /// its size, never scaled, and its top-left corner stays on the page area's top-left in every frame, so it moves with
+    /// its pane's leading and top edges as the tab strip does; the pane clips it and the page's own backdrop fills the
+    /// rest. S3 kept it on the pane edges that do not move: a pane whose leading edge moves slid over a page that stood
+    /// still (on the films, 0 of 190 motion frames with the page's left edge on its pane's). The pane's leading edge moves
+    /// right (the pane shrinks), then left past its start (it grows), its trailing edge still, as a key resize moves it.
+    @Test func aKeyResizeHoldKeepsThePageOnThePageAreasTopLeft() throws {
+        let (runtime, root) = try Self.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, first, _) = try Self.liveHost(runtime)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 600), styleMask: .borderless, backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { window.closeAfterTest() }
+        first.container.frame = NSRect(x: 200, y: 0, width: 600, height: 500)  // the pane's page area, its leading edge at x 200
+        window.contentView?.addSubview(first.container)
+        first.container.layoutSubtreeIfNeeded()
+        let page = host.hostView
+        let held = page.frame.size
+        try #require(page.superview === first.container && held.width > 0 && held.height > 0, "SETUP: the page is not shown at a size")
+        // The pane's trailing edge stays: S3's hold rides it (`PaneHostView` picks the edge that does not move).
+        first.container.holdPage(for: PaneMotionHold(trailing: true, bottom: false))
+        try #require(first.container.heldPageSize == held, "SETUP: the page does not hold through the key resize")
+        var misses: [String] = []
+        // The leading edge's offset from its start in each frame: right 120 pt, left to -120 pt, back to its start.
+        let shrink: [CGFloat] = (0...12).map { CGFloat($0) * 10 }
+        let grow: [CGFloat] = (0...12).map { CGFloat(12 - 2 * $0) * 10 }
+        let back: [CGFloat] = (0...12).map { CGFloat($0 - 12) * 10 }
+        let steps: [CGFloat] = shrink + grow + back
+        for (frame, dx) in steps.enumerated() {
+            first.container.frame = NSRect(x: 200 + dx, y: 0, width: 600 - dx, height: 500)
+            first.container.layoutSubtreeIfNeeded()
+            let area = first.container.bounds  // no DevTools, side panel or fit: the page area is the container
+            if abs(page.frame.minX - area.minX) > 0.5 || abs(page.frame.maxY - area.maxY) > 0.5 {
+                misses.append("frame \(frame): the page at \(page.frame) in its area \(area)")
+            }
+            if page.frame.size != held { misses.append("frame \(frame): the page at \(page.frame.size), held at \(held)") }
+        }
+        #expect(misses.isEmpty, "\(misses.count) of \(steps.count) frames do not show the page on its area's top-left: \(misses.prefix(3))")
+        #expect(first.container.layer?.masksToBounds == true, "the pane does not clip the held page")
+        #expect(page.pageSeeThrough || first.container.layer?.backgroundColor == first.pageBackdropColor,
+                "the area beside the held page is not the page's own backdrop")
+        first.container.holdPage(for: nil)
+        first.container.layoutSubtreeIfNeeded()
+        #expect(page.frame == first.container.bounds, "the page did not take its area's size when the hold ended")
+    }
+
     /// #32253 review nit (lead 12:5xZ: a per-frame layout during a drag is a bottleneck): DevTools began (WILL_OPEN)
     /// and never reported opened, so its room went back but its views stay, hidden (Chromium holds the host). Such
     /// views take no room, so the page holds during a hold-mode divider drag as with no DevTools: no layout per frame.

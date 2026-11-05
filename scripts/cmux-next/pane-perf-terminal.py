@@ -79,6 +79,7 @@ SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp, LaunchError  # noqa: E402  the shared GUI launch (session check, failure report)
+import bench_background  # noqa: E402  background daemon CPU per round (a reader drops a round over its limit)
 
 
 def load_stress():
@@ -425,6 +426,7 @@ def measure(label, name):
     layers_before = first_window(rpc("debug.layers")) if opts.browser else None
     page_before = page_eval("window.__frames") if opts.browser else None
     rpc("debug.hangs", {"clear": True})
+    background = bench_background.sample()
     rpc("debug.motion", {"action": "start"})
     rpc("debug.frames", {"action": "start"})
     rpc("debug.window_transition", {"action": "start"})
@@ -433,6 +435,7 @@ def measure(label, name):
     trace = rpc("debug.window_transition", {"action": "stop"}) or {}
     frames = rpc("debug.frames", {"action": "stop"}) or {}
     motion = rpc("debug.motion", {"action": "stop"}) or {}
+    background_cpu = bench_background.delta(background)
     window_trace = rpc("debug.motion", {"action": "trace_stop"}) if name in WINDOW_ACTIONS else None
     hangs = rpc("debug.hangs") or {}
     work = (motion.get("work") or {}).get("clock", {}) if isinstance(motion, dict) else {}
@@ -447,6 +450,7 @@ def measure(label, name):
         "missed": frames.get("missed"), "frames_max_ms": frames.get("max_ms"), "frames_p99_ms": frames.get("p99_ms"),
         "frames_p50_ms": frames.get("p50_ms"), "frames_p95_ms": frames.get("p95_ms"), "frames": frames.get("frames"),
         "refresh_ms": frames.get("refresh_ms"), "moving_frames": moving,
+        "background_cpu": background_cpu,
         "layout_max_ms": work.get("max_ms"), "layout_p95_ms": work.get("p95_ms"), "layout_p50_ms": work.get("p50_ms"),
         "commit_p50_ms": (commit or {}).get("p50_ms"), "commit_p95_ms": (commit or {}).get("p95_ms"),
         "commit_max_ms": (commit or {}).get("max_ms"), "commit_over_4": (commit or {}).get("over_4_ms"),
@@ -526,7 +530,8 @@ def measure(label, name):
           f"p99 {result['frames_p99_ms']} max {result['frames_max_ms']} ms  missed {result['missed']} "
           f"(refresh {result['refresh_ms']})  tick p95 {result['layout_p95_ms']} max {result['layout_max_ms']} ms  "
           f"commit p95 {result['commit_p95_ms']} max {result['commit_max_ms']} ms  "
-          f"grids {result['grid_reports']}/{result['resizes_sent']}  hangs {result['hangs']}  err {error}{extra}", flush=True)
+          f"grids {result['grid_reports']}/{result['resizes_sent']}  hangs {result['hangs']}  "
+          f"background {background_cpu['total_s']} s{' OVER LIMIT' if background_cpu['over_limit'] else ''}  err {error}{extra}", flush=True)
     return result
 
 

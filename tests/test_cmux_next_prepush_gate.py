@@ -13,6 +13,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 
 
@@ -2133,6 +2134,61 @@ class SwiftFormatCacheTests(unittest.TestCase):
             self.assertIn("Sources/A.swift:1:10", out)
             self.assertEqual(sorted(p.name for p in tools.iterdir()), [], "the lint left a cache file in the tools folder")
             self.assertFalse((tree / "default.cache").exists(), "the lint fell back to a default cache file")
+
+
+class StopCleanlyTests(unittest.TestCase):
+    """The gate stops what it started with SIGTERM first, so a `git` under it clears `.git/index.lock`.
+
+    A `git` that refreshes a stale index holds that lock while it writes the index back, and removes it on
+    SIGTERM but not on SIGKILL (measured: 3 of 3 runs left it on SIGKILL, 0 of 3 on SIGTERM). The stale lock
+    then refuses the developer's next git command with no process alive to blame (live-apply-nightly, three
+    times on 2026-11-04). The stand-in below holds and clears a lock the way git does.
+    """
+
+    HOLDS_A_LOCK = ("#!/usr/bin/env python3\n"
+                    "import os, signal, sys, time\n"
+                    "lock = sys.argv[1]\n"
+                    "signal.signal(signal.SIGTERM, lambda *_: (os.remove(lock), sys.exit(143)))\n"
+                    "open(lock, 'w').close()\n"
+                    "open(sys.argv[2], 'w').close()\n"  # it has the lock now
+                    "time.sleep(300)\n")
+
+    def _holder(self, folder: Path) -> Path:
+        script = folder / "holds-a-lock.py"
+        script.write_text(self.HOLDS_A_LOCK)
+        script.chmod(0o755)
+        return script
+
+    def _wait_for(self, path: Path) -> None:
+        for _ in range(500):
+            if path.exists():
+                return
+            time.sleep(0.02)
+        self.fail(f"{path.name} never appeared")
+
+    def test_stopping_a_process_lets_it_clear_its_lock(self):
+        gate = load_gate_tools()
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            lock, held = folder / "index.lock", folder / "held"
+            process = subprocess.Popen([sys.executable, str(self._holder(folder)), str(lock), str(held)])
+            try:
+                self._wait_for(held)
+                gate.stop([process.pid])
+                process.wait(timeout=30)
+            finally:
+                if process.poll() is None:
+                    process.kill()
+            self.assertFalse(lock.exists(), "the stopped process was killed outright and left its lock behind")
+
+    def test_a_timed_out_check_leaves_no_lock_behind(self):
+        gate = load_gate_tools()
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            lock, held = folder / "index.lock", folder / "held"
+            code, out = gate.run([sys.executable, str(self._holder(folder)), str(lock), str(held)], folder, timeout=2)
+            self.assertEqual(code, 124, out)
+            self.assertFalse(lock.exists(), "the timed-out check's process left its lock behind")
 
 
 if __name__ == "__main__":

@@ -45,6 +45,13 @@ export const FOLD_SETTLE_MS = 150; // motion-allow: a hold timer after the fold,
 /// scroll lets go of it sooner.
 export const FOLD_HOLD_MIN_MS = 400; // motion-allow: a hold timer, not an animation
 
+/// How far up the view a disclosure line can sit, as a share of the view's height from its foot,
+/// and still pin the bottom when the view is at the latest row: what opens pushes the text above it
+/// up and nothing under it moves. A line further up opens downward, as away from the bottom (Leo,
+/// 2026-11-05: "obviously when you get >like 50-70% up the screen from the bottom then it starts
+/// doing it normally expanding down").
+export const BOTTOM_PIN_SHARE = 0.6;
+
 /// Whether the physical scroller is at (or within the normal follow deadband of) its end.
 export function atFoldBottom(scrollTop: number, clientHeight: number, scrollHeight: number, deadband: number): boolean {
   return scrollHeight > clientHeight + 0.5 && scrollHeight - clientHeight - scrollTop <= deadband;
