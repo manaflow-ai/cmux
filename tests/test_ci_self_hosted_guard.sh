@@ -1631,6 +1631,10 @@ check_no_self_hosted_fleet_runners() {
   # nightly.yml: unset, each job falls through to its route from before. The nightly is not a required check.
   local classic_mini_builder="vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && 'glaeda-nightly-mini-builder' || "
   local classic_mini_signer="vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule') && 'glaeda-trusted-next-signing' || "
+  # The same switch for classic nightly's continuation (tests/test_auto_resume_one_mini.py): its signing jobs take
+  # the same literal on a workflow_run from main's nightly or a dispatch of main (glaeda #1858 AUTO_RESUME), in
+  # auto-resume-nightly-notarization.yml only.
+  local auto_resume_mini_signer="vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.head_branch == 'main') && 'glaeda-trusted-next-signing' || "
   # The main metadata bootstrap has no preceding picker. Accept its complete
   # main-only selector in this job alone, without exempting other fleet labels
   # or allowing secrets onto the shared nightly pool. RC and forks keep their
@@ -1712,6 +1716,9 @@ PYTHON
       content="${content/"$next_repository_guard"/}"
       content="${content/"$classic_mini_builder"/}"
       content="${content/"$classic_mini_signer"/}"
+    fi
+    if [[ "${line%%:*}" == "$ROOT_DIR/.github/workflows/auto-resume-nightly-notarization.yml" ]]; then
+      content="${content/"$auto_resume_mini_signer"/}"
     fi
     content_without_allowed="$(printf '%s\n' "$content" | sed -E "s/$fork_branch//g; s/($allowed)//g")"
     # GitHub matches runner labels without regard to case, so a fleet label
