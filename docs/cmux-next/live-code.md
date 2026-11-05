@@ -28,6 +28,10 @@ own DerivedData, so each switch compiles only what changed since that build was 
 `CMUX_LIVE_CODE_DIR=DIR` starts the same watcher on another folder with no switch (the fleet's
 measurement, `scripts/measure/live-code-app.sh`, does this).
 
+What the live code build costs while it runs, against a regular build of the same commit:
+`scripts/measure/live-code-cost.sh` on a fleet Mac (build seconds, binary and app size, and the
+instant-create bench of both apps interleaved, compared with `scripts/measure/bench-ab/bench_ab.py`).
+
 ## How it works
 
 - **The build** (`scripts/live-code/build.sh`), in two passes. The first, `CMUX_LIVE_CODE_BUILD=1`,
