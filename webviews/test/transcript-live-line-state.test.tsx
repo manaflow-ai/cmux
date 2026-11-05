@@ -5,7 +5,7 @@
 // nearly all of its 1.5 h waiting on its foreground subagents, and an "Opened 1 agent session" step
 // that read 1h 22m 31s for a 3.5 min call.
 import { expect, test } from "bun:test";
-import { renderToStaticMarkup } from "react-dom/server";
+import { renderToStaticMarkup as renderMarkup } from "react-dom/server";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
 import { SUBAGENTS } from "../src/agent-session/acpmux/subagents/subagentFold";
@@ -15,6 +15,15 @@ import { THINKING, trayWaitAgents, turnView } from "../src/agent-session/acpmux/
 import { withSubagentLines } from "../src/agent-session/acpmux/subagents/runningTray";
 import longWait from "../src/agent-session/acpmux/conversation/LongSubagentWait.gallery";
 import { GALLERY_NOW } from "../src/gallery/clock";
+
+import type { ReactNode } from "react";
+import { StatusVerbContext } from "../src/agent-session/acpmux/statusVerbs";
+
+// These assertions cover turn state and time, independently of decorative verb rotation.
+const renderToStaticMarkup = (node: ReactNode) =>
+  renderMarkup(
+    <StatusVerbContext.Provider value={{ mode: "thinking", verbs: ["Thinking"] }}>{node}</StatusVerbContext.Provider>,
+  );
 
 let at = 0;
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({

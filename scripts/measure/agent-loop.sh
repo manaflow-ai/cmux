@@ -13,6 +13,7 @@
 # bundles (build-web-bundles.sh), and swiftc for the screen reader (evidence only; without it the
 # probe still runs). Prints one AGENT-LOOP line and keeps result.json and the logs in report.tgz.
 set -uo pipefail
+export GIT_TERMINAL_PROMPT=0  # a public fetch never waits on a credential prompt
 cd "$(dirname "$0")/../.." || exit 3
 root="$PWD"
 out="$root/.build/agent-loop"
@@ -26,7 +27,7 @@ for arg in "$@"; do
   esac
 done
 # Only what this script writes goes before a run: OUT may be a folder the caller owns.
-mkdir -p "$out" && rm -f "$out"/{result.json,report.json,report.tgz,run.log,bun-install.log,ocr-build.log,applied.png,fresh-home.png}
+mkdir -p "$out" && rm -f "$out"/{result.json,report.json,report.tgz,run.log,bun-install.log,fetch.log,ocr-build.log,base-overlay.log,applied.png,fresh-home.png}
 rm -f "$out"/live-apply-*.log
 if [[ -z "$url" ]]; then
   url="$(curl -fsSL --retry 3 -H 'Cache-Control: no-cache' "$feed" | grep -o -E 'enclosure url="https://[^"]+\.dmg"' | head -n 1 | cut -d'"' -f2)"
@@ -42,6 +43,28 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Runs "$@" for at most $1 seconds, printing a line when it starts and ends: a setup phase that
+# hangs names itself and fails the run as could-not-run instead of eating the step's timeout.
+# Job control gives the phase and its watchdog each their own process group, so a timeout ends
+# the phase's children (git, bun) too, and the watchdog's sleep never holds the step's output open.
+bounded() {
+  local seconds="$1" name="$2" started=$SECONDS pid watchdog status
+  shift 2
+  echo "AGENT-LOOP setup: $name"
+  set -m
+  "$@" & pid=$!
+  ( sleep "$seconds"; kill -TERM -- "-$pid" 2>/dev/null; sleep 5; kill -KILL -- "-$pid" 2>/dev/null ) \
+    </dev/null >/dev/null 2>&1 & watchdog=$!
+  set +m
+  # Their own groups no longer see a signal sent to this script's group (a step cancel): pass it on.
+  trap 'kill -TERM -- "-$pid" "-$watchdog" 2>/dev/null; exit 143' TERM INT
+  wait "$pid"; status=$?
+  trap - TERM INT
+  kill -TERM -- "-$watchdog" 2>/dev/null; wait "$watchdog" 2>/dev/null
+  echo "AGENT-LOOP setup: $name exit $status in $((SECONDS - started))s"
+  return "$status"
+}
+
 curl -fsSL --proto '=https' --retry 3 -A cmux-agent-loop/1 -o "$work/in.dmg" "$url" || { echo "AGENT-LOOP download failed"; exit 3; }
 # The app's commit, read from the DMG before the launch: the web tree must be the one it was built from.
 mkdir -p "$mount"
@@ -50,17 +73,45 @@ plist="$(ls -d "$mount"/*.app/Contents/Info.plist 2>/dev/null | head -n 1)"
 commit="$(/usr/libexec/PlistBuddy -c 'Print CMUXCommit' "$plist" 2>/dev/null || true)"
 hdiutil detach "$mount" >/dev/null 2>&1 || hdiutil detach -force "$mount" >/dev/null 2>&1 || true
 rmdir "$mount" 2>/dev/null || true
-[[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo "AGENT-LOOP the app carries no CMUXCommit"; exit 3; }
-echo "AGENT-LOOP app commit $commit"
+# Nightlies stamp the commit's first 7 hex: this checkout resolves it, else GitHub's commit API.
+[[ "$commit" =~ ^[0-9a-f]{7,40}$ ]] || { echo "AGENT-LOOP the app carries no CMUXCommit (read '${commit}')"; exit 3; }
+short="$commit"
+if [[ ${#commit} -lt 40 ]]; then
+  commit="$(git -C "$root" rev-parse -q --verify "$short^{commit}" 2>/dev/null \
+    || curl -fsSL --retry 3 -H 'Accept: application/vnd.github.sha' "https://api.github.com/repos/manaflow-ai/cmux/commits/$short" 2>/dev/null || true)"
+fi
+[[ "$commit" =~ ^[0-9a-f]{40}$ && "$commit" == "$short"* ]] || { echo "AGENT-LOOP could not resolve CMUXCommit $short"; exit 3; }
+echo "AGENT-LOOP app commit $short ($commit)"
 
 # Setup, not part of the loop's time: the app's tree and its webviews dependencies.
 t0=$SECONDS
-{ git init -q "$tree" && git -C "$tree" fetch -q --depth 1 https://github.com/manaflow-ai/cmux.git "$commit" \
-  && git -C "$tree" -c advice.detachedHead=false checkout -q FETCH_HEAD; } || { echo "AGENT-LOOP could not fetch $commit"; exit 3; }
-(cd "$tree/webviews" && bun install --frozen-lockfile >"$out/bun-install.log" 2>&1) \
+# The commit from a local copy first (the fleet's mirror, this checkout), GitHub last.
+fetch_tree() {
+  local source
+  git init -q "$tree" || return 1
+  for source in "${CMUX_FLEET_GIT_MIRROR:-/Users/Shared/cmux-build-fleet/git/cmux.git}" "$root" https://github.com/manaflow-ai/cmux.git; do
+    [[ "$source" == https://* || -d "$source" ]] || continue
+    if git -C "$tree" fetch -q --depth 1 "$source" "$commit" 2>>"$out/fetch.log"; then
+      echo "AGENT-LOOP tree from $source"
+      git -C "$tree" -c advice.detachedHead=false checkout -q FETCH_HEAD
+      return
+    fi
+  done
+  return 1
+}
+bounded 600 "fetch $commit" fetch_tree || { echo "AGENT-LOOP could not fetch $commit"; tail -n 20 "$out/fetch.log" 2>/dev/null; exit 3; }
+# The warm checkout's node_modules, cloned (APFS copy on write), when its lockfile is the tree's.
+if [[ -d "$root/webviews/node_modules" ]] && cmp -s "$root/webviews/bun.lock" "$tree/webviews/bun.lock"; then
+  cp -cR "$root/webviews/node_modules" "$tree/webviews/node_modules" 2>/dev/null \
+    || { rm -rf "$tree/webviews/node_modules"; cp -R "$root/webviews/node_modules" "$tree/webviews/node_modules"; }
+  echo "AGENT-LOOP webviews node_modules from this checkout (same bun.lock)"
+fi
+install_deps() { cd "$tree/webviews" && bun install --frozen-lockfile >"$out/bun-install.log" 2>&1; }
+bounded 900 "bun install" install_deps \
   || { echo "AGENT-LOOP bun install failed (bun.lock at $commit)"; tail -n 20 "$out/bun-install.log"; exit 3; }
 ocr=()
-if command -v swiftc >/dev/null 2>&1 && swiftc -O -o "$work/ocr" scripts/e2e/ocr.swift >"$out/ocr-build.log" 2>&1; then
+build_ocr() { swiftc -O -o "$work/ocr" scripts/e2e/ocr.swift >"$out/ocr-build.log" 2>&1; }
+if command -v swiftc >/dev/null 2>&1 && bounded 300 "screen reader" build_ocr; then
   ocr=(--ocr "$work/ocr")
 fi
 echo "AGENT-LOOP setup $((SECONDS - t0))s"

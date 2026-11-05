@@ -348,6 +348,18 @@
   and its trailing inset); the window's layout sets it and a narrower `width`, saved or dragged, clamps up.
   No glyph is removed; the options chevron still hides first. Regression: `SidebarMinimumWidthTitlebarTests`.
 
+## A group header's bands keep the drop where the pointer is (2026-11-05)
+
+Leo 2026-11-05: "in terms of just the proper, you know, dragging correctness kind of things, I feel like there's
+stuff we can do there." Two jumps while a workspace was dragged over an open group's header. Its bottom quarter
+meant "after the whole group", so the gap leapt below every member; it sits right over the first member, so it now
+drops before that member, first in the group (`SidebarDragGeometry.hit`, `firstMember`). A closed header's bottom
+quarter still drops after the group, also when it keeps its active member shown. And an into-group target closed the gap for one move, so the rows sprang up
+and the same still pointer read a row lower; a held drag over the header's middle now keeps the last gap, as over a
+row's middle (`displayLayout`). A drop into the group still settles into it. A group drawn as its one row has no
+header and keeps its no-gap drop fill (`drawsAsOneRow`, asked of the model with the dragged rows out). Regression:
+`SidebarDragGroupHeaderTargetTests`, `SidebarSingleMemberGroupKeysTests`.
+
 ## Link opener placement keeps pane-local relationships (2026-10-30)
 
 - [1cc205d8d16](https://github.com/manaflow-ai/cmux/commit/1cc205d8d16) (carry of #26582): behavior-only opener bookkeeping keeps a tab's opener relationship inside its source pane when placement moves it elsewhere. No sidebar drawing or layout changes; the existing `RightPanePlacementTests` cover placement behavior. Reviewed as `Sidebar-Look: no visual change`.
@@ -384,6 +396,20 @@
   view showed either row's content. `SidebarLayout.make` lists a repeated id once, in the first section that lists it
   (this Mac's first), and the list's row content comes from that same section. Leo: "why is there all this weird
   stuff at the bottom of the sidebar", "the rendering gets borked there too :(". Regression: `SidebarOneRowPerWorkspaceTests`.
+
+- 2026-10-29: in one list each Cloud machine with workspaces keeps its machine header (name, status dot, fold), as a
+  remote group does (its rows keep the machine and status on their second line); a Cloud machine with no workspace
+  lists nothing, as before. As the only machine it keeps its own name, icon and status, not the "Projects" title.
+  Other computers' sections stay headerless. Leo: "why is there all this weird stuff at the
+  bottom of the sidebar", "a whole lot of this cloud stuff ought to get better...". Regression:
+  `SidebarCloudMachineHeaderTests`.
+- 2026-10-30: a Cloud machine's section draws like every other group: its header is the name, chevron and +, with no
+  status dot while connected (a down machine keeps its mark and words: Disconnected, Paused, Failed to start), and its
+  rows are one line, their title, and keep the machine mark where #29833 put it (the trailing status column, Leo
+  2026-11-01: "I HATE THAT THEY'RE ON THE LEFT"). An unnamed Cloud workspace whose shell idles at the machine's home
+  reads "Terminal", never "cmux" or the machine's name; a shell whose own title (OSC) reads like the home folder keeps
+  that title. This Mac and SSH computers are unchanged. Leo: "JUST DEPICT IT SIMILARLY TO EVERYTHING ELSE".
+  Regression: `SidebarCloudRowLookTests`.
 
 - 2026-10-29 (https://github.com/manaflow-ai/cmux/issues/27701): Shift-click, Cmd-click and Cmd-Shift-click select
   pinned workspaces as list rows, as classic: the range runs over the drawn order, pinned tiles and rows alike. A pinned

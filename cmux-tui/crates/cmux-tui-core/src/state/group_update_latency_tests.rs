@@ -140,6 +140,28 @@ fn timed(latencies: &mut BTreeMap<&'static str, Vec<f64>>, name: &'static str, r
     latencies.entry(name).or_default().push(started.elapsed().as_secs_f64() * 1000.0);
 }
 
+/// A chat tab's create validates the tabs it changed, not every tab of its pane: the pane's new order
+/// (`SetTabOrder`) moves positions only, which its set and contiguous-position checks cover, as a workspace
+/// order change already does. Checking every tab took about 5 queries per tab of the pane under the registry
+/// lock, which a person's next click waits on (this file's first test).
+#[test]
+fn a_chat_tab_create_validates_only_the_tabs_it_changed() {
+    use std::sync::atomic::Ordering::Relaxed;
+    let session = Session::new("chat-tab-validates");
+    let mux = session.open();
+    let sidebar = sidebar(&mux);
+    let workspace = workspace_slot(&mux, &sidebar.loose[0]);
+    for index in 0..30 {
+        open_chat_tab(&mux, workspace, format!("before-{index}"));
+    }
+    let before = crate::workspace_registry::resource_store::TABS_VALIDATED.load(Relaxed);
+    open_chat_tab(&mux, workspace, "the-person".into());
+    let validated =
+        crate::workspace_registry::resource_store::TABS_VALIDATED.load(Relaxed) - before;
+    mux.shutdown();
+    assert!(validated <= 4, "one chat tab create in a 31-tab pane validated {validated} tabs");
+}
+
 #[test]
 fn a_persons_requests_answer_while_busy_sessions_saturate_the_registry() {
     let session = Session::new("person-request-latency");

@@ -1,4 +1,6 @@
 #if DEBUG
+import AppKit
+import CmuxNextTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -60,6 +62,25 @@ struct AgentPageFlickerLogTests {
         #expect(current.last?["kind"] as? String == "visibility")
         let size = try #require(try FileManager.default.attributesOfItem(atPath: log.url.path)[.size] as? Int)
         #expect(size < AgentPageFlickerLog.maximumBytes)
+        let olderSize = try #require(try FileManager.default.attributesOfItem(atPath: older.path)[.size] as? Int)
+        #expect(olderSize <= AgentPageFlickerLog.maximumBytes)
+    }
+
+    /// The window watch is the log's own (the composition root makes the one log every pane shares), not
+    /// app-wide static state: each pane asks for it and a window's occlusion flip is one line, not one per pane.
+    @MainActor @Test func everyPaneAsksForTheWindowWatchAndAFlipIsOneLine() throws {
+        let log = AgentPageFlickerLog(directory: directory())
+        defer { try? FileManager.default.removeItem(at: log.directory) }
+        let center = NotificationCenter()
+        log.watchWindows(center: center)
+        log.watchWindows(center: center)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 10, height: 10), styleMask: [.borderless], backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
+        center.post(name: NSWindow.didChangeOcclusionStateNotification, object: window)
+        log.flush()
+        let flips = try lines(log.url)
+        #expect(flips.map { $0["kind"] as? String } == ["window-occlusion"])
+        #expect(flips.first?["window"] as? Int == window.windowNumber)
     }
 }
 #endif

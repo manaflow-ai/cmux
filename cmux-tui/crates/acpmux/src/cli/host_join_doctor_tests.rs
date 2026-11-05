@@ -127,7 +127,7 @@ fn missing_optional_status_fields_skip_instead_of_failing() {
     assert_eq!(
         step(&checked, "binary").fix.as_deref(),
         Some(
-            "Re-run the join line without a token: curl -fsSL https://cmux-platform-development.debussy.workers.dev/v1/machines/join.sh | sh"
+            "Re-run the join line without a token: curl -fsSL https://cmux-platform-production.debussy.workers.dev/v1/machines/join.sh | sh"
         )
     );
     assert_eq!(step(&checked, "credential").state, StepState::Skip);
@@ -251,7 +251,7 @@ fn an_unsafe_hub_origin_or_path_is_never_printed() {
         let checked = with_status(json!({"hubOrigin": hub, "hubReachable": false}));
         let text = format!("{checked:?}");
         assert!(!text.contains("cmj_") && !text.contains("cmm_"), "{text}");
-        assert!(step(&checked, "hub").detail.contains(DEV_ORIGIN), "{hub}");
+        assert!(step(&checked, "hub").detail.contains(JOIN_ORIGIN), "{hub}");
     }
     let loose = with_status(json!({"credentialMode": "0644", "credentialPath": "/h/cmm_secret"}));
     let credential = step(&loose, "credential");

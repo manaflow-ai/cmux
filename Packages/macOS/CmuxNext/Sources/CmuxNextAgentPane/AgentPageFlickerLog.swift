@@ -18,57 +18,63 @@ nonisolated private let flickerLogger = Logger(subsystem: "com.cmuxterm.app.next
 ///
 /// The file is a two-file ring under the app's state root:
 /// `<Application Support>/<bundle id>/diagnostics/agent-page-flicker.ndjson`, which becomes
-/// `agent-page-flicker.1.ndjson` once it passes ``maximumBytes``. Nothing in a line is the
+/// `agent-page-flicker.1.ndjson` when a write would take it past ``maximumBytes``. Nothing in a line is the
 /// person's text: a page name (`chat:<session>` or `new-tab`), a pid, numbers and short words.
-/// Writes run on a utility queue, never the main thread.
-nonisolated final class AgentPageFlickerLog: Sendable {
-    static let fileName = "agent-page-flicker.ndjson"
-    static let olderName = "agent-page-flicker.1.ndjson"
-    static let maximumBytes = 256 * 1024
+/// Writes run on a utility queue, never the main thread: a caller's turn only builds the line.
+///
+/// The composition root makes the app's one (``forAppRun()``) and hands it to every pane through
+/// ``AgentPaneShared/flickerLog``; a pane without one (tests, tools) writes nothing.
+@MainActor public final class AgentPageFlickerLog {
+    nonisolated static let fileName = "agent-page-flicker.ndjson"
+    nonisolated static let olderName = "agent-page-flicker.1.ndjson"
+    nonisolated static let maximumBytes = 256 * 1024
     /// The page's method; answered in ``AgentPaneBridge`` before ``AgentPaneRequest``, never logged.
-    static let method = "diag.flicker"
+    nonisolated static let method = "diag.flicker"
     /// The kinds a page may write, and the most events one call carries.
-    static let pageKinds: Set<String> = ["page-load", "visibility", "transcript-mount", "long-frame"]
-    static let maximumPageEvents = 32
+    nonisolated static let pageKinds: Set<String> = ["page-load", "visibility", "transcript-mount", "long-frame"]
+    nonisolated static let maximumPageEvents = 32
 
-    /// The app's ring; nil outside an app bundle (package tests, tools), so they never write it.
-    static let shared: AgentPageFlickerLog? = {
+    /// The app run's ring, for the composition root to make once; nil outside an app bundle
+    /// (package tests, tools), so they never write it.
+    public nonisolated static func forAppRun() -> AgentPageFlickerLog? {
         guard Bundle.main.bundleURL.pathExtension == "app", let bundle = Bundle.main.bundleIdentifier, !bundle.isEmpty,
               let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return nil }
         return AgentPageFlickerLog(directory: support.appending(path: bundle).appending(path: "diagnostics", directoryHint: .isDirectory))
-    }()
+    }
 
-    let directory: URL
-    private let queue = DispatchQueue(label: "com.cmuxterm.app.next.agent-page.flicker-log", qos: .utility)
+    nonisolated let directory: URL
+    private nonisolated let queue = DispatchQueue(label: "com.cmuxterm.app.next.agent-page.flicker-log", qos: .utility)
+    /// The window occlusion watch (``watchWindows()``), started by the first pane.
+    private var occlusion: MainActorObservation?
 
-    init(directory: URL) {
+    nonisolated init(directory: URL) {
         self.directory = directory
     }
 
-    var url: URL { directory.appending(path: Self.fileName) }
+    nonisolated var url: URL { directory.appending(path: Self.fileName) }
 
     /// Appends one line: `fields` with `at` (UTC, milliseconds) first.
-    func record(_ kind: String, at date: Date = Date(), _ fields: [String: Any] = [:]) {
+    nonisolated func record(_ kind: String, at date: Date = Date(), _ fields: [String: Any] = [:]) {
         guard let line = Self.line(kind: kind, at: date, fields: fields) else { return }
         append([line])
     }
 
     /// The page's events (`{events: [{kind, at, ...}]}`) for the pane showing `page`: only known
     /// kinds and short scalar fields, at most ``maximumPageEvents``.
-    func recordPage(_ params: [String: Any]?, page: String, pid: Int32) {
+    nonisolated func recordPage(_ params: [String: Any]?, page: String, pid: Int32) {
         let lines = Self.pageLines(params, page: page, pid: pid)
         if !lines.isEmpty { append(lines) }
     }
 
     /// A pane's page name in a line: `chat:<session>`, or `new-tab`.
-    @MainActor static func pageName(_ view: AgentPaneView) -> String {
+    static func pageName(_ view: AgentPaneView) -> String {
         view.model.sessionId.map { "chat:\($0)" } ?? "new-tab"
     }
 
     /// Waits for every queued write (tests).
-    func flush() { queue.sync {} }
+    nonisolated func flush() { queue.sync {} }
 
-    static func pageLines(_ params: [String: Any]?, page: String, pid: Int32) -> [Data] {
+    nonisolated static func pageLines(_ params: [String: Any]?, page: String, pid: Int32) -> [Data] {
         guard let events = params?["events"] as? [Any] else { return [] }
         return events.prefix(maximumPageEvents).compactMap { item -> Data? in
             guard let event = item as? [String: Any], let kind = event["kind"] as? String, pageKinds.contains(kind) else { return nil }
@@ -89,7 +95,7 @@ nonisolated final class AgentPageFlickerLog: Sendable {
         }
     }
 
-    static func line(kind: String, at date: Date, fields: [String: Any]) -> Data? {
+    nonisolated static func line(kind: String, at date: Date, fields: [String: Any]) -> Data? {
         var object = fields
         object["kind"] = kind
         object["at"] = Date.ISO8601FormatStyle(includingFractionalSeconds: true).format(date)
@@ -99,7 +105,7 @@ nonisolated final class AgentPageFlickerLog: Sendable {
         return data
     }
 
-    private func append(_ lines: [Data]) {
+    private nonisolated func append(_ lines: [Data]) {
         let directory = directory, url = url, older = directory.appending(path: Self.olderName)
         queue.async {
             do {
@@ -107,16 +113,19 @@ nonisolated final class AgentPageFlickerLog: Sendable {
                 if !FileManager.checked.fileExists(atPath: url.path) {
                     _ = FileManager.checked.createFile(atPath: url.path, contents: nil)
                 }
+                // The bound holds after the write: lines that would take the file past it start a
+                // new one, and the full one becomes the older half of the ring.
+                let added = lines.reduce(Data(), +)
                 let handle = try FileHandle(forWritingTo: url)
                 let size = try handle.seekToEnd()
-                if size > UInt64(Self.maximumBytes) {
+                if size > 0, size + UInt64(added.count) > UInt64(Self.maximumBytes) {
                     try handle.close()
                     try? FileManager.checked.removeItem(at: older)
                     try FileManager.checked.moveItem(at: url, to: older)
-                    _ = FileManager.checked.createFile(atPath: url.path, contents: lines.reduce(Data(), +))
+                    _ = FileManager.checked.createFile(atPath: url.path, contents: added)
                     return
                 }
-                for line in lines { try handle.write(contentsOf: line) }
+                try handle.write(contentsOf: added)
                 try handle.close()
             } catch {
                 flickerLogger.error("agent page flicker log write failed: \(String(describing: error), privacy: .public)")
@@ -124,19 +133,17 @@ nonisolated final class AgentPageFlickerLog: Sendable {
         }
     }
 
-    /// Records every window's occlusion flip, once per app run (the first agent pane calls it).
-    @MainActor static func watchWindows() {
-        guard occlusion == nil, let log = shared else { return }
-        occlusion = MainActorObservation(NSWindow.didChangeOcclusionStateNotification, read: { $0.object as? NSWindow }) { window in
-            guard let window else { return }
-            log.record("window-occlusion", [
+    /// Records every window's occlusion flip from now on, once per log (each agent pane calls it; the first starts it).
+    /// - Parameter center: Where windows post their flips (tests pass their own).
+    func watchWindows(center: NotificationCenter = .default) {
+        guard occlusion == nil else { return }
+        occlusion = MainActorObservation(NSWindow.didChangeOcclusionStateNotification, center: center, read: { $0.object as? NSWindow }) { [weak self] window in
+            guard let self, let window else { return }
+            record("window-occlusion", [
                 "window": window.windowNumber,
                 "visible": window.occlusionState.contains(.visible),
                 "type": String(describing: type(of: window)),
             ])
         }
     }
-
-    /// App-wide for the app run.
-    @MainActor private static var occlusion: MainActorObservation?
 }

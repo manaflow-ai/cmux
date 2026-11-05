@@ -143,6 +143,7 @@ pub(crate) mod reply_fit;
 pub use digest::{MAX_FROM_AGENT_CHARS, declared_sender};
 pub(crate) use queue::approved_prompts_error;
 pub use queue::{Approver, QueuedPrompt, Withdrawn, supersede::key as supersede_key};
+mod live_name;
 mod profile_respawn;
 mod resolve;
 mod route_switch;
@@ -204,6 +205,7 @@ pub use spawn::expand_env_value;
 pub mod approvers;
 pub(crate) mod key_route;
 pub mod mac_approvers;
+pub mod no_session;
 mod own_host;
 mod peer_cache;
 #[cfg(all(test, target_os = "linux"))]
@@ -1373,6 +1375,7 @@ impl Hub {
             steering: AtomicBool::new(steering),
             backgrounds_work: AtomicBool::new(backgrounds_work),
             person: AtomicBool::new(false),
+            wait_start: AtomicBool::new(false),
             steer_now: Default::default(),
             steer_end: tokio::sync::watch::channel(None).0,
             fork_from: StdMutex::new(None),

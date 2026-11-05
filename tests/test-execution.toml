@@ -540,7 +540,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_machine_vault_e2e_workflow.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. No step runs it (machine-vault-e2e.yml only names it in a comment); run python3 tests/test_machine_vault_e2e_workflow.py yourself after changing machine-vault-e2e.yml or scripts/cmux-next/machine-vault-e2e.ts (under 1 s, reads the files only)."
 
 [[test]]
 path = "tests/test_ci_workload_profiles.py"
@@ -2608,6 +2609,11 @@ lane = "manual"
 reason = "Run by hand when cloud-chat-proof.py changes: python3 tests/test_cloud_chat_proof_failure_evidence.py (fake app CLI and log tool, no app)."
 
 [[test]]
+path = "tests/test_cloud_chat_proof.py"
+lane = "manual"
+reason = "Run by hand when cloud-chat-proof.py changes, as its failure-evidence sibling is: python3 tests/test_cloud_chat_proof.py (mocked launcher, auth and Cloud API; no app, no machine)."
+
+[[test]]
 path = "tests/test_nightly_never_blacksmith.py"
 lane = "linux-guard"
 
@@ -2615,3 +2621,8 @@ lane = "linux-guard"
 path = "tests/test_nightly_one_mini.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. Checks the one-mini routing (vars.CI_NIGHTLY_MINI) of nightly.yml and the tag permission probe; run python3 tests/test_nightly_one_mini.py yourself after changing either (about 1 s, no Mac)."
+
+[[test]]
+path = "tests/test_nightly_mini_gate_timeouts.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks that a job vars.CI_NIGHTLY_MINI sends to cmux15 has room in its timeout for glaeda's capacity wait; run python3 tests/test_nightly_mini_gate_timeouts.py yourself after changing a nightly.yml timeout or route (about 1 s, no Mac)."

@@ -82,6 +82,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
     /// Retry a committed person message in a Chief conversation. The app
     /// forwards this canonical owner message id to `chief.retry`.
     var onChiefRetry: ((MessageID) -> Void)?
+    /// My Chief-chat messages deleted here whose retraction the owner has not refused (#36019): shown
+    /// as retracted from the click on, so the row leaves at once and no rebuild brings it back.
+    var deleting: Set<MessageID> = []
     /// Cancel Upload (`HomeStoreBinding.cancelSend`).
     var onCancelSend: (IdempotencyKey) -> Bool = { _ in false }
     /// Bubble pictures and originals.
@@ -200,7 +203,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         let live = homeStore.liveRun(in: conversation)
         let timeline = homeStore.timeline(for: conversation)
         passStep("timeline", &mark)
-        apply(items: timeline.items, summary: homeStore.summary(conversation),
+        apply(items: withDeletes(timeline.items), summary: homeStore.summary(conversation),
               typing: homeStore.typists(in: conversation),
               hasOlder: homeStore.hasOlderMessages(in: conversation), streams: timeline.streams)
         mark = CACurrentMediaTime()

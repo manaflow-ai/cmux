@@ -67,7 +67,8 @@ pub const CMUX_ROUTE_ID: &str = "cmux";
 /// resolves it, `load` does not list it (the Account menu already shows the CLI login).
 pub const CODEX_LOGIN_ROUTE_ID: &str = "codex-login";
 
-/// Whether the Codex CLI is signed in in `home` (its `CODEX_HOME`), else in `~/.codex`.
+/// Whether the Codex CLI is signed in in `home` (its `CODEX_HOME`), else in `~/.codex`: an
+/// `auth.json` with tokens or an API key, never an empty or broken one.
 pub fn codex_signed_in(home: Option<&Path>) -> bool {
     let dir = match home {
         Some(home) => home.to_path_buf(),
@@ -76,7 +77,7 @@ pub fn codex_signed_in(home: Option<&Path>) -> bool {
             None => return false,
         },
     };
-    dir.join("auth.json").is_file()
+    crate::agent_login::signed_in_at(crate::agent_login::Agent::Codex, &dir)
 }
 
 fn builtin_routes() -> Vec<Route> {
@@ -96,6 +97,8 @@ fn builtin_routes() -> Vec<Route> {
             auto_fallback: false,
             notes: Some("built in: the Codex CLI's own signed-in login".into()),
             account_home: None,
+            shadow_of: None,
+            disabled: false,
         },
         path: PathBuf::new(),
     };
@@ -117,6 +120,8 @@ fn builtin_routes() -> Vec<Route> {
                 auto_fallback: false,
                 notes: Some("built in: open-source models through the cmux model router".into()),
                 account_home: None,
+                shadow_of: None,
+                disabled: false,
             },
             path: PathBuf::new(),
         },
@@ -260,6 +265,14 @@ pub struct RouteFile {
     /// folder for one login (route_account.rs).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account_home: Option<String>,
+    /// A Codex account home that shares everything but its login with this
+    /// folder, the CLI's own home (route_shadow.rs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shadow_of: Option<String>,
+    /// Turned off: no chat moves onto it by itself, and the account list says
+    /// so. A chat bound to it still runs on it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub disabled: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -325,6 +338,8 @@ impl Route {
             "autoFallback": self.file.auto_fallback,
             "notes": self.file.notes,
             "accountHome": self.file.account_home,
+            "shadowOf": self.file.shadow_of,
+            "enabled": !self.file.disabled,
             "path": self.path,
         })
     }
@@ -609,6 +624,11 @@ pub fn file_from_json(params: &Value) -> Result<RouteFile, RouteError> {
         auto_fallback: params.get("autoFallback").and_then(Value::as_bool).unwrap_or(false),
         notes: text("notes"),
         account_home: crate::route_account::from_json(params)?,
+        shadow_of: crate::route_account::shadow_from_json(params)?,
+        disabled: match params.get("enabled").and_then(Value::as_bool) {
+            Some(enabled) => !enabled,
+            None => params.get("disabled").and_then(Value::as_bool).unwrap_or(false),
+        },
     };
     validate(&file)?;
     Ok(file)

@@ -5,9 +5,10 @@
 # file there hot-reloads that window (Vite HMR, React Fast Refresh keeps component state); your other
 # windows keep their pages, and web-dev.json is not touched.
 #
-#   projection.sh open [WORKTREE] [--port N] [--test CMD]
+#   projection.sh open [WORKTREE] [--port N] [--test CMD] [--page ID]
 #                        # start WORKTREE's dev server (default: this checkout) and open the window;
-#                        # --test names the one test Debug > Run Projection Test runs there
+#                        # --test names the one test Debug > Run Projection Test runs there;
+#                        # --page opens a web page there (settings, history, ...); New Tab is native
 #   projection.sh test [CMD]          # run the projection's test (or CMD) in its window
 #   projection.sh stop [WORKTREE]     # stop the dev server this script started for WORKTREE
 #   projection.sh status [WORKTREE]
@@ -28,8 +29,18 @@ state_for() {
   echo "${CMUX_PROJECTION_STATE_DIR:-$HOME/Library/Caches/cmux-next/projection}/$key"
 }
 
-# A port per worktree, 4290-4389, so two projections never share one.
-port_for() { echo $((4290 + $(printf '%s' "$1" | cksum | cut -d' ' -f1) % 100)); }
+# The worktree's port, 4290-4389: the one its running server has, else the first free one from its
+# hash, so two projections never share one.
+port_for() {
+  local tree="$1" state="$2" base port i
+  if [[ -n "$(live_pid "$state")" && -f "$state/port" ]]; then cat "$state/port"; return; fi
+  base=$(( $(printf '%s' "$tree" | cksum | cut -d' ' -f1) % 100 ))
+  for ((i = 0; i < 100; i++)); do
+    port=$(( 4290 + (base + i) % 100 ))
+    lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1 || { echo "$port"; return; }
+  done
+  echo "no free port in 4290-4389; pass --port N" >&2; exit 1
+}
 
 answers() {
   curl -fsS -o /dev/null --max-time 3 --retry "${2:-0}" --retry-delay 1 --retry-connrefused --retry-all-errors \
@@ -69,21 +80,23 @@ start_server() {
 cmd="${1:-}"; [[ -n "$cmd" ]] || usage 1; shift
 case "$cmd" in
   open)
-    tree="$ROOT" port="" test=""
+    tree="$ROOT" port="" test="" page=""
     while [[ $# -gt 0 ]]; do
       case "$1" in
         --port) port="${2:?--port needs a value}"; shift 2 ;;
         --test) test="${2:?--test needs a value}"; shift 2 ;;
+        --page) page="${2:?--page needs a value}"; shift 2 ;;
         -h|--help) usage ;;
         -*) usage 1 ;;
         *) tree="$(cd "$1" && pwd)"; shift ;;
       esac
     done
     state="$(state_for "$tree")"
-    port="${port:-$(port_for "$tree")}"
+    port="${port:-$(port_for "$tree" "$state")}"
     start_server "$tree" "$port" "$state"
     args=(action run debug.projection --server "http://127.0.0.1:$port/" --worktree "$tree")
     [[ -n "$test" ]] && args+=(--test "$test")
+    [[ -n "$page" ]] && args+=(--page "$page")
     "$cli" "${args[@]}"
     ;;
   test)

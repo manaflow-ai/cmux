@@ -184,6 +184,7 @@
         "Put llvm-lipo on PATH as lipo": {"plumbing": true},
         "Require the cmux-tui client build-nightly-app bundled": {"nightly_only": "compares the cmux-tui.version build-nightly-app wrote with the commit resolve-nightly-cmux-tui-client chose; only the nightly installs a resolved client into a Release app"}},
       "build-sign-notarize-nightly": {
+        "cmux NIGHTLY identity: compare the cmux NEXT feed with the old feed": {"pr": "ci-guards.yml:workflow-guard-tests:Validate universal nightly workflow"},
         "cmux NIGHTLY identity: skip a build the old feed already has": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next release-ring tags"},
         "cmux NIGHTLY identity: set cmux NEXT's prepared app aside": {"plumbing": true},
         "cmux NIGHTLY identity: install create-dmg": {"plumbing": true},

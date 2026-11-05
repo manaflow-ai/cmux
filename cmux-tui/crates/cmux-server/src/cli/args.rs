@@ -21,7 +21,7 @@ pub static VERBS: &[VerbSpec] = &[
     VerbSpec {
         path: &["pair"],
         positionals: &[],
-        flags: &[("api-origin", true), ("name", true)],
+        flags: &[("api-origin", true), ("name", true), ("invite", true)],
         help: "server.pair.begin",
     },
     VerbSpec {
