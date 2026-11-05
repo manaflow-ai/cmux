@@ -1106,6 +1106,7 @@ button.acpmux-session-info-port:hover,
   opacity: 0;
 }
 .acpmux-session-info-source:is(:hover, :focus-within) .acpmux-session-info-source__more,
+.acpmux-session-info-source:is(:has([data-popup-open]), :focus-within) .acpmux-session-info-source__more,
 .acpmux-session-info-source__more:is([data-popup-open], [aria-expanded="true"]) {
   opacity: 1;
 }
