@@ -221,7 +221,7 @@ import UniformTypeIdentifiers
         let url = Self.folder().appendingPathComponent("annotated.png")
         let board = HomePictureReply.pasteboard(for: url)
         defer { board.releaseGlobally() }
-        #expect(board.name != NSPasteboard.general.name)
+        #expect(board.name != NSPasteboard.Name.general)
         let urls = board.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]
         #expect(urls == [url])
     }

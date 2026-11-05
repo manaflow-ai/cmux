@@ -26,7 +26,7 @@ struct HomePictureReply {
 
     /// A private pasteboard carrying the file `url` (release it once the intake read it).
     static func pasteboard(for url: URL) -> NSPasteboard {
-        let board = NSPasteboard(name: NSPasteboard.Name("com.cmux.home.picture-reply.\(UUID().uuidString)"))
+        let board = NSPasteboard.withUniqueName()
         board.clearContents()
         board.writeObjects([url as NSURL])
         return board
