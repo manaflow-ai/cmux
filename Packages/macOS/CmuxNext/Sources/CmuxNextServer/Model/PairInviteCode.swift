@@ -9,7 +9,6 @@ extension PairingCode {
     ///
     /// Longer than the 8-symbol server code because an invite is redeemed by `/v1/pair/begin`,
     /// which has no account to budget guesses against, only a per-IP limit.
-    // TRANSITIONAL namespace-type -- https://github.com/manaflow-ai/cmux/pull/36222 ships it all-static; that PR's review decides its shape
     public nonisolated enum Invite {
         public static let length = 10
 

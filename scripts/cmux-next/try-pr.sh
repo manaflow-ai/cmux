@@ -332,9 +332,17 @@ case "$verdict" in
     [[ -n "$dry" || -x "$ci" ]] || { echo "no cmux-ci client at $ci (CMUX_CI names another)" >&2; exit 1; }
     # A later push with the same tag and workspace supersedes a queued build of an older head.
     build=(build cmux --ref "$head" --tag "pr-$pr" --backend-mode local --workspace "try-pr:$pr:$(id -un)")
+    # Build ahead (cmuxterm-hq build_ahead.go): the fleet may already have built this head's tree
+    # (a prebuild, or anyone's equal build under another tag). Take it: the side instance opens
+    # whatever .app the job holds. An older client without --any-tag still matches tag pr-N.
+    build_help="$([[ -n "$dry" ]] || "$ci" build --help 2>/dev/null || true)"
+    if [[ -n "$dry" || "$build_help" == *--any-tag* ]]; then build+=(--any-tag); fi
     if [[ -n "$dry" ]]; then run "$ci" "${build[@]}"; if [[ -n "$here" ]]; then echo "would wait for it and print where it is"; else echo "would wait for it and open it as cmux PR #$pr"; fi; exit 0; fi
     job="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$("$ci" "${build[@]}")")"
     echo "fleet job $job"
+    # Done already means a build of this tree was ready: no build waited on.
+    state="$("$ci" status "$job" 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("state", ""))' 2>/dev/null || true)"
+    if [[ "$state" == done ]]; then echo "built ahead: job $job already holds this tree's app"; fi
     "$ci" wait "$job" >&2 || { echo "job $job is not done; \`try-pr.sh $pr\` again picks up the same build" >&2; exit 1; }
     out="$side_root/builds/pr-$pr-${head:0:12}"
     if [[ ! -d "$out/bundle" ]]; then
