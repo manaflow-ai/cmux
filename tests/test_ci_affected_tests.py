@@ -134,9 +134,11 @@ class AffectedTests(unittest.TestCase):
             with self.subTest(files=files):
                 result = plan(files, everything=not files)
                 self.assertEqual(len(names(result)), len(set(names(result))))
-        argv = [a for u in plan(["webviews/src/agent-session/acpmux/App.tsx"])["units"] for a in u["argv"]]
+        result = plan(["webviews/src/agent-session/acpmux/App.tsx"])
+        argv = [a for u in result["units"] for a in u["argv"]]
+        listed = [n["what"] for n in result["not_run"]]
         for test in affected_tests.web_workflow_python_tests(ROOT):
-            self.assertIn(test, argv)
+            self.assertTrue(test in argv or test in listed, test)  # on the lane, or left to the web workflow
 
     def test_no_empty_web_unit(self):
         for u in plan(["plans/cmux-next/actions.md"])["units"]:
@@ -224,13 +226,10 @@ class AffectedTests(unittest.TestCase):
                              check=True, capture_output=True, text=True).stdout.split()
         self.assertEqual(out, ["100000", "100000"])
 
-    def test_a_changed_scripts_tests_test_runs_itself(self):
-        # scripts/tests holds tests the lane registry does not list: python-extra runs them.
+    def test_a_changed_scripts_tests_test_is_listed_for_its_workflow(self):
+        # scripts/tests holds tests the lane registry does not list: listed, never dropped silently.
         test = "scripts/tests/test_pr_scoped_webviews_checks.py"
-        result = plan([test])
-        extra = [a for u in result["units"] if u["name"].startswith("python-extra") for a in u["argv"]]
-        self.assertIn(test, extra)
-        self.assertNotIn(test, [n["what"] for n in result["not_run"]])
+        self.assertIn(test, [n["what"] for n in plan([test])["not_run"]])
 
     def test_a_registry_change_runs_the_whole_linux_lane(self):
         result = plan(["tests/test-execution.d/ci.toml"])
@@ -241,13 +240,11 @@ class AffectedTests(unittest.TestCase):
     def test_the_guard_runner_is_a_selection_input(self):
         self.assertTrue(plan(["scripts/ci/guards-local.sh"])["all"])
 
-    def test_the_everything_plan_runs_no_unregistered_test_that_needs_an_app(self):
-        # tests_v2 tests need a built CLI and a live socket; a fast check can only list them.
+    def test_the_everything_plan_runs_no_unregistered_test(self):
+        # Their workflows set up what they need: tests_v2 a built CLI and a socket, the CUA bench Bun.
         result = plan([], everything=True)
-        extra = [a for u in result["units"] if u["name"].startswith("python-extra") for a in u["argv"]]
-        self.assertTrue(extra)
-        self.assertFalse([a for a in extra if a.startswith(("tests_v2/", "scripts/journeys/"))])
-        self.assertIn(".github/scripts/test_rust_workspaces.py", extra)
+        argv = [a for u in result["units"] for a in u["argv"]]
+        self.assertFalse([a for a in argv if a.startswith(("tests_v2/", "scripts/journeys/", "tests/automation-bench/"))])
         self.assertTrue(any("outside the lane registry" in n["what"] for n in result["not_run"]), result["not_run"])
 
     def test_a_changed_test_that_needs_an_app_is_listed_not_run(self):

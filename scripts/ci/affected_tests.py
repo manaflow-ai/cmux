@@ -77,6 +77,9 @@ MAX_FILES = 400
 WEB_FILES_PER_STEP = 64
 WEB_LISTED_MAX = 4 * WEB_FILES_PER_STEP
 WEB_FILE_OK = re.compile(r"^(src|test)/[A-Za-z0-9._/-]+\.test\.(ts|tsx|js|jsx|mjs)$")
+# A test outside the lane registry runs in its own workflow's job, which sets up what it needs (Bun,
+# a built CLI, a live socket, arguments); a fast check cannot reproduce that, so it lists them.
+UNREGISTERED_WHY = "outside the lane registry: its own workflow runs it, with that job's setup"
 # Tests that drive a phone or simulator rig; they run on their own hardware, never in a fast check.
 DEVICE_ONLY = ("cmux-next-ios/verify/",)
 DEFAULT_SHARDS = 4
@@ -160,13 +163,6 @@ def tests_naming(root: Path, paths: list[str]) -> tuple[dict[str, list[str]], li
             package, rest = path.split("/Tests/", 1)
             swift.setdefault(package, set()).add(rest.split("/", 1)[0])
     return {k: sorted(v) for k, v in swift.items()}, sorted(web), sorted(python)
-
-
-def workflow_run_bare(root: Path) -> set[str]:
-    """Python files a workflow runs as `python3 PATH` with no arguments: an unregistered test there
-    needs no built app, socket or argument, so a fast check can run it the same way."""
-    text = "".join(p.read_text(encoding="utf-8", errors="replace") for p in sorted((root / ".github").rglob("*.y*ml")))
-    return set(re.findall(r"python3?(?: -\S+)* ((?:[\w.-]+/)*test_[\w-]+\.py)[ \t]*$", text, re.M))
 
 
 def unregistered_python_tests(root: Path) -> list[str]:
@@ -259,7 +255,7 @@ class Planner:
                 lane = lanes.get(path, "")
                 if lane == LINUX_PYTHON_LANE:
                     chosen.append(path)
-                elif lane:  # plan() runs an unregistered one in python_extra
+                elif lane:  # plan() lists an unregistered one as run by its own workflow
                     self.not_run.append({"what": path, "why": f"Python lane {lane!r} does not run on Linux fast checks"})
         if not chosen:
             return
@@ -274,14 +270,6 @@ class Planner:
             name = "python" + (f"-{i}of{n}" if n > 1 else "")
             self.units.append({"name": name, "kind": "python", "why": f"{len(chosen)} Python tests ({LINUX_PYTHON_LANE})",
                                "argv": ["test", "--setup", "none", "--", *cmd]})
-
-    def python_extra(self, paths: list[str], why: str) -> None:
-        """Tests outside the lane registry run one process each, from the repository root."""
-        for i, part in enumerate(split(paths, max(1, min(self.shards, (len(paths) + 29) // 30))), 1):
-            script = 'rc=0; for t in "$@"; do echo "== python3 $t"; python3 "$t" || { echo "FAILED: $t"; rc=1; }; done; exit $rc'
-            name = "python-extra" + (f"-{i}" if len(paths) > 30 else "")
-            self.units.append({"name": name, "kind": "python", "why": why,
-                               "argv": ["test", "--setup", "none", "--", "bash", "-c", script, "affected", *part]})
 
     def guards(self) -> None:
         """Every guard step of ci-guards.yml (the "CI fast guards" runner). Most guards read the whole
@@ -374,11 +362,8 @@ def plan(root: Path, base: str, head: str, files: list[str] | None, shards: int,
         p.web(None)
         p.python(None)
         unregistered = unregistered_python_tests(root)
-        bare = workflow_run_bare(root)
-        p.python_extra([t for t in unregistered if t in bare], "every Python test outside the lane registry a workflow runs bare")
-        if len(unregistered) > len(bare & set(unregistered)):
-            p.not_run.append({"what": f"{len(unregistered) - len(bare & set(unregistered))} other Python tests outside the lane registry",
-                              "why": "no workflow runs them bare (they take arguments, a built app or a socket)"})
+        if unregistered:
+            p.not_run.append({"what": f"{len(unregistered)} Python tests outside the lane registry", "why": UNREGISTERED_WHY})
         p.native(sorted({focused_tests.native_manifest(root, m.as_posix()) or "" for m in root.glob("Native/**/Cargo.lock")} - {""}))
     else:
         if focused["cargo"]["changed"] or rust_may_read(root, files):
@@ -412,12 +397,8 @@ def plan(root: Path, base: str, head: str, files: list[str] | None, shards: int,
         p.python(lane_paths)
         extra = extra_python(root, files)
         extra += [t for t in web_python + (lane_paths or []) if t not in lanes and t not in extra]
-        bare = workflow_run_bare(root)
-        for test in [t for t in extra if t not in bare]:
-            p.not_run.append({"what": test, "why": "outside the lane registry and no workflow runs it bare"})
-        extra = [t for t in extra if t in bare]
-        if extra:
-            p.python_extra(extra, f"{len(extra)} Python tests outside the lane registry")
+        for test in extra:
+            p.not_run.append({"what": test, "why": UNREGISTERED_WHY})
         p.native([item["manifest"] for item in focused["native"]])
     return {"base": base, "head": head, "all": bool(reasons), "reasons": reasons, "files": files,
             "units": p.units, "not_run": p.not_run, "docs": focused.get("docs", [])}
