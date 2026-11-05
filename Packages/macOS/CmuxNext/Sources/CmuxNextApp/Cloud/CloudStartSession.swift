@@ -260,9 +260,9 @@ struct CloudStartSession {
                 // Each restart and start try is for the account that asked, checked right before it.
                 let command = request.command
                 started = try await Self.starting(name: name, id: id, agent: agent, account: account, now: { services.cloud.account }, asked: request.asked(machine: name)) {
-                    try await remote.startNow(cwd: request.cwd, harness: agent) { @MainActor [services] in
+                    try await CloudWait.retriedOnce({ try await remote.startNow(cwd: request.cwd, harness: agent) { @MainActor [services] in
                         try Self.check(account, now: services.cloud.account, CloudStartSessionStrings.Asked(machine: name, agent: agent, command: command))
-                    }
+                    } }, closed: { if case DaemonError.connectionClosed = $0 { true } else { false } }, relink: { await session.linkUp(within: Self.connectWait) })
                 }
             case let refused as AgentTabRefusedHost: throw refused.refusal
             default: throw AgentRemoteStartRefusal.startUnsupported(machine: name)
@@ -404,12 +404,11 @@ struct CloudStartSession {
             let origin: CloudLinkOrigin = byPerson ? .user : .script
             if session.machine.status == .paused { session.attach(origin: origin) } else { session.connect(origin: origin) }
         }
-        var up = await session.linkUp(within: Self.connectWait)
-        // The app's update of this machine already ran when the start came (a turn that begins later finds the
-        // start in ``CloudStartGate``): it restarts the daemon, so the agent starts once it ended and the link is back.
-        if up, await CloudWait.ended(within: Self.connectWait, { [policy = services.daemonUpdates.policy, id = CloudMachineUpdateTarget.id(session.machineID)] in
-            await policy.turnRunning(id)
-        }) { up = await session.linkUp(within: Self.connectWait) }
+        // An update of this machine already running when the start came (one that begins later finds the start in
+        // ``CloudStartGate``) restarts the daemon: the agent starts once it ended and the link is back.
+        let up = await CloudWait.linked(within: Self.connectWait, { await session.linkUp(within: Self.connectWait) }) {
+            [policy = services.daemonUpdates.policy, id = CloudMachineUpdateTarget.id(session.machineID)] in await policy.turnRunning(id)
+        }
         // A sign-out, team switch or cancellation during the wait is that, not a machine that didn't connect.
         try Self.checked(account, now: services.cloud.account, request.asked(machine: session.machine.title))
         guard up, session.resumeFailure == nil, session.daemon.connection != nil else { throw failure() }

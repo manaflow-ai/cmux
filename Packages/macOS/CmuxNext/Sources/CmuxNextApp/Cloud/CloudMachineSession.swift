@@ -197,7 +197,7 @@ final class CloudMachineSession {
             recoverInterruptedMutation()
             let retry = retryIfHopFails && linkEnded != nil
             retryIfHopFails = false
-            if retry, !reconnectAfterHop { connect(origin: .user) }
+            if retry, !reconnectAfterHop { retryNow() }
             if reconnectAfterHop {
                 reconnectAfterHop = false
                 appTicket = nil
@@ -409,10 +409,10 @@ final class CloudMachineSession {
         }
     }
 
-    /// Retry on the record as it stands (the caller just read it): connect the link again.
+    /// Retry on the record as it stands (the caller just read it): connect the link again, or resume a paused app-link machine first (``attach(origin:)``; the platform refuses its link).
     func retryNow() {
         if case .failed = linkPhase { linkPhase = .starting }
-        connect(origin: .user)
+        if appLink != nil, machine.shownStatus == .paused, resumer != nil { attach() } else { connect(origin: .user) }
     }
 
     /// After `cmux link machine update` ran here (``CloudMachineUpdates``): connect to the daemon
