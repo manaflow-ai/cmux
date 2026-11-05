@@ -22,8 +22,19 @@ import Testing
         let handover = PushHandover(store: PushMemoryStore())
         let now = Date()
         let reply = try #require(PushReply(payload: question, action: .option(0, label: "Failing PR check"), now: now))
+        try handover.put(reply, requestID: "fresh")
+        #expect(handover.take(requestID: "fresh", now: now.addingTimeInterval(PushOutbox.maxAge - 1)) == reply)
         try handover.put(reply, requestID: "r")
         #expect(handover.take(requestID: "r", now: now.addingTimeInterval(PushOutbox.maxAge + 1)) == nil)
+    }
+
+    /// Sign-out clears a handover nobody took (unlock cancelled, the push no longer trusted).
+    @Test func signOutClearsAnUntakenReply() throws {
+        let handover = PushHandover(store: PushMemoryStore())
+        let reply = try #require(PushReply(payload: question, action: .option(0, label: "Failing PR check")))
+        try handover.put(reply, requestID: "r")
+        handover.removeAll()
+        #expect(handover.take(requestID: "r") == nil)
     }
 
     /// PR B review H2, as for the outbox: text is never typed into a terminal from a handover.

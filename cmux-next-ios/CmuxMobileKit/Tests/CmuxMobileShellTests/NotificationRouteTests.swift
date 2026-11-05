@@ -220,6 +220,12 @@ import UserNotifications
         var otherMac = opened
         otherMac.handover = PushReply(mac: "other", kind: .question, sessionId: "s", permissionId: "p", action: .option(1, label: "B"))
         #expect(PushReplies.outcome(otherMac) == .open(question))
+        // Nor a reply to another request of the same Mac (review finding 2).
+        var otherRequest = opened
+        var elsewhere = answer
+        elsewhere.permissionId = "another"
+        otherRequest.handover = elsewhere
+        #expect(PushReplies.outcome(otherRequest) == .open(question))
     }
 
     /// PR B security review H1: a push the gate won't trust only opens the app.

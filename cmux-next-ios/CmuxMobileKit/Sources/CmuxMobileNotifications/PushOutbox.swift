@@ -315,9 +315,17 @@ public struct PushHandover: Sendable {
         self.store = store
     }
 
-    /// This build's push keychain group; nil when Info.plist names none.
+    /// This build's push keychain group, under a service of its own so sign-out can clear
+    /// every handover without touching the push keys; nil when Info.plist names none.
     public static func live(bundle: Bundle = .main) -> PushHandover? {
-        PushKeychainStore.current(bundle: bundle).map(PushHandover.init(store:))
+        PushKeychainStore.current(bundle: bundle).map {
+            PushHandover(store: PushKeychainStore(group: $0.group, service: "dev.cmux.mobile.push.handover"))
+        }
+    }
+
+    /// Sign-out: a handover never taken (unlock cancelled, the push no longer trusted) goes too.
+    public func removeAll() {
+        store.deleteAll()
     }
 
     /// The keychain account of the notification `requestID`'s reply.

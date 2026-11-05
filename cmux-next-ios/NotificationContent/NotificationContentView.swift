@@ -69,11 +69,15 @@ final class NotificationContentModel {
     var canHandOver: Bool { outbox != nil || (handover != nil && requestID != nil) }
 
     /// Leaves `reply` for the app: the outbox when the build has the App Group, else the push
-    /// keychain group under this notification's request id.
-    func handOver(_ reply: PushReply) throws {
-        if let outbox { return try outbox.put(reply) }
-        guard let handover, let requestID else { throw PushOutbox.Refused() }
-        try handover.put(reply, requestID: requestID)
+    /// keychain group under this notification's request id. The file or keychain write runs off
+    /// the main thread.
+    func handOver(_ reply: PushReply) async throws {
+        let (outbox, handover, requestID) = (outbox, handover, requestID)
+        try await Task.detached(priority: .userInitiated) {
+            if let outbox { return try outbox.put(reply) }
+            guard let handover, let requestID else { throw PushOutbox.Refused() }
+            try handover.put(reply, requestID: requestID)
+        }.value
     }
 
     /// "+": a reply that takes attachments, in a build that can hand files to the app (the

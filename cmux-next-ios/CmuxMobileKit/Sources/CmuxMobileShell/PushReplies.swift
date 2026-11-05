@@ -150,6 +150,7 @@ public final class PushReplies {
             await snapshotsCleared.value
             let group = await PushAppGroup.resolved(timeout: PushAppGroupResolver.cleanupTimeout)
             PushOutbox(group: group)?.removeAll()
+            PushHandover.live()?.removeAll()
         }
     }
 
@@ -222,7 +223,7 @@ public final class PushReplies {
         guard let payload = response.payload, identifier != UNNotificationDismissActionIdentifier else { return .nothing }
         if identifier == UNNotificationDefaultActionIdentifier {
             // The long look's row, Submit or answer field opened the app with the answer in hand.
-            if let reply = response.handover, response.actionable, reply.mac == payload.mac, !fromOutboxRefused(reply) {
+            if let reply = response.handover, response.actionable, reply.answers(payload), !fromOutboxRefused(reply) {
                 return .foreground(reply, open: payload)
             }
             return .open(payload)

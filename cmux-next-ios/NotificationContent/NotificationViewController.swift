@@ -18,6 +18,7 @@ final class NotificationViewController: UIViewController, @MainActor UNNotificat
     private let model = NotificationContentModel()
     private var host: UIHostingController<NotificationContentView>?
     private var loading: Task<Void, Never>?
+    private var sending: Task<Void, Never>?
     override func viewDidLoad() {
         super.viewDidLoad()
         let host = UIHostingController(rootView: NotificationContentView(model: model))
@@ -93,12 +94,17 @@ final class NotificationViewController: UIViewController, @MainActor UNNotificat
             extensionContext?.performNotificationDefaultAction()
             return
         }
-        do {
-            try model.handOver(reply)
-            model.sent = true
-        } catch {
-            model.failure = String(localized: "Couldn't hand this to cmux. Open the app to answer.")
+        // One reply per long look: a second tap while the first is handed over does nothing.
+        // The write finishes before the app opens: the app takes the reply on that open.
+        guard sending == nil else { return }
+        sending = Task { [weak self, model] in
+            do {
+                try await model.handOver(reply)
+                model.sent = true
+            } catch {
+                model.failure = String(localized: "Couldn't hand this to cmux. Open the app to answer.")
+            }
+            self?.extensionContext?.performNotificationDefaultAction()
         }
-        extensionContext?.performNotificationDefaultAction()
     }
 }
