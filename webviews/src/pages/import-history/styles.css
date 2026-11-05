@@ -108,7 +108,7 @@
 }
 .history-chevron {
   flex: none;
-  transition: rotate var(--cmux-motion-quick, 120ms) var(--cmux-ease-out, ease-out);
+  transition: rotate var(--cmux-motion-quick) var(--cmux-ease-out);
 }
 :root[dir="rtl"] .history-chevron {
   rotate: 180deg;
