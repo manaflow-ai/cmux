@@ -99,6 +99,8 @@ def variants(tools: Path) -> dict[str, dict]:
 
 
 def ensure_nightly(log) -> str | None:
+    if not shutil.which("rustup"):
+        return "no rustup on this host"
     r = subprocess.run(["rustup", "toolchain", "install", NIGHTLY, "--profile", "minimal",
                         "--component", "rustc-codegen-cranelift-preview"], capture_output=True, text=True)
     log(f"rustup install {NIGHTLY}: exit {r.returncode} {r.stderr.strip().splitlines()[-1:]}")
