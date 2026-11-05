@@ -450,6 +450,61 @@ def build_touch(root, name, variant):
     return base
 
 
+# The window-edge films (3e.2): the scan is wider than the window (the capture runs 40 device px past the window's right
+# edge, as on the minis: 2872 px of scan for a 2722 px window), and the desktop beyond shows the wallpaper (DESKTOP:
+# black, a red pixel, gray), as in ab-btl-sw-dbf5c8b px-keys-held-2-sw-keyresizetopleft-on-s1 frame 160.
+#   page-clipped: terminal A | band | page C, C's right edge on the window's right edge. A grows 2 px per sample over
+#     samples 10-29 and C's pane shrinks from the left; while it moves, C's page keeps 6 px more than its pane (anchored
+#     top-left, as with browserResize.keyResizeTopLeft): its ring 3 shows inside the window, rings 2 and 1 are past the
+#     window's edge (not drawn).
+WE_W = 640                  # scan width (device px); the window is W (600) wide
+DESKTOP = [BLACK] * 17 + [(128, 128, 128)] + [RED] + [(128, 128, 128)] * 3 + [BLACK] * 2 + [(128, 128, 128)] * 16
+
+
+def we_frame(k, variant):
+    s = min(max(k - 1, 0), N - 1)
+    aw = a_width(s, "strip")
+    img = np.zeros((H, WE_W, 3), np.uint8)
+    img[:] = MAGENTA
+    draw_tui(img, 0, aw)
+    c_x = int(round(aw)) + DIV_PX
+    c_w = W - c_x
+    late = MOVE[0] <= s < MOVE[1]
+    draw_page(img, c_x, c_w + (6 if late else 0))
+    img[:, W:] = np.array(DESKTOP, np.uint8)[None, :, :]  # past the window's edge: the desktop, never the app
+    return img
+
+
+def build_window_edge(root, name, variant):
+    base = Path(root) / name
+    header = {"width": WE_W, "height": H, "rows": ROWS, "columns": COLS, "format": "BGRA", "time": "float64-le host seconds"}
+    with open(f"{base}.mov.scan", "wb") as out:
+        out.write(json.dumps(header).encode() + b"\n")
+        for k in range(N):
+            px = bgra(we_frame(k, variant))
+            out.write(struct.pack("<d", T0 + k * P))
+            for y in ROWS:
+                out.write(px[y].tobytes())
+            for x in COLS:
+                out.write(px[:, x].tobytes())
+    samples = []
+    for k in range(N):
+        aw = a_width(k, "strip") / SCALE
+        cx = aw + DIV_PX / SCALE
+        a = ["pa", 0, 0, aw, 150, 1, 0, 0, 0, aw, 150, aw, 150, 0, 0, 0, aw, 150]
+        c = ["pc", cx, 0, 300 - cx, 150, 1, 1, cx, 0, 300 - cx, 150, 300 - cx, 150, 0, cx, 0, 300 - cx, 150]
+        samples.append({"t": k * P * 1000, "window": [300, 150], "panes": [a, c],
+                        "dividers": [["d0", aw, 0, DIV_PX / SCALE, 150, 1, 2]], "page": []})
+    Path(f"{base}.trace.json").write_text(json.dumps({"t0_s": T0 - 0.001, "refresh_ms": P * 1000, "samples": samples}))
+    note = {"scale": SCALE, "panes": {"pa": {"kind": "tui", "fill": "#FFFF00", "label": "p0"},
+                                      "pc": {"kind": "page", "fill": "#00FF00", "label": "p1"}},
+            "speed": 1, "reduce": False, "input": "keys", "window_frame": [WINDOW_X, 50, 300, 150], "page_backdrop": False}
+    Path(f"{base}.events.json").write_text(json.dumps({"hid": [], "journal": []}))
+    meta = {"start": {"width": WE_W, "height": H, "scale": SCALE, "rows": ROWS, "columns": COLS}, "notes": {"pixel": note}}
+    Path(f"{base}.meta.json").write_text(json.dumps(meta))
+    return base
+
+
 def bgra(img):
     return np.concatenate((img[..., ::-1], np.full(img.shape[:-1] + (1,), 255, np.uint8)), axis=-1)
 
@@ -1566,6 +1621,41 @@ class TouchingGroundTests(unittest.TestCase):
         self.assertEqual({f: got[f].get("lag") for f in range(16, 19)}, {f: 1 for f in range(16, 19)})
         self.assertEqual(self.touching("page-late", "p0", "hi", range(N)), set())
         self.assertEqual(self.terminal("page-late").get("touch_not_judged", 0), 0)
+
+
+class WindowEdgeTests(unittest.TestCase):
+    """3e.2 (pixel-perfect, 2026-11-04: ab-btl-sw-dbf5c8b px-keys-held-2-sw-keyresizetopleft-on-s1, 38 frames of page E5,
+    rings read [1.0, 0.0, 17.5-23.5] against [2, 4, 6]): the scan runs past the window's right edge (2872 px of scan, a
+    2722 px window), and the walk read the desktop's black beyond the window as the page's ring 3. Pixels past the window's
+    edge are not the app's: no reader takes them. A side whose rings run past the window's edge is clipped: not judged
+    (never a pass), never E5; a side whose rings end on the window's edge is judged as before."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp(prefix="judge-pixel-window-edge-")
+        cls.report = jp.judge(build_window_edge(cls.tmp, "page-clipped", "page-clipped"), all_frames=True)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_the_desktop_past_the_window_is_no_ring(self):
+        page = self.report["m6"]["kinds"]["page"]
+        self.assertEqual(page["fail_by_rule"]["E5"], 0, page)
+        self.assertEqual(self.report["m14"]["kinds"]["page"]["scaled"], 0)
+
+    def test_a_side_clipped_by_the_window_is_not_judged(self):
+        got = entries(self.report, "p1", "row@110", "hi")
+        moving = range(MOVE[0] + 2, MOVE[1])
+        self.assertEqual({f: got.get(f, {}).get("status") for f in moving}, {f: "not found" for f in moving})
+        self.assertEqual({got[f].get("why") for f in moving}, {jp.WINDOW_CLIPPED})
+
+    def test_rings_that_end_on_the_window_edge_are_judged(self):
+        got = entries(self.report, "p1", "row@110", "hi")
+        at_rest = list(range(0, MOVE[0])) + list(range(MOVE[1] + 2, N))
+        self.assertEqual({f: got[f]["status"] for f in at_rest}, {f: "found" for f in at_rest})
+        self.assertEqual({tuple(got[f]["rings"]) for f in at_rest}, {(2.0, 4.0, 6.0)})
+        self.assertEqual(side(self.report, "p1", "row@110", "hi")["off_ranges"], "")
 
 
 TOL_TEST_PX = 1.0
