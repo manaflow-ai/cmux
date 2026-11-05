@@ -65,7 +65,9 @@ fn main() {
     }
 
     swaps(good, v2, trap, spin, live, &mut report);
+    let failed = regressions(good, v2, trap, spin, live, &mut report);
     std::fs::write(out, report.finish()).expect("write report");
+    assert!(failed.is_empty(), "regressions failed: {failed:?}");
 }
 
 /// Swaps under load: a caller thread asks the marker in a loop while the file changes under it.
@@ -242,6 +244,114 @@ fn dist(mut v: Vec<f64>) -> Dist {
     v.sort_by(f64::total_cmp);
     let at = |q: f64| v[((v.len() - 1) as f64 * q) as usize];
     Dist { p50: at(0.5), p99: at(0.99), max: *v.last().unwrap_or(&0.0) }
+}
+
+/// The review follow-ups of #36427, each as a scenario that fails on the code before its fix.
+/// Returns the names of the ones that failed.
+fn regressions(
+    good: &Path,
+    v2: &Path,
+    trap: &Path,
+    spin: &Path,
+    live: &Path,
+    report: &mut serde_free::Obj,
+) -> Vec<&'static str> {
+    let mut failed = Vec::new();
+    let mut check = |name: &'static str, ok: bool, report: &mut serde_free::Obj| {
+        report.num(&format!("regression.{name}"), if ok { 1.0 } else { 0.0 });
+        eprintln!("regression {name}: {}", if ok { "ok" } else { "FAILED" });
+        if !ok {
+            failed.push(name);
+        }
+    };
+
+    // 1. A stale call traps after a newer module went live: the trapped module must not stay the
+    // rollback target. A long-running `spin` call is in flight while `trap` is published; the
+    // spin call then runs out of fuel (stale), and the next call traps in `trap`. The slot must
+    // end on native code, not back on the refused `spin`.
+    {
+        place(spin, live);
+        let options = Options { fuel_per_call: Some(4_000_000_000), ..Options::default() };
+        let slot = HotModule::new(live, options).expect("slot");
+        slot.reload().expect("load spin");
+        let caller = {
+            let slot = slot.clone();
+            std::thread::spawn(move || slot.is_pure_read("ls"))
+        };
+        std::thread::sleep(Duration::from_millis(20));
+        place(trap, live);
+        slot.reload().expect("load trap");
+        let still_running = !caller.is_finished();
+        let stale = caller.join().expect("stale caller");
+        let fresh = slot.is_pure_read("ls");
+        report
+            .num("regression.stale_trap.spin_outlived_publish", f64::from(u8::from(still_running)));
+        check(
+            "stale_trap_rollback",
+            still_running && stale.is_none() && fresh.is_none() && slot.live().is_none(),
+            report,
+        );
+    }
+
+    // 2. The module file does not exist when the slot is made (a daemon started before the first
+    // guest build): the slot still watches, and loads the file once it appears.
+    {
+        let _ = std::fs::remove_file(live);
+        let slot = HotModule::new(live, Options::default());
+        let loaded = match &slot {
+            Ok(slot) => {
+                let _watcher = slot.watch(Duration::from_millis(5)).expect("watcher");
+                place(good, live);
+                wait_for(|| slot.live().is_some(), Duration::from_secs(5))
+            }
+            Err(e) => {
+                eprintln!("regression missing_file_at_start: {e}");
+                false
+            }
+        };
+        check("missing_file_at_start", loaded, report);
+    }
+
+    // 3. A rewrite in place that keeps size, mtime and inode (bytes refused, then a valid module of
+    // the same size with the mtime put back) is still noticed.
+    {
+        place(good, live);
+        let slot = HotModule::new(live, Options::default()).expect("slot");
+        let _watcher = slot.watch(Duration::from_millis(5)).expect("watcher");
+        wait_until(|| slot.live().is_some(), "good live");
+        let v2_bytes = std::fs::read(v2).expect("read v2");
+        let v2_sha = hex::encode(<sha2::Sha256 as sha2::Digest>::digest(&v2_bytes));
+        let when = std::time::SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        let rewrite = |bytes: &[u8]| {
+            use std::io::Write as _;
+            let mut f = std::fs::OpenOptions::new()
+                .write(true)
+                .truncate(true)
+                .open(live)
+                .expect("open live");
+            f.write_all(bytes).expect("rewrite live");
+            f.set_modified(when).expect("set mtime");
+        };
+        let refused = slot.stats().refused;
+        rewrite(&vec![0u8; v2_bytes.len()]);
+        let saw_junk = wait_for(|| slot.stats().refused > refused, Duration::from_secs(5));
+        rewrite(&v2_bytes);
+        let swapped =
+            wait_for(|| slot.live().as_deref() == Some(v2_sha.as_str()), Duration::from_secs(3));
+        check("rewrite_keeping_metadata", saw_junk && swapped, report);
+    }
+    failed
+}
+
+fn wait_for(mut done: impl FnMut() -> bool, within: Duration) -> bool {
+    let deadline = Instant::now() + within;
+    while !done() {
+        if Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(Duration::from_micros(500));
+    }
+    true
 }
 
 fn place(from: &Path, live: &Path) {
