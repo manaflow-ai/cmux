@@ -31,8 +31,21 @@ public import Foundation
 @MainActor
 public final class AgentPaneTailCache {
     public static let shared = AgentPaneTailCache()
-    /// The disk tier; nil keeps tails in memory only (a test host, the gallery).
-    public var disk: AgentPaneTailDisk?
+    /// The disk tier; nil keeps tails in memory only (a test host, the gallery). Unless set, it is
+    /// the `agent-chat-tails` folder beside the app's other agent-pane state files (the launch
+    /// snapshot's folder, where ``AgentPaneScrollAnchors`` keeps where each chat rests), made on
+    /// first use, once the app has made that store.
+    public var disk: AgentPaneTailDisk? {
+        get {
+            if let configuredDisk { return configuredDisk }
+            guard let anchors = AgentPaneScrollAnchors.shared else { return nil }
+            let disk = anchors.file.map { AgentPaneTailDisk(directory: $0.deletingLastPathComponent().appending(path: "agent-chat-tails")) }
+            configuredDisk = .some(disk)
+            return disk
+        }
+        set { configuredDisk = .some(newValue) }
+    }
+    private var configuredDisk: AgentPaneTailDisk??
     /// Chats whose tail is kept, as the page keeps the same number.
     public nonisolated static let chats = 20
     /// Most records one chat's tail may carry, as many as an attach page holds. A tail over this
@@ -73,6 +86,7 @@ public final class AgentPaneTailCache {
         guard acceptsTails else { return }
         let held = tail.flatMap { Self.holds($0) ? $0 : nil }
         hold(held, for: sessionId)
+        disk?.write(held, for: sessionId)
     }
 
     /// Keeps `tail` in memory only: what the disk tier read back, which it already holds.
@@ -88,8 +102,7 @@ public final class AgentPaneTailCache {
     func diskTail(for sessionId: String) async -> JSONValue? {
         guard let disk, acceptsTails else { return nil }
         let generation = generation
-        let read: JSONValue? = nil
-        _ = disk
+        let read = await disk.read(sessionId)
         guard let read, generation == self.generation, acceptsTails else { return nil }
         if let kept = tail(for: sessionId) { return kept }
         hold(read, for: sessionId)
@@ -117,6 +130,7 @@ public final class AgentPaneTailCache {
         generation &+= 1
         acceptsTails = false
         entries.removeAll()
+        disk?.clear()
     }
 
     /// A new signed-in lifecycle may hand tails to the host again.

@@ -40,9 +40,75 @@ public nonisolated final class AgentPaneTailDisk: Sendable {
         return directory.appending(path: "\(digest).json")
     }
 
-    /// Red stub: keeps nothing.
-    public func write(_ tail: JSONValue?, for sessionId: String) {}
-    public func read(_ sessionId: String) async -> JSONValue? { nil }
-    public func clear() {}
-    public func settled() async {}
+    /// Saves `tail` for `sessionId` off the main thread; nil removes its file.
+    public func write(_ tail: JSONValue?, for sessionId: String) {
+        let file = url(for: sessionId)
+        let name = file.lastPathComponent
+        let number = counter.withLock { $0 += 1; return $0 }
+        newest.withLock { $0[name] = number }
+        queue.async { [self] in
+            guard newest.withLock({ $0[name] == number }) else { return }
+            newest.withLock { if $0[name] == number { $0[name] = nil } }
+            guard let tail else {
+                try? FileManager.checked.removeItem(at: file)
+                return
+            }
+            var text = ""
+            tail.appendCompactText(to: &text)
+            let data = Data(text.utf8)
+            guard data.count <= limitBytes else {
+                try? FileManager.checked.removeItem(at: file)
+                return
+            }
+            try? FileManager.checked.createDirectory(at: directory, withIntermediateDirectories: true)
+            try? data.blockingWrite(to: file, options: .atomic)
+            trim()
+        }
+    }
+
+    /// The tail kept for `sessionId` once the saves queued before this call have run; nil when
+    /// there is none, or the file is over the bound or is no tail.
+    public func read(_ sessionId: String) async -> JSONValue? {
+        let file = url(for: sessionId)
+        let limit = limitBytes
+        return await withCheckedContinuation { (done: CheckedContinuation<JSONValue?, Never>) in
+            queue.async {
+                done.resume(returning: Self.load(file, limit: limit))
+            }
+        }
+    }
+
+    /// Removes every kept tail, after the saves queued before this call.
+    public func clear() {
+        newest.withLock { $0.removeAll() }
+        queue.async { [directory] in try? FileManager.checked.removeItem(at: directory) }
+    }
+
+    /// Returns, holding no thread, once the work queued before this call has run.
+    public func settled() async {
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in queue.async { done.resume() } }
+    }
+
+    private static func load(_ file: URL, limit: Int) -> JSONValue? {
+        let size = (try? file.blockingResourceValues(forKeys: [.fileSizeKey]))?.fileSize
+        guard let size else { return nil }
+        guard size <= limit, let data = try? Data(blockingContentsOf: file),
+              let tail = try? JSONDecoder().decode(JSONValue.self, from: data), AgentPaneTailCache.holds(tail)
+        else {
+            try? FileManager.checked.removeItem(at: file)
+            return nil
+        }
+        return tail
+    }
+
+    /// Keeps the newest ``limitFiles`` files, by modification date. On the queue only.
+    private func trim() {
+        let keys: [URLResourceKey] = [.contentModificationDateKey]
+        guard let files = try? FileManager.checked.contentsOfDirectory(at: directory, includingPropertiesForKeys: keys),
+              files.count > limitFiles else { return }
+        let dated = files.map { ($0, (try? $0.blockingResourceValues(forKeys: Set(keys)))?.contentModificationDate ?? .distantPast) }
+        for (file, _) in dated.sorted(by: { $0.1 > $1.1 }).dropFirst(limitFiles) {
+            try? FileManager.checked.removeItem(at: file)
+        }
+    }
 }
