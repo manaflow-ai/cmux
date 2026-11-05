@@ -437,7 +437,7 @@ impl Hub {
                     r.cloud_mobile |= cloud_mobile;
                     self.handoffs.put(&r)?;
                 }
-                return self.handoff_deliver(r, true).await;
+                return self.handoff_deliver(r, true, sender).await;
             }
             State::Draft => {}
         }
@@ -470,7 +470,7 @@ impl Hub {
         // Recorded before the send, so a lost reply or a restart is
         // reconciled by promptId instead of sent again.
         self.handoffs.put(&r)?;
-        self.handoff_deliver(r, false).await
+        self.handoff_deliver(r, false, sender).await
     }
 
     /// `_acpmux/handoff_discard`: close the never-prompted target. The
@@ -534,6 +534,7 @@ impl Hub {
         self: &Arc<Self>,
         mut r: Record,
         retry: bool,
+        sender: Option<crate::prompt_provenance::HandoffSender>,
     ) -> Result<Value, RpcError> {
         let prompt_id = r.prompt_id.clone().unwrap_or_else(|| r.handoff_id.clone());
         let target = self.resolve(&r.target.session_id)?;

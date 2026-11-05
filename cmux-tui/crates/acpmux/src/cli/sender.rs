@@ -166,6 +166,6 @@ mod tests {
     #[test]
     fn an_agent_in_a_session_is_proven_by_its_token_not_named() {
         let inside = [("ACPMUX_SESSION_ID", "s1"), ("ACPMUX_SESSION_TOKEN", "t"), (FROM_ENV, "x")];
-        assert_eq!(implicit(env(&inside)), None);
+        assert_eq!(implicit(env(&inside), || "workstation".to_owned()), None);
     }
 }
