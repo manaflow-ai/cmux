@@ -32,6 +32,21 @@ struct CloudStartSessionFolderTests {
         #expect(try CloudStartSession.fromFolder(CloudStartSessionTests.invocation([:], origin: .mcp), cwd: nil, home: Self.home) == nil)
     }
 
+    /// Only this Mac's own CLI or the person's own run names a folder to copy: a socket caller claiming another
+    /// client (`remote`), a script or a page copies nothing, though no remote path reaches `action.run` today.
+    @Test func onlyThisMacsCLIOrThePersonCopiesAFolder() throws {
+        for origin in [ActionOrigin.remote, .script, .page] {
+            #expect(throws: ActionFailure(message: CloudStartSessionStrings.fromFolderAgent)) {
+                try CloudStartSession.fromFolder(CloudStartSessionTests.invocation(["fromFolder": .string("/Users/me/code/app")], origin: origin),
+                                                 cwd: nil, home: Self.home)
+            }
+        }
+        for origin in [ActionOrigin.cli, .user] {
+            let invocation = CloudStartSessionTests.invocation(["fromFolder": .string("/Users/me/code/app")], origin: origin)
+            #expect(try CloudStartSession.fromFolder(invocation, cwd: nil, home: Self.home) == "/Users/me/code/app")
+        }
+    }
+
     /// The copy waits on the machine's owner answer: a machine whose link has not said this account owns it (a
     /// teammate's, or no link yet) is not one a Mac folder goes to, so it would keep no copy after refusing the chat.
     @Test func aMachineNotSaidToBeTheAccountsOwnGetsNoCopy() async {
