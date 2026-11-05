@@ -296,8 +296,6 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         return last.size != size || last.pointer != pointer || previousPointer != pointer || pointer == nil
     }
 
-    /// Complete frames ``delivers(dirtyRectCount:size:pointer:last:previousPointer:)`` held
-    /// back since the last call (the host's 3 s video log line).
     /// The newest frame held back since the last one sent, once.
     public func takeHeldFrame() -> (CVPixelBuffer, CGRect)? {
         lock.withLock {
@@ -306,6 +304,8 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         }
     }
 
+    /// Complete frames ``delivers(dirtyRectCount:size:pointer:last:previousPointer:)`` held
+    /// back since the last call (the host's 3 s video log line).
     public func takeSkippedUnchangedFrames() -> Int {
         lock.withLock {
             defer { skippedUnchanged = 0 }
