@@ -26079,133 +26079,266 @@
         }
       }
     },
-    "handlers.refusal.agentRemoteStart.hostMismatch": {
+    "handlers.refusal.agentRemoteStart.belongsTo": {
+      "comment": "A chat tab whose record names another machine than the one listing it; %@ is the machine the chat belongs to.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This chat belongs to another machine, so it does not run here."
+            "value": "This chat belongs to %@, so it does not run on this Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このチャットは別のマシンのものなので、ここでは実行されません。"
+            "value": "このチャットは %@ のものなので、この Mac では実行されません。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تنتمي هذه الدردشة إلى جهاز آخر، لذا لا تعمل هنا."
+            "value": "تنتمي هذه الدردشة إلى %@، لذا لا تعمل على جهاز Mac هذا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ovaj chat pripada drugoj mašini, pa se ne pokreće ovdje."
+            "value": "Ovaj chat pripada mašini %@, pa se ne pokreće na ovom Macu."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne chat hører til en anden maskine, så den kører ikke her."
+            "value": "Denne chat hører til %@, så den kører ikke på denne Mac."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dieser Chat gehört zu einem anderen Rechner und läuft daher nicht hier."
+            "value": "Dieser Chat gehört zu %@ und läuft daher nicht auf diesem Mac."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Este chat pertenece a otra máquina, así que no se ejecuta aquí."
+            "value": "Este chat pertenece a %@, así que no se ejecuta en este Mac."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cette discussion appartient à une autre machine ; elle ne s’exécute donc pas ici."
+            "value": "Cette discussion appartient à %@, elle ne s’exécute donc pas sur ce Mac."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Questa chat appartiene a un’altra macchina, quindi non viene eseguita qui."
+            "value": "Questa chat appartiene a %@, quindi non viene eseguita su questo Mac."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ការជជែកនេះជារបស់ម៉ាស៊ីនផ្សេង ដូច្នេះវាមិនដំណើរការនៅទីនេះទេ។"
+            "value": "ការជជែកនេះជារបស់ %@ ដូច្នេះវាមិនដំណើរការលើ Mac នេះទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이 채팅은 다른 컴퓨터의 것이므로 여기서 실행되지 않습니다."
+            "value": "이 채팅은 %@에 속하므로 이 Mac에서 실행되지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne chatten tilhører en annen maskin, så den kjører ikke her."
+            "value": "Denne chatten tilhører %@, så den kjører ikke på denne Macen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ten czat należy do innej maszyny, więc nie działa tutaj."
+            "value": "Ten czat należy do %@, więc nie działa na tym Macu."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Este chat pertence a outra máquina, então não é executado aqui."
+            "value": "Este chat pertence a %@, então não é executado neste Mac."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Этот чат принадлежит другой машине, поэтому здесь он не запускается."
+            "value": "Этот чат принадлежит %@, поэтому он не запускается на этом Mac."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "แชทนี้เป็นของเครื่องอื่น จึงไม่ทำงานที่นี่"
+            "value": "แชทนี้เป็นของ %@ จึงไม่ทำงานบน Mac เครื่องนี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bu sohbet başka bir makineye ait, bu yüzden burada çalışmaz."
+            "value": "Bu sohbet %@ makinesine ait, bu yüzden bu Mac'te çalışmaz."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Цей чат належить іншій машині, тому тут він не запускається."
+            "value": "Цей чат належить %@, тому він не запускається на цьому Mac."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cuộc trò chuyện này thuộc về máy khác, nên không chạy ở đây."
+            "value": "Cuộc trò chuyện này thuộc về %@, nên nó không chạy trên máy Mac này."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此聊天属于另一台机器，因此不会在这里运行。"
+            "value": "此聊天属于 %@，因此不会在这台 Mac 上运行。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此聊天屬於另一台機器，因此不會在這裡執行。"
+            "value": "此聊天屬於 %@，因此不會在這台 Mac 上執行。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.agentRemoteStart.listedElsewhere": {
+      "comment": "A chat tab of this Mac listed in another machine's workspace; %@ is that machine.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This chat belongs to this Mac, so it does not run on %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットはこの Mac のものなので、%@ では実行されません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تنتمي هذه الدردشة إلى جهاز Mac هذا، لذا لا تعمل على %@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj chat pripada ovom Macu, pa se ne pokreće na mašini %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne chat hører til denne Mac, så den kører ikke på %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Chat gehört zu diesem Mac und läuft daher nicht auf %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este chat pertenece a este Mac, así que no se ejecuta en %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette discussion appartient à ce Mac, elle ne s’exécute donc pas sur %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa chat appartiene a questo Mac, quindi non viene eseguita su %@."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការជជែកនេះជារបស់ Mac នេះ ដូច្នេះវាមិនដំណើរការលើ %@ ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 채팅은 이 Mac에 속하므로 %@에서 실행되지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne chatten tilhører denne Macen, så den kjører ikke på %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten czat należy do tego Maca, więc nie działa na %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este chat pertence a este Mac, então não é executado em %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот чат принадлежит этому Mac, поэтому он не запускается на %@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แชทนี้เป็นของ Mac เครื่องนี้ จึงไม่ทำงานบน %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sohbet bu Mac'e ait, bu yüzden %@ üzerinde çalışmaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей чат належить цьому Mac, тому він не запускається на %@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuộc trò chuyện này thuộc về máy Mac này, nên nó không chạy trên %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此聊天属于这台 Mac，因此不会在 %@ 上运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此聊天屬於這台 Mac，因此不會在 %@ 上執行。"
           }
         }
       }

@@ -55,6 +55,15 @@ OWNED_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNN
 # The notarization recovery's own owned pick (find-nightly-next-recovery), then the nightly build pool.
 RECOVERY_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}"
 RECOVERY_JOBS = {"recover-nightly-next-notarization", "verify-recovered-nightly-next"}
+# The secret-bearing jobs end on the signer's label alone (a trusted-only mini that runs no pull request job), never a
+# label they share with nightly builds or PR side lanes.
+SIGNING_FALLBACK = "|| 'glaeda-trusted-next-signing' }}"
+SECRET_JOBS = {"sign-nightly-identity-legacy", "generate-nightly-deltas", "build-sign-notarize-nightly",
+               "recover-nightly-next-notarization"}
+
+
+def owned_fallback(name: str) -> str:
+    return SIGNING_FALLBACK if name in SECRET_JOBS else RECOVERY_FALLBACK if name in RECOVERY_JOBS else OWNED_FALLBACK
 # Each picker's re-run label, the other Blacksmith macOS 26 size.
 ALTERNATES = {
     "needs.pick-nightly-sign-runner.outputs.runner": "needs.pick-nightly-sign-runner.outputs.alternate",
@@ -464,7 +473,7 @@ class Workflow(unittest.TestCase):
                 runs_on = str(jobs[name]["runs-on"])
                 self.assertNotIn(picked, runs_on)
                 self.assertNotIn(ALTERNATES[picked], runs_on)
-                self.assertTrue(runs_on.endswith(RECOVERY_FALLBACK if name in RECOVERY_JOBS else OWNED_FALLBACK), runs_on)
+                self.assertTrue(runs_on.endswith(owned_fallback(name)), runs_on)
                 self.assertIn(name, OWNED_ONLY_JOBS)
 
     def test_owned_only_jobs_never_name_blacksmith(self) -> None:
@@ -472,7 +481,7 @@ class Workflow(unittest.TestCase):
         for name in OWNED_ONLY_JOBS:
             with self.subTest(job=name):
                 runs_on = str(jobs[name]["runs-on"])
-                self.assertTrue(runs_on.endswith(RECOVERY_FALLBACK if name in RECOVERY_JOBS else OWNED_FALLBACK), runs_on)
+                self.assertTrue(runs_on.endswith(owned_fallback(name)), runs_on)
                 self.assertNotIn("blacksmith", runs_on)
                 self.assertNotIn("RUNNER_POOLS", runs_on)
                 self.assertNotIn("MACOS_RUNNER", runs_on)
