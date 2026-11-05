@@ -22,9 +22,10 @@ public final class ImportHistoryPageProvider: PageProvider {
     public var anchor: () -> NSWindow? = { nil }
     public var restart: () -> Void = {}
     public var finish: (Bool) -> Void = { _ in }
-    /// A line under the sources about another tool's import (Import from Conductor's, with its
-    /// deadline), nil for none. Called off the main thread each time the page detects its sources.
-    public var notice: (@Sendable () -> String?)?
+    /// A line under the sources about another tool's import (Import from Conductor's), and when it
+    /// ends (its deadline: the page drops it then, with no new detection); nil for none. Called off
+    /// the main thread each time the page detects its sources.
+    public var notice: (@Sendable () -> (text: String, until: Date)?)?
 
     public init(muxHome: String, personOnlyMessage: String, run: @escaping Run) {
         command = MemoryImportCommand(target: .local(muxHome: muxHome))
@@ -64,7 +65,8 @@ public final class ImportHistoryPageProvider: PageProvider {
                 ["source": source["source"] ?? .null, "kind": source["kind"] ?? .null,
                  "path": source["path"] ?? .null, "items": source["count"] ?? .null,
                  "bytes": source["bytes"] ?? .null]
-            }), "notice": line.map { JSONValue.string($0) } ?? .null]
+            }), "notice": line.map { JSONValue.string($0.text) } ?? .null,
+               "noticeUntil": line.map { JSONValue.number(($0.until.timeIntervalSince1970 * 1000).rounded()) } ?? .null]
         case "cmux.importHistory.begin":
             try requireGesture(context)
             guard !busy, let id = params["batch"]?.stringValue, !id.isEmpty else {
@@ -182,7 +184,7 @@ public final class ImportHistoryPageProvider: PageProvider {
         spentGesture = event
     }
 
-    private nonisolated static func line(_ notice: (@Sendable () -> String?)?) async -> String? {
+    private nonisolated static func line(_ notice: (@Sendable () -> (text: String, until: Date)?)?) async -> (text: String, until: Date)? {
         guard let notice else { return nil }
         // task-owner: one off-main folder listing per detection, awaited here
         return await Task.detached(priority: .utility) { notice() }.value
