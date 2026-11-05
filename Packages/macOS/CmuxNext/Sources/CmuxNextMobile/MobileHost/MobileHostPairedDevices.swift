@@ -76,6 +76,16 @@ public struct MobileHostPairedDevice: Sendable, Equatable, Codable, Identifiable
         transport = try values.decodeIfPresent(Transport.self, forKey: .transport) ?? .hostd
     }
 
+    /// The same device with the same keys.
+    public func sameKeys(as other: MobileHostPairedDevice) -> Bool {
+        transport == other.transport && id == other.id && identityKey == other.identityKey && approvalKey == other.approvalKey
+    }
+
+    /// The request that allowed this device (its name and keys), to allow it again in another list.
+    public var request: MobileHostPairRequest {
+        MobileHostPairRequest(phoneDeviceID: id, name: name, identityKey: identityKey, approvalKey: approvalKey, transport: transport)
+    }
+
     /// The first 8 bytes of the approval key's SHA-256 as hex, as acpmux lists it.
     public var fingerprint: String { MobileHostPairedDevices.fingerprint(transport == .hostd ? approvalKey : identityKey) }
 }
@@ -393,6 +403,14 @@ public final class MobileHostPairedDevicesFile: Sendable {
     /// phone: each pairs again, which the person approves.
     public func load(userID: String) -> MobileHostPairedDevices {
         read(userID: userID) ?? MobileHostPairedDevices(userID: userID)
+    }
+
+    /// The stored list of `userID` as the file says, without its seal: never trusted, only consulted to
+    /// decide what a run whose seal is refused must write (``MobileHostPairedStore``).
+    func unsealed(userID: String) -> MobileHostPairedDevices? {
+        guard let data = try? Data(contentsOf: file),
+              let stored = try? JSONDecoder().decode(MobileHostPairedDevices.self, from: data), stored.userID == userID else { return nil }
+        return stored
     }
 
     /// ``load(userID:)``, or nil when a stored list exists and the Keychain refused to read its seal:

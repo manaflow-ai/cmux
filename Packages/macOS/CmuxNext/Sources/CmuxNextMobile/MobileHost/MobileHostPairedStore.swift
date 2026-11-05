@@ -41,7 +41,8 @@ public final class MobileHostPairedStore: Sendable {
         var refusedReads = 0
         /// The seal stayed unreadable past the waits (``sealWaits``): this generation's list starts empty
         /// and its changes live in memory only, so the stored list and its seal stay as they were and
-        /// count again at the next launch whose Keychain answers. A removal is still written (fail closed).
+        /// count again at the next launch whose Keychain answers. A Don't Allow, new keys or a removal is
+        /// still written (fail closed), which costs every stored phone one Allow at the next launch.
         var memoryOnly = false
         /// The wait before the next read of a refused seal.
         var sealRetry: Task<Void, Never>?
@@ -50,7 +51,7 @@ public final class MobileHostPairedStore: Sendable {
     private let state = Mutex(State())
     /// Waits between reads of a seal the Keychain refuses (about 30 s in all), then the list starts empty
     /// in memory (``State/memoryOnly``). Until then no phone is trusted and none is asked about.
-    static let sealWaits: [Duration] = [.seconds(1), .seconds(2), .seconds(4), .seconds(8), .seconds(15)]
+    public static let sealWaits: [Duration] = [.seconds(1), .seconds(2), .seconds(4), .seconds(8), .seconds(15)]
     private let clock: any Clock<Duration>
     /// The seal of the list in an account folder whose parent is named for the bundle id.
     private let seal: @Sendable (_ bundleID: String) -> any MobileHostPairingSealStore
@@ -106,8 +107,10 @@ public final class MobileHostPairedStore: Sendable {
             state.revision &+= 1
             state.removals = [:]
             Self.endSealWait(&state)
-            state.list = state.list.map { _ in MobileHostPairedDevices(userID: user) }
-            return (Change(list: state.list, removed: removed, generation: state.generation), state.observers)
+            // No list until the account is selected again: nothing is trusted, asked about or allowed while
+            // the sign-out runs (an Allow then would outlive it).
+            state.list = nil
+            return (Change(list: nil, removed: removed, generation: state.generation), state.observers)
         }
         notify(event)
     }
@@ -149,9 +152,18 @@ public final class MobileHostPairedStore: Sendable {
     }
 
     public func reload() async {
+        await read(retry: false)
+    }
+
+    /// Reads the selected account's list. `retry`: the pending wait for a refused seal ended; any other
+    /// read while that wait is pending is left to it, so one refusal never starts two chains of waits.
+    private func read(retry: Bool) async {
         await withCheckedContinuation { continuation in
             state.withLock { state in
                 guard let file = state.file, let user = state.userID else {
+                    continuation.resume(); return
+                }
+                if retry { state.sealRetry = nil } else if state.sealRetry != nil {
                     continuation.resume(); return
                 }
                 let selected = state.generation
@@ -160,16 +172,17 @@ public final class MobileHostPairedStore: Sendable {
                         sealRefused(generation: selected, user: user)
                         continuation.resume(); return
                     }
-                    self.state.withLock { state in
-                        // The Keychain answers: the stored list counts again, and saves go to disk.
-                        if state.generation == selected { state.refusedReads = 0; state.memoryOnly = false }
+                    // The Keychain answers: the stored list counts again, and saves go to disk. An Allow
+                    // given while it refused (memory only) joins the stored list now.
+                    let (removals, remembered) = self.state.withLock { state -> ([Removal: RemovalMarker], [MobileHostPairedDevice]) in
+                        guard state.generation == selected else { return ([:], []) }
+                        defer { state.refusedReads = 0; state.memoryOnly = false }
+                        return (state.removals, state.memoryOnly ? state.list?.devices ?? [] : [])
                     }
-                    let removals = self.state.withLock { state in
-                        state.generation == selected ? state.removals : [:]
-                    }
+                    for device in remembered { list.approve(device.request, at: device.pairedAt) }
                     for removal in removals.keys { list.remove(removal.id, transport: removal.transport) }
                     // Even an empty/untrusted load must replace its seal after a removal.
-                    if !removals.isEmpty {
+                    if !removals.isEmpty || !remembered.isEmpty {
                         do { try file.save(list) }
                         catch { continuation.resume(); return }
                     }
@@ -186,6 +199,10 @@ public final class MobileHostPairedStore: Sendable {
     private func sealRefused(generation: UInt64, user: String) {
         let event = state.withLock { state -> (Change, [@Sendable (Change) -> Void])? in
             guard state.generation == generation, state.userID == user, !state.memoryOnly else { return nil }
+            // A list this run already read with its seal stays in force: a later read the Keychain
+            // refuses (a same-account update) says nothing new about it.
+            guard state.list == nil else { return nil }
+            state.sealRetry?.cancel()
             if state.refusedReads < Self.sealWaits.count {
                 let wait = Self.sealWaits[state.refusedReads]
                 state.refusedReads += 1
@@ -195,7 +212,7 @@ public final class MobileHostPairedStore: Sendable {
                     var backoff = Backoff(initial: wait, maximum: wait, jitter: 0)
                     // concurrency-allow: Backoff.wait is an async sleep after a failure (a refused Keychain read), not a blocking wait.
                     do { try await backoff.wait(owner: "iphone-host.pairing-seal", clock: clock) } catch { return }
-                    await self?.reload()
+                    await self?.read(retry: true)
                 }
                 return nil
             }
@@ -209,6 +226,24 @@ public final class MobileHostPairedStore: Sendable {
             return (Change(list: list, removed: [], generation: generation), state.observers)
         }
         notify(event)
+    }
+
+    /// Whether `next` only allows phones beyond `current` that the stored list (read without its seal,
+    /// only to decide this) does not hold with other keys: such an edit may live in memory while the seal
+    /// is refused. A Don't Allow, a removal or a phone's new keys is written (fail closed): kept in memory,
+    /// the stored list would trust the refused or replaced keys again at the next launch.
+    static func onlyAllows(from current: MobileHostPairedDevices, to next: MobileHostPairedDevices,
+                           stored: MobileHostPairedDevices?) -> Bool {
+        guard next.denied == current.denied else { return false }
+        let key = { (device: MobileHostPairedDevice) in "\(device.transport.rawValue)\u{0}\(device.id)" }
+        let before = Dictionary(current.devices.map { (key($0), $0) }) { $1 }
+        let after = Dictionary(next.devices.map { (key($0), $0) }) { $1 }
+        let kept = Dictionary((stored?.devices ?? []).map { (key($0), $0) }) { $1 }
+        for (id, device) in before where after[id]?.sameKeys(as: device) != true { return false }
+        for (id, device) in after where before[id] == nil {
+            if let old = kept[id], !old.sameKeys(as: device) { return false }
+        }
+        return true
     }
 
     /// A marker is installed before the read finishes; persistence is queued before this
@@ -288,7 +323,13 @@ public final class MobileHostPairedStore: Sendable {
                     }
                     // While the seal is unreadable this run's answers stay in memory (``State/memoryOnly``).
                     let memoryOnly = self.state.withLock { $0.generation == selected && $0.memoryOnly }
-                    if !memoryOnly { try file.save(persisted) }
+                    if !memoryOnly {
+                        try file.save(persisted)
+                    } else if !Self.onlyAllows(from: current, to: persisted, stored: file.unsealed(userID: user)) {
+                        // Written without a seal the Keychain takes: the next launch trusts no stored phone
+                        // (fail closed), and this run goes on with the edit.
+                        do { try file.save(persisted) } catch MobileHostPairingSealError.keychainRefused {}
+                    }
                     publish(persisted, generation: selected, completed: completed)
                     guard self.generation == selected else { throw CocoaError(.userCancelled) }
                     done(nil)

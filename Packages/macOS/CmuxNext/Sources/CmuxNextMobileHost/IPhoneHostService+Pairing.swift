@@ -56,6 +56,10 @@ extension IPhoneHostService {
     /// them: signing in again must not ask the person to allow every phone again.
     public func signOutStarted() {
         pairedStore.forgetForSignOut()
+        // A prompt still open would allow its phone after the forget.
+        resetPrompts()
+        paired = nil
+        pushPaired()
     }
 
     /// Settings > Mobile: forget a phone. Its live links end now, its next link asks
