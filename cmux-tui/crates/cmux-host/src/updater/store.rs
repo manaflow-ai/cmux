@@ -83,7 +83,7 @@ pub fn sha256_file(path: &Path) -> io::Result<String> {
         if n == 0 {
             break;
         }
-        hasher.update(&buf[..n]);
+        hasher.update(buf.get(..n).unwrap_or_default());
     }
     Ok(hasher.finalize().iter().map(|b| format!("{b:02x}")).collect())
 }

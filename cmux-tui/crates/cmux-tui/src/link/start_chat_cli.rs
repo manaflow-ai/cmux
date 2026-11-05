@@ -1219,7 +1219,8 @@ impl StartCopy {
                     };
                 }
                 Err(failure) => {
-                    let next = failure["error_code"] == PERMISSION_DENIED;
+                    let next =
+                        failure.get("error_code").is_some_and(|code| *code == PERMISSION_DENIED);
                     last = failure;
                     // Not this machine's home (an image without the work user): the next root.
                     if !next {

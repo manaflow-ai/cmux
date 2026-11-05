@@ -872,7 +872,9 @@ fn push_inner(
         .filter(|(relative, _)| !previous.files.contains_key(*relative))
         .map(|(_, file)| size(file).unwrap_or(0))
         .fold(0, u64::saturating_add);
-    if let Some(free) = remote.stat(remote_root)?.and_then(|stat| stat["available_bytes"].as_u64())
+    if let Some(free) = remote
+        .stat(remote_root)?
+        .and_then(|stat| stat.get("available_bytes").and_then(serde_json::Value::as_u64))
         && needed > free
     {
         return Err(TooBig { needed, free }.into());

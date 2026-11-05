@@ -337,8 +337,8 @@ fn check_inner(paths: &Paths) -> Outcome {
         "profile {} -> {}: cmux-tui {} ({}); restarting the services",
         plan.from,
         plan.to,
-        &plan.cmux_tui.sha256[..12],
-        &plan.commit[..12]
+        plan.cmux_tui.sha256.get(..12).unwrap_or(&plan.cmux_tui.sha256),
+        plan.commit.get(..12).unwrap_or(&plan.commit)
     ));
     restart_after_flip();
     Outcome::Updating(plan.commit)
