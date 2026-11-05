@@ -58,11 +58,19 @@ test("a relayed message is its sender's card, the label only behind Details", ()
 
 test("the label names the sender when nothing else does", () => {
   const text = relayed(body);
-  // A record with no provenance and a client this page reads nothing from (an older acpmux).
-  expect(incomingPrompt(text, { client: "acpmux" })).toEqual({
+  // An older acpmux's `acpmux send` at a shell, with no provenance.
+  expect(incomingPrompt(text, { client: "acpmux-cli#1@build-box" })).toEqual({
     kind: "message",
     message: { name: "build-box/lane-3", text: body, raw: text },
   });
+});
+
+test("a label the person typed stays their own prompt", () => {
+  const text = relayed(body);
+  // The person's prompt in the pane, or a guest's: no agent provenance, no `acpmux send`.
+  expect(incomingPrompt(text, { client: "acpmux" })).toBeUndefined();
+  expect(incomingPrompt(text, undefined)).toBeUndefined();
+  expect(incomingPrompt(text, { _meta: { provenance: { kind: "user" } }, client: "acpmux" })).toBeUndefined();
 });
 
 test("a signature inside the label still names the sender once", () => {
