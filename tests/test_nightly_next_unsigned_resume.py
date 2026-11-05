@@ -118,6 +118,21 @@ class DecideTests(unittest.TestCase):
         self.assertIn("still running", message)
         self.assertEqual(gh.dispatches, [])
 
+    def test_a_newer_push_run_on_its_way_is_never_jumped_by_a_resume(self):
+        # Run 41995666665 resumed 41976650433 while push run 41982716550 built a newer tip and push
+        # 42001889615 waited behind it: the resume took the nightly mini's builder ahead of both.
+        for status in ("pending", "queued", "in_progress", "waiting"):
+            gh = FakeGitHub()
+            message = decide(gh, [push(NEWER + 1, None, status), push(NEWER)])
+            self.assertIn(f"newer push run https://github.com/o/r/actions/runs/{NEWER + 1}", message)
+            self.assertEqual(gh.dispatches, [], status)
+            self.assertEqual(gh.reads, [], "a resume that would yield costs no reads")
+
+    def test_an_older_push_run_still_going_does_not_hold_a_newer_failed_run(self):
+        gh = FakeGitHub()
+        decide(gh, [push(NEWER), push(NEWER - 1, None, "in_progress")])
+        self.assertEqual(gh.dispatches[0][2]["nightly_next_unsigned_run"], str(NEWER))
+
     def test_capped_resumes_per_run_then_an_older_run_is_tried(self):
         older_but_newer_than_feed = NEWER - 1
         gh = FakeGitHub()
