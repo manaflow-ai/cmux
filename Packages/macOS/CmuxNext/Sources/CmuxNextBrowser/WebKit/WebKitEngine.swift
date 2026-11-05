@@ -35,6 +35,8 @@ public final class WebKitEngine: BrowserEngine {
     private var lowPowerModeObservation: LowPowerModeObservation?
     /// Open tabs, which follow a Low Power Mode change.
     private let openTabs = NSHashTable<WebKitTab>.weakObjects()
+    /// The default profile's next new tab, made at an idle moment (``WebKitSpareTab``).
+    public let spareTab: WebKitSpareTab
     /// The highest rate of a window's display (tests replace it).
     var displayFramesPerSecond: (NSWindow) -> Int = { $0.screen?.maximumFramesPerSecond ?? 60 }
     /// Re-showing a live page after a rate change: nil snapshot takes
@@ -71,6 +73,7 @@ public final class WebKitEngine: BrowserEngine {
     ///     since a test host cannot make an `NSOpenPanel`).
     ///   - stores: The stores both engines share; the App passes its one set, a test ``BrowserSharedStores/inMemory()``.
     ///   - profileStore: The profiles' website data stores; nil builds one over `stores.offTheRecord`.
+    ///   - spareTab: The next new tab made ahead (a test passes one on its own clock).
     public init(
         fileInput: any WebFileInputAnswering,
         stores: BrowserSharedStores,
@@ -78,8 +81,10 @@ public final class WebKitEngine: BrowserEngine {
         faviconLoader: any BrowserFaviconLoading = BrowserFaviconLoader.shared,
         downloadsDirectory: URL = DownloadDestination.defaultDirectory,
         applicationNameForUserAgent: String? = "Version/26.0 Safari/605.1.15",
-        lowPowerMode: LowPowerMode = .system
+        lowPowerMode: LowPowerMode = .system,
+        spareTab: WebKitSpareTab = WebKitSpareTab()
     ) {
+        self.spareTab = spareTab
         self.fileInput = fileInput
         self.stores = stores
         self.profileStore = profileStore ?? WebKitProfileStore(offTheRecord: stores.offTheRecord)
@@ -90,6 +95,7 @@ public final class WebKitEngine: BrowserEngine {
         lowPowerModeObservation = lowPowerMode.observe { [weak self] enabled in
             self?.applyRenderRate(lowPowerMode: enabled)
         }
+        spareTab.make = { [weak self] in self?.makeSpare() }
     }
 
     public func makeTab(_ configuration: BrowserTabConfiguration) async throws -> any BrowserTab {
@@ -115,15 +121,34 @@ public final class WebKitEngine: BrowserEngine {
     }
 
     private func makeTab(unproxied configuration: BrowserTabConfiguration, webViewConfiguration: WKWebViewConfiguration?) -> WebKitTab {
-        let webConfiguration = webViewConfiguration ?? makeConfiguration(for: configuration.profile)
-        prepare(webConfiguration)
-        let tab = WebKitTab(configuration: configuration, webViewConfiguration: webConfiguration, engine: self,
+        let tab: WebKitTab
+        // A page-opened window's view must be made from WebKit's configuration, which links it to its opener.
+        if webViewConfiguration == nil, configuration.profile == .default, let spare = spareTab.take() {
+            spare.adoptSpare(id: configuration.id, zoom: configuration.zoom)
+            // Low Power Mode may have changed while it waited (it was in no open-tab list).
+            applyRenderRate(fullRate: WebKitRenderRate.prefersFullRate(lowPowerMode: lowPowerMode.isEnabled), to: spare)
+            tab = spare
+        } else {
+            if webViewConfiguration == nil { spareTab.noteLikely() }
+            let webConfiguration = webViewConfiguration ?? makeConfiguration(for: configuration.profile)
+            prepare(webConfiguration)
+            tab = WebKitTab(configuration: configuration, webViewConfiguration: webConfiguration, engine: self,
                             openedByPage: webViewConfiguration != nil)
+        }
         openTabs.add(tab)
         if let url = configuration.initialURL {
             tab.load(url)
         }
         return tab
+    }
+
+    /// The spare: the default profile's ordinary new tab with an id no tab has, no page, in no
+    /// open-tab list until a new tab takes it (it follows a Low Power Mode change from then on).
+    private func makeSpare() -> WebKitTab {
+        let configuration = makeConfiguration(for: .default)
+        prepare(configuration)
+        return WebKitTab(configuration: BrowserTabConfiguration(id: .random(), profile: .default),
+                         webViewConfiguration: configuration, engine: self)
     }
 
     /// Every open tab takes the rate for the new Low Power Mode state.

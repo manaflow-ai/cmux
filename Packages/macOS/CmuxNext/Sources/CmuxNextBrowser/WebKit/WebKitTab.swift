@@ -10,7 +10,8 @@ public import WebKit
 @MainActor
 @Observable
 public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing, BrowserCacheBypassingReload {
-    public let id: BrowserTabID
+    /// Set once, by ``adoptSpare(id:zoom:)`` for a tab made ahead (``WebKitSpareTab``), before any page loads.
+    @ObservationIgnored public private(set) var id: BrowserTabID
     public let profileID: BrowserProfileID
     public let engineKind: BrowserEngineKind = .webkit
     public let presentation: BrowserPresentation = .inView
@@ -124,6 +125,13 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing, Br
         if configuration.zoom != 1 {
             setZoom(configuration.zoom)
         }
+    }
+
+    /// A spare (``WebKitSpareTab``) becomes the new tab `id`: it loaded nothing, so no navigation,
+    /// download, history or delegate has seen its made-ahead id.
+    func adoptSpare(id: BrowserTabID, zoom: Double) {
+        self.id = id
+        if zoom != 1 { setZoom(zoom) }
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
