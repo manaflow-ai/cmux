@@ -9,10 +9,11 @@ A drag or a key resize also fails when a terminal does not change size with its 
 2026-11-05): in every frame of the motion, the size the host asks of each shown terminal must be its pane's size.
 `debug.terminal_display` samples each terminal once per frame of its window (``follow``): `held` frames are frames in which
 the host asked another size (a surface held through a drag by `terminalDrag.holdSurface`, or through a key resize's
-spring), `lagging` frames are frames in which the layer still showed another size. Held frames fail the round, and so
-does a terminal shown at the round's start that was never sampled (0 frames: it judged nothing);
-lagging frames are data only (the frame owner keeps a frame for 1-4 refreshes by design; films judge that). A held
-drag used to pass on laid-out views alone (`holds_terminals`, still reported as data): it fails now.
+spring), `lagging` frames are frames in which the layer still showed another size after that frame's commit. A held
+frame fails the round, a lagging one too (frame-owner-s4, 2026-11-05, the m14 contract: a late frame is a failure;
+the frame owner kept the old frame one refresh in every key-spring frame), and so does a terminal shown at the round's
+start that was never sampled (0 frames: it judged nothing). A held drag used to pass on laid-out views alone
+(`holds_terminals`, still reported as data): it fails now.
 """
 
 # A terminal's full rebuilds for a new grid (GhosttyNextKit render counters): `full_resize` when the drawn grid changes
@@ -65,7 +66,8 @@ def _size(pair):
 
 def held_problem(entry, motion):
     """Why the round's terminals did not follow their panes, or None: a terminal held another size than its pane's in
-    some frame, a terminal shown at the start was never sampled (0 frames), or the round has no pane check to judge."""
+    some frame (held), its layer showed another size than its pane's after a frame's commit (lagging), a terminal shown
+    at the start was never sampled (0 frames), or the round has no pane check to judge."""
     checked = entry.get("follow")
     if not checked or not checked.get("terminals"):
         return f"no terminal was checked against its pane in the {motion} (no terminals_followed from debug.terminal_display)"
@@ -78,19 +80,27 @@ def held_problem(entry, motion):
         # Shown at the start but never sampled: its window ticked no frame, or it left its window. It judged nothing.
         found.append(f"{len(unsampled)} of {len(terminals)} terminals were not checked against their pane in the {motion}: "
                      + ", ".join(f"{key} was not sampled (0 frames)" for key in unsampled))
-    held = sorted(((key, t) for key, t in terminals.items() if t.get("held")),
-                  key=lambda item: (-int(item[1]["held"]), item[0]))
-    if not held:
-        return "; ".join(found) or None
+    for kind, verb, what in (("held", "held", "did not change size with their pane"),
+                             ("lagging", "lagged", "showed another size than their pane")):
+        named = _named(terminals, kind, verb)
+        if named:
+            found.append(f"{named[0]} of {len(terminals)} terminals {what} in the {motion}: {named[1]}")
+    return "; ".join(found) or None
+
+
+def _named(terminals, kind, verb):
+    """(count, text) for the terminals with `kind` frames ("held" or "lagging"): the 3 with the most, each with its
+    count of frames and its first sizes; None when no terminal has one."""
+    hits = sorted(((key, t) for key, t in terminals.items() if t.get(kind)), key=lambda item: (-int(item[1][kind]), item[0]))
+    if not hits:
+        return None
     named = []
-    for key, terminal in held[:3]:
+    for key, terminal in hits[:3]:
         first = ", ".join(f"frame {m.get('frame')}: pane {_size(m.get('area'))}, asked {_size(m.get('asked'))}, "
-                          f"shown {_size(m.get('shown'))}" for m in terminal.get("first_held") or [])
-        named.append(f"{key} held {terminal['held']} of {terminal.get('frames')} frames ({first})")
-    more = f"; and {len(held) - 3} more" if len(held) > 3 else ""
-    found.append(f"{len(held)} of {len(terminals)} terminals did not change size with their pane in the {motion}: "
-                 + "; ".join(named) + more)
-    return "; ".join(found)
+                          f"shown {_size(m.get('shown'))}" for m in terminal.get(f"first_{kind}") or [])
+        named.append(f"{key} {verb} {terminal[kind]} of {terminal.get('frames')} frames ({first})")
+    more = f"; and {len(hits) - 3} more" if len(hits) > 3 else ""
+    return len(hits), "; ".join(named) + more
 
 
 def problems(result):
