@@ -20,19 +20,6 @@
       "shot": false
     },
     {
-      "title": "Session Info on",
-      "rpc": {
-        "method": "debug.tunables",
-        "params": {
-          "action": "set",
-          "key": "agent.sessionInfo",
-          "value": true
-        }
-      },
-      "wait": 0.5,
-      "shot": false
-    },
-    {
       "title": "Light appearance",
       "rpc": {
         "method": "debug.appearance",
@@ -112,7 +99,8 @@
           "selector": "[data-quick-action=\"terminal\"]"
         }
       },
-      "wait": 1
+      "wait": 1,
+      "optional": "Terminal takes focus when it opens, so the chat pane may no longer be the focused one"
     },
     {
       "title": "Dark appearance",
@@ -183,7 +171,8 @@
           "selector": "[data-quick-action=\"terminal\"]"
         }
       },
-      "wait": 1
+      "wait": 1,
+      "optional": "Terminal takes focus when it opens, so the chat pane may no longer be the focused one"
     },
     {
       "title": "Back to the system appearance",
