@@ -86,7 +86,7 @@ final class CloudMachineSession {
     /// Resumes this machine through the Resume Machine path
     /// (`CloudService.resumeMachine`), for an attach to a paused machine.
     /// Set by `CloudService`; nil where nothing resumes (some tests).
-    @ObservationIgnored var resumer: (@MainActor (String) async throws -> Void)?
+    @ObservationIgnored var resumer: (@MainActor (String, CloudLinkOrigin) async throws -> Void)?
     /// Reads the machine list again (`CloudService.refresh`); `force` false
     /// skips a list read in the last 30 seconds. Set by `CloudService`; nil in
     /// some tests. The record is read on launch and on activation, so a
@@ -214,10 +214,11 @@ final class CloudMachineSession {
     /// auto-pause parks idle machines, and its link connects once the record
     /// is live (`CloudService.reconcile`). An app link connects as before
     /// (its connect starts a paused machine for a click); a live legacy link
-    /// reconnects by itself, so nothing else changes.
+    /// reconnects by itself, so nothing else changes. A paused app-link machine attached by a script (a
+    /// start, `cmux cloud start-chat`) resumes the same way: its script connect skips a paused machine.
     func attach(origin: CloudLinkOrigin = .user) {
         guard !machine.shownStatus.isChanging else { return }
-        if appLink != nil { return connect(origin: origin) }
+        if appLink != nil, origin == .user || machine.shownStatus != .paused { return connect(origin: origin) }
         // A live legacy machine with no connection: its link may be waiting out a backoff after a
         // failed start (or never started); the attach retries it now instead of doing nothing.
         if machine.shownStatus != .paused {
@@ -231,7 +232,7 @@ final class CloudMachineSession {
         Task {
             defer { resuming = false }
             do {
-                try await resumer(machineID)
+                try await resumer(machineID, origin)
             } catch {
                 guard !disconnected else { return }
                 resumeFailure = CloudStrings.errorText(error)
@@ -239,11 +240,10 @@ final class CloudMachineSession {
             }
             // The resume's refresh connects a record that turned live; a
             // refresh that failed leaves the record paused, so connect here.
-            guard !disconnected, !machine.status.isLive else { return }
             // Keep the raw record paused until reconciliation supplies the live record. The
             // resume mutation may still be pending, and connect() must not be blocked by a
             // synthetic running status that makes the later paused -> running edge disappear.
-            connect()
+            if !disconnected, !machine.status.isLive { connect() }
         }
     }
 
@@ -285,7 +285,7 @@ final class CloudMachineSession {
             }
             // An ended link on a paused machine reads as the pause; a failed
             // connect that was to start it says why (`CloudMachineStageInput`).
-            if machine.status == .paused { resumeFailure = CloudAppLinks.endedMessage(error) }
+            if machine.status == .paused, origin == .user { resumeFailure = CloudAppLinks.endedMessage(error) }
             showEnded(error)
             return
         }
@@ -412,11 +412,11 @@ final class CloudMachineSession {
     }
 
     /// Reads the record again before an attach decides, when it may be
-    /// stale: a legacy machine with no daemon connection that does not read
+    /// stale: a machine with no daemon connection that does not read
     /// paused (the idle auto-pause may have parked it while the app's copy
-    /// still says running).
+    /// still says running), an app link's as much as a legacy one's.
     func refreshIfMaybePaused() async {
-        guard appLink == nil, daemon.connection == nil, machine.status != .paused, !disconnected, let refresher else { return }
+        guard daemon.connection == nil, machine.status != .paused, !disconnected, let refresher else { return }
         await refresher(true)
     }
 
@@ -479,9 +479,10 @@ final class CloudMachineSession {
             legacyLinkFailure = nil
             if machine.status.isLive { retryNow() }
         }
+        var resumed = false // one resume per wait: a start that settles back to paused is the platform's answer
         return await CloudWait.holds(within: limit, redialing: CloudWait.startRedial, redial: {
             let appEnd = appLink != nil && linkEnded != nil && dropRedial.lastEndRedialable && machine.status == .running
-            if appEnd || (link != nil && legacyLinkFailure != nil && machine.status.isLive) { retryNow() }
+            if appEnd || (link != nil && legacyLinkFailure != nil && machine.status.isLive) { retryNow() } else if appLink != nil, machine.status == .paused, !resumed { resumed = true; attach(origin: .script) }
         }) { [daemon] in
             self.resumeFailure != nil || self.legacyLinkFailure?.definitive == true || (daemon.connection != nil && AgentTabStore.registryHost(of: daemon) != nil)
         }

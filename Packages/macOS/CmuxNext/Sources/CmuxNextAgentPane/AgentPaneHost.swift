@@ -36,6 +36,11 @@ public nonisolated protocol AgentPaneHostProviding: Sendable {
     /// handshake starts a new one. Only the host the pane's handshake goes to, only one that
     /// starts its daemon, and only while a lookup waits on it. True when it stopped.
     func restartStuckAcpmux(sessionId: String?) async -> Bool
+    /// The person's click on a request this app's running acpmux lacks (it is older than the app):
+    /// restarts this app's own daemon on the app's build, keeping its chats, and answers the socket of
+    /// the new one. Nil when nothing restarted: no daemon of this host's own, an attached or Chief
+    /// home daemon, or one whose chats would be lost.
+    func restartOutdatedAcpmux(sessionId: String?) async -> String?
     /// The acpmux whose socket is `socket`, for an answer the host gives itself on the person's
     /// behalf (``AgentPaneAskAnswer``): nil when this host's daemon listens elsewhere, or it has none.
     func answerEnvironment(socket: String) async -> AcpmuxEnvironment?
@@ -63,6 +68,9 @@ extension AgentPaneHostProviding {
 
     /// Hosts without a daemon have none to restart.
     public func restartStuckAcpmux(sessionId: String?) async -> Bool { false }
+
+    /// Hosts without a daemon have none to restart.
+    public func restartOutdatedAcpmux(sessionId: String?) async -> String? { nil }
 
     /// Hosts without a daemon answer nothing themselves.
     public func answerEnvironment(socket: String) async -> AcpmuxEnvironment? { nil }
@@ -333,6 +341,32 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         if environment == nil { environment = resolveEnvironment() }
         guard let environment, !environment.isAttached else { return false }
         return await daemonStop.restart(environment)
+    }
+
+    /// Restarts this app's own daemon after a request it lacked, then starts the bundled one (a
+    /// lookup that may start daemons). Only a daemon that keeps its chats across the restart (agent
+    /// hosts or chats on disk, as an update's handoff), never an attached one or the Chief home's.
+    public func restartOutdatedAcpmux(sessionId: String?) async -> String? {
+        guard startsDaemons else { return nil }
+        if environment == nil { environment = resolveEnvironment() }
+        guard let environment, !environment.isAttached,
+              let status = try? await AcpmuxStatusClient.status(socketPath: environment.socketPath),
+              AcpmuxVersionHandoff.keepsItsChats(agentHosts: status.agentHosts, chatsOnDisk: status.chatsOnDisk),
+              let daemon = await daemonStop.daemon(environment), daemons.claimStop(daemon.pid) else { return nil }
+        let pid = daemon.pid
+        Self.logger.info("acpmux \(pid, privacy: .public) lacks a request the app made; restarting it on the app's build")
+        // Gone already (it exited on its own meanwhile) counts as stopped: the bundled one starts below.
+        let stopped = daemonStop.terminate(daemon) ? await AgentPaneProcessExit(pid: pid).event(within: .seconds(15)) : !agentPaneProcessIsRunning(pid)
+        daemons.endStop(pid)
+        guard stopped else { return nil }
+        // A lookup another pane started before the stop waits on the old daemon and fails with it:
+        // let it settle, then look up again, which starts the bundled daemon.
+        if let old = inFlight[true] {
+            _ = await old.result
+            if inFlight[true] == old { inFlight[true] = nil }
+        }
+        guard (try? await endpoint(startsDaemon: true)) != nil else { return nil }
+        return environment.socketPath
     }
 
     /// This host's own daemon, only when `socket` is its socket: the Chief home's host answers for

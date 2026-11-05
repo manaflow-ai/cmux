@@ -165,7 +165,7 @@
 {"file":"agent-session/acpmux/conversation/conversation.css","kind":"spacing","property":"padding-bottom","values":{"var(--cv-th-pad-bottom, 1.75px)":1}}
 {"file":"agent-session/acpmux/conversation/conversation.css","kind":"spacing","property":"padding-inline","values":{"18px 4px":1,"0 2px":1,"6px":1}}
 {"file":"agent-session/acpmux/conversation/conversation.css","kind":"spacing","property":"padding-left","values":{"var(--cv-list-indent, 28px)":2,"22px":1,"21px":1,"20px":1}}
-{"file":"agent-session/acpmux/conversation/conversation.css","kind":"spacing","property":"padding-right","values":{"10px":1,"2px":1}}
+{"file":"agent-session/acpmux/conversation/conversation.css","kind":"spacing","property":"padding-right","values":{"2px":1}}
 {"file":"agent-session/acpmux/conversation/conversation.css","kind":"spacing","property":"padding-top","values":{"var(--cv-th-pad-top, 11px)":1,"10px":1,"3px":2}}
 {"file":"agent-session/acpmux/conversation/conversation.css","kind":"spacing","property":"right","values":{"6px":2,"calc(100% + 6px)":1,"calc(var(--find-pill-inset, 10px) + var(--acpmux-session-info-clear, 0px))":1}}
 {"file":"agent-session/acpmux/conversation/conversation.css","kind":"spacing","property":"top","values":{"var(--cv-bullet-top, 9px)":1,"6px":1,"calc(var(--cv-live-gap) + 2px)":1,"var(--find-pill-inset, 10px)":1,"calc((var(--grid-gap-turn) - var(--grid-transcript-action-control)) / 2 - 1.5px)":1}}
@@ -415,8 +415,7 @@
 {"file":"agent-session/acpmux/subagents/subagents.css","kind":"spacing","property":"gap","values":{"2px":1}}
 {"file":"agent-session/acpmux/subagents/subagents.css","kind":"spacing","property":"margin-left","values":{"calc(14px + var(--acpmux-line-icon-gap, 8px) + var(--acpmux-tray-indent, 0px))":1,"-2px":1}}
 {"file":"agent-session/acpmux/subagents/subagents.css","kind":"spacing","property":"padding-top","values":{"2px":1}}
-{"file":"agent-session/acpmux/summary/summary.css","kind":"height","property":"height","values":{"26px":5,"6px":1,"22px":2,"14px":1,"18px":1,"40px":1}}
-{"file":"agent-session/acpmux/summary/summary.css","kind":"radius","property":"border-radius","values":{"var(--acpmux-composer-radius,11px)":1}}
+{"file":"agent-session/acpmux/summary/summary.css","kind":"height","property":"height","values":{"26px":4,"6px":1,"22px":2,"14px":1,"18px":1,"40px":1}}
 {"file":"agent-session/acpmux/summary/summary.css","kind":"spacing","property":"gap","values":{"2px":5}}
 {"file":"agent-session/acpmux/summary/summary.css","kind":"spacing","property":"margin","values":{"-2px -4px":1,"2px 0":1}}
 {"file":"agent-session/acpmux/summary/summary.css","kind":"spacing","property":"margin-top","values":{"2px":1}}

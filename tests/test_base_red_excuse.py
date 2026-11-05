@@ -1,5 +1,7 @@
 """gh-merge-green excuses a red check only when the base branch's latest completed run has the same failures."""
+import contextlib
 import copy
+import io
 import importlib.util
 import json
 import os
@@ -270,6 +272,34 @@ class LastRealAttempt(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "has not run on exact head"):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [], github, checks=[SWIFT])
         self.assertEqual(excuse.last_real_jobs(REPO, 10, github), [])
+
+
+class NoFailureExitsZero(unittest.TestCase):
+    """2026-11-05: asked about a head with no red (no --run, no --check), the classifier exited 1 with "no failed job
+    found on the head to compare with the base" (cmuxterm-hq#7234 at ce69ab6d, 16/16 green), so a merge check that
+    ran it on every head refused every green PR. No failure is exit 0; a red run or check that was named and shows
+    no failed job is still refused (LastRealAttempt)."""
+
+    def test_no_run_or_check_named_is_no_failure(self):
+        github = FakeGitHub()
+        self.assertEqual(excuse.judge(REPO, "feat-cmux-next", HEAD, [], github),
+                         [f"no red run or check named on {HEAD}: no failure to excuse"])
+        self.assertEqual(github.routes, [])  # nothing to read
+
+    def test_main_exits_0_on_no_failure(self):
+        out = io.StringIO()
+        with unittest.mock.patch.object(excuse, "GitHub", FakeGitHub), \
+                unittest.mock.patch.object(excuse.test_reds, "load_flake_state", lambda *a, **k: None), \
+                contextlib.redirect_stdout(out):
+            code = excuse.main(["--repo", REPO, "--base", "feat-cmux-next", "--sha", HEAD])
+        self.assertEqual(code, 0)
+        self.assertIn("no failure to excuse", out.getvalue())
+
+    def test_a_named_run_with_no_failed_job_is_still_refused(self):
+        github = FakeGitHub()
+        github.jobs = {}
+        with self.assertRaisesRegex(excuse.Refused, "no failed job found"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
 
 
 class JobLogEndpoint(unittest.TestCase):
@@ -1441,6 +1471,58 @@ class JoblessStatusChecks(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "no job 'Vercel' in run 10"):
             self.judge()
         self.assertFalse(any("commits?sha=" in route for route in self.gh.routes))
+
+    IGNORED = "Canceled by Ignored Build Step"
+
+    def pr_files(self, *paths, number=7192, changed=None):
+        """The one GraphQL read pr_paths makes: the PR into feat-cmux-next whose head is HEAD and its files."""
+        self.graphql: list[list[str]] = []
+        pr = {"number": number, "baseRefName": "feat-cmux-next", "headRefOid": HEAD,
+              "changedFiles": len(paths) if changed is None else changed,
+              "files": {"nodes": [{"path": path} for path in paths], "pageInfo": {"hasNextPage": False}}}
+
+        def run(args):
+            self.graphql.append(args)
+            assert args[:2] == ["api", "graphql"] and f"oid={HEAD}" in args, args
+            return json.dumps({"data": {"repository": {"object": {"associatedPullRequests": {"nodes": [pr]}}}}})
+
+        self.gh.run = run
+
+    def test_rate_limited_vercel_is_no_result_when_the_base_skipped_its_build_and_web_is_untouched(self):
+        self.base[self.TIP] = [dict(self.head, state="success", description=self.IGNORED)]
+        self.pr_files("tools/fleet-reconcilers/probes.py")
+        self.assertEqual(self.judge(), [
+            f"excused 'Vercel': no result: \"{self.LIMITED}\" (Vercel built nothing), base status success "
+            f"\"{self.IGNORED}\" (a skipped build), and #7192 changes no web/ files"])
+        self.assertEqual(len(self.graphql), 1)
+        self.assertFalse(any("/compare/" in route for route in self.gh.routes))  # no REST diff read
+
+    def test_rate_limited_vercel_on_a_pr_that_touches_web_is_refused(self):
+        self.base[self.TIP] = [dict(self.head, state="success", description=self.IGNORED)]
+        self.pr_files("tools/x.py", "web/app/page.tsx")
+        with self.assertRaisesRegex(excuse.Refused, r"#7192 changes web/ \(web/app/page.tsx\)"):
+            self.judge()
+
+    def test_rate_limited_vercel_is_refused_when_the_base_really_built(self):
+        self.base[self.TIP] = [dict(self.head, state="success", description="Deployment has completed")]
+        self.pr_files("tools/x.py")
+        with self.assertRaisesRegex(excuse.Refused, "has it success: Deployment has completed"):
+            self.judge()
+        self.assertEqual(self.graphql, [])
+
+    def test_another_vercel_failure_is_refused_even_when_the_base_skipped_its_build(self):
+        self.head["description"] = "Deployment has failed"
+        self.base[self.TIP] = [dict(self.head, state="success", description=self.IGNORED)]
+        self.pr_files("tools/x.py")
+        with self.assertRaisesRegex(excuse.Refused, f"has it success: {self.IGNORED}"):
+            self.judge()
+        self.assertEqual(self.graphql, [])
+
+    def test_rate_limited_vercel_is_refused_when_github_lists_too_few_files(self):
+        self.base[self.TIP] = [dict(self.head, state="success", description=self.IGNORED)]
+        self.pr_files("tools/x.py", changed=150)
+        with self.assertRaisesRegex(excuse.Refused, "listed 1 of its 150 changed files"):
+            self.judge()
 
     def test_another_red_still_needs_its_own_excuse(self):
         self.gh.jobs[1]["name"] = "brand new red"
@@ -3036,6 +3118,14 @@ class WsCheckPerTest(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "is before the merge-base"):
             self.judge()
 
+    def test_a_green_head_exits_0(self):
+        # 2026-11-05: a green leo-workspace head read "'ws-check' passed: nothing red to excuse" and exited 1, so a
+        # merge check asking about a green head was refused. No failure is exit 0.
+        self.gh.verdict(HEAD, 1, {}, state="success", description="12 steps passed")
+        audit = self.judge()
+        self.assertEqual(audit, [f"'ws-check' passed on {HEAD}: no failure to excuse"])
+        self.assertEqual(self.judge(checks=["ws-check"]), audit)
+
     def test_a_pending_or_error_head_is_no_result(self):
         for state in ("pending", "error"):
             self.gh.verdict(HEAD, 1, {self.RELAY: self.relay_lint()}, state=state, description="running")
@@ -3103,8 +3193,9 @@ class WsCheckPerTest(unittest.TestCase):
         audit = excuse.judge(REPO, "feat-cmux-next", HEAD, [10], gh)
         self.assertEqual(len(audit), 1)
         self.assertTrue(audit[0].startswith(f"excused '{SWIFT}'"), audit[0])
-        with self.assertRaisesRegex(excuse.Refused, "no failed job found on the head"):
-            excuse.judge(REPO, "feat-cmux-next", HEAD, [], gh)
+        # a cmux head asked about no red is no failure (NoFailureExitsZero), never the ws-check path
+        self.assertEqual(excuse.judge(REPO, "feat-cmux-next", HEAD, [], gh),
+                         [f"no red run or check named on {HEAD}: no failure to excuse"])
 
 
 if __name__ == "__main__":

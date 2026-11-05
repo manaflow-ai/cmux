@@ -15,7 +15,7 @@ host_start() {
   head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' >"$EVAL_STATE/token"
   chmod 600 "$EVAL_STATE/token"
   : >"$EVAL_STATE/host.log"
-  "$rd" host --owner owner --bind 127.0.0.1 --port "$port" --token-fd 3 3<"$EVAL_STATE/token" \
+  "$rd" host --owner owner --bind 127.0.0.1 --port "$port" --token-fd 3 3< <(cat "$EVAL_STATE/token") \
     >>"$EVAL_STATE/host.log" 2>&1 &
   echo $! >"$EVAL_STATE/host.pid"
   for _ in $(seq 1 100); do
@@ -29,12 +29,15 @@ host_start() {
 }
 
 bench() {
-  "$rd" bench --addr "127.0.0.1:$port" --user owner --token-fd 3 "$@" 3<"$EVAL_STATE/token"
+  "$rd" bench --addr "127.0.0.1:$port" --user owner --token-fd 3 "$@" 3< <(cat "$EVAL_STATE/token")
 }
 
 case "$verb" in
   build)
-    cargo build --release --manifest-path "$crate/Cargo.toml" --bin cmux-rd
+    # From cmux-tui, so rustup takes its rust-toolchain.toml: rustup reads the cwd, not the manifest's
+    # folder, and a fleet worker's shared RUSTUP_HOME keeps no default toolchain on purpose
+    # (scripts/build-cmux-cua.sh says why).
+    (cd "$EVAL_ROOT/cmux-tui" && cargo build --release --manifest-path "$crate/Cargo.toml" --bin cmux-rd)
     cp "$crate/target/release/cmux-rd" "$rd"
     ;;
   host-start) host_start ;;

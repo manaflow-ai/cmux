@@ -190,7 +190,7 @@ extension VerticalTabListView {
         guard showsTitles else {
             group.tint.headerFill.setFill()
             let bar = CGRect(x: frame.minX + Metrics.space1, y: frame.midY - 1.5, width: max(0, frame.width - 2 * Metrics.space1), height: 3)
-            NSBezierPath(roundedRect: bar, xRadius: 1.5, yRadius: 1.5).fill()
+            NSBezierPath(roundedRect: bar, xRadius: Metrics.capsuleRadius(bar.size), yRadius: Metrics.capsuleRadius(bar.size)).fill()
             return
         }
         if hovered == row.kind, DesignSettings.shared.showsHoverFills {
