@@ -6,7 +6,7 @@
 // makes the stage's blocks under it blur themselves (ui/glass/seeThroughBlur.ts, chatUnderGlass.ts
 // hoverCardGlass). The gallery's play opens a pull request's card over a chat; this runs it, both schemes.
 // Locally: CMUX_BROWSER_TESTS=1 bun test test/hover-card-blur-browser.test.ts
-// CMUX_HOVER_CARD_CAPTURE_DIR=<dir> keeps a still of the card per scheme.
+// CMUX_HOVER_CARD_CAPTURE_DIR=<dir> keeps stills of the card per scheme, the last moved over the reply's text.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { mkdir } from "node:fs/promises";
@@ -68,11 +68,31 @@ await requireBrowserLane("hover-card-blur-browser.test.ts", async () => {
             .screenshot({ path: path.join(captures, `hover-card-blur-${colorScheme}.png`) });
           await page.screenshot({ path: path.join(captures, `hover-card-blur-page-${colorScheme}.png`) });
         }
+        // Base UI places the card by its positioner's inline style, and writes it again on a scroll: moved
+        // up over the reply's text that way, the card's hole follows it there.
+        const followed = await page.evaluate(async () => {
+          const popup = document.querySelector<HTMLElement>("[data-glass-over]");
+          const positioner = popup?.parentElement;
+          if (!popup || !positioner) return { holes: [] as number[], tops: [] as number[] };
+          positioner.style.setProperty("translate", "0 -64px");
+          for (let index = 0; index < 3; index++) await new Promise(requestAnimationFrame);
+          const top = popup.getBoundingClientRect().top;
+          const blocks = [...document.querySelectorAll<HTMLElement>('[data-glass-under~="hover-card"]')];
+          return {
+            holes: [...document.querySelectorAll("filter feGaussianBlur")].map((blur) =>
+              Number(blur.getAttribute("y")),
+            ),
+            tops: blocks.map((block) => top - block.getBoundingClientRect().top),
+          };
+        });
+        if (captures && seen.card)
+          await page.screenshot({ path: path.join(captures, `hover-card-blur-over-text-${colorScheme}.png`) });
         expect(seen.ready).toBe("1");
         expect(seen.card).toBe(true);
         expect(seen.over).toBe(true);
         expect(seen.under.length).toBeGreaterThan(0);
         expect(seen.under.filter((block) => !block.filter.includes("url("))).toEqual([]);
+        expect(followed.tops.some((top) => followed.holes.some((hole) => Math.abs(hole - top) <= 2))).toBe(true);
       } finally {
         await page.close();
       }

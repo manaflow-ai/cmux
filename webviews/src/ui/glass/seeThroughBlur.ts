@@ -247,8 +247,11 @@ export function attachSeeThroughBlur(
     // it; the same CSS switches its blocks' filters off meanwhile (owner, summary.css).
     const shown = look.opacity > 0 && rect.width > 0 && rect.height > 0;
     const under: { target: HTMLElement; box: DOMRect; hole: BlurHole; key: string }[] = [];
+    // A page with nothing this surface can blur (a hover card outside the chat) keeps its underlay.
+    let blurrable = false;
     for (const child of candidates(surface)) {
       if (child === surface || child.contains(surface) || !(child instanceof view.HTMLElement)) continue;
+      blurrable = true;
       watch(child, false);
       if (child.parentElement) watch(child.parentElement, true);
       if (!shown) continue;
@@ -263,7 +266,7 @@ export function attachSeeThroughBlur(
         watch(element, false);
         if (overlaps(rect, element.getBoundingClientRect())) unblurrable = true;
       }
-    surface.toggleAttribute(OVER_ATTRIBUTE, !unblurrable);
+    surface.toggleAttribute(OVER_ATTRIBUTE, blurrable && !unblurrable);
     const keep = new Set(under.map((entry) => entry.target));
     for (const target of covered.keys()) if (!keep.has(target)) release(target);
     for (const { target, box, hole, key } of under) {
@@ -283,7 +286,7 @@ export function attachSeeThroughBlur(
         entry.key = key;
       }
     }
-    return `${shown}|${unblurrable}|${under.map((entry) => entry.key).join("|")}`;
+    return `${shown}|${blurrable}|${unblurrable}|${under.map((entry) => entry.key).join("|")}`;
   };
 
   const tick = () => {
@@ -315,6 +318,8 @@ export function attachSeeThroughBlur(
   // A surface placed by its own inline style (the rail's preview card follows the pointer from row
   // to row by its transform) moves with no resize or child change: its style measures again.
   restyled.observe(surface, { attributes: true, attributeFilter: ["style"] });
+  // A popup is placed by its parent's inline style instead (Base UI's positioner, rewritten on scroll).
+  restyled.observe(parent, { attributes: true, attributeFilter: ["style"] });
   measure();
   kick();
   surface.addEventListener("transitionrun", kick);
