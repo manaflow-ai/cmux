@@ -26,7 +26,7 @@ describe("browser role probe (cloud-automation.md 31)", () => {
     const shared = aptUpdateCommand({ aptArgs: options, log: "/var/lib/cmux/apt-snapshot/update.log", sources: "/var/lib/cmux/apt-snapshot/snapshot.sources", saved: "/var/lib/cmux/apt-snapshot/snapshot.sources.unavailable" });
     expect(update.command).toContain(shared);
     expect(update.command.indexOf(Buffer.from(manifest.aptSources).toString("base64"))).toBeLessThan(update.command.indexOf(shared));
-    expect(shared).toContain(`timeout "\${timeout_s}s" apt-get ${options} update -q --error-on=any`);
+    expect(shared).toContain(`timeout 90s apt-get ${options} update -q --error-on=any`);
     expect(shared).toContain("if [ \"$apt_update_ok\" -eq 0 ]; then");
     expect(shared).toContain("base64 -d > /var/lib/cmux/apt-snapshot/snapshot.sources;");
     expect(shared).not.toContain("/etc/apt/sources.list.d");

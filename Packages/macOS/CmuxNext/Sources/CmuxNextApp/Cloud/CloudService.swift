@@ -141,6 +141,8 @@ final class CloudService {
     @ObservationIgnored let startSessionAsks = CloudStartSessionAsks()
     /// `cmux cloud start-session` runs, joined by a repeat of the same ask (``CloudStartSessionRuns``).
     @ObservationIgnored let startSessionRuns = CloudStartSessionRuns()
+    /// The machines a start is bringing up now, which the automatic machine update leaves alone (``CloudStartGate``).
+    @ObservationIgnored let startGate = CloudStartGate()
     @ObservationIgnored let signedOutCreation = CloudSignedOutCreationContinuation()
     #if DEBUG
     /// `debug.cloud_machine_fixture {backend: true}`: Cloud reads as reachable in a capture build that has no

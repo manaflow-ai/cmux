@@ -64,7 +64,7 @@ export default componentEntry<{ variant: Variant }>({
   height: 560,
   anchors: [{ selector: "[data-message-entrance]" }],
   covers: [
-    "agent-session/acpmux/App.tsx#RowFrame",
+    "agent-session/acpmux/VirtualTranscript.tsx",
     "agent-session/acpmux/conversation/conversation.css#cv-message-enter",
   ],
   styles: () =>

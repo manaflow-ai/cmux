@@ -220,7 +220,10 @@ export default agentPaneEntry({
   title: "Opening a line at the bottom",
   area: "Agent pane",
   height: 640,
-  covers: ["agent-session/acpmux/App.tsx#VirtualTranscript", "agent-session/acpmux/conversation/foldAnchor.ts"],
+  covers: [
+    "agent-session/acpmux/VirtualTranscript.tsx#VirtualTranscript",
+    "agent-session/acpmux/conversation/foldAnchor.ts",
+  ],
   variants: {
     shipped: {
       note: "Scrolled to the very bottom with “Ran 2 commands” closed. Opening it keeps the bottom pinned and pushes the text above up; away from the bottom it opens down and nothing moves.",
