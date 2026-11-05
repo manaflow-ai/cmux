@@ -48,7 +48,9 @@ def parse_ps(text):
 def sample():
     """CPU seconds so far per pid of the DAEMONS; {} when ps fails."""
     try:
-        out = subprocess.run(["ps", "-A", "-o", "pid=,time=,comm="], capture_output=True, text=True, timeout=5).stdout
+        # LC_ALL=C: a comma-decimal locale would make every time field unreadable (and the round read 0 s)
+        out = subprocess.run(["ps", "-A", "-o", "pid=,time=,comm="], capture_output=True, text=True, timeout=5,
+                             env={**os.environ, "LC_ALL": "C"}).stdout
     except (OSError, subprocess.SubprocessError):
         return {}
     return parse_ps(out)
