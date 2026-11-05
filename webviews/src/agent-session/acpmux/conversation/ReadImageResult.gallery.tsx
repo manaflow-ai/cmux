@@ -12,14 +12,15 @@ import { mergeToolItem } from "../direct";
 import { ImageViewerContext } from "./imageViewerContext";
 import type { ToolRow as ToolRowComponent } from "./ToolRow";
 
-type Props = { returnsImage: boolean; harness?: "claude" | "codex"; text?: boolean };
+/// `tall`: the image is a phone screenshot (390×844), not a desktop one; `mixed`: the call returns both.
+type Props = { returnsImage: boolean; harness?: "claude" | "codex"; text?: boolean; tall?: boolean; mixed?: boolean };
 
 const path = "/tmp/after-tray-expanded-1100-light.png";
 const textPath = "/tmp/notes.md";
 
 /// A screenshot-like PNG: a title bar, a sidebar, a tray and lines of text.
-function paint(): string {
-  const [width, height] = [880, 520];
+function paint(tall: boolean): string {
+  const [width, height] = tall ? [390, 844] : [880, 520];
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
@@ -30,18 +31,19 @@ function paint(): string {
   ink.fillRect(0, 0, width, 34);
   ink.fillRect(0, 0, 190, height);
   ink.fillStyle = "hsl(220 60% 56%)";
-  for (let line = 0; line < 8; line += 1) ink.fillRect(222, 70 + line * 34, 260 + ((line * 53) % 280), 12);
+  for (let line = 0; line < 8; line += 1)
+    ink.fillRect(222, 70 + line * 34, Math.min(width - 240, 260 + ((line * 53) % 280)), 12);
   ink.fillStyle = "hsl(220 14% 82%)";
   ink.fillRect(222, height - 120, width - 254, 88);
   ink.fillStyle = "hsl(150 45% 48%)";
-  for (let chip = 0; chip < 4; chip += 1) ink.fillRect(240 + chip * 140, height - 92, 120, 32);
+  for (let chip = 0; chip < (tall ? 1 : 4); chip += 1) ink.fillRect(240 + chip * 140, height - 92, 120, 32);
   return canvas.toDataURL("image/png");
 }
 
 /// The call as the pane folds it from its ACP updates: the Read (Claude Code) or View (Codex),
 /// then its completion. Codex's completion repeats its kind and location and, before acpmux read
 /// the file, held no content.
-function readItem({ returnsImage, harness = "claude", text = false }: Props) {
+function readItem({ returnsImage, harness = "claude", text = false, tall = false, mixed = false }: Props) {
   const file = text ? textPath : path;
   const codex = harness === "codex";
   const name = file.slice(file.lastIndexOf("/") + 1);
@@ -54,13 +56,15 @@ function readItem({ returnsImage, harness = "claude", text = false }: Props) {
     "gallery-read-image",
     "",
   );
-  const data = paint();
-  const image = {
-    type: "content",
-    content: { type: "image", mimeType: "image/png", data: data.slice(data.indexOf(",") + 1) },
-  };
+  const images = (mixed ? [false, true] : [tall]).map((shape) => {
+    const data = paint(shape);
+    return {
+      type: "content",
+      content: { type: "image", mimeType: "image/png", data: data.slice(data.indexOf(",") + 1) },
+    };
+  });
   const said = { type: "content", content: { type: "text", text: text ? "# Notes\n\nThe tray opens upward." : "" } };
-  const content = codex ? (returnsImage ? [image] : undefined) : returnsImage ? [said, image] : [said];
+  const content = codex ? (returnsImage ? images : undefined) : returnsImage ? [said, ...images] : [said];
   return mergeToolItem(
     call,
     {
@@ -77,8 +81,11 @@ function readItem({ returnsImage, harness = "claude", text = false }: Props) {
 
 /// The row as the pane draws it.
 function galleryReadImage(ToolRow: typeof ToolRowComponent) {
-  return function GalleryReadImage({ returnsImage, harness, text }: Props) {
-    const item = useMemo(() => readItem({ returnsImage, harness, text }), [returnsImage, harness, text]);
+  return function GalleryReadImage({ returnsImage, harness, text, tall, mixed }: Props) {
+    const item = useMemo(
+      () => readItem({ returnsImage, harness, text, tall, mixed }),
+      [returnsImage, harness, text, tall, mixed],
+    );
     return (
       <ImageViewerContext.Provider value={() => {}}>
         <div style={{ padding: 16 }}>
@@ -111,6 +118,16 @@ export default componentEntry<Props>({
       note: "Claude Code read a PNG on another machine; acpmux's completion carries the image, and the row draws it.",
       chipHost: remoteFile,
       props: { returnsImage: true },
+    },
+    "returned-tall": {
+      note: "A phone screenshot a Read returned: its thumbnail is the shot's own narrow column at most 360px tall, no tall empty frame.",
+      chipHost: remoteFile,
+      props: { returnsImage: true, tall: true },
+    },
+    "returned-mixed": {
+      note: "A call that returned a desktop and a phone screenshot: each thumbnail keeps its own shape, neither stretched to the other's height.",
+      chipHost: remoteFile,
+      props: { returnsImage: true, mixed: true },
     },
     "path-only": {
       note: "A completion with no image (a daemon before this fix): the row falls back to the path, which is not on this machine: Image unavailable.",

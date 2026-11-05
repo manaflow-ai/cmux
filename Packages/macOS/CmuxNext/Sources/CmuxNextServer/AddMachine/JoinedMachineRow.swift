@@ -297,8 +297,19 @@ nonisolated enum JoinedMachineStrings {
         case .offline: s("machines.joined.offline", "Offline")
         case .revoked: s("machines.joined.revoked", "Revoked")
         }
-        guard let by = machine.mintedBy else { return state }
-        return state + " · " + String(format: s("machines.joined.mintedBy", "added by %@"), by)
+        let platform = machine.platform.map(Self.platform)
+        let by = machine.mintedBy.map { String(format: s("machines.joined.mintedBy", "added by %@"), $0) }
+        return ([state] + [platform, by].compactMap { $0 }).joined(separator: " · ")
+    }
+
+    /// The platform a machine reported at join, as a person reads it (an unknown one as sent).
+    static func platform(_ platform: String) -> String {
+        switch platform.lowercased() {
+        case "macos", "darwin": "macOS"
+        case "linux": "Linux"
+        case "windows": "Windows"
+        default: platform
+        }
     }
 
     static func more(_ name: String) -> String { String(format: s("machines.joined.more", "More for %@"), name) }

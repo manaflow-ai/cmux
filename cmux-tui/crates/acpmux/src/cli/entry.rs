@@ -211,7 +211,9 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             Ok(())
         }
         #[cfg(not(target_os = "linux"))]
-        Some(Command::DaemonEnroll { .. }) => Err(crate::platform::unsupported("daemon enroll")),
+        Some(Command::DaemonEnroll { .. }) => {
+            Err(anyhow::anyhow!("daemon enroll runs only on Linux"))
+        }
         None => {
             let client = connect(true).await?;
             crate::tui::run(client, None).await
@@ -340,6 +342,13 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         Some(Command::Resolve { query }) => {
             let json_out = cli.json;
             match crate::cli::resolve::run(query, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
+        Some(Command::WhoElse(args)) => {
+            let json_out = cli.json;
+            match crate::cli::who_else::run(args, json_out).await {
                 Ok(()) => Ok(()),
                 Err(e) => errors::exit_with(&e, json_out),
             }
