@@ -187,8 +187,9 @@ private final class FakeClock: Sendable {
 
     // MARK: Working at the same time
 
-    private func footprint(_ json: String, owner: @escaping (UInt32) -> Int32? = { _ in nil }) -> ActingFootprint {
-        ActingFootprint(arguments: Data(json.utf8), owner: owner)
+    private func footprint(_ json: String, tool: String = "click",
+                           owner: @escaping (UInt32) -> Int32? = { _ in nil }) -> ActingFootprint {
+        ActingFootprint(tool: tool, arguments: Data(json.utf8), owner: owner)
     }
 
     @Test func aBackgroundCallToOneAppTouchesOnlyThatApp() {
@@ -209,6 +210,16 @@ private final class FakeClock: Sendable {
         #expect(footprint(#"{"name":"Notes"}"#).shared)
         #expect(footprint("not json").shared)
         #expect(footprint(#"{"window_id":31}"#).shared)
+    }
+
+    @Test func aToolThatTakesFocusCollidesEvenWithAnotherAppsPid() {
+        // bring_to_front on another app would send the person's next keys there.
+        for tool in ["bring_to_front", "launch_app", "invoke_menu", "clipboard_write"] {
+            #expect(footprint(#"{"pid":200}"#, tool: tool).shared, "\(tool)")
+        }
+        #expect(footprint(#"{"pid":200,"steps":[{"tool":"bring_to_front","pid":300}]}"#, tool: "run_steps").shared)
+        #expect(footprint(#"{"pid":200,"actions":[{"invoke_menu":{"pid":300}}]}"#, tool: "run_actions").shared)
+        #expect(!footprint(#"{"pid":200,"steps":[{"tool":"set_value","pid":300}]}"#, tool: "run_steps").shared)
     }
 
     @Test func aWindowWithoutItsPidTakesItsOwner() {

@@ -147,11 +147,17 @@ public struct ActingFootprint: Sendable, Equatable {
     /// Collides with everything: the rule before it knew targets.
     public static let anywhere = ActingFootprint(shared: true)
 
-    /// Read the footprint of `arguments` (a tool call's JSON object), walking
-    /// into batches. A window named without its pid takes its owner from
-    /// `owner`. Arguments that do not parse collide with everything.
-    public init(arguments: Data, owner: (UInt32) -> Int32? = { _ in nil }) {
-        guard let object = try? JSONSerialization.jsonObject(with: arguments) else {
+    /// Tools that change what the person shares with the agent whatever app
+    /// they name: the frontmost app and key focus (`bring_to_front`,
+    /// `launch_app`, `invoke_menu`, which activates its app), or the pasteboard.
+    static let sharedTools: Set<String> = ["bring_to_front", "launch_app", "invoke_menu", "clipboard_write"]
+
+    /// Read the footprint of `tool` called with `arguments` (its JSON
+    /// object), walking into batches. A window named without its pid takes
+    /// its owner from `owner`. Arguments that do not parse collide with everything.
+    public init(tool: String, arguments: Data, owner: (UInt32) -> Int32? = { _ in nil }) {
+        guard !Self.sharedTools.contains(tool),
+              let object = try? JSONSerialization.jsonObject(with: arguments) else {
             self = .anywhere
             return
         }
@@ -170,6 +176,9 @@ public struct ActingFootprint: Sendable, Equatable {
             return
         }
         guard let object = value as? [String: Any] else { return }
+        // A batch step names its tool as `tool`, or as its only key.
+        if let tool = object["tool"] as? String, Self.sharedTools.contains(tool) { shared = true }
+        if !Self.sharedTools.isDisjoint(with: object.keys) { shared = true }
         if object["delivery_mode"] as? String == "foreground" || object["scope"] as? String == "desktop"
             || object["kind"] as? String == "desktop" {
             shared = true
