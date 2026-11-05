@@ -446,6 +446,9 @@ fn acknowledge_delivered(
     Ok(())
 }
 
+/// The protocol of every request this helper sends and every response it reads.
+const PROTOCOL: &str = "cmux.protocol/2";
+
 /// One `cmux.protocol/2` request on its own connection.
 fn request(
     socket: &Path,
@@ -473,7 +476,7 @@ fn exchange(
     params.set("machine", json!("current"));
     params.set("session", json!("current"));
     let mut request = json!({
-        "protocol": "cmux.protocol/2",
+        "protocol": PROTOCOL,
         "type": "request",
         "id": request_id,
         "operation": operation,
@@ -501,6 +504,16 @@ fn exchange(
     let response: Value = serde_json::from_slice(&response)?;
     if let Some(busy) = journal_append::busy_line(&response) {
         bail!("{operation} was refused: {busy}");
+    }
+    // Only a cmux.protocol/2 response is read for its id, refusal or
+    // result: anything else is a failure of the exchange, so it can neither
+    // pass for the old-daemon refusal (which lists the queue) nor deliver.
+    // The daemon's every response, the refusal of an unknown operation
+    // included (`resource_router::malformed_resource_response`), carries both.
+    if response.get("protocol").and_then(Value::as_str) != Some(PROTOCOL)
+        || response.get("type").and_then(Value::as_str) != Some("response")
+    {
+        bail!("{operation} answered without a {PROTOCOL} response envelope");
     }
     if response.get("id").and_then(Value::as_str) != Some(request_id.as_str()) {
         bail!("{operation} returned a mismatched request id");

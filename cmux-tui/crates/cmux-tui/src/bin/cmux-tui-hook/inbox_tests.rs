@@ -242,6 +242,81 @@ fn a_malformed_claim_answer_takes_nothing_and_never_lists_the_queue() {
     }
 }
 
+/// Review of 462b17ffa0b4: a reply is read only as a cmux.protocol/2
+/// response. With its protocol or type missing or wrong, neither the exact
+/// old-daemon refusal (which alone lists the queue) nor a well-formed claim
+/// counts. Claude's prompt hook sends only the wait, never lists, writes
+/// nothing to the agent and marks nothing. The same refusal and the same
+/// claim in a proper envelope keep working.
+#[cfg(unix)]
+#[test]
+fn only_a_protocol_2_response_envelope_is_read() {
+    let unsupported = json!({
+        "ok": false,
+        "error": {"code": "validation.invalid", "message": "invalid request envelope",
+                  "details": {}, "retryable": false},
+    });
+    let claimed = json!({
+        "ok": true,
+        "result": {"status": "claimed", "lease_id": "lease_0", "messages": [queued_message()]},
+    });
+    let envelopes = [
+        json!({}),
+        json!({"type": "response"}),
+        json!({"protocol": "cmux.protocol/2"}),
+        json!({"protocol": "cmux.protocol/1", "type": "response"}),
+        json!({"protocol": "cmux.protocol/2", "type": "stream_item"}),
+        json!({"protocol": 2, "type": "response"}),
+    ];
+    let claude = Delivery::for_event("claude", "UserPromptSubmit").unwrap();
+    for body in [&unsupported, &claimed] {
+        for envelope in &envelopes {
+            let mut reply = envelope.clone();
+            for (key, value) in body.as_object().unwrap() {
+                reply[key] = value.clone();
+            }
+            let answer = reply.clone();
+            let daemon = FakeDaemon::start(move |request| match request["operation"].as_str() {
+                Some("agent.message.wait") => Some(answer.clone()),
+                Some("agent.message.list") => ok(json!([queued_message()])),
+                _ => ok(json!({"value": []})),
+            });
+            let mut out = Vec::new();
+            deliver_to(&mut out, claude, &daemon.socket, Some(TERMINAL), true);
+            assert_eq!(daemon.operations(), ["agent.message.wait"], "{reply}");
+            assert_eq!(String::from_utf8(out).unwrap().trim(), "{}", "{reply}");
+        }
+    }
+    // The same two in a proper envelope: the refusal falls back to the
+    // queue, the claim is written and then marked.
+    let proper = |body: &Value| {
+        let mut reply = json!({"protocol": "cmux.protocol/2", "type": "response"});
+        for (key, value) in body.as_object().unwrap() {
+            reply[key] = value.clone();
+        }
+        reply
+    };
+    let (refusal, claim) = (proper(&unsupported), proper(&claimed));
+    let daemon = FakeDaemon::start(move |request| match request["operation"].as_str() {
+        Some("agent.message.wait") => Some(refusal.clone()),
+        Some("agent.message.list") => ok(json!([queued_message()])),
+        _ => ok(json!({"value": []})),
+    });
+    deliver_to(&mut Vec::new(), claude, &daemon.socket, Some(TERMINAL), true);
+    assert_eq!(
+        daemon.operations(),
+        ["agent.message.wait", "agent.message.list", "agent.message.mark"]
+    );
+    let daemon = FakeDaemon::start(move |request| match request["operation"].as_str() {
+        Some("agent.message.wait") => Some(claim.clone()),
+        _ => ok(json!({"value": []})),
+    });
+    let mut out = Vec::new();
+    deliver_to(&mut out, claude, &daemon.socket, Some(TERMINAL), true);
+    assert_eq!(daemon.operations(), ["agent.message.wait", "agent.message.mark"]);
+    assert!(String::from_utf8(out).unwrap().contains("rebase when free"));
+}
+
 /// The wake hook given a malformed answer hands nothing to Claude and marks
 /// nothing: a `claimed` answer without messages, or one with no status.
 #[cfg(unix)]
