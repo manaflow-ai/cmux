@@ -391,6 +391,30 @@
       "title" : "Permission Mode for New Chats",
       "type" : "string"
     },
+    "agents.guidance.claude" : {
+      "default" : true,
+      "description" : "New Claude Code chats are told how cmux shows their work: the plan checklist, side sessions, session links and the closing recap.",
+      "title" : "cmux Guidance for Claude Code",
+      "type" : "boolean"
+    },
+    "agents.guidance.codex" : {
+      "default" : true,
+      "description" : "New Codex chats are told how cmux shows their work: the plan checklist, side sessions, session links and the closing recap.",
+      "title" : "cmux Guidance for Codex",
+      "type" : "boolean"
+    },
+    "agents.guidance.otherAgents" : {
+      "default" : true,
+      "description" : "Other agents (Gemini, OpenCode and the ones you added) get the same guidance about how cmux shows their work.",
+      "title" : "cmux Guidance for Other Agents",
+      "type" : "boolean"
+    },
+    "agents.guidance.userSkills" : {
+      "default" : true,
+      "description" : "Skills you put in ~/.config/cmux/skills, one folder each with a SKILL.md, reach every new agent chat.",
+      "title" : "Your Skills in Every Chat",
+      "type" : "boolean"
+    },
     "agents.modelRouter.model" : {
       "default" : "deepseek/deepseek-v4.1-flash-1017",
       "description" : "The model a new chat on the cmux model router starts on. A model you pick in a chat applies to that chat only.",
@@ -3964,6 +3988,17 @@
       "description" : "Off: one list of workspaces, and a workspace on another computer names it under its title. On: a section per computer.",
       "title" : "Group Workspaces by Computer",
       "type" : "boolean"
+    },
+    "sidebar.groupHeader.background" : {
+      "default" : "auto",
+      "description" : "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses glass when the sidebar is see-through. A group always has a visible background, also when it has no color.",
+      "enum" : [
+        "auto",
+        "glass",
+        "solid"
+      ],
+      "title" : "Group Background",
+      "type" : "string"
     },
     "sidebar.groupHeader.memberCount" : {
       "default" : false,

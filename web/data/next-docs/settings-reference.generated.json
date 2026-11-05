@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 579,
+  "count": 584,
   "sections": [
     {
       "id": "general",
@@ -246,6 +246,38 @@
             "standard",
             "ask"
           ]
+        },
+        {
+          "key": "agents.guidance.claude",
+          "title": "cmux Guidance for Claude Code",
+          "help": "New Claude Code chats are told how cmux shows their work: the plan checklist, side sessions, session links and the closing recap.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Guidance and Skills"
+        },
+        {
+          "key": "agents.guidance.codex",
+          "title": "cmux Guidance for Codex",
+          "help": "New Codex chats are told how cmux shows their work: the plan checklist, side sessions, session links and the closing recap.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Guidance and Skills"
+        },
+        {
+          "key": "agents.guidance.otherAgents",
+          "title": "cmux Guidance for Other Agents",
+          "help": "Other agents (Gemini, OpenCode and the ones you added) get the same guidance about how cmux shows their work.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Guidance and Skills"
+        },
+        {
+          "key": "agents.guidance.userSkills",
+          "title": "Your Skills in Every Chat",
+          "help": "Skills you put in ~/.config/cmux/skills, one folder each with a SKILL.md, reach every new agent chat.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Guidance and Skills"
         },
         {
           "key": "agents.modelRouter.model",
@@ -3473,6 +3505,19 @@
           "values": [
             "none",
             "folder"
+          ]
+        },
+        {
+          "key": "sidebar.groupHeader.background",
+          "title": "Group Background",
+          "help": "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses glass when the sidebar is see-through. A group always has a visible background, also when it has no color.",
+          "kind": "choice",
+          "default": "auto",
+          "group": "Sidebar",
+          "values": [
+            "auto",
+            "glass",
+            "solid"
           ]
         },
         {
