@@ -31,11 +31,12 @@ import { type AppendBody, type AppendResult, type ImportBody, type ImportFail, t
  *        (a subagent's run `sub_<n>` is read from its own object, brain-spawn.ts)
  *   GET  /v1/chiefs/<agent>/machine-login/<run>?conversation=<id>   the owner's human session: pending provider sign-in status
  *   GET  /v1/chiefs/<agent>/computer        the owner: {used, entitled, acting?, computer: {id, state, name} | null, screen: {width, height},
- *        control: {holder: chief | human, since_ms, reason?}}, the Chief's computer (chief-brain-cc/sandbox-computer.ts) for its
+ *        control: {holder: chief | human, since_ms, by?: chief | human, reason?, expires_ms?}}, the Chief's computer (chief-brain-cc/sandbox-computer.ts) for its
  *        profile's Computer section; never wakes it. entitled: the owner's personal team has a Cloud plan
- *   POST /v1/chiefs/<agent>/computer/control the owner's session: {action: take_over | hand_back} -> {control}; 404 with no computer
+ *   POST /v1/chiefs/<agent>/computer/control the owner's session: {action: take_over | hand_back} -> {control}; 404 with no computer.
+ *        A person's hold (by, expires_ms) returns to the Chief by itself 10 min after their last take_over or input
  *   POST /v1/chiefs/<agent>/computer/input  the owner's session while they hold it: {op: click | move | drag | scroll | type | key |
- *        open (open_url), x?, y?, to_x?, to_y?, button?, count?, text?, keys?, direction?, amount?, url?} -> {done, control};
+ *        open (open_url), x?, y?, to_x?, to_y?, button?, count?, text?, keys?, direction?, amount? (clamped to 1..30), url?} -> {done, control};
  *        409 computer.not_human until take_over, 409 computer.asleep (never woken). Both refuse a non-session caller
  *        (an install grant, a Chief's own) with 403 computer.user_origin_required
  *   GET  /v1/chiefs/<agent>/computer/screen the owner: the computer's screen as image/jpeg while it runs; 409 while it
@@ -311,6 +312,8 @@ const handleComputer = async (request: Request, env: Env, agent: string, path: "
  */
 const handleComputerControl = async (request: Request, env: Env, agent: string, path: "computer/control" | "computer/input"): Promise<Response> => {
   if (request.method !== "POST") return fail({ status: 405, code: "method_not_allowed", message: "POST" })
+  // `read` as the other owner-mutating Chief routes (brain PUT, github, peer): callerOf's risk class gates only install
+  // grants, and every install grant is refused just below; a session passes any class, so the owner check is what holds.
   const caller = await callerOf(request, env, "read")
   if ("status" in caller) return fail(caller)
   const p = caller.principal
