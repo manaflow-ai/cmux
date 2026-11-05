@@ -116,6 +116,8 @@ final class BrowserTabService {
     /// Surfaces created in this process (`open`): pages the user asked for
     /// now, as opposed to tabs restored from the daemon.
     private var openedSurfaces: Set<SurfaceKey> = []
+    /// A split's tab is opened here before the reply names it: its page starts at once (``ChromiumNewTabNow``), not after a history read.
+    private let openingSplits = OpeningSplits()
     /// Surfaces whose engine someone asked for (`BrowserEngineChoice.pinned`), in memory only.
     private var pinnedEngines: Set<SurfaceKey> = []
     /// Tabs that reopened in WebKit for protected media (`BrowserProtectedMedia`).
@@ -226,6 +228,7 @@ final class BrowserTabService {
     /// A stand-in tab (`PaneBrowserTabOpener.openStandIn`) is opened here by definition.
     func wasOpenedHere(_ tab: TabModel) -> Bool {
         ProvisionalTab.isProvisional(surface: tab.surface) || openedSurfaces.contains(key(daemonForTab(tab), tab.surface))
+            || openingSplits.holds(tab.surface, on: daemonForTab(tab))
     }
 
     /// The daemon record URL of an incognito tab.
@@ -312,6 +315,8 @@ final class BrowserTabService {
     private func open(_ choice: BrowserEngineChoice, in pane: PaneID, on daemon: DaemonService, url: String, offTheRecord: Bool,
                       profile: String?, notice: String?, activate: Bool, after: SurfaceID?, split: ConversationTabSplit?) async throws -> SurfaceID {
         guard BrowserAvailability(enabled: browserEnabled()).allows(url) else { throw ActionFailure(message: MiscHandlerStrings.browserOff) }
+        let ended = split.map { openingSplits.begin($0, on: daemon) }
+        defer { ended?() }
         let surface = try await create(daemon, pane, offTheRecord ? Self.incognitoPlaceholderURL : url, choice.engine, profile, activate, after, split)
         let key = key(daemon, surface)
         if offTheRecord { incognitoURLs[key] = url }

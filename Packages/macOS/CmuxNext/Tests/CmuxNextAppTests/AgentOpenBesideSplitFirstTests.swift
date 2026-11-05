@@ -108,6 +108,14 @@ import Testing
         #expect(creates.splits[0] == nil)
     }
 
+    @Test func onlyRightAndDownAreMadeInTheirSplit() {
+        #expect(SplitDirection(splitFirst: "right", served: true) == .right)
+        #expect(SplitDirection(splitFirst: "down", served: true) == .down)
+        #expect(SplitDirection(splitFirst: "left", served: true) == nil)
+        #expect(SplitDirection(splitFirst: "up", served: true) == nil)
+        #expect(SplitDirection(splitFirst: "right", served: false) == nil)
+    }
+
     private actor NoHost: AgentPaneHostProviding {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
     }
