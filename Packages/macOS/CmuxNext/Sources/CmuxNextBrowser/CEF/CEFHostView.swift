@@ -395,10 +395,8 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     // Not flipped, like CEFHostView, so occlusion rects in this view's
     // coordinates are also valid in the host view that fills it.
 
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        tab?.pageThemeDidChange()
-    }
+    override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); tab?.pageThemeDidChange() }
+    override func viewWillMove(toSuperview newSuperview: NSView?) { super.viewWillMove(toSuperview: newSuperview); leavePaneResize(for: newSuperview) }
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)

@@ -41,6 +41,17 @@ extension CEFTabContentView {
         endSyncedDrag()
     }
 
+    /// The container moves to another superview in the same window (its tab moved to another pane: `BrowserPageArea.show`
+    /// adds it there, so no window change is sent) or out of one: the resize of the pane it leaves is not its resize any
+    /// more. Its wait shares end and its held size (a drag hold or a key hold) drops; the new pane's chrome holds it
+    /// again only if that pane is in a key resize itself (`BrowserChromeView.attach`). A move into the first superview,
+    /// or to the same one, keeps all.
+    func leavePaneResize(for newSuperview: NSView?) {
+        guard let superview, newSuperview !== superview, heldPageSize != nil || pageMotionHold != nil || !pageSyncReasons.isEmpty else { return }
+        dropHold()
+        endAllPageSync()
+    }
+
     /// The container left its window mid-resize: it may never hear the resize's end, so every wait ends now.
     func endAllPageSync() {
         pageSyncReasons = []
