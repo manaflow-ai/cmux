@@ -2,8 +2,9 @@
 
 HQ#7146 G3a/G3b: how well each way of sending input, and each Cua Driver build, acts on an app
 without disturbing the person at the keyboard. `scripts/measure/cu-driver-eval.sh` runs it on one
-console Mac; `.github/workflows/cu-driver-eval.yml` runs it every day at the feat-cmux-next tip and
-writes a summary.md that compares each rate with the last scheduled run.
+console Mac; `.github/workflows/cu-driver-eval.yml` runs it at the feat-cmux-next tip and writes a
+summary.md that compares each rate with the last successful run. Scheduled workflows run only from
+the default branch, so a dispatcher on main starts it once a day.
 
 ```
 cmux-ci run --class exclusive --measurement --label measure --label gui-session-v1 \

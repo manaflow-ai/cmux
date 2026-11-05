@@ -4,12 +4,12 @@ name: cu driver eval
 # route and Cua Driver build sends the same click, key and scroll to an AppKit, a WebKit and an
 # Electron window, behind the user's window and in front of it, on one console Mac, every day at the
 # feat-cmux-next tip. Report only, no gate: the run uploads results.json and a summary.md that
-# compares each rate with the last successful scheduled run. It goes through the build-fleet
+# compares each rate with the last successful run. Scheduled workflows run only from the default
+# branch, so a dispatcher on main (cu-driver-eval-dispatch.yml) starts this one on feat-cmux-next
+# once a day; it has no cron of its own. It goes through the build-fleet
 # gateway runner, which only hands the step to the controller with `cmux-ci run`.
 
 on:
-  schedule:
-    - cron: "17 11 * * *"
   workflow_dispatch:
     inputs:
       drivers:
@@ -41,14 +41,14 @@ jobs:
           ref: feat-cmux-next
           fetch-depth: 1
           submodules: false
-      - name: the last successful scheduled run
+      - name: the last successful run
         id: previous
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           python3 - <<'EOF' >> "$GITHUB_OUTPUT"
           import json, os, urllib.request
-          url = f"{os.environ['GITHUB_API_URL']}/repos/{os.environ['GITHUB_REPOSITORY']}/actions/workflows/cu-driver-eval.yml/runs?event=schedule&status=success&per_page=1"
+          url = f"{os.environ['GITHUB_API_URL']}/repos/{os.environ['GITHUB_REPOSITORY']}/actions/workflows/cu-driver-eval.yml/runs?branch=feat-cmux-next&status=success&per_page=1"
           request = urllib.request.Request(url, headers={"Authorization": f"Bearer {os.environ['GH_TOKEN']}", "Accept": "application/vnd.github+json"})
           try:
               runs = json.load(urllib.request.urlopen(request, timeout=30)).get("workflow_runs") or []

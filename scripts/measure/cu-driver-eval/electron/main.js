@@ -14,8 +14,9 @@ fs.writeFileSync(log, "");
 
 app.whenReady().then(() => {
   const win = new BrowserWindow({ x, y, width, height, show: true, title: "cu-eval electron" });
-  win.webContents.on("console-message", (event, _level, legacy) => {
-    const message = event.message ?? legacy ?? "";
+  // Electron 35+ puts the text on event.message; older builds pass it third, after the level.
+  win.webContents.on("console-message", (event, _level, positionalMessage) => {
+    const message = String(event.message ?? positionalMessage ?? "");
     if (!message.startsWith("CUEV ")) return;
     write({ kind: "event", layer: "dom", ...JSON.parse(message.slice(5)) });
   });

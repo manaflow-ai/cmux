@@ -475,7 +475,9 @@ def main() -> int:
     result["wins"] = wins(result["rows"], result["arms"], names)
     result["errors"] = run.errors
     (out / "input-ab.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
-    return 0 if all_trials else 4
+    # Exit 4 when no trial got past setup: rows of setup failures alone are not a measurement.
+    measured = any("setup_failed" not in t and "unsupported" not in t for t in all_trials)
+    return 0 if measured else 4
 
 
 if __name__ == "__main__":
