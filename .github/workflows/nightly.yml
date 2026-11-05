@@ -3560,6 +3560,11 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          filter: blob:none
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
           # Main and RC signing do not need submodules. nightly-next's notice
           # check reads ghostty-next/build.zig.zon, so initialize that optional
           # submodule in the next step only for the cmux-next track.
@@ -5195,6 +5200,11 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ steps.source.outputs.build_sha }}
+          filter: blob:none
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
 
       # The steps below pass this workflow's arguments, so the publication
       # tooling must come from the workflow's own commit, not from the
@@ -5920,12 +5930,17 @@ jobs:
     steps:
       - *hold-the-whole-mac
 
+      # Only scripts/ (and, by cone mode, the root .xcode-version) is read from it, so it is sparse: a full
+      # clone took 96 s of the whole-Mac hold (run 42033609306, 14:11:49-14:13:25Z).
       - &legacy-route-shared-3
         name: Checkout build ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          filter: blob:none
+          sparse-checkout: |
+            scripts
 
       # The wrapper comes from the workflow commit: the build checkout may predate it.
       # The publication-tooling shape test_nightly_cmux_tui_resolve.py exempts: scripts only.
@@ -6391,7 +6406,7 @@ jobs:
       - *download-artifact-step
       - *older-tree-step-scripts-plain
       - name: Install ffmpeg
-        timeout-minutes: 6
+        timeout-minutes: 10
         env:
           DEBIAN_FRONTEND: noninteractive
         run: bash -e scripts/ci/nightly-steps/reel-install-ffmpeg.sh

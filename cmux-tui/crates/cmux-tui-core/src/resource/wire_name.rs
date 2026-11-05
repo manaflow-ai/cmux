@@ -261,6 +261,8 @@ impl ResourceOperation {
             Self::StashRestore => "stash.restore",
             Self::StashDelete => "stash.delete",
             Self::StashImport => "stash.import",
+            Self::ConductorImportPlan => "conductor_import.plan",
+            Self::ConductorImportRecord => "conductor_import.record",
             Self::RoomCreate => "room.create",
             Self::RoomDelete => "room.delete",
             Self::RoomFollow => "room.follow",

@@ -61,6 +61,8 @@
     "closed.list",
     "closed.reopen",
     "column.update",
+    "conductor_import.plan",
+    "conductor_import.record",
     "conversation.draft",
     "conversation.events",
     "conversation.get",

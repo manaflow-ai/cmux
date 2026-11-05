@@ -503,3 +503,114 @@ fn native_token_receiver_names_the_check_that_refused() {
         verifier.verify_explained(f["token"].as_str().unwrap(), &expected(Service::Daemon)).is_ok()
     );
 }
+
+/// `desktop` is the machine creator's alone: a token admits it only when it
+/// names `desktop`, says `vmk: owner`, and the policy lists `desktop` for
+/// that peer. A team-kind token, a token without vmk, or a peer the policy
+/// gives only daemon/ssh is refused, and a refusal spends no jti.
+#[test]
+fn native_token_receiver_admits_desktop_only_for_an_owner_token_and_a_desktop_peer() {
+    let f = fixture();
+    // A verifier whose current policy gives the token's peer the desktop too.
+    let desktop_verifier = || {
+        let (v, t) = configured();
+        {
+            let mut now = t.lock().unwrap();
+            now.unix_ms += 1;
+            now.monotonic += Duration::from_millis(1);
+        }
+        let mut p = policy(&f, snapshot(&t));
+        p.peers[0].services = vec![Service::Daemon, Service::Ssh, Service::Desktop];
+        v.replace_authority(p).unwrap();
+        v
+    };
+    let claims = |svc: Value, vmk: Option<&str>| {
+        let mut c = f["claims"].clone();
+        c["svc"] = svc;
+        match vmk {
+            Some(kind) => c["vmk"] = serde_json::json!(kind),
+            None => {
+                c.as_object_mut().unwrap().remove("vmk");
+            }
+        }
+        c
+    };
+    let owner = claims(serde_json::json!(["desktop"]), Some("owner"));
+
+    // Owner token, desktop peer: admitted once.
+    let v = desktop_verifier();
+    assert!(v.verify(&signed(&owner), &expected(Service::Desktop)).is_ok());
+    assert_eq!(v.verify(&signed(&owner), &expected(Service::Desktop)), Err(TokenRefused::Replayed));
+
+    // Team-kind and kindless tokens: refused even on a desktop peer, jti unspent.
+    for vmk in [Some("team"), None] {
+        let v = desktop_verifier();
+        let token = signed(&claims(serde_json::json!(["desktop"]), vmk));
+        assert_eq!(
+            v.verify(&token, &expected(Service::Desktop)),
+            Err(TokenRefused::ServiceNotAllowed),
+            "{vmk:?}"
+        );
+        assert!(v.verify(&signed(&owner), &expected(Service::Desktop)).is_ok());
+    }
+
+    // The default policy peer has daemon and ssh only: no desktop for it.
+    let (v, _) = configured();
+    assert_eq!(
+        v.verify(&signed(&owner), &expected(Service::Desktop)),
+        Err(TokenRefused::ServiceNotAllowed)
+    );
+
+    // A daemon/ssh token never reaches the desktop, and a desktop token never
+    // reaches the daemon.
+    let v = desktop_verifier();
+    let ssh_owner = claims(serde_json::json!(["daemon", "ssh"]), Some("owner"));
+    assert_eq!(
+        v.verify(&signed(&ssh_owner), &expected(Service::Desktop)),
+        Err(TokenRefused::ServiceNotAllowed)
+    );
+    assert_eq!(
+        v.verify(&signed(&owner), &expected(Service::Daemon)),
+        Err(TokenRefused::ServiceNotAllowed)
+    );
+
+    // All three at once is a valid token; a repeated or owner_session entry is not.
+    let v = desktop_verifier();
+    let all = claims(serde_json::json!(["daemon", "ssh", "desktop"]), Some("owner"));
+    assert!(v.verify(&signed(&all), &expected(Service::Desktop)).is_ok());
+    for svc in [
+        serde_json::json!(["desktop", "desktop"]),
+        serde_json::json!(["ssh", "desktop", "owner_session"]),
+    ] {
+        let v = desktop_verifier();
+        assert_eq!(
+            v.verify(&signed(&claims(svc.clone(), Some("owner"))), &expected(Service::Desktop)),
+            Err(TokenRefused::Invalid),
+            "{svc}"
+        );
+    }
+}
+
+/// A receiving policy may give a peer up to daemon, ssh and desktop, each
+/// once; owner_session or a repeated service makes the whole policy invalid.
+#[test]
+fn native_receiving_policy_accepts_desktop_and_refuses_invalid_service_lists() {
+    let f = fixture();
+    for (services, valid) in [
+        (vec![Service::Desktop], true),
+        (vec![Service::Daemon, Service::Ssh, Service::Desktop], true),
+        (vec![Service::Desktop, Service::Desktop], false),
+        (vec![Service::Ssh, Service::OwnerSession], false),
+        (vec![Service::Daemon, Service::Ssh, Service::Desktop, Service::Desktop], false),
+    ] {
+        let (v, t) = configured();
+        {
+            let mut now = t.lock().unwrap();
+            now.unix_ms += 1;
+            now.monotonic += Duration::from_millis(1);
+        }
+        let mut p = policy(&f, snapshot(&t));
+        p.peers[0].services = services.clone();
+        assert_eq!(v.replace_authority(p).is_ok(), valid, "{services:?}");
+    }
+}

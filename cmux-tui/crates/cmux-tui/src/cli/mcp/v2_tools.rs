@@ -182,6 +182,8 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("stash.restore", STASH_REASON),
     ("stash.delete", STASH_REASON),
     ("stash.import", STASH_REASON),
+    ("conductor_import.plan", CONDUCTOR_IMPORT_REASON),
+    ("conductor_import.record", CONDUCTOR_IMPORT_REASON),
     ("workspace.ensure_home", HOME_REASON),
     ("workspace.ensure_app", APP_WORKSPACE_REASON),
     ("workspace.agent_folder.set", AGENT_FOLDER_REASON),
@@ -256,6 +258,8 @@ const PALETTE_USAGE_REASON: &str = "The user's own palette usage history: the ap
      records and reads it; agents rank rows through palette.query, never read or write usage.";
 const STASH_REASON: &str = "The user's stashed web pages (stash-v1): the app's OneTab \
      list; agents close and open tabs through the tab and browser tools, never the stash.";
+const CONDUCTOR_IMPORT_REASON: &str = "The app's Import from Conductor drives these: it reads \
+     the dry-run plan and records what it made; agents never import.";
 const SIDEBAR_REASON: &str = "TUI sidebar plugin views in the cmux-tui-only scope.";
 const HOME_REASON: &str = "The hosting app creates its one home workspace on connect; the CLI \
      never offers it (workspace-kind-v1).";

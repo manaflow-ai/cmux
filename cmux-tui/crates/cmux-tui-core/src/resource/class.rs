@@ -113,6 +113,7 @@ impl ResourceOperation {
                 | Self::ProjectList
                 | Self::PaletteUsageGet
                 | Self::StashList
+                | Self::ConductorImportPlan
                 | Self::RoomList
                 | Self::SavedTabGroupList
                 | Self::ScreenGroupGet

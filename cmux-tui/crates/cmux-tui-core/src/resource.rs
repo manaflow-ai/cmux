@@ -548,6 +548,10 @@ pub enum ResourceOperation {
     StashDelete,
     #[serde(rename = "stash.import")]
     StashImport,
+    #[serde(rename = "conductor_import.plan")]
+    ConductorImportPlan,
+    #[serde(rename = "conductor_import.record")]
+    ConductorImportRecord,
     #[serde(rename = "room.create")]
     RoomCreate,
     #[serde(rename = "room.delete")]
