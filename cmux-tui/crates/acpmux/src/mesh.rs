@@ -40,6 +40,10 @@ pub struct SessionRow {
 pub struct Heartbeat {
     pub host: String,
     pub sessions: Vec<SessionRow>,
+    /// The last heartbeat as the relay stops: the hub ends this daemon's waiting inbox polls, so
+    /// a message sent before the restarted daemon polls again is not leased to the dead one.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub leaving: bool,
 }
 
 /// The most sessions one heartbeat lists.

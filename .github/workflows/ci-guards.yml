@@ -1876,6 +1876,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_recovery.py
 
+      - name: Validate recovery app archives made on a Mac
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_recovery_app_archive.py
+
       - name: Validate asynchronous notarization status polling
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_poll_notary_submission.py

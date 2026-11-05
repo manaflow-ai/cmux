@@ -128,11 +128,16 @@ history, the receiving policy's peer services). Only then does the receiver conn
 - The principal is the machine owner. The link already admitted the owner, so the hello's token
   and its user, class and interactive claims are not used: the session's principal is the owner,
   a person at the app (`--owner`, default `owner`). The hello's `start` mode chooses `view` or
-  `control`; `control` sends XTest input through the XI2 master `cmux person` (made on first
-  input, and made again when a crashed host left one), so the agent's computer use keeps `:99`'s
-  core pointer and keyboard. A person's press waits (at most 2 s) while the core pointer holds a
-  button, and the root property `_CMUX_RD_PERSON` names the window under the person's pointer
-  (see `src/inject.rs`).
+  `control`; `control` sends XTest input through the XI2 master `cmux person`, so the agent's
+  computer use keeps `:99`'s core pointer and keyboard. The master exists only while the person
+  acts: made on their input, removed after 3 s with no input and nothing held (Chromium takes
+  keys from one master keyboard only, so the agent's keys into Chrome are lost while it exists)
+  and when control ends, and made again where the person's pointer was. One a crashed host left
+  is replaced; one another live host lists in `_CMUX_RD_PERSON_HOSTS` is shared, never removed
+  under it. A person's press waits (at most 2 s from its arrival) while the core pointer holds a
+  button. The root property `_CMUX_RD_PERSON` exists exactly while the master does and names the
+  window under the person's pointer, so an agent can wait while it exists before typing into
+  Chromium (see `src/inject.rs`).
 - The stream carrier only. A hello that asks for UDP is refused (`StreamCarrierOnly`).
 - The service runs as its own system user (`cmux-agent-rd.service`, `User=cmux-rd`, not in group
   `cmux`), reads the X cookie from `--xauthority` (set as `XAUTHORITY`), and exits after

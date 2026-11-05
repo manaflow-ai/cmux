@@ -439,7 +439,8 @@ test("Find highlights a prompt's link URL in Raw, including a query shared with 
     title: "mcp__cmux-subsessions__start_session",
     status: "completed",
     inputSummary: JSON.stringify({ name: "first", prompt }),
-    output: "Started",
+    // The output a started sub-session has, so the transcript draws this call as its card.
+    output: "Started sub-session first (sessionId first-id, depth 1).",
   };
   const row: AcpmuxRow = {
     id: "row",
@@ -478,7 +479,7 @@ test("Find uses Raw for fenced code in a shadow root and Markdown while plain co
     title: "mcp__cmux-subsessions__start_session",
     status: "completed",
     inputSummary: JSON.stringify({ prompt }),
-    output: "Started",
+    output: "Started sub-session first (sessionId first-id, depth 1).",
   };
   const row: AcpmuxRow = {
     id: "row",

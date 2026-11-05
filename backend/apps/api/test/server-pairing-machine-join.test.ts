@@ -97,6 +97,30 @@ describe("server pairing mints the box's machine join token (workerd)", () => {
     expect(waiter.frames.find((f) => f.t === "paired").machine_join.token).toBe(TOKEN)
   })
 
+  it("a retry after the pinned token expired mints a fresh one and pushes only that", async () => {
+    const { team, user, code, waiter } = await setup("stack-pair-machine-join-expired")
+    const FRESH = `cmj_${"b".repeat(43)}`
+    let first = true
+    const fake = platform(() => {
+      // The first token lives only 200 ms, so it has expired by the retry.
+      const reply = first
+        ? Response.json({ joinTokenId: "join_1", token: TOKEN, expiresAt: new Date(Date.now() + 200).toISOString(), teamId: "t" })
+        : Response.json({ joinTokenId: "join_2", token: FRESH, expiresAt: new Date(Date.now() + 600_000).toISOString(), teamId: "t" })
+      first = false
+      return reply
+    })
+    const teams = testEnv.TEAM_DO
+    const realTeam = teams.get(teams.idFromName(team)) as any
+    const flaky = { idFromName: (n: string) => teams.idFromName(n), get: () => ({ canEnrollServer: (...a: Array<unknown>) => realTeam.canEnrollServer(...a), enrollServer: async () => ({ ok: false, code: "owner.unreachable", message: "fixture outage" }) }) }
+    const approve = (teamDo: unknown) => pairApprove({ PAIRING_DO: testEnv.PAIRING_DO, TEAM_DO: teamDo, PLATFORM: fake, INTERNAL_TOKEN: "internal-test" } as never, sessionPrincipal(user, team), { op: "server.pair.approve", params: { code, team, name: "Studio" }, idempotency_key: "retry-expired" }, userSubmit as never)
+    expect(await approve(flaky)).toMatchObject({ ok: false })
+    await new Promise((r) => setTimeout(r, 300))
+    expect((await approve(testEnv.TEAM_DO)).ok).toBe(true)
+    expect(fake.calls).toHaveLength(2)
+    await waiter.until(() => waiter.frames.some((f) => f.t === "paired"))
+    expect(waiter.frames.find((f) => f.t === "paired").machine_join.token).toBe(FRESH)
+  })
+
   it("without the platform binding the box pairs as before, with no join token", async () => {
     const { team, user, code, waiter } = await setup("stack-pair-machine-join-unbound")
     const env = { PAIRING_DO: testEnv.PAIRING_DO, TEAM_DO: testEnv.TEAM_DO } as never

@@ -109,4 +109,39 @@ extension CloudWait {
             return await group.next().flatMap { $0 } ?? true
         }
     }
+
+    /// A start's link wait: `linkUp` once and, when `updating` waited out an update of the machine that ran
+    /// meanwhile (it restarts the daemon the link reached), once more, so the agent starts on the new daemon.
+    public static func linked(within limit: Duration, _ linkUp: () async -> Bool,
+                              updating: @escaping @Sendable () async -> Bool) async -> Bool {
+        let up = await linkUp()
+        guard up, await ended(within: limit, updating) else { return up }
+        return await linkUp()
+    }
+
+    /// A start's link wait that holds only when `held` (a live daemon and no failed resume) does after it; when not, and
+    /// `redialable` says the link's last end is one another dial can help, `again` dials and the wait runs once more. A
+    /// just-resumed machine's tunnel peer may not answer the first dials (prod, 2026-11-05: "no handshake within 5 s",
+    /// then "the tunnel peer setup failed: no route to this host", state running), and the start failed at 59 s.
+    public static func linkedAgain(_ wait: () async -> Bool, held: () -> Bool, redialable: () -> Bool,
+                                   again: () -> Void) async -> Bool {
+        if await wait(), held() { return true }
+        guard redialable(), !Task.isCancelled else { return false }
+        again()
+        return await wait() && held()
+    }
+
+    /// `start`, tried once more when its first try failed on a connection that closed (`closed`), once `relink`
+    /// says the link is back: a just-resumed machine's link can drop once under a start (prod, 2026-11-05: "started
+    /// but its agent didn't (cmux-tui connection closed: EOF)"). Any other failure, a second one, or a link that
+    /// does not come back throws as it is.
+    public static func retriedOnce<T>(_ start: () async throws -> T, closed: (any Error) -> Bool,
+                                      relink: () async -> Bool) async throws -> T {
+        do {
+            return try await start()
+        } catch where closed(error) && !Task.isCancelled {
+            guard await relink() else { throw error }
+            return try await start()
+        }
+    }
 }

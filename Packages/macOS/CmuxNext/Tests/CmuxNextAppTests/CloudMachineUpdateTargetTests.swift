@@ -14,8 +14,8 @@ import Testing
 /// by the Rust suites (`link/machine_update.rs`) and Update Machine by `CloudMoveTests`.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
 struct CloudMachineUpdateTargetTests {
-    static let bundled = "abc123def456"
-    static let older = "a9b104f3cb7d"
+    nonisolated static let bundled = "abc123def456"
+    nonisolated static let older = "a9b104f3cb7d"
 
     /// The production default (Leo: "OUR SHIT IS HARDLY EVER GOING TO GO IDLE"): a machine where an
     /// agent works is updated on the first ask, with no wait; the new daemon adopts the terminals
@@ -111,6 +111,100 @@ struct CloudMachineUpdateTargetTests {
         #expect(await waiter.value, "the start waited for the running update")
         await policy.drained()
         #expect(await policy.turnRunning(target.id) == false)
+    }
+
+    /// The start's own wait (``CloudWait/linked(within:_:updating:)`` over ``DaemonUpdatePolicy/turnRunning(_:)``): its
+    /// link came up on the daemon an update is replacing, so it links again once that update ended, and only then.
+    @Test func aStartLinksAgainOnceTheUpdateRunningUnderItEnds() async throws {
+        let fixture = try CloudUpdateFixture()
+        defer { fixture.remove() }
+        let (began, beganNow) = AsyncStream<Void>.makeStream()
+        let (release, releaseNow) = AsyncStream<Void>.makeStream()
+        let source = CloudMachineUpdateTarget.Source(
+            daemon: { CloudMachineUpdateTarget.Daemon(build: Self.older, level: .limited) },
+            update: {
+                beganNow.yield()
+                for await _ in release { break }
+                return CloudMoveCLI.Answer(ok: true, updated: true, build: Self.bundled)
+            },
+            reconnect: { _ in })
+        let target = CloudMachineUpdateTarget(machineID: "vm-1", displayName: "Leo VM", source: source, enabled: { true })
+        let policy = DaemonUpdatePolicy(DaemonUpdatePolicy.Dependencies(
+            bundledBuild: { Self.bundled }, targets: { [target] }, enabled: { true }, report: { _ in },
+            directory: fixture.directory, clock: fixture.clock))
+        var links = 0
+        #expect(await CloudWait.linked(within: .seconds(10), { links += 1; return true }) { await policy.turnRunning(target.id) })
+        #expect(links == 1, "no update runs: the start links once")
+
+        await policy.offer(target)
+        for await _ in began { break }
+        links = 0
+        let start = Task { @MainActor in
+            await CloudWait.linked(within: .seconds(10), { links += 1; return true }) { await policy.turnRunning(target.id) }
+        }
+        while !(await policy.awaitsTurn(target.id)) { await Task.yield() }
+        #expect(links == 1, "the start linked again before the update ended")
+        releaseNow.yield()
+        #expect(await start.value)
+        #expect(links == 2, "the start never linked again after the update restarted the daemon")
+        await policy.drained()
+    }
+
+    /// A start whose link closed under it (EOF right after a resume) is tried once more once the link is back; any
+    /// other failure, and a second EOF, throw as they are.
+    @Test func aStartIsTriedOnceMoreOnlyAfterItsConnectionClosed() async throws {
+        let closed = { (error: any Error) in if case DaemonError.connectionClosed = error { true } else { false } }
+        var tries = 0, relinks = 0
+        let started = try await CloudWait.retriedOnce({
+            tries += 1
+            if tries == 1 { throw DaemonError.connectionClosed(reason: "EOF") }
+            return "session"
+        }, closed: closed, relink: { relinks += 1; return true })
+        #expect(started == "session")
+        #expect((tries, relinks) == (2, 1))
+
+        tries = 0; relinks = 0
+        await #expect(throws: DaemonError.self) {
+            try await CloudWait.retriedOnce({ () async throws -> String in tries += 1; throw DaemonError.connectionClosed(reason: "EOF") },
+                                            closed: closed, relink: { relinks += 1; return true })
+        }
+        #expect((tries, relinks) == (2, 1), "a second EOF is the answer: no third try")
+
+        tries = 0; relinks = 0
+        await #expect(throws: DaemonError.self) {
+            try await CloudWait.retriedOnce({ () async throws -> String in tries += 1; throw DaemonError.notConnected },
+                                            closed: closed, relink: { relinks += 1; return true })
+        }
+        #expect((tries, relinks) == (1, 0), "only a closed connection is tried again")
+
+        tries = 0
+        await #expect(throws: DaemonError.self) {
+            try await CloudWait.retriedOnce({ () async throws -> String in tries += 1; throw DaemonError.connectionClosed(reason: "EOF") },
+                                            closed: closed, relink: { false })
+        }
+        #expect(tries == 1, "a link that never came back is not tried on")
+    }
+
+    /// The start's wait on a just-resumed machine (prod 19:10Z, 2026-11-05: "no handshake within 5 s", then "no route
+    /// to this host", and the start failed at 59 s): a link that does not hold after the wait is dialed and waited on
+    /// once more when its last end is redialable; otherwise, and after the second wait, the answer stands.
+    @Test func aStartsLinkThatDoesNotHoldIsDialedAndWaitedOnOnceMore() async {
+        var waits = 0, agains = 0, holds = false
+        #expect(await CloudWait.linkedAgain({ waits += 1; return true }, held: { holds }, redialable: { true },
+                                            again: { agains += 1; holds = true }))
+        #expect((waits, agains) == (2, 1))
+
+        waits = 0; agains = 0; holds = false
+        #expect(!(await CloudWait.linkedAgain({ waits += 1; return true }, held: { holds }, redialable: { true }, again: { agains += 1 })))
+        #expect((waits, agains) == (2, 1), "a second wait that does not hold is the answer")
+
+        waits = 0; agains = 0
+        #expect(!(await CloudWait.linkedAgain({ waits += 1; return false }, held: { true }, redialable: { false }, again: { agains += 1 })))
+        #expect((waits, agains) == (1, 0), "an end no dial can help is not dialed again")
+
+        waits = 0; agains = 0
+        #expect(await CloudWait.linkedAgain({ waits += 1; return true }, held: { true }, redialable: { true }, again: { agains += 1 }))
+        #expect((waits, agains) == (1, 0), "a link that holds is not dialed again")
     }
 
     @Test func theStartGateCountsEachStartOfAMachine() {

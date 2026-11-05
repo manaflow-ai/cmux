@@ -234,7 +234,8 @@ extension AgentPaneRequest {
                 self = .openTab(AgentPaneOpenTab(kind: kind, text: String(text.prefix(Self.maximumOpenTabText)), cwd: kind == .terminal ? cwd : nil,
                                                  search: kind == .browser && params?["search"] as? Bool == true,
                                                  run: kind != .terminal || params?["run"] as? Bool != false,
-                                                 keep: params?["keep"] as? Bool == true))
+                                                 keep: params?["keep"] as? Bool == true,
+                                                 profile: kind == .browser ? AgentPaneOpenTabProfile(params: params) : nil))
             } else {
                 self = .unsupported(method)
             }

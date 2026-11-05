@@ -63,7 +63,37 @@ git clone -q --shared -b feat-cmux-next "$fx/origin.git" "$fx/checkout"
 export CMUX_SIDE_ROOT="$out/side"
 try="$fx/checkout/scripts/cmux-next/try-pr.sh"
 side="$fx/checkout/scripts/cmux-next/side-instance.sh"
-capture() { screencapture -x "$out/$1.png"; }
+# The copy draws its own main window (debug.window_snapshot, as live-code-app.py does): a fleet Mac's step
+# has no Screen Recording grant, so screencapture fails there with "could not create image from display".
+# lsof does not show the copy's control socket, so every cmux control socket is asked system.identify, and
+# the one whose pid is the copy's recorded pid takes the still. An old PNG is removed first, so only a new
+# one counts.
+capture() {
+  python3 - "$CMUX_SIDE_ROOT/pr-1/pid" "$out/$1.png" <<'PY'
+import glob, os, sys, time
+sys.path.insert(0, os.path.join(os.getcwd(), "scripts", "cmux-next"))
+from bench_launch import account_home, rpc_at
+pid, png = int(open(sys.argv[1]).read().strip()), sys.argv[2]
+if os.path.exists(png):
+    os.remove(png)
+# A step has its own HOME; the copy, opened through Launch Services, keeps the account's.
+homes = dict.fromkeys([account_home(), os.path.expanduser("~")])
+seen = {}
+deadline = time.time() + 30
+while time.time() < deadline:
+    socks = sorted(set(glob.glob("/tmp/cmux-*.sock")).union(*(glob.glob(os.path.join(h, ".local/state/cmux/*.sock")) for h in homes)))
+    for sock in socks:
+        reply = rpc_at(sock, "system.identify", timeout=5)
+        seen[sock] = reply.get("pid") if isinstance(reply, dict) else None
+        if seen[sock] == pid:
+            reply = rpc_at(sock, "debug.window_snapshot", {"kind": "main", "path": png}, timeout=60)
+            if os.path.exists(png):
+                sys.exit(0)
+            sys.exit(f"try-pr-live-code: the copy's socket {sock} wrote no snapshot: {reply}")
+    time.sleep(1)
+sys.exit(f"try-pr-live-code: no control socket answers as the copy (pid {pid}); sockets and their pids: {seen}")
+PY
+}
 cleanup() { "$try" 1 --stop >"$out/stop.log" 2>&1 || true; }
 trap cleanup EXIT
 # The copy as try-pr.sh makes it (same app, label and --live-code), open in front, then captured.

@@ -38,14 +38,16 @@ pub(crate) fn duration_ms(text: &str) -> Result<u64> {
     let (n, unit) = text.split_at(text.find(|c: char| !c.is_ascii_digit()).unwrap_or(text.len()));
     let n: u64 =
         n.parse().map_err(|_| anyhow::anyhow!("--since: {text:?} is not like 30m, 6h or 2d"))?;
-    let secs = match unit {
-        "" | "s" => n,
-        "m" => n * 60,
-        "h" => n * 3600,
-        "d" => n * 86_400,
+    let per_unit: u64 = match unit {
+        "" | "s" => 1,
+        "m" => 60,
+        "h" => 3600,
+        "d" => 86_400,
         _ => anyhow::bail!("--since: {text:?} is not like 30m, 6h or 2d"),
     };
-    Ok(secs * 1000)
+    n.checked_mul(per_unit)
+        .and_then(|secs| secs.checked_mul(1000))
+        .ok_or_else(|| anyhow::anyhow!("--since: {text:?} is too long"))
 }
 
 /// The request params for `args`, in folder `cwd`, from a shell whose session is `env_session`.
@@ -75,7 +77,7 @@ fn params(args: &WhoElseArgs, cwd: &std::path::Path, env_session: Option<String>
 }
 
 /// What `who-else` prints for an answer.
-fn text(answer: &Value) -> String {
+pub(crate) fn text(answer: &Value) -> String {
     let list = |k: &str| answer.get(k).and_then(Value::as_array).into_iter().flatten();
     let rows: Vec<&Value> = list("sessions").collect();
     let mut out = String::new();
@@ -132,6 +134,12 @@ mod tests {
         assert_eq!(duration_ms("30m").unwrap(), 30 * 60_000);
         assert_eq!(duration_ms("2d").unwrap(), 2 * 86_400_000);
         assert!(duration_ms("soon").is_err());
+    }
+
+    #[test]
+    fn a_since_too_long_to_count_is_refused_not_wrapped() {
+        assert!(duration_ms("999999999999999999d").is_err());
+        assert!(duration_ms("18446744073709551615").is_err());
     }
 
     #[test]
