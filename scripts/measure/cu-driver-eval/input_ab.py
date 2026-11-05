@@ -26,10 +26,12 @@ import argparse
 import json
 import math
 import os
+import secrets
 import select
 import statistics
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -105,19 +107,38 @@ class Log:
 
 class Mcp:
     """A Cua Driver build over MCP stdio, in this process tree so it inherits this step's
-    Accessibility grant and measures exactly the downloaded binary: cua-driver with `mcp --direct`
-    (no daemon), cmux-cua with `mcp --no-daemon-relaunch` (never hands off to an installed
-    cmux Computer Use.app). No fallback to plain `mcp`, which may hand the work to another build."""
+    Accessibility grant and measures exactly the downloaded binary. cua-driver runs `mcp --direct`
+    (no daemon). cmux-cua runs as cmux runs it: `serve --socket` on a socket of this run with the
+    environment the app gives its helper (ComputerUseHelperDaemon.environment), and `mcp --socket`
+    with the agent token and CMUX_CUA_MCP_FORCE_PROXY=1, as acpmux spawns it (agent_tools.rs). Its
+    standalone `mcp` looks for the app's tag-scoped helper, which no eval host runs. No fallback to
+    plain `mcp`, which may hand the work to another build."""
 
     def __init__(self, name: str, binary: str, stderr_path: Path):
         self.name, self.next_id, self.timeouts, self.buffer = name, 1, 0, b""
+        self.server: subprocess.Popen | None = None
+        self.stderr = open(stderr_path, "ab")
         env = None
         if name.startswith("cmux-cua"):
-            argv = [binary, "mcp", "--no-daemon-relaunch"]
-            env = {**os.environ, "CMUX_CUA_MCP_NO_RELAUNCH": "1"}
+            state = Path(tempfile.mkdtemp(prefix="cu-eval-cmux-cua-"))
+            socket_path, token = str(state / "cua.sock"), secrets.token_hex(16)
+            serve_env = {**os.environ, "CMUX_CUA_EXTERNAL_PERMISSION_FLOW": "1", "CMUX_CUA_PERMISSIONS_GATE": "0",
+                         "CMUX_CUA_RESPONSIBILITY_DISCLAIMED": "1", "CMUX_CUA_TELEMETRY_ENABLED": "false",
+                         "CMUX_CUA_UPDATE_CHECK": "false", "CMUX_CUA_STATE_DIR": str(state),
+                         "CMUX_CUA_SOCKET_AUTH_TOKEN": token, "CMUX_CUA_SOCKET_HOST_AUTH_TOKEN": secrets.token_hex(16)}
+            self.server = subprocess.Popen([binary, "serve", "--socket", socket_path, "--no-permissions-gate"],
+                                           stdin=subprocess.DEVNULL, stdout=self.stderr, stderr=self.stderr, env=serve_env)
+            deadline = time.time() + 20
+            while not os.path.exists(socket_path) and self.server.poll() is None and time.time() < deadline:
+                time.sleep(0.1)
+            if not os.path.exists(socket_path):
+                self.close()
+                raise RuntimeError(f"{name}: serve did not open its socket (exit {self.server.poll()})")
+            argv = [binary, "mcp", "--socket", socket_path]
+            env = {**os.environ, "CMUX_CUA_MCP_FORCE_PROXY": "1", "CMUX_CUA_SOCKET_AUTH_TOKEN": token,
+                   "CMUX_CUA_TELEMETRY_ENABLED": "false", "CMUX_CUA_UPDATE_CHECK": "false"}
         else:
             argv = [binary, "mcp", "--direct"]
-        self.stderr = open(stderr_path, "ab")
         self.proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.stderr, env=env)
         try:
             self.request("initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
@@ -170,23 +191,30 @@ class Mcp:
                 continue
             self.timeouts = 0
             if "error" in message:
-                raise RuntimeError(json.dumps(message["error"])[:300])
+                raise RuntimeError(json.dumps(message["error"])[:1200])
             return message.get("result") or {}
 
     def call(self, tool: str, args: dict) -> dict:
         result = self.request("tools/call", {"name": tool, "arguments": args})
         if result.get("isError"):
             text = " ".join(part.get("text", "") for part in result.get("content", []) if isinstance(part, dict))
-            raise RuntimeError(f"{tool}: {text.strip()[:300]}")
+            raise RuntimeError(f"{tool}: {text.strip()[:1200]}")
         return result
 
     def close(self) -> None:
-        if self.proc.poll() is None:
+        proc = getattr(self, "proc", None)
+        if proc is not None and proc.poll() is None:
             try:
-                self.proc.stdin.close()
-                self.proc.wait(timeout=5)
+                proc.stdin.close()
+                proc.wait(timeout=5)
             except Exception:
-                self.proc.kill()
+                proc.kill()
+        if self.server is not None and self.server.poll() is None:
+            self.server.terminate()
+            try:
+                self.server.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.server.kill()
         self.stderr.close()
 
 
@@ -285,7 +313,7 @@ def trial(run: Run, arm: str, drivers: dict, target: dict, witness: dict, gestur
                 mcp.call("scroll", {**base, "x": lx * scale, "y": ly * scale, "direction": "down", "by": "line",
                                     "amount": SCROLL_LINES})
     except Exception as error:
-        row["error"] = str(error)[:300]
+        row["error"] = str(error)[:1200]
     row["call_ms"] = round((time.monotonic() - started) * 1000, 1)
     time.sleep(AFTER_S)
     after = sh([run.inject, "observe"])
@@ -442,7 +470,7 @@ def main() -> int:
                     else:
                         run.errors.append(f"{arm} get_window_state on {name}: no screenshot size; used the backing scale")
                 except Exception as error:
-                    run.errors.append(f"{arm} get_window_state on {name}: {str(error)[:200]}")
+                    run.errors.append(f"{arm} get_window_state on {name}: {str(error)[:1200]}")
             for rep in range(args.reps):
                 for condition in CONDITIONS:
                     for gesture in GESTURES:
@@ -451,7 +479,7 @@ def main() -> int:
                                 t = trial(run, arm, drivers, target, witness, gesture, condition, park)
                             except Exception as error:
                                 t = {"arm": arm, "target": name, "gesture": gesture, "condition": condition,
-                                     "setup_failed": str(error)[:300]}
+                                     "setup_failed": str(error)[:1200]}
                             t["rep"] = rep
                             all_trials.append(t)
                             run.trials.write(json.dumps(t, sort_keys=True) + "\n")
@@ -459,7 +487,7 @@ def main() -> int:
             run.stop(target["proc"])
         result["arms"] = arms
     except Exception as error:
-        run.errors.append(str(error)[:300])
+        run.errors.append(str(error)[:1200])
         result.setdefault("arms", ROUTES + list(drivers))
     finally:
         for mcp in drivers.values():
