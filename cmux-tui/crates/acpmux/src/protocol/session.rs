@@ -521,6 +521,14 @@ pub struct QueuedPromptSummary {
     #[serde(default)]
     #[schemars(default)]
     pub subagent_retry: Option<QueuedSubagentRetry>,
+    /// acpmux's inbox notice of other agents' messages (`_meta.provenance` `inbox_notice`,
+    /// `hub/inbox.rs`): that provenance, `{kind, noticeId, threads}`, so an app draws it as the
+    /// messages it carries and never as the person's queued prompt, also when it has not read
+    /// its `queued` record (a chat reopened on a recent page). Null for any other prompt, and
+    /// once edited (an edit drops the provenance).
+    #[serde(default)]
+    #[schemars(default)]
+    pub inbox_notice: Option<Value>,
 }
 
 /// The subagent a queued resume asks the agent to resume (`QueuedPromptSummary.subagentRetry`).

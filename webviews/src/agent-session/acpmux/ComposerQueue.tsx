@@ -647,7 +647,10 @@ export function ComposerQueue({
     shown.some((entry) => entry.waking),
     wakeNoteDelayMs,
   );
-  if (shown.length === 0 && !(paused && queue.length > 0)) return null;
+  // Only the person's own prompts make the queue: other agents' messages and inbox notices a failed
+  // turn held go in again by themselves (acpmux `goes_in_by_itself`), so no paused note stands over
+  // nothing of theirs (Leo, 2026-11-05: "don't show these kinds of things").
+  if (shown.length === 0) return null;
   // Prompts sent now come first: queued prompts count from after them.
   const steering = shown.filter((entry) => entry.next).length;
   // A long queue folds to its next prompts; the rows shown are always the first ones, in order.

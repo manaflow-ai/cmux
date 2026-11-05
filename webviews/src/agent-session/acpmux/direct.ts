@@ -954,9 +954,23 @@ export function mergeQueue(
     // prompt is the person's own. Without this, a queued agent_message was rendered as a plain
     // user prompt until it left the queue, so its received card (and reply actions) disappeared.
     const message = listed === null ? undefined : (kept ?? listedMessage);
-    // acpmux's inbox notice: the threads its `queued` record named, while the text is the same. An
-    // edit makes it the person's (hub/queue.rs drops the provenance), so it keeps none.
-    const inbox = message || edited?.has(id) || !whole ? undefined : had.inbox;
+    // acpmux's inbox notice: the threads acpmux lists (`inboxNotice`, its provenance), else those its
+    // `queued` record named while the text is the same. An edit makes it the person's (hub/queue.rs
+    // drops the provenance), so it keeps none. A notice whose record the pane never read (a chat
+    // reopened on a recent page) drew as the person's queued prompt under "Paused after an error"
+    // (Leo, 2026-11-05: "Why is the thing still queued? ... don't show these kinds of things").
+    // One that names no thread, or from an acpmux that lists none (its `[inbox]` text from acpmux),
+    // is still no prompt of the person's: no thread to draw, and no queue row.
+    const listedInbox =
+      entry?.inboxNotice && typeof entry.inboxNotice === "object"
+        ? (queuedInbox({ text: preview, _meta: { provenance: entry.inboxNotice } }) ?? { threads: [] })
+        : !("inboxNotice" in (entry ?? {})) && entry?.client === "acpmux" && preview.startsWith("[inbox] ")
+          ? (had?.inbox ?? { threads: [] })
+          : undefined;
+    const inbox =
+      message || edited?.has(id)
+        ? undefined
+        : (listedInbox ?? (whole && !("inboxNotice" in (entry ?? {})) ? had.inbox : undefined));
     // A list that names the field says whose it is, null the owner's (acpmux lists it for every
     // prompt once it serves authors); an older acpmux lists none, and the records read decide.
     const hold = listedHold(entry, had);

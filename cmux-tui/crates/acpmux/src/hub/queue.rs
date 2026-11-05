@@ -97,7 +97,29 @@ impl QueuedPrompt {
     pub(super) fn aside(&self) -> bool {
         self.held || self.awaiting_owner
     }
+
+    /// Another agent's message, or acpmux's inbox notice of such messages (`inbox.rs`): no
+    /// prompt of the person's, so a failed turn's hold lets it go by itself (`digest.rs`
+    /// `retry_held_agent_messages`) and never waits for the person's Resume. A notice held
+    /// as the person's prompt sat under "Paused after an error" until Resume (Leo, 2026-11-05:
+    /// "Why is the thing still queued? ... don't show these kinds of things").
+    pub(super) fn goes_in_by_itself(&self) -> bool {
+        self.run.agent.is_some() || super::inbox::is_notice(self.run.provenance.as_ref())
+    }
+
+    /// Whether a failed turn's hold of it waits for the person's Resume (`queue_paused`). Another
+    /// agent's message or a notice never does, unless a person's Stop holds it (`cancel.rs`).
+    /// The person's own prompt goes in again by itself after the hold's wait (`digest.rs`
+    /// `retry_held_agent_messages`), [`PERSON_RETRIES`] times, so a chat whose turn failed keeps
+    /// draining (Leo, 2026-11-05: "Don't have it work this kind of way"); after those it waits.
+    pub(super) fn waits_for_resume(&self, stop_held: bool) -> bool {
+        if self.goes_in_by_itself() { stop_held } else { self.retries >= PERSON_RETRIES }
+    }
 }
+
+/// How many times failed turns' holds let the person's own queued prompt go by themselves before
+/// it waits for their Resume: a chat that keeps failing is not sent their prompts over and over.
+pub(super) const PERSON_RETRIES: usize = 3;
 
 /// A queued prompt and the rules it runs under.
 #[derive(Debug, Clone)]
@@ -887,23 +909,33 @@ impl Hub {
     }
 
     /// A failed turn holds the prompts that waited behind it: they were written for a turn that
-    /// went well. The person's wait until a client resumes them (`resume_queue`) or sends one now
-    /// (`put_next`); a prompt sent meanwhile runs ahead of them. Agent messages go in again by
-    /// themselves (`digest.rs` `retry_held_agent_messages`).
+    /// went well. They go in again by themselves after the hold's wait (`digest.rs`
+    /// `retry_held_agent_messages`), or sooner when a client resumes them (`resume_queue`) or sends
+    /// one now (`put_next`); a prompt sent meanwhile runs ahead of them. The person's wait for
+    /// Resume only once failed turns let them go [`PERSON_RETRIES`] times.
     pub(super) fn pause_queue(self: &Arc<Self>, session: &Arc<Session>, turn_id: &str) {
-        let held: Vec<String> = {
+        let (held, retrying): (Vec<String>, Vec<String>) = {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            queue
+            let stop_held = session.stop_hold.load(Ordering::SeqCst) != 0;
+            let mut retrying = Vec::new();
+            let held = queue
                 .iter_mut()
                 .filter(|q| !q.held && !q.sent_now)
                 .map(|q| {
                     q.held = true;
+                    if !q.waits_for_resume(stop_held) {
+                        retrying.push(q.prompt_id.clone());
+                    }
                     q.prompt_id.clone()
                 })
-                .collect()
+                .collect();
+            (held, retrying)
         };
         if !held.is_empty() {
-            self.append(session, "mux", "queue_paused", json!({"turnId": turn_id, "held": held}));
+            // `retrying`: the held ones that go in again by themselves, so a client says the
+            // queue is paused only for the person's (`Session::queue_paused`).
+            let msg = json!({"turnId": turn_id, "held": held, "retrying": retrying});
+            self.append(session, "mux", "queue_paused", msg);
             self.retry_held_agent_messages(session);
         }
     }
@@ -936,7 +968,7 @@ impl Hub {
         let stop_held = session.stop_hold.load(Ordering::SeqCst) != 0;
         for q in queue.iter_mut() {
             if ids.contains(&q.prompt_id)
-                && !(stop_held && q.run.agent.is_some())
+                && !(stop_held && q.goes_in_by_itself())
                 && std::mem::take(&mut q.held)
             {
                 released.push(q.prompt_id.clone());
