@@ -50,12 +50,16 @@ extension LayoutRootView {
         let region = convert(hit.region, from: view)
         tabDragHighlightOnScreen = window.map { $0.convertToScreen(convert(rect, to: nil)) }
         let style = context.style
-        // Pane zones carry classic's 4 pt padding already (`classicPaneHighlight`); gaps and dock bands float
-        // inside their region. The radius is classic's 8 pt unless the tunable follows the pane (-1).
+        // Pane zones carry classic's 4 pt padding already (`classicPaneHighlight`): their corner is concentric
+        // with the pane's (the one corner radius where panes are square inside the rounded main pane). Gaps and
+        // dock bands float inside their region with the panel radius. A tuned radius (8 is classic) wins.
         let paneZone = hit.target.isPaneZone
         let tunedRadius = CGFloat(DropOverlayTunables.cornerRadius.value)
+        let corners = Metrics.corners
         let radius = tunedRadius >= 0 ? tunedRadius
-            : style.hasPaneChrome && paneZone ? PaneChromeGeometry.cornerRadius(for: rect, style: style) : style.panelCornerRadius
+            : paneZone ? corners.radius(fitting: rect.size, radius: corners.nested(in: style.hasPaneChrome ? style.paneCornerRadius : corners.outer,
+                                                                                   inset: DropZoneGeometry.classicPanePadding))
+            : style.panelCornerRadius
         let inset = paneZone ? 0 : DropOverlayTunables.floatingInset.resolve(Metrics.space2)
         if highlight.show(rect, region: region, zone: DropOverlayZone(hit.target), text: LayoutStrings.label(for: hit.target),
                           inset: inset, cornerRadius: radius, pointer: convert(locationInWindow, from: nil),

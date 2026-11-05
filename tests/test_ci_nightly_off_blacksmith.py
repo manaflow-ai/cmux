@@ -228,10 +228,12 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                  "needs.build-nightly-app.outputs.light_mini_runner || ")
         # Unplaced, our nightly-only minis (never Blacksmith); the steps run on Linux or a Mac alike.
         owned = "vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}"
+        # With vars.CI_NIGHTLY_MINI set, the one nightly mini first (tests/test_nightly_one_mini.py).
+        one_mini = "vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || "
         for name in ("prepare-nightly-variant-primary", "prepare-nightly-variant"):
             # Never fleet Linux: nightlies run only on our own Mac minis.
             expected = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
-                        + light.replace("{job}", name) + owned)
+                        + one_mini + light.replace("{job}", name) + owned)
             with self.subTest(job=name):
                 self.assertEqual(jobs[name]["runs-on"], expected)
         moved_out = ("install-cmux-tui-client.sh", "strip-release-bundle.sh", "write-cmux-tui-version.sh",
@@ -274,6 +276,8 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         import yaml
         jobs = yaml.safe_load(nightly_expand((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8")))["jobs"]
         owned = {"glaeda-nightly-only-m4pro"}
+        # The one nightly mini's light runners while vars.CI_NIGHTLY_MINI is set (tests/test_nightly_one_mini.py).
+        one_mini = {"glaeda-nightly-mini"}
         for name in LIGHT_NIGHTLY_JOBS:
             with self.subTest(job=name):
                 runs_on = jobs[name]["runs-on"]
@@ -284,11 +288,12 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                 self.assertNotIn("LINUX_RUNNER", runs_on)
                 self.assertNotIn("macos", runs_on)
                 labels = resolve_labels(runs_on, variables={"CI_CLOUD_OVERFLOW_SAVED": [OVERFLOW_RECORD],
-                                                            "CI_NIGHTLY_ONLY_RUNNER": sorted(owned)}, silent=("needs",))
+                                                            "CI_NIGHTLY_ONLY_RUNNER": sorted(owned),
+                                                            "CI_NIGHTLY_MINI": sorted(one_mini)}, silent=("needs",))
                 self.assertTrue(labels)
                 for label in labels:
                     self.assertIsInstance(label, str, f"{name} can take an unread label {label!r}")
-                    self.assertTrue(label == "ubuntu-24.04" or label in owned, f"{name} can take {label!r}")
+                    self.assertTrue(label == "ubuntu-24.04" or label in owned | one_mini, f"{name} can take {label!r}")
                 self.assertNotIn("secrets.APPLE", yaml.dump(jobs[name]))
                 self.assertNotIn("secrets.CMUX_RELEASE_APP_KEY", yaml.dump(jobs[name]))
         for name in ("prepare-nightly-variant-primary", "prepare-nightly-variant"):
