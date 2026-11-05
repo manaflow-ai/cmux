@@ -51,6 +51,17 @@ impl PublicTopologyFold {
         }
     }
 
+    /// Whether the fold holds any value for the resource `change` upserts.
+    fn holds(&self, change: &Value) -> bool {
+        change["kind"] == "upsert"
+            && match (change["resource"].as_str(), change["id"].as_str()) {
+                (Some(resource), Some(id)) => {
+                    self.values.contains_key(&(resource.to_string(), id.to_string()))
+                }
+                _ => false,
+            }
+    }
+
     fn states(&self, change: &Value) -> bool {
         change["kind"] == "upsert"
             && change["resource"]
@@ -99,10 +110,26 @@ impl WorkspaceRegistry {
         self.catch_up_public_fold();
         let Some(fold) = self.public_fold.as_ref() else { return Ok(deltas.clone()) };
         let changes = deltas.as_array().context("resource deltas are not an array")?;
+        // The fold holds decorated values (`record_public_fold`), the projection raw ones: a raw upsert of a
+        // decorated tab or screen (a chat tab, a frontend browser's profile, a pinned screen) never equals what
+        // the fold holds, so it is compared decorated as the journal would write it. Without this, every chat
+        // tab of a pane was journaled again on each create in it.
+        let connection = self.connection.get();
+        let decorate = crate::state::store::state_tables_ready(&connection)?;
         let mut kept = Vec::with_capacity(changes.len());
         for change in changes {
             if fold.states(change) {
                 continue;
+            }
+            if decorate && fold.holds(change) {
+                let mut decorated = change.clone();
+                let resource = change["resource"].as_str().unwrap_or_default();
+                if let Some(value) = decorated.get_mut("value") {
+                    crate::state::values::decorate_value(&connection, resource, value)?;
+                }
+                if fold.states(&decorated) {
+                    continue;
+                }
             }
             let mut change = change.clone();
             if let Some(object) = change.as_object_mut()
