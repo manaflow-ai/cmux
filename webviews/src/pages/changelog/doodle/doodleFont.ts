@@ -1,8 +1,9 @@
 // The doodle's handwriting: Caveat (SIL Open Font License 1.1, Caveat-OFL.txt), weight 600, subset to
-// Latin, Latin Extended, Vietnamese and Cyrillic. Inlined as a data URL (pages allow `font-src data:`)
-// in a module the card imports only while the doodle shows, so no other page loads its bytes. The
-// doodle's words sit in fixed boxes: the card's height never waits for the face.
-import caveat from "./caveat.woff2?inline";
+// Latin, Latin Extended, Vietnamese and Cyrillic. The app's page bundle inlines it as a data URL
+// (bundle.mjs's `.woff2` loader; pages allow `font-src data:`), the gallery serves it as a file; the
+// card imports this module only while the doodle shows. The doodle's words sit in fixed boxes: the
+// card's height never waits for the face.
+import caveat from "./caveat.woff2";
 
 export const DOODLE_FONT_FAMILY = "cmux-doodle";
 
