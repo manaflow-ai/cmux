@@ -1,0 +1,1111 @@
+{
+ "id": "px-real-4c-s1r",
+ "priority": "P1",
+ "title": "REAL (cmux-ad m28): 4 columns, row splits, tabs; terminals (ls -la, man, long logs) and pages (text, fixed header + scrollbar, dark, heavy); Ctrl-Shift-H/J/K/L single and held, divider drags slow and fast; x1 and Reduce Motion",
+ "why": "Lawrence 2026-11-05 (cmux-ad m28): show on video that resizing by keys and drags is pixel perfect with real terminals and browsers in many columns, splits and tabs.",
+ "source": "PIXEL PERFECT kit (video-cases/gen_real.py)",
+ "budget_seconds": 250,
+ "estimate_seconds": 210,
+ "recordings": [
+  "px-real-4c-s1r-s1",
+  "px-real-4c-s1r-reduce"
+ ],
+ "options": {
+  "key_path": "real"
+ },
+ "steps": [
+  {
+   "do": "settings_file",
+   "title": "set-up: shell #FF00FF (app theme Nord; any magenta inside a pane is a gap), default dark terminals, no close warning, new columns share the strip, no hover cards",
+   "set": {
+    "sidebar": {
+     "hoverCards": {
+      "enabled": false
+     }
+    },
+    "appearance": {
+     "theme": "Builtin Dark",
+     "appTheme": "Nord",
+     "themeEdits": {
+      "Nord/background": "#FF00FF"
+     }
+    },
+    "app": {
+     "warnBeforeClosingTab": false
+    },
+    "layout": {
+     "newColumnWidth": "fitScreen"
+    }
+   }
+  },
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "skip_first_run_history"
+  },
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "name": "px-real-4c-s1r"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "name_pane",
+   "as": "home"
+  },
+  {
+   "do": "window_place",
+   "title": "set-up: the window full width, 90% high",
+   "fraction": [
+    0.0,
+    0.05,
+    1.0,
+    0.9
+   ]
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace for the case"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "p0"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "file",
+   "path": "/tmp/jr-real-text.html",
+   "text": "<!doctype html><meta charset=utf-8><title>text</title><style>body{font:15px/1.5 -apple-system,Helvetica,sans-serif;margin:16px 20px;color:#222;background:#fff}h1{font-size:22px}p{text-align:justify}html::after{content:'';position:fixed;left:0;top:0;right:0;bottom:0;border:3px solid #00FF80;pointer-events:none;z-index:2147483647}</style><h1>A text-heavy page</h1><p>1. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>2. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>3. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>4. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>5. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>6. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>7. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>8. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>9. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>10. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>11. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>12. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>13. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>14. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>15. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>16. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>17. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>18. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>19. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>20. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>21. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>22. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>23. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>24. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>25. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>26. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>27. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>28. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>29. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>30. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>31. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>32. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>33. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>34. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>35. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>36. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>37. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>38. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>39. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>40. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p>",
+   "title": "set-up: page /tmp/jr-real-text.html"
+  },
+  {
+   "do": "file",
+   "path": "/tmp/jr-real-header.html",
+   "text": "<!doctype html><meta charset=utf-8><title>header</title><style>body{margin:0;font:14px/1.6 -apple-system,Helvetica,sans-serif;background:#f4f4f6;color:#222}header{position:fixed;top:0;left:0;right:0;height:44px;background:#1f6feb;color:#fff;display:flex;align-items:center;padding:0 14px;font-weight:600;z-index:10}main{padding:56px 18px 18px}::-webkit-scrollbar{width:12px}::-webkit-scrollbar-thumb{background:#888;border-radius:6px}::-webkit-scrollbar-track{background:#ddd}html::after{content:'';position:fixed;left:0;top:0;right:0;bottom:0;border:3px solid #00FF80;pointer-events:none;z-index:2147483647}</style><header>Fixed header, scrolled to the middle</header><main><p>Row 1: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 2: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 3: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 4: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 5: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 6: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 7: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 8: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 9: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 10: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 11: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 12: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 13: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 14: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 15: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 16: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 17: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 18: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 19: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 20: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 21: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 22: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 23: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 24: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 25: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 26: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 27: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 28: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 29: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 30: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 31: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 32: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 33: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 34: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 35: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 36: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 37: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 38: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 39: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 40: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 41: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 42: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 43: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 44: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 45: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 46: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 47: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 48: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 49: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 50: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 51: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 52: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 53: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 54: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 55: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 56: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 57: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 58: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 59: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 60: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 61: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 62: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 63: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 64: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 65: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 66: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 67: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 68: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 69: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 70: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 71: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 72: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 73: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 74: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 75: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 76: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 77: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 78: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 79: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 80: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 81: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 82: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 83: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 84: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 85: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 86: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 87: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 88: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 89: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 90: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 91: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 92: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 93: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 94: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 95: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 96: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 97: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 98: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 99: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 100: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 101: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 102: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 103: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 104: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 105: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 106: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 107: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 108: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 109: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 110: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 111: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 112: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 113: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 114: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 115: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 116: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 117: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 118: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 119: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p><p>Row 120: Resizing a pane must never show a frozen, stretched or misplaced frame. Each paragraph here is long so that it wraps at any width, and the words move as the column changes size. </p></main><script>addEventListener('load',()=>scrollTo(0,document.body.scrollHeight/2))</script>",
+   "title": "set-up: page /tmp/jr-real-header.html"
+  },
+  {
+   "do": "file",
+   "path": "/tmp/jr-real-dark.html",
+   "text": "<!doctype html><meta charset=utf-8><title>dark</title><style>body{margin:0;padding:14px 18px;background:#121417;color:#d7dae0;font:14px/1.5 Menlo,monospace}td{border-bottom:1px solid #2a2e35;padding:4px 10px}html::after{content:'';position:fixed;left:0;top:0;right:0;bottom:0;border:3px solid #00FF80;pointer-events:none;z-index:2147483647}</style><h2>A dark page</h2><table><tr><td>1</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>37</td></tr><tr><td>2</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>74</td></tr><tr><td>3</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>111</td></tr><tr><td>4</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>148</td></tr><tr><td>5</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>185</td></tr><tr><td>6</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>222</td></tr><tr><td>7</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>259</td></tr><tr><td>8</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>296</td></tr><tr><td>9</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>333</td></tr><tr><td>10</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>370</td></tr><tr><td>11</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>407</td></tr><tr><td>12</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>444</td></tr><tr><td>13</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>481</td></tr><tr><td>14</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>518</td></tr><tr><td>15</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>555</td></tr><tr><td>16</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>592</td></tr><tr><td>17</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>629</td></tr><tr><td>18</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>666</td></tr><tr><td>19</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>703</td></tr><tr><td>20</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>740</td></tr><tr><td>21</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>777</td></tr><tr><td>22</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>814</td></tr><tr><td>23</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>851</td></tr><tr><td>24</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>888</td></tr><tr><td>25</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>925</td></tr><tr><td>26</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>962</td></tr><tr><td>27</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>999</td></tr><tr><td>28</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>36</td></tr><tr><td>29</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>73</td></tr><tr><td>30</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>110</td></tr><tr><td>31</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>147</td></tr><tr><td>32</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>184</td></tr><tr><td>33</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>221</td></tr><tr><td>34</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>258</td></tr><tr><td>35</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>295</td></tr><tr><td>36</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>332</td></tr><tr><td>37</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>369</td></tr><tr><td>38</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>406</td></tr><tr><td>39</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>443</td></tr><tr><td>40</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>480</td></tr><tr><td>41</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>517</td></tr><tr><td>42</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>554</td></tr><tr><td>43</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>591</td></tr><tr><td>44</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>628</td></tr><tr><td>45</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>665</td></tr><tr><td>46</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>702</td></tr><tr><td>47</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>739</td></tr><tr><td>48</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>776</td></tr><tr><td>49</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>813</td></tr><tr><td>50</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>850</td></tr><tr><td>51</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>887</td></tr><tr><td>52</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>924</td></tr><tr><td>53</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>961</td></tr><tr><td>54</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>998</td></tr><tr><td>55</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>35</td></tr><tr><td>56</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>72</td></tr><tr><td>57</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>109</td></tr><tr><td>58</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>146</td></tr><tr><td>59</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>183</td></tr><tr><td>60</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>220</td></tr><tr><td>61</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>257</td></tr><tr><td>62</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>294</td></tr><tr><td>63</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>331</td></tr><tr><td>64</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>368</td></tr><tr><td>65</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>405</td></tr><tr><td>66</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>442</td></tr><tr><td>67</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>479</td></tr><tr><td>68</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>516</td></tr><tr><td>69</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>553</td></tr><tr><td>70</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>590</td></tr><tr><td>71</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>627</td></tr><tr><td>72</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>664</td></tr><tr><td>73</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>701</td></tr><tr><td>74</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>738</td></tr><tr><td>75</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>775</td></tr><tr><td>76</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>812</td></tr><tr><td>77</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>849</td></tr><tr><td>78</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>886</td></tr><tr><td>79</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>923</td></tr><tr><td>80</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>960</td></tr><tr><td>81</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>997</td></tr><tr><td>82</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>34</td></tr><tr><td>83</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>71</td></tr><tr><td>84</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>108</td></tr><tr><td>85</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>145</td></tr><tr><td>86</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>182</td></tr><tr><td>87</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>219</td></tr><tr><td>88</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>256</td></tr><tr><td>89</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>293</td></tr><tr><td>90</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>330</td></tr><tr><td>91</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>367</td></tr><tr><td>92</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>404</td></tr><tr><td>93</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>441</td></tr><tr><td>94</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>478</td></tr><tr><td>95</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>515</td></tr><tr><td>96</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>552</td></tr><tr><td>97</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>589</td></tr><tr><td>98</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>626</td></tr><tr><td>99</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>663</td></tr><tr><td>100</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>700</td></tr><tr><td>101</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>737</td></tr><tr><td>102</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>774</td></tr><tr><td>103</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>811</td></tr><tr><td>104</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>848</td></tr><tr><td>105</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>885</td></tr><tr><td>106</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>922</td></tr><tr><td>107</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>959</td></tr><tr><td>108</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>996</td></tr><tr><td>109</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>33</td></tr><tr><td>110</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>70</td></tr><tr><td>111</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>107</td></tr><tr><td>112</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>144</td></tr><tr><td>113</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>181</td></tr><tr><td>114</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>218</td></tr><tr><td>115</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>255</td></tr><tr><td>116</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>292</td></tr><tr><td>117</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>329</td></tr><tr><td>118</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>366</td></tr><tr><td>119</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>403</td></tr><tr><td>120</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>440</td></tr><tr><td>121</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>477</td></tr><tr><td>122</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>514</td></tr><tr><td>123</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>551</td></tr><tr><td>124</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>588</td></tr><tr><td>125</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>625</td></tr><tr><td>126</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>662</td></tr><tr><td>127</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>699</td></tr><tr><td>128</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>736</td></tr><tr><td>129</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>773</td></tr><tr><td>130</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>810</td></tr><tr><td>131</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>847</td></tr><tr><td>132</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>884</td></tr><tr><td>133</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>921</td></tr><tr><td>134</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>958</td></tr><tr><td>135</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>995</td></tr><tr><td>136</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>32</td></tr><tr><td>137</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>69</td></tr><tr><td>138</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>106</td></tr><tr><td>139</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>143</td></tr><tr><td>140</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>180</td></tr><tr><td>141</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>217</td></tr><tr><td>142</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>254</td></tr><tr><td>143</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>291</td></tr><tr><td>144</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>328</td></tr><tr><td>145</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>365</td></tr><tr><td>146</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>402</td></tr><tr><td>147</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>439</td></tr><tr><td>148</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>476</td></tr><tr><td>149</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>513</td></tr><tr><td>150</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>550</td></tr><tr><td>151</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>587</td></tr><tr><td>152</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>624</td></tr><tr><td>153</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>661</td></tr><tr><td>154</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>698</td></tr><tr><td>155</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>735</td></tr><tr><td>156</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>772</td></tr><tr><td>157</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>809</td></tr><tr><td>158</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>846</td></tr><tr><td>159</td><td>Resizing a pane must never show a frozen, stretched or misplaced frame</td><td>883</td></tr></table>",
+   "title": "set-up: page /tmp/jr-real-dark.html"
+  },
+  {
+   "do": "file",
+   "path": "/tmp/jr-real-heavy.html",
+   "text": "<!doctype html><meta charset=utf-8><title>heavy</title><style>body{margin:0;font:12px -apple-system,sans-serif;background:#fafafa}.c{display:inline-block;width:88px;height:40px;margin:4px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.25);background:linear-gradient(135deg,#ffd166,#06d6a0);filter:saturate(1.2)}canvas{width:100%;height:120px;display:block}html::after{content:'';position:fixed;left:0;top:0;right:0;bottom:0;border:3px solid #00FF80;pointer-events:none;z-index:2147483647}</style><canvas id=cv></canvas><div id=g></div><script>const g=document.getElementById('g');for(let i=0;i<3000;i++){const d=document.createElement('div');d.className='c';d.textContent='card '+i;g.appendChild(d)}const cv=document.getElementById('cv'),x=cv.getContext('2d');function f(t){cv.width=cv.clientWidth*devicePixelRatio;cv.height=cv.clientHeight*devicePixelRatio;for(let i=0;i<60;i++){x.fillStyle='hsl('+((t/10+i*6)%360)+',70%,55%)';x.fillRect(i*cv.width/60,0,cv.width/60+1,cv.height)}requestAnimationFrame(f)}requestAnimationFrame(f)</script>",
+   "title": "set-up: page /tmp/jr-real-heavy.html"
+  },
+  {
+   "do": "file",
+   "path": "/tmp/jr-real-log.sh",
+   "text": "#!/bin/bash\n# long log lines: each wraps at any pane width\nfor i in $(seq 1 160); do printf '2026-11-05T12:%02d:%02d.%03dZ INFO resize.frame-owner pane=p%d width=%d step=%d message=\"%s\"\\n' $((i/60)) $((i%60)) $((i*7%1000)) $((i%7)) $((300+i)) $i 'the quick brown fox jumps over the lazy dog while the column resizes and the text wraps again at the new width'; done\n",
+   "title": "set-up: /tmp/jr-real-log.sh"
+  },
+  {
+   "do": "type",
+   "text": "ls -la /usr/bin /usr/lib | head -400",
+   "enter": true,
+   "mark": "p0ls",
+   "title": "set-up: p0 tab 1: a long ls -la"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.2,
+   "title": "it prints"
+  },
+  {
+   "do": "px_tab_new",
+   "pane": "p0",
+   "title": "set-up: a new terminal tab in p0 (newSurface)"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "bash /tmp/jr-real-log.sh",
+   "enter": true,
+   "mark": "p0log",
+   "title": "set-up: p0 tab 2: long log lines"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.2,
+   "title": "it prints"
+  },
+  {
+   "do": "action",
+   "action": "newColumn",
+   "title": "set-up: newColumn (p1)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "p1"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "p1",
+   "title": "set-up: focus p1 (cmux pane focus)"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "openBrowser",
+    "args": {
+     "url": "file:///tmp/jr-real-text.html",
+     "engine": "cef"
+    },
+    "focus": true
+   },
+   "title": "set-up: text page /tmp/jr-real-text.html in a Chromium tab of p1"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.5,
+   "title": "set-up: the text page loads (local file)"
+  },
+  {
+   "do": "action",
+   "action": "splitDown",
+   "title": "set-up: splitDown (p2)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "p2"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "man ls",
+   "enter": true,
+   "mark": "p2man",
+   "title": "set-up: p2: a man page in its pager"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.2,
+   "title": "it prints"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "p2",
+   "title": "set-up: focus p2 (cmux pane focus)"
+  },
+  {
+   "do": "action",
+   "action": "newColumn",
+   "title": "set-up: newColumn (p3)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "p3"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "p3",
+   "title": "set-up: focus p3 (cmux pane focus)"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "openBrowser",
+    "args": {
+     "url": "file:///tmp/jr-real-header.html",
+     "engine": "cef"
+    },
+    "focus": true
+   },
+   "title": "set-up: header page /tmp/jr-real-header.html in a Chromium tab of p3"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.5,
+   "title": "set-up: the header page loads (local file)"
+  },
+  {
+   "do": "action",
+   "action": "splitDown",
+   "title": "set-up: splitDown (p4)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "p4"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "p4",
+   "title": "set-up: focus p4 (cmux pane focus)"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "openBrowser",
+    "args": {
+     "url": "file:///tmp/jr-real-dark.html",
+     "engine": "cef"
+    },
+    "focus": true
+   },
+   "title": "set-up: dark page /tmp/jr-real-dark.html in a Chromium tab of p4"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.5,
+   "title": "set-up: the dark page loads (local file)"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "p4",
+   "title": "set-up: focus p4 (cmux pane focus)"
+  },
+  {
+   "do": "action",
+   "action": "newColumn",
+   "title": "set-up: newColumn (p5)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "p5"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "bash /tmp/jr-real-log.sh",
+   "enter": true,
+   "mark": "p5log",
+   "title": "set-up: p5 tab 1: long log lines"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.2,
+   "title": "it prints"
+  },
+  {
+   "do": "px_tab_new",
+   "pane": "p5",
+   "title": "set-up: a new terminal tab in p5 (newSurface)"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "ls -laR /usr/share | head -300",
+   "enter": true,
+   "mark": "p5lsr",
+   "title": "set-up: p5 tab 2: a recursive listing"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.2,
+   "title": "it prints"
+  },
+  {
+   "do": "action",
+   "action": "splitDown",
+   "title": "set-up: splitDown (p6)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "p6"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "p6",
+   "title": "set-up: focus p6 (cmux pane focus)"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "openBrowser",
+    "args": {
+     "url": "file:///tmp/jr-real-heavy.html",
+     "engine": "cef"
+    },
+    "focus": true
+   },
+   "title": "set-up: heavy page /tmp/jr-real-heavy.html in a Chromium tab of p6"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.5,
+   "title": "set-up: the heavy page loads (local file)"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.0,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "px_film",
+   "name": "px-real-4c-s1r-s1",
+   "steps": [
+    {
+     "do": "rk_focus",
+     "pane": "p0",
+     "title": "set-up: focus p0 (cmux pane focus)"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8,
+     "title": "the layout and the load settle (nothing observable to wait on)"
+    },
+    {
+     "do": "rpc",
+     "method": "debug.frames",
+     "params": {
+      "action": "start"
+     },
+     "title": "debug.frames start (main ms and missed refreshes per frame)"
+    },
+    {
+     "do": "px_record_start",
+     "name": "px-real-4c-s1r-s1",
+     "seconds": 26.2,
+     "require_hz": 120,
+     "mbps": 60,
+     "fixture": {
+      "p0": {
+       "kind": "rtui",
+       "fill": null
+      },
+      "p1": {
+       "kind": "rpage",
+       "fill": "#00FF80"
+      },
+      "p2": {
+       "kind": "rtui",
+       "fill": null
+      },
+      "p3": {
+       "kind": "rpage",
+       "fill": "#00FF80"
+      },
+      "p4": {
+       "kind": "rpage",
+       "fill": "#00FF80"
+      },
+      "p5": {
+       "kind": "rtui",
+       "fill": null
+      },
+      "p6": {
+       "kind": "rpage",
+       "fill": "#00FF80"
+      }
+     },
+     "spring": null,
+     "input": "keys and drags (real HID)",
+     "title": "start the 120 Hz movie of the whole window and the trace (px-real-4c-s1r-s1)"
+    },
+    {
+     "do": "rk_focus",
+     "pane": "p0",
+     "title": "set-up: focus p0 (cmux pane focus)"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3,
+     "title": "focus settles"
+    },
+    {
+     "do": "rk_press",
+     "key": "l",
+     "modifiers": [
+      "control",
+      "shift"
+     ],
+     "count": 1,
+     "gap_ms": 0,
+     "mark": "c-l",
+     "title": "Ctrl-Shift-L"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.57,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "rk_press",
+     "key": "h",
+     "modifiers": [
+      "control",
+      "shift"
+     ],
+     "count": 1,
+     "gap_ms": 0,
+     "mark": "c-h",
+     "title": "Ctrl-Shift-H"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.57,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "rk_focus",
+     "pane": "p2",
+     "title": "set-up: focus p2 (cmux pane focus)"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3,
+     "title": "focus settles"
+    },
+    {
+     "do": "rk_press",
+     "key": "j",
+     "modifiers": [
+      "control",
+      "shift"
+     ],
+     "count": 1,
+     "gap_ms": 0,
+     "mark": "r-j",
+     "title": "Ctrl-Shift-J"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.57,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "rk_press",
+     "key": "k",
+     "modifiers": [
+      "control",
+      "shift"
+     ],
+     "count": 1,
+     "gap_ms": 0,
+     "mark": "r-k",
+     "title": "Ctrl-Shift-K"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.57,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "rk_focus",
+     "pane": "p4",
+     "title": "set-up: focus p4 (cmux pane focus)"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3,
+     "title": "focus settles"
+    },
+    {
+     "do": "rk_press",
+     "key": "l",
+     "modifiers": [
+      "control",
+      "shift"
+     ],
+     "count": 1,
+     "gap_ms": 0,
+     "mark": "c4-l",
+     "title": "Ctrl-Shift-L"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.57,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "rk_press",
+     "key": "h",
+     "modifiers": [
+      "control",
+      "shift"
+     ],
+     "count": 1,
+     "gap_ms": 0,
+     "mark": "c4-h",
+     "title": "Ctrl-Shift-H"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.57,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "rk_focus",
+     "pane": "p0",
+     "title": "set-up: focus p0 (cmux pane focus)"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3,
+     "title": "focus settles"
+    },
+    {
+     "do": "rk_hold",
+     "key": "l",
+     "modifiers": [
+      "control",
+      "shift"
+     ],
+     "seconds": 1.0,
+     "mark": "hold",
+     "title": "Ctrl-Shift-L held 1 s (key auto-repeat)"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.57,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "rk_press",
+     "key": "h",
+     "modifiers": [
+      "control",
+      "shift"
+     ],
+     "count": 15,
+     "gap_ms": 33,
+     "mark": "burst",
+     "title": "Ctrl-Shift-H x15, 33 ms apart (real HID)"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.57,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "hid_drag",
+     "target": {
+      "divider": 1
+     },
+     "by": [
+      150,
+      0
+     ],
+     "duration_ms": 1000,
+     "mark": "dslow",
+     "title": "slow drag: divider 1 150 pt right in 1 s"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.57,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "hid_drag",
+     "target": {
+      "divider": 1
+     },
+     "by": [
+      -150,
+      0
+     ],
+     "duration_ms": 100,
+     "mark": "dfast",
+     "title": "fast drag: 150 pt back in 0.1 s"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.57,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "hid_drag",
+     "target": {
+      "row_divider": 0
+     },
+     "by": [
+      0,
+      100
+     ],
+     "duration_ms": 1000,
+     "mark": "rslow",
+     "title": "slow drag: row divider 0 100 pt down in 1 s"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.57,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "hid_drag",
+     "target": {
+      "row_divider": 0
+     },
+     "by": [
+      0,
+      -100
+     ],
+     "duration_ms": 100,
+     "mark": "rfast",
+     "title": "fast drag: 100 pt back up in 0.1 s"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.57,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "rpc",
+     "method": "debug.frames",
+     "params": {
+      "action": "stop",
+      "raw": true
+     },
+     "keep": "frames",
+     "title": "debug.frames stop raw (<film>.frames.json)"
+    },
+    {
+     "do": "video_stop",
+     "name": "px-real-4c-s1r-s1",
+     "tail": 0.4,
+     "title": "the motion ends; stop the recording (px-real-4c-s1r-s1)"
+    }
+   ],
+   "after": [],
+   "title": "film px-real-4c-s1r-s1: x1, the app's defaults",
+   "speed": 1.0
+  },
+  {
+   "do": "px_film",
+   "name": "px-real-4c-s1r-reduce",
+   "steps": [
+    {
+     "do": "rk_focus",
+     "pane": "p0",
+     "title": "set-up: focus p0 (cmux pane focus)"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.8,
+     "title": "the layout and the load settle (nothing observable to wait on)"
+    },
+    {
+     "do": "rpc",
+     "method": "debug.frames",
+     "params": {
+      "action": "start"
+     },
+     "title": "debug.frames start (main ms and missed refreshes per frame)"
+    },
+    {
+     "do": "px_record_start",
+     "name": "px-real-4c-s1r-reduce",
+     "seconds": 24.9,
+     "require_hz": 120,
+     "mbps": 60,
+     "fixture": {
+      "p0": {
+       "kind": "rtui",
+       "fill": null
+      },
+      "p1": {
+       "kind": "rpage",
+       "fill": "#00FF80"
+      },
+      "p2": {
+       "kind": "rtui",
+       "fill": null
+      },
+      "p3": {
+       "kind": "rpage",
+       "fill": "#00FF80"
+      },
+      "p4": {
+       "kind": "rpage",
+       "fill": "#00FF80"
+      },
+      "p5": {
+       "kind": "rtui",
+       "fill": null
+      },
+      "p6": {
+       "kind": "rpage",
+       "fill": "#00FF80"
+      }
+     },
+     "spring": null,
+     "input": "keys and drags (real HID)",
+     "title": "start the 120 Hz movie of the whole window and the trace (px-real-4c-s1r-reduce)"
+    },
+    {
+     "do": "rk_focus",
+     "pane": "p0",
+     "title": "set-up: focus p0 (cmux pane focus)"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3,
+     "title": "focus settles"
+    },
+    {
+     "do": "rk_press",
+     "key": "l",
+     "modifiers": [
+      "control",
+      "shift"
+     ],
+     "count": 1,
+     "gap_ms": 0,
+     "mark": "c-l",
+     "title": "Ctrl-Shift-L"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "rk_press",
+     "key": "h",
+     "modifiers": [
+      "control",
+      "shift"
+     ],
+     "count": 1,
+     "gap_ms": 0,
+     "mark": "c-h",
+     "title": "Ctrl-Shift-H"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "rk_focus",
+     "pane": "p2",
+     "title": "set-up: focus p2 (cmux pane focus)"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3,
+     "title": "focus settles"
+    },
+    {
+     "do": "rk_press",
+     "key": "j",
+     "modifiers": [
+      "control",
+      "shift"
+     ],
+     "count": 1,
+     "gap_ms": 0,
+     "mark": "r-j",
+     "title": "Ctrl-Shift-J"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "rk_press",
+     "key": "k",
+     "modifiers": [
+      "control",
+      "shift"
+     ],
+     "count": 1,
+     "gap_ms": 0,
+     "mark": "r-k",
+     "title": "Ctrl-Shift-K"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "rk_focus",
+     "pane": "p4",
+     "title": "set-up: focus p4 (cmux pane focus)"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3,
+     "title": "focus settles"
+    },
+    {
+     "do": "rk_press",
+     "key": "l",
+     "modifiers": [
+      "control",
+      "shift"
+     ],
+     "count": 1,
+     "gap_ms": 0,
+     "mark": "c4-l",
+     "title": "Ctrl-Shift-L"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "rk_press",
+     "key": "h",
+     "modifiers": [
+      "control",
+      "shift"
+     ],
+     "count": 1,
+     "gap_ms": 0,
+     "mark": "c4-h",
+     "title": "Ctrl-Shift-H"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "rk_focus",
+     "pane": "p0",
+     "title": "set-up: focus p0 (cmux pane focus)"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.3,
+     "title": "focus settles"
+    },
+    {
+     "do": "rk_hold",
+     "key": "l",
+     "modifiers": [
+      "control",
+      "shift"
+     ],
+     "seconds": 1.0,
+     "mark": "hold",
+     "title": "Ctrl-Shift-L held 1 s (key auto-repeat)"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "rk_press",
+     "key": "h",
+     "modifiers": [
+      "control",
+      "shift"
+     ],
+     "count": 15,
+     "gap_ms": 33,
+     "mark": "burst",
+     "title": "Ctrl-Shift-H x15, 33 ms apart (real HID)"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "hid_drag",
+     "target": {
+      "divider": 1
+     },
+     "by": [
+      150,
+      0
+     ],
+     "duration_ms": 1000,
+     "mark": "dslow",
+     "title": "slow drag: divider 1 150 pt right in 1 s"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "hid_drag",
+     "target": {
+      "divider": 1
+     },
+     "by": [
+      -150,
+      0
+     ],
+     "duration_ms": 100,
+     "mark": "dfast",
+     "title": "fast drag: 150 pt back in 0.1 s"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "hid_drag",
+     "target": {
+      "row_divider": 0
+     },
+     "by": [
+      0,
+      100
+     ],
+     "duration_ms": 1000,
+     "mark": "rslow",
+     "title": "slow drag: row divider 0 100 pt down in 1 s"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "hid_drag",
+     "target": {
+      "row_divider": 0
+     },
+     "by": [
+      0,
+      -100
+     ],
+     "duration_ms": 100,
+     "mark": "rfast",
+     "title": "fast drag: 100 pt back up in 0.1 s"
+    },
+    {
+     "do": "wait",
+     "seconds": 0.5,
+     "title": "the motion lands and rests"
+    },
+    {
+     "do": "rpc",
+     "method": "debug.frames",
+     "params": {
+      "action": "stop",
+      "raw": true
+     },
+     "keep": "frames",
+     "title": "debug.frames stop raw (<film>.frames.json)"
+    },
+    {
+     "do": "video_stop",
+     "name": "px-real-4c-s1r-reduce",
+     "tail": 0.4,
+     "title": "the motion ends; stop the recording (px-real-4c-s1r-reduce)"
+    }
+   ],
+   "after": [],
+   "title": "film px-real-4c-s1r-reduce: Reduce Motion, the app's defaults",
+   "reduce": true
+  },
+  {
+   "do": "rk_focus",
+   "pane": "p0",
+   "title": "set-up: focus p0 (cmux pane focus)"
+  },
+  {
+   "do": "settings_file",
+   "title": "clean-up: the fixture colors off (the next journey's theme is its own)",
+   "set": {
+    "appearance": {
+     "appTheme": "followTerminal"
+    }
+   },
+   "unset": [
+    "appearance.themeEdits",
+    "appearance.surfaces",
+    "sidebar.hoverCards"
+   ]
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "mark": "ctrlc",
+   "title": "after: a real HID Ctrl-C ends p0's load program"
+  },
+  {
+   "do": "expect",
+   "title": "after: the shell's prompt is back (the fixture ended)",
+   "since": "ctrlc",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_prompt": true
+    },
+    {
+     "app_prompt": true
+    }
+   ]
+  },
+  {
+   "do": "type",
+   "text": "echo rv-done-${nonce}",
+   "enter": true,
+   "mark": "after"
+  },
+  {
+   "do": "expect",
+   "title": "p0 echoes the line: app, daemon and frame",
+   "since": "after",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "rv-done-${nonce}"
+    },
+    {
+     "app_text_line": "rv-done-${nonce}"
+    },
+    {
+     "frame_text": "rv-done-${nonce}"
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "settings_file",
+   "title": "clean-up: settings back",
+   "set": {
+    "appearance": {
+     "appTheme": "followTerminal"
+    }
+   },
+   "unset": [
+    "appearance.themeEdits",
+    "sidebar.hoverCards"
+   ]
+  }
+ ]
+}
