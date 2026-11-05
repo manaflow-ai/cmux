@@ -27,7 +27,8 @@ visible_ms, confirmed_ms and key_ms:
          (1 s), 0.4 s after the press before the undo, and 0.3 s after it, so the Ctrl-` stand-in and the New Tab
          page spare are ready
   quick  two quick presses (`--quick-runs`, default 6, per command): the command's key through `debug.key` (not
-         timed), then at once the timed press, with no wait for a stand-in or spare to refill
+         timed; `link_right`, which has no key: the same link opened untimed by the app), then at once the timed
+         press, with no wait for a stand-in or spare to refill
   cold   cold, no wait (`--cold-launches`, default 2, launches per command): the app quits and launches again, and
          the timed press is the launch's first, as soon as a terminal is focused (no shell prompt wait, no warm-up)
 
@@ -71,6 +72,9 @@ parser.add_argument("--arms", default=None,
                          "budget run judges the warm rows only, so its time and its pass or fail do not change)")
 parser.add_argument("--quick-runs", type=int, default=6, help="quick arm: pairs of presses per command")
 parser.add_argument("--cold-launches", type=int, default=2, help="cold arm: launches per command, each timing its first press")
+parser.add_argument("--spare-page", choices=("default", "on", "off"), default="default",
+                    help="Debug Settings browserPage.sparePage (a new Chromium tab takes a page made ahead) for every launch: "
+                         "default leaves it as the build has it (off), on/off set it through debug.tunables; reset at the end")
 parser.add_argument("--link-url", default="", help="link_right's page (default: a local file page in the scratch folder)")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--json")
@@ -217,22 +221,25 @@ def ensure_terminal(settle=True):
     return ok
 
 
-def timed(command, phase, index, arm=None):
-    """One timed `bench_create` of `command` (the key goes through the real key path in the app), printed."""
+def timed(command, phase, index, arm=None, url=None, extra=None):
+    """One timed `bench_create` of `command` (the key goes through the real key path in the app), printed.
+    `url`: link_right's address for this press (default LINK_URL); `extra`: more bench_create params."""
     # `link_home` is the app's `link_right` from Home's dock (LinkOpener reads the source, not the command).
     sent = "link_right" if command == "link_home" else command
     params = {"action": "bench_create", "command": sent}
     if sent == "link_right":
-        params["url"] = LINK_URL
+        params["url"] = url or LINK_URL
     if sent == "github_right":
         params.update({"url": GITHUB_URL, "seed": True})
+    params.update(extra or {})
     result = rpc("debug.new_tab", params, timeout=20) or {}
     result.update({"phase": phase, "run": index, "command": command})
     if arm:
         result["arm"] = arm
     marks = {s["name"]: round(s["at"], 1) for s in result.get("spans") or [] if s.get("ms", 0) == 0}
     print(f"{phase} {command} #{index}: key={result.get('key_ms')} visible={result.get('visible_ms')} "
-          f"frame={frame_of(result)} confirmed={result.get('confirmed_ms')} page={result.get('page_ms')} marks={marks} "
+          f"frame={frame_of(result)} confirmed={result.get('confirmed_ms')} page={result.get('page_ms')} "
+          f"spare_window={result.get('spare_window')} marks={marks} "
           f"err={result.get('error')}" + (f" github={result['github']}" if 'github' in result else ""), flush=True)
     return result
 
@@ -242,21 +249,31 @@ def arm_quick(window):
     the same command, so it finds the stand-in or spare the first press took. Both results are undone."""
     rows = []
     for command in COMMANDS:
-        if command not in KEYS:
-            continue  # no key (link_right, split_browser): timed by the warm arm alone
+        if command not in KEYS and command != "link_right":
+            continue  # no key (split_browser, link_home): timed by the warm arm alone
         for index in range(opts.quick_runs):
             if not ensure_terminal():
                 rows.append({"phase": "quick", "run": index, "command": command, "arm": "quick", "error": "no focused terminal"})
                 continue
             before = len(panes())
-            name, modifiers = KEYS[command]
-            rpc("debug.key", {"key": name, "modifiers": modifiers, "window": window})
-            rows.append(timed(command, "quick", index, arm="quick"))
+            url = None
+            if command == "link_right":
+                # No key: the app opens a link untimed and replies at once with its source pane; the timed press opens
+                # from it (from_pane: the focus moved to the new browser pane, where a link is a tab, not a split).
+                # Each press has its own address, so the two never land on one page.
+                url = f"{LINK_URL}?quick-{index}"
+                first = rpc("debug.new_tab", {"action": "bench_create", "command": command, "url": f"{LINK_URL}?quick-{index}-first",
+                                              "untimed": True}) or {}
+            else:
+                name, modifiers = KEYS[command]
+                rpc("debug.key", {"key": name, "modifiers": modifiers, "window": window})
+            rows.append(timed(command, "quick", index, arm="quick", url=url,
+                              extra={"from_pane": first.get("source_pane")} if command == "link_right" else None))
             time.sleep(0.4)  # test harness: let the creations' shells start before closing them
             # The first of the two results, then the second (undo waits for one terminal pane again).
             if command == "new_workspace":
                 rpc("action.run", {"action": "closeWorkspace"})
-            elif command in ("split_right", "split_down"):
+            elif command in ("split_right", "split_down", "link_right"):
                 rpc("debug.key", {"key": "w", "modifiers": ["command"], "window": window})
                 wait(lambda: len(panes()) <= before + 1, 10)
             else:
@@ -282,7 +299,22 @@ def arm_cold(relaunch):
             if command != "new_workspace" and not ready(command, settle=False):
                 rows.append({"phase": "cold", "run": index, "command": command, "arm": "cold", "error": "no focused start pane"})
                 continue
+            if opts.hang_stacks:  # the launch's own stalls before the press are not this press's
+                rpc("debug.hangs", {"clear": True})
             rows.append(timed(command, "cold", index, arm="cold"))
+            if opts.hang_stacks:  # the stalls of the press: the longest one's main-thread stack, with every stall's start
+                time.sleep(0.4)  # test harness: let the page's first paint land before the read
+                hangs = rpc("debug.hangs", {"limit": 16}) or {}
+                rows[-1]["hangs"] = longest_stall(hangs)
+                # Each stall's start in ms after the press (the reply's press_uptime_ns), its length and its top frames.
+                press = rows[-1].get("press_uptime_ns") or 0
+                rows[-1]["stalls"] = [{"at_ms": round((r.get("start_uptime_ns", 0) - press) / 1e6, 1), "ms": round(r.get("duration_ms") or 0, 1),
+                                       "frames": (r.get("frames") or [])[:24]}
+                                      for r in ((hangs.get("records") or []) if isinstance(hangs, dict) else []) if r.get("kind", "stall") == "stall"]
+                stall = rows[-1]["hangs"].get("stack") or {}
+                print(f"  stalls={rows[-1]['hangs'].get('count')} longest={stall.get('ms')} cpu={stall.get('cpu_ms')}", flush=True)
+                for frame in stall.get("frames") or []:
+                    print("    " + frame, flush=True)
     return rows
 
 
@@ -441,6 +473,9 @@ def main():
             app = launcher.process
         SOCKET = launcher.socket
         CLI_ENV["CMUX_SOCKET_PATH"] = SOCKET
+        if opts.spare_page != "default":  # every launch, the cold arm's too: the A/B of the page made ahead
+            print("spare page", opts.spare_page, json.dumps(rpc("debug.tunables", {"action": "set", "key": "browserPage.sparePage",
+                                                                        "value": opts.spare_page == "on"}))[:200], flush=True)
 
     def relaunch():
         """The cold arm's launch: the running app quits (cleanup), then a new launch; returns its window."""
@@ -500,5 +535,7 @@ ok = False
 try:
     ok = main()
 finally:
+    if opts.spare_page != "default":  # the setting outlives the launch in a DEV build: back to its default
+        rpc("debug.tunables", {"action": "set", "key": "browserPage.sparePage", "value": None}, timeout=5)
     cleanup()
 sys.exit(0 if ok else 1)

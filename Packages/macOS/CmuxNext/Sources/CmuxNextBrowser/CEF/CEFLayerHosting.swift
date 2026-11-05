@@ -77,6 +77,10 @@ final class CEFLayerHosting {
     static let resizeSyncForkAPI: Int32 = 27
 
     weak var view: NSView?
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Bench builds: the page window's context is shown in this view (the `cef.layer_hosted` mark).
+    var didHost: (() -> Void)?
+    #endif
     /// The page's pixels in this window's layer tree; nil while the page
     /// draws in its own window.
     private(set) var page: CEFHostedPageView?
@@ -295,6 +299,9 @@ final class CEFLayerHosting {
         if id != 0 {
             let page = self.page ?? addPage(to: view)
             if page.host(contextID: id) {
+                #if DEBUG || CMUX_BENCH_HOOKS
+                didHost?()
+                #endif
                 // The page's frame at a new size commits with the pane's only while hosted.
                 syncDeadline()
                 return

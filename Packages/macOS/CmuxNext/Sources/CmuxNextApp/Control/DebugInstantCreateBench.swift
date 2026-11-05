@@ -34,7 +34,7 @@ private typealias JSON = CmuxNextSettings.JSONValue
 /// first frame after its page painted (first contentful paint, or its load ended); the spans
 /// include Chromium's main-thread steps (`CEFBenchMarks`: `cef.create_window`, `cef.tab_add`, ...).
 /// `link_right` opens `url` (default example.com) from the focused pane as a link opened to the right (split right):
-/// visible once the window shows another pane, `page_ms` once that pane's page painted. `dock_respawn` docks the focused pane's lone tab into a new left
+/// visible once the window shows another pane, `page_ms` once that pane's page painted (quick arm: from `from_pane`). `dock_respawn` docks the focused pane's lone tab into a new left
 /// dock and leaves a fresh terminal (a lone chat's new tab, ``ChatColumnPlacement``): visible once the window shows another pane.
 @MainActor
 enum DebugInstantCreateBench {
@@ -59,8 +59,9 @@ enum DebugInstantCreateBench {
         guard let command = params["command"]?.stringValue.flatMap(Command.init(rawValue:)) else {
             return .object(["error": .string("command: one of \(Command.allCases.map(\.rawValue).joined(separator: ", "))")])
         }
-        let before = Probe(controller)
-        let shownBrowsers = Probe.browserTabs(controller) // a page painted before the press is never the new one
+        // A link opens from the pane `from_pane` names (the quick arm's timed press: its untimed press's source, so it opens into that right column), else the focused pane.
+        let source = params["from_pane"]?.stringValue.flatMap(UInt64.init).flatMap { handle in controller.content?.panes.values.first { $0.pane.handle.rawValue == handle } } ?? controller.content?.focusedPane
+        let before = Probe(controller), shownBrowsers = Probe.browserTabs(controller), pageQuery = params["from_pane"] != nil ? params["url"]?.stringValue.flatMap(URL.init(string:))?.query : nil // a page painted before the press is never the new one; with `from_pane`, its own page only
         let (key, modifiers) = command.key
         frames.start()
         BenchSpans.begin()
@@ -71,29 +72,28 @@ enum DebugInstantCreateBench {
         let githubTab = command == .githubRight ? WebPageTab.registerGitHub(services) : nil
         githubTab?.onShown = { url, content in githubShown.withLock { $0.append(url == githubURL ? (content ? "content" : "empty") : "other") } }
         defer { githubTab?.onShown = nil }
-        let start = ContinuousClock.now
+        let start = ContinuousClock.now, pressUptime = clock_gettime_nsec_np(CLOCK_UPTIME_RAW) // the clock of a hang record's start_uptime_ns
+        let placement = services.linkOpener.placement
+        if command == .linkRight || command == .githubRight { services.linkOpener.placement = { .splitRight } }
         if command == .linkRight, let url = URL(string: params["url"]?.stringValue ?? "https://example.com/") {
-            let placement = services.linkOpener.placement
-            services.linkOpener.placement = { .splitRight }
-            services.linkOpener.openWeb(url, from: controller.content?.focusedPane, background: false)
-            services.linkOpener.placement = placement
+            services.linkOpener.openWeb(url, from: source, background: false)
         } else if command == .githubRight, let url = URL(string: params["url"]?.stringValue ?? ""), let pane = controller.content?.focusedPane {
             // As a chat's link card left it: the pull request already in the app's cache, so the page draws it at once.
             if params["seed"]?.boolValue == true, let fixture = AgentPanePullRequest(ghView: Data(GitHubPageProvider.benchFixture(url).utf8)) {
                 AgentReplyPullRequests.shared.seed(fixture, for: url)
             }
-            let placement = services.linkOpener.placement
-            services.linkOpener.placement = { .splitRight }
             githubShown.withLock { [opened = WebPageTab.openGitHub(url, from: pane, services: services)] in $0.append("opened:\(opened.map(String.init) ?? "nil")") }
-            services.linkOpener.placement = placement
         } else if command == .dockRespawn, let pane = controller.content?.focusedPane, let tab = pane.pane.tabs.first {
             TabMoves.toNewDockColumn(tab, anchor: pane.pane, edge: .left, role: .agentChat, respawn: .terminal(SpawnOptions()), services: services)
         } else if let action = params["run"]?.stringValue ?? (command == .splitBrowser ? "splitBrowserRight" : nil) {
             let arguments = params["url"]?.stringValue.map { ["url": ActionValue.string($0)] } ?? [:]
             _ = services.registry.perform(ActionID(rawValue: action), invocation: ActionInvocation(arguments: arguments))
         } else { _ = DebugKey.send(["key": .string(key), "modifiers": .array(modifiers.map(JSON.string)), "window": .string(controller.state.id)], services: services) }
+        services.linkOpener.placement = placement
+        // `untimed` (the quick arm's first press, which takes the spare window): the reply at once, with the pane it opened from.
+        if params["untimed"]?.boolValue == true { _ = (frames.stop(), BenchSpans.end()); return .object(["untimed": .bool(true), "source_pane": source.map { .string(String($0.pane.handle.rawValue)) } ?? .null]) }
         let keyMilliseconds = BenchSpans.ms(.now - start)
-        let visible = await frames.settled(until: { before.changed(command, Probe(controller)) }, start: start, window: 0, deadline: 5_000, watchCommits: true)
+        let visible = await frames.settled(until: { before.changed(command, Probe(controller)) || pageQuery.map { query in controller.content?.panes.values.contains { if $0.view.hostsContent, case .browser(let entry) = $0.currentContent { entry.tab.state.url?.query == query } else { false } } == true } == true }, start: start, window: 0, deadline: 5_000, watchCommits: true) // a quick link opens into its untimed press's column: shown at its address
         let committed = frames.lastCommitted
         let chrome = visible == nil || command != .newBrowser ? nil : await frames.settled(until: { Probe(controller).browser != nil }, start: start, window: 0, deadline: 5_000)
         // A link or browser opened to the right: its new pane's page (any shown pane of the window), first paint or load end.
@@ -103,7 +103,7 @@ enum DebugInstantCreateBench {
         let page = (visible == nil && github == nil) || (command != .newBrowser && !opensRight && github == nil) ? nil
             : await frames.settled(until: {
                 if github != nil { return githubShown.withLock { $0.contains("content") } }
-                return opensRight ? Probe.anyPagePainted(controller, services, besides: shownBrowsers) : Probe(controller).pagePainted(services)
+                return opensRight ? Probe.anyPagePainted(controller, services, besides: shownBrowsers, query: pageQuery) : Probe(controller).pagePainted(services)
             },
                                    start: start, window: 0, deadline: 5_000)
         let confirmed = visible == nil ? nil
@@ -114,7 +114,7 @@ enum DebugInstantCreateBench {
         if case .object(let fields) = stats, let value = fields["refresh_ms"]?.doubleValue, value > 0 { refresh = value }
         return .object([
             "command": .string(command.rawValue),
-            "key_ms": .number(keyMilliseconds),
+            "key_ms": .number(keyMilliseconds), "press_uptime_ns": .number(Double(pressUptime)),
             "visible_ms": visible.map { .number($0) } ?? .null,
             "confirmed_ms": confirmed.map { .number($0) } ?? .null,
             "committed_ms": committed.map { .number($0) } ?? .null, "key_changes": .number(Double(spans.count(where: { $0.name.hasPrefix("key.") }))), "spans_full": .bool(spans.count >= BenchSpans.capacity),
@@ -159,11 +159,11 @@ enum DebugInstantCreateBench {
             } ?? [])
         }
 
-        /// Whether a pane of the window shows a browser, other than `besides`, whose page painted (``pagePainted(_:)``).
-        static func anyPagePainted(_ controller: WindowController, _ services: AppServices, besides: Set<String>) -> Bool {
+        /// Whether a pane of the window shows a browser, other than `besides` (with `query`: at that query), whose page painted (``pagePainted(_:)``).
+        static func anyPagePainted(_ controller: WindowController, _ services: AppServices, besides: Set<String>, query: String? = nil) -> Bool {
             controller.content?.panes.values.contains { pane in
                 guard pane.view.hostsContent, case .browser(let entry) = pane.currentContent,
-                      !besides.contains(entry.tab.id.rawValue) else { return false }
+                      !besides.contains(entry.tab.id.rawValue), query.map({ entry.tab.state.url?.query == $0 }) ?? true else { return false }
                 if case .finished = entry.tab.state.phase { return true }
                 return services.cache.cef.benchMarks.firstPaints[entry.tab.id.rawValue] != nil
             } ?? false

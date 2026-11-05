@@ -17,6 +17,9 @@ extension CEFPaneHost {
             tabSwitchMark("activated")
         }
         hostView.layerHosting.pageShown(browser: browser)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        runtime.benchMarks.tabPoint("cef.page_shown", tab.id.rawValue)
+        #endif
         hostView.postGeometryChange()
         // A window-wide side panel stays open across tabs: no event.
         tab.sidePanel.scheduleRefresh()

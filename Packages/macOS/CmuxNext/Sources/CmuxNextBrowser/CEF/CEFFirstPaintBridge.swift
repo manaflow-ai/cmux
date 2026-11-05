@@ -68,6 +68,9 @@ final class CEFFirstPaintBridge {
         if Self.isFirstContentfulPaint(head, mainFrame: mainFrame) {
             painted()
         } else if Self.isLifecycleEvent(head, named: Self.firstPaint, mainFrame: mainFrame) {
+            #if DEBUG || CMUX_BENCH_HOOKS
+            if let tab { tab.runtime.benchMarks.tabPoint("cef.doc_first_frame", tab.id.rawValue) } // the document's first frame presented
+            #endif
             tab?.documentDidFirstPaint(contentful: false) // the document takes keys; the page area hand-over still waits for content
         }
         return false

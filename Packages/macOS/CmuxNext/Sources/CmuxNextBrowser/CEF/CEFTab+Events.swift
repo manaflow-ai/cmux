@@ -18,6 +18,9 @@ extension CEFTab {
         switch event {
         case .loadingState(_, let loading, let back, let forward):
             nativeHistory = (back, forward)
+            #if DEBUG || CMUX_BENCH_HOOKS
+            if loading { runtime.benchMarks.tabPoint("cef.nav_start", id.rawValue) } // Chromium began the tab's navigation
+            #endif
             restored.applyAvailability()
             restored.dropForwardIfLeftFirstEntry()
             if loading, !chromiumLoading { (paintBeforeCommit, committedThisLoad) = (false, false) } // Chromium's new load: no commit or early paint of it yet
@@ -52,6 +55,9 @@ extension CEFTab {
             if let title = titleBeforeCommit { machine.apply(.titleChanged(title)) }
             clearTitleBeforeCommit()
             committedURL = URL(string: url)
+            #if DEBUG || CMUX_BENCH_HOOKS
+            if PageBackground.isRealPage(committedURL) { runtime.benchMarks.tabPoint("cef.commit", id.rawValue) } // a renderer committed the document
+            #endif
             // A new document: the one before is gone. Its own first paint may have come first, if this is the load's first commit.
             (documentLoaded, documentPainted, committedIsErrorPage) = (false, paintBeforeCommit && !committedThisLoad, false)
             (paintBeforeCommit, committedThisLoad) = (false, true)
