@@ -5507,6 +5507,9 @@ fn terminal_output_window_keeps_sparse_subjects_and_generations_separate() {
     append_terminal_output_for_test(&mut registry, &unrelated, generation, &[b"other"; 512]);
     append_terminal_output_for_test(&mut registry, &terminal, generation, &[b"second"]);
 
+    // Bound SQLite work, not wall-clock timing: a global output scan exhausts
+    // this budget on unrelated rows before it can serve the sparse terminal.
+    registry.connection.progress_handler(1000, Some(|| true)).unwrap();
     let first = registry
         .terminal_output_records_after(terminal.as_str(), generation, 0, 1)
         .unwrap();
@@ -5531,6 +5534,7 @@ fn terminal_output_window_keeps_sparse_subjects_and_generations_separate() {
     assert!(!old.truncated);
     assert_eq!(old.chunks.len(), 1);
     assert_eq!(old.chunks[0].bytes.as_ref(), b"old");
+    registry.connection.progress_handler(0, None::<fn() -> bool>).unwrap();
 }
 
 #[test]
