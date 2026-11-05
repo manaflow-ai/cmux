@@ -1,5 +1,13 @@
 import { describe, expect, jest, test } from "bun:test";
-import { canImport, ImportHistoryStore, OPS, type ImportReport } from "./model";
+import {
+  canImport,
+  groupState,
+  ImportHistoryStore,
+  OPS,
+  PROVIDER_GROUPS,
+  type ImportReport,
+  type ProviderGroup,
+} from "./model";
 
 const report = (added = 3, written?: number): ImportReport => ({
   plan: { total: 3, new: added, duplicate: 3 - added, secrets: 0 },
@@ -389,4 +397,49 @@ describe("Bring your history", () => {
       expect(store.getSnapshot().phase).toBe("done");
     },
   );
+
+  test("local sources group by provider: Claude chats and memory, Codex memories and chats", () => {
+    expect(PROVIDER_GROUPS.map((group) => [group.agent, [...group.members]])).toEqual([
+      ["claude", ["claude-code", "claude-memory"]],
+      ["codex", ["codex", "codex-sessions"]],
+    ]);
+  });
+
+  test("a provider's checkbox checks or clears only the sources this Mac has", async () => {
+    const claude = PROVIDER_GROUPS[0] as ProviderGroup;
+    const codex = PROVIDER_GROUPS[1] as ProviderGroup;
+    const client = host((call) =>
+      call.op === OPS.detect
+        ? {
+            sources: [
+              { source: "claude-code", kind: "claude-code" },
+              { source: "claude-memory", kind: "claude-memory" },
+              { source: "codex", kind: "codex" },
+            ],
+          }
+        : undefined,
+    );
+    const store = new ImportHistoryStore(client);
+    await store.start();
+    const rows = () => store.getSnapshot().rows;
+    const selected = () => rows().filter((row) => row.selected).map((row) => row.id);
+    expect(groupState(rows(), claude)).toBe("on");
+    expect(groupState(rows(), codex)).toBe("on");
+
+    store.select("claude-memory", false);
+    expect(groupState(rows(), claude)).toBe("mixed");
+
+    store.selectGroup(claude, true);
+    expect(selected()).toEqual(["claude-code", "codex", "claude-memory"]);
+
+    store.selectGroup(codex, false);
+    expect(groupState(rows(), codex)).toBe("off");
+    expect(selected()).toEqual(["claude-code", "claude-memory"]);
+
+    // Codex chats were not found: checking Codex does not pick them.
+    store.selectGroup(codex, true);
+    expect(selected()).toEqual(["claude-code", "codex", "claude-memory"]);
+    expect(rows().find((row) => row.id === "codex-sessions")?.selected).toBe(false);
+    expect(groupState(rows(), codex)).toBe("on");
+  });
 });
