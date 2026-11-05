@@ -147,21 +147,30 @@ live_swift() {
   fi
   made="$(mktemp -d "${TMPDIR:-/tmp}/try-pr-live.XXXXXX")"; src="$made/src"
   # The build's commit with the PR's change on it: what the patch is compiled from.
-  git -C "$ROOT" worktree add -q --detach "$src" "$commit"
-  drop() { git -C "$ROOT" worktree remove --force "$src" 2>/dev/null || true; rm -rf "$made"; }
+  drop() { trap - EXIT INT TERM; git -C "$ROOT" worktree remove --force "$src" 2>/dev/null || true; rm -rf "$made"; }
+  # Gone on every way out, Ctrl-C and a kill included. (live_swift runs as an if condition, so set -e
+  # is off in it: each step's failure is checked.)
+  trap drop EXIT
+  trap 'drop; exit 130' INT TERM
+  if ! git -C "$ROOT" worktree add -q --detach "$src" "$commit"; then
+    drop; echo "live code: no scratch worktree of $commit"; return 1
+  fi
   if ! git -C "$ROOT" diff --binary "$base" "$head" | git -C "$src" apply --3way -q 2>/dev/null; then
     drop; echo "live code: #$pr does not apply cleanly on the build's commit $commit"; return 1
   fi
-  git -C "$src" add -A
-  changed="$(git -C "$src" diff --cached --name-status "$commit")"
+  if ! git -C "$src" add -A || ! changed="$(git -C "$src" diff --cached --name-status "$commit")"; then
+    drop; echo "live code: the PR's change could not be read in the scratch worktree"; return 1
+  fi
   bad="$(awk -F'\t' '$1 != "M" || $2 !~ /^Packages\/macOS\/CmuxNext\/Sources\/CmuxNextApp\/.*\.swift$/ { print $NF }' <<<"$changed")"
   if [[ -n "$bad" ]]; then
     drop; echo "live code takes only edits to CmuxNextApp's existing Swift files; not: $(tr '\n' ' ' <<<"$bad")"; return 1
   fi
   # Sorted again against the build's own commit (the PR's base may be newer or older).
-  tree_id="$(git -C "$src" write-tree)"
-  apply_id="$(git -C "$src" -c user.name=try-pr -c user.email=try-pr@localhost commit-tree "$tree_id" -p "$commit" -m "try-pr #$pr on $commit")"
-  again="$(python3 "$ROOT/scripts/cmux-next/live_apply.py" --repo "$ROOT" --json "$commit" "$apply_id" | python3 -c 'import json,sys; print(json.load(sys.stdin)["verdict"])')"
+  if ! tree_id="$(git -C "$src" write-tree)" ||
+    ! apply_id="$(git -C "$src" -c user.name=try-pr -c user.email=try-pr@localhost commit-tree "$tree_id" -p "$commit" -m "try-pr #$pr on $commit")" ||
+    ! again="$(python3 "$ROOT/scripts/cmux-next/live_apply.py" --repo "$ROOT" --json "$commit" "$apply_id" | python3 -c 'import json,sys; print(json.load(sys.stdin)["verdict"])')"; then
+    drop; echo "live code: the change could not be sorted on the build's commit"; return 1
+  fi
   if [[ "$again" != swift-live ]]; then drop; echo "live code: on the build's commit the change is $again"; return 1; fi
   local files=() file
   while IFS=$'\t' read -r _ file; do files+=("$file"); done <<<"$changed"
