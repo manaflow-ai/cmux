@@ -79,21 +79,31 @@ case "$verb" in
     ;;
   latency)
     input=$1 samples=$2 out=$3
-    # The marker reports its geometry in stream pixels at the display's full width (mac-compare.sh).
+    # The marker logs its geometry in cmux.rd stream pixels (that stream is capped at 3840 px wide)
+    # and in points. The WebRTC host captures the display at its native size, so the reader gets
+    # fractions of the frame, which do not depend on either stream's scale: one cell is cell_pt
+    # over the display's width in points, and the marker's top is its rd origin over the rd height.
     geometry=$(grep -m1 "stream width" "$EVAL_MARKER_LOG")
     width=${geometry#*stream width }
     width=${width%% *}
+    cell=${geometry#*cell }
+    cell=${cell%% pt*}
     origin=$(grep -m1 marker-origin "$EVAL_MARKER_LOG")
     top=${origin#marker-origin 0,}
     top=${top%% *}
     display=${geometry#*display \(}
     display=${display%\)*}
-    height=$(python3 -I -c 'import sys; w=float(sys.argv[1]); dw, dh = map(float, sys.argv[2].split(",")); print(int(w * dh / dw) & ~1)' "$width" "$display")
+    fractions=$(python3 -I -c '
+import sys
+width, cell, top = float(sys.argv[1]), float(sys.argv[2]), float(sys.argv[3])
+dw, dh = map(float, sys.argv[4].split(","))
+print(cell / dw, top / (int(width * dh / dw) & ~1))' "$width" "$cell" "$top" "$display")
+    cell_fraction=${fractions% *}
+    origin_fraction=${fractions#* }
     kind=key
     [[ $input == pointer ]] && kind=click
     watch_encode
-    CMUX_RD_MARKER_CELL_FRACTION=$(python3 -I -c 'import sys; print(32/float(sys.argv[1]))' "$width") \
-      CMUX_RD_MARKER_ORIGIN_Y=$(python3 -I -c 'import sys; print(int(sys.argv[1])/int(sys.argv[2]))' "$top" "$height") \
+    CMUX_RD_MARKER_CELL_FRACTION=$cell_fraction CMUX_RD_MARKER_ORIGIN_Y=$origin_fraction \
       CMUX_RD_MARKER_SAMPLES=$samples CMUX_RD_MARKER_INPUT=$kind \
       viewer RdMarkerClickLatencyTests "$EVAL_STATE/latency-$input.log" || true
     stop_watch
