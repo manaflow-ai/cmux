@@ -86,6 +86,7 @@ public final class WebDevOverrideWatcher {
                             hosting: (any PageChromiumHosting)? = PageWebView.chromiumHosting,
                             pages: [PageWebView]? = nil,
                             served: WebBundleServedViews = .shared) -> Task<Void, Never>? {
+        reloadGeneration &+= 1
         let chromiumLive = live && (hosting?.setLivePages(true) ?? false)
         if !live { _ = hosting?.setLivePages(false) }
         served.reloadServed()
@@ -98,10 +99,13 @@ public final class WebDevOverrideWatcher {
         if live, !chromiumLive, let hosting {
             let moving = pages.filter(\.isOnChromium)
             guard !moving.isEmpty else { return nil }
-            return Task { // task-owner: the engine moves of this reload; each page's own work ends with the page
-                await withTaskGroup(of: Void.self) { group in
-                    for page in moving { group.addTask { await page.reopenForLiveOverride(hosting: hosting) } }
-                }
+            // A later reload supersedes these moves: a page whose scroll read outlasts it stays put.
+            let generation = reloadGeneration
+            let current = { generation == reloadGeneration }
+            // task-owner: one move per page, on the main actor; each ends with its page
+            let moves = moving.map { page in Task { await page.reopenForLiveOverride(hosting: hosting, isCurrent: current) } }
+            return Task { // task-owner: waits for this reload's moves (tests wait on it)
+                for move in moves { await move.value }
             }
         }
         // Chromium pages reload when they serve the loop now or did until now.
@@ -109,6 +113,10 @@ public final class WebDevOverrideWatcher {
         for page in pages where page.chromiumPage != nil { page.reload() }
         return nil
     }
+
+    /// Counts ``reloadPages(live:hosting:pages:served:)`` calls, so an engine move a later reload
+    /// superseded does not finish.
+    private static var reloadGeneration = 0
 
     /// Whether Chromium pages were serving the live loop after the last ``reloadPages()``.
     private static var chromiumServedLive = false

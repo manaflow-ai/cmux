@@ -294,12 +294,16 @@ def main(argv: list[str] | None = None) -> int:
                                                           "smoke_exit")}
     if later["required"] and not later["pass"]:
         result["failures"].append("settings-first: " + ", ".join(later["failures"] or ["failed"]))
+        if later_code == smoke.CANNOT_RUN:
+            code = smoke.CANNOT_RUN
     result["total_s"] = round(time.time() - started, 2)
     result["pass"] = code == 0 and not result["failures"]
     (out / "result.json").write_text(json.dumps(result, indent=2) + "\n")
     print("AGENT-LOOP " + json.dumps({k: result.get(k) for k in ("pass", "rung", "applied", "probe", "seconds",
                                                                   "rolled_back", "edit_to_probe_s", "on_screen", "failures",
                                                                   "settings_first")}))
+    if code == smoke.CANNOT_RUN:
+        return 3
     return 0 if result["pass"] else 1
 
 

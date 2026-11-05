@@ -13,8 +13,11 @@ extension PageWebView {
     /// the pick: at its ``route``, then scrolled where its Chromium page was. Does nothing for a
     /// page already on WebKit or one the policy keeps in Chromium.
     ///
-    /// - Parameter hosting: The Chromium host the page came from.
-    func reopenForLiveOverride(hosting: any PageChromiumHosting) async {
+    /// - Parameters:
+    ///   - hosting: The Chromium host the page came from.
+    ///   - isCurrent: Whether the reload that asked for the move is still the latest (a later one,
+    ///     the loop turned off again, supersedes it).
+    func reopenForLiveOverride(hosting: any PageChromiumHosting, isCurrent: () -> Bool = { true }) async {
         guard isOnChromium else { return }
         let decision = PageEnginePolicy(preference: hosting.preference, chromiumAvailable: hosting.isAvailable,
                                         chromiumServes: hosting.serves(descriptor), liveWebOverride: true)
@@ -23,7 +26,7 @@ extension PageWebView {
         let session = chromiumSession
         let spots = session == nil ? nil : await callPageFunction(Self.scrollCaptureScript, timeout: .seconds(1)) as? [Any]
         // The page closed, fell back or moved on while its scroll was read: nothing left to move.
-        guard !isClosed, chromiumSession === session, isOnChromium else { return }
+        guard !isClosed, chromiumSession === session, isOnChromium, isCurrent() else { return }
         fallBackToWebKit(reason, detail: "the live web loop is on and Chromium cannot serve it", level: .info)
         guard let spots, !spots.isEmpty else { return }
         await waitUntilLoaded()

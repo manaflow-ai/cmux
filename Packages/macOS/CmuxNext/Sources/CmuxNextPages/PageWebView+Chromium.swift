@@ -129,7 +129,9 @@ extension PageWebView {
                 #endif
                 page = try await hosting.makePage(descriptor)
             } catch {
-                self?.fallBackToWebKit(.chromiumFailed, detail: "\(error)")
+                // A start cancelled meanwhile (the page fell back or closed) has nothing left to fall back from.
+                guard let self, self.chromiumStart?.isCancelled == false else { return }
+                self.fallBackToWebKit(.chromiumFailed, detail: "\(error)")
                 return
             }
             guard let self, self.chromiumStart?.isCancelled == false else {
