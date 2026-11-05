@@ -42,8 +42,9 @@ One body of guidance, each piece tied to a tool cmux already has and saying when
 Each harness gets it through its own mechanism, not one custom format:
 
 - **Claude Code**: the skill `cmux:cmux-chat` in the existing session plugin (progressive
-  disclosure: the description is always listed, the body read when it applies), plus a five-line
-  pointer in the first-turn context so the plan and recap rules hold even before the skill is read.
+  disclosure: the description is always listed, the body read when it applies), plus a two-sentence
+  pointer in the first-turn context saying when to read it (about 95 tokens; Claude Code's own
+  prompt already covers TodoWrite). The Codex text is about 355 tokens.
 - **Codex** and every other harness: the full compact guidance in the first-turn context. That is
   the channel Codex itself uses for `AGENTS.md` (a user-role instructions block), so it is the
   native mechanism; acpmux does not write into the person's `CODEX_HOME` or their repo's AGENTS.md.

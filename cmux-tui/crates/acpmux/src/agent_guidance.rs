@@ -39,12 +39,12 @@ const MAX_FILE_BYTES: u64 = 1024 * 1024;
 const MAX_DEPTH: usize = 4;
 
 /// Claude Code's first-turn guidance: when to read the `cmux:cmux-chat` skill.
-pub const CLAUDE_GUIDANCE: &str = "cmux chat guidance (cmux defaults; the person's own instructions win): this chat runs in cmux NEXT, which draws your TodoWrite list as the chat's checklist, your sub-sessions in a tray, session links as chips and offers as cards. Keep a TodoWrite plan for any task with more than one step. Start a sub-session (cmux-subsessions start_session) only when the person asked for parallel or background work; otherwise offer it (cmux-sessions offer_session mid-turn, suggest_tasks at the end). Write another session's HOST/NAME or agent link in inline code so it becomes a link. End a turn that changed files or ran commands with a two-or-three-sentence recap: what changed, what is verified, what is left. Read the cmux:cmux-chat skill for the details, and cmux:cmux-live before editing cmux itself.";
+pub const CLAUDE_GUIDANCE: &str = "This chat runs in cmux NEXT, which draws your TodoWrite list as a checklist, your sub-sessions in a tray and session links as chips. Read the cmux:cmux-chat skill before a task with more than one step, before starting or offering another session, and before ending a turn that changed files (it says how to end with a short recap). cmux defaults; the person's own instructions win.";
 
 /// Every other harness's first-turn guidance (Codex: `update_plan` is its plan tool).
 pub const AGENT_GUIDANCE: &str = "cmux chat guidance (cmux defaults; the person's own instructions win). This chat runs in cmux NEXT, which draws your work in the chat:
 - Plan: for a task with more than one step, keep a plan with your plan tool (Codex: update_plan). cmux draws it as a checklist. Write the whole plan first, short items, one in progress; mark each done as you start the next; rewrite it when the plan changes. Do not also write it as a numbered list.
-- Side sessions: start a sub-session (cmux-subsessions start_session, worktree: true when it edits files yours may touch) only when the person asked for parallel or background work, and give it the whole task. For work you noticed outside the task, offer it instead (cmux-sessions offer_session mid-turn, suggest_tasks at the end of a turn) and do not do it here. Never use a session for a quick lookup or a step you need the answer to now.
+- Side sessions (only with the tools listed; skip this when they are not): start a sub-session (start_session, worktree: true when it edits files yours may touch) only when the person asked for parallel or background work, and give it the whole task. For work you noticed outside the task, offer it instead (offer_session mid-turn, suggest_tasks at the end of a turn) and do not do it here. Never use a session for a quick lookup or a step you need the answer to now.
 - Links: when you mention another session, write its HOST/NAME or its agent link (cmux://agent/<harness>/<sessionId>) in inline code; cmux makes it a link. Never invent an id.
 - Recap: end a turn that changed files or ran commands with a two-or-three-sentence recap: what is now true, what you verified, what is not done, and the one decision the person must make, if any.
 - Editing cmux itself: when asked to change how cmux looks or behaves, use the cmux-live and cmux-customization guides (`cmux docs search live`).";
@@ -339,15 +339,22 @@ mod tests {
     #[test]
     fn families_get_their_own_guidance() {
         let on = Switches::default();
+        // Claude Code: only when to read the skill (its own prompt covers TodoWrite).
         let claude = first_turn_text(Family::Claude, &on, &[]).unwrap();
-        assert!(claude.contains("TodoWrite") && claude.contains("cmux:cmux-chat"), "{claude}");
+        assert!(claude.contains("cmux:cmux-chat") && claude.contains("recap"), "{claude}");
+        assert!(claude.len() < 500, "the pointer stays short: {} bytes", claude.len());
         let codex = first_turn_text(Family::Codex, &on, &[]).unwrap();
-        assert!(codex.contains("update_plan") && codex.contains("start_session"), "{codex}");
-        for text in [&claude, &codex] {
-            for tool in ["offer_session", "suggest_tasks", "recap", "inline code"] {
-                assert!(text.contains(tool), "{tool} missing: {text}");
-            }
+        for tool in [
+            "update_plan",
+            "start_session",
+            "offer_session",
+            "suggest_tasks",
+            "recap",
+            "inline code",
+        ] {
+            assert!(codex.contains(tool), "{tool} missing: {codex}");
         }
+        assert!(codex.contains("skip this when they are not"), "{codex}");
     }
 
     #[test]

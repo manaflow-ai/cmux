@@ -24,6 +24,9 @@ fix, anything the person listed). Skip it for a one-command answer or plain talk
 
 ## Side sessions, sub-sessions and subagents
 
+These tools exist only when cmux lists them (the person can turn sub-sessions off, and a
+chat outside the cmux app shows no offers); skip what you do not have.
+
 A sub-session is a new agent chat the person can open, steer and stop. Use one only for
 work with its own result (a branch, a PR, a separate investigation) that can run while
 you go on, never for a step you need the answer to right now: do that yourself or in your
