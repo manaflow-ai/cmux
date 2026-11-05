@@ -7,7 +7,8 @@
 // and which ones reload the page (a reload drops the draft and the scroll position).
 // --replay=BASE..HEAD saves a real change instead: the copy starts with BASE's version of every
 // webviews file the commits change, then each file is saved as HEAD has it, one at a time (new
-// files first, then edits, then deletions), with a draft typed and the transcript shown, and each
+// files first, then edits, the ones that drop an export after the ones that don't, so importers
+// change before what they imported goes, then deletions), with a draft typed and the transcript shown, and each
 // save is reported as hot-applied or reloaded. It skips the probes and the audit.
 // The edits go to a copy of this checkout in a temporary directory, never to the checkout itself:
 // a save you make while it runs is never touched. The copy is deleted before the script exits.
@@ -101,19 +102,30 @@ try {
   if (replay) {
     const [base, head] = replay.split("..");
     const git = (...gitArgs) => execFileSync("git", ["-C", root, ...gitArgs], { encoding: "utf8", maxBuffer: 1 << 28 });
-    const order = { A: 0, M: 1, D: 2 };
+    const exported = (text) =>
+      new Set([
+        ...[...text.matchAll(/^export\s+(?:async\s+)?(?:const|let|function|class|type|interface|enum)\s+([\w$]+)/gm)].map(
+          (match) => match[1],
+        ),
+        ...[...text.matchAll(/^export\s+(?:type\s+)?\{([^}]*)\}/gm)].flatMap((match) =>
+          match[1].split(",").map((name) => name.trim().split(/\s+as\s+/).pop()),
+        ),
+      ]);
     const changed = git("diff", "--name-status", "--no-renames", base, head, "--", "webviews")
       .trim()
       .split("\n")
       .filter(Boolean)
-      .map((line) => line.split("\t"))
-      .sort((a, b) => order[a[0][0]] - order[b[0][0]]);
+      .map((line) => line.split("\t"));
     for (const [status, file] of changed) {
+      const before = status === "A" ? undefined : git("show", `${base}:${file}`);
+      const text = status === "D" ? undefined : git("show", `${head}:${file}`);
       const inCopy = path.join(scratch, file);
-      if (status === "A") await fs.rm(inCopy, { force: true });
-      else await fs.writeFile(inCopy, git("show", `${base}:${file}`));
-      saves.push({ status, file, text: status === "D" ? undefined : git("show", `${head}:${file}`) });
+      if (before === undefined) await fs.rm(inCopy, { force: true });
+      else await fs.writeFile(inCopy, before);
+      const drops = before !== undefined && text !== undefined && [...exported(before)].some((name) => !exported(text).has(name));
+      saves.push({ status, file, text, rank: status === "A" ? 0 : status === "D" ? 3 : drops ? 2 : 1 });
     }
+    saves.sort((a, b) => a.rank - b.rank);
   }
   server = await createServer({
     configFile: path.join(webviews, "vite.config.ts"),
@@ -295,8 +307,15 @@ try {
 
   const replayRows = [];
   for (const save of saves) {
+    // A save that broke the page (a build error) leaves no composer: load it again to go on.
+    if (!(await editor()
+      .waitFor({ timeout: 10_000 })
+      .then(() => true)
+      .catch(() => false))) {
+      await page.reload();
+      await editor().waitFor({ timeout: 60_000 });
+    }
     // A reload before this save took the draft and the transcript: lay them down again.
-    await editor().waitFor({ timeout: 60_000 });
     if (!(await inPage((prompt) => document.body.innerText.includes(prompt), PROMPT))) {
       await editor().click();
       await page.keyboard.type(PROMPT);
@@ -318,6 +337,10 @@ try {
       await fs.writeFile(absolute, save.text);
     }
     await settle();
+    const broke = !(await editor()
+      .waitFor({ timeout: 5_000 })
+      .then(() => true)
+      .catch(() => false));
     const now = await inPage(
       ({ draft, prompt }) => ({
         samePage: window.__hotReloadProbe === "same page",
@@ -329,6 +352,7 @@ try {
     replayRows.push({
       ...save,
       text: undefined,
+      broke,
       // A file the page never loaded (a test, a script) can't show anything: reported, not counted.
       loaded: (server.moduleGraph.getModulesByFile(absolute)?.size ?? 0) > 0,
       reloaded: reloads > reloadsAtWrite,
@@ -339,7 +363,7 @@ try {
   }
   for (const row of replayRows)
     console.log(
-      `replay ${row.status} ${row.file}: ${!row.loaded && !row.reloaded ? "not in the page" : row.reloaded || !row.samePage ? "reloaded the page" : "hot-applied"}, ` +
+      `replay ${row.status} ${row.file}: ${row.broke ? "broke the page" : !row.loaded && !row.reloaded ? "not in the page" : row.reloaded || !row.samePage ? "reloaded the page" : "hot-applied"}, ` +
         `draft kept ${row.draftKept}, transcript kept ${row.transcriptKept}` +
         (row.pageErrors.length ? `, page errors: ${row.pageErrors.join(" | ")}` : "") +
         (row.vite.some((line) => line.includes("Could not Fast Refresh"))
@@ -348,7 +372,7 @@ try {
     );
   if (replay) {
     const counted = replayRows.filter((row) => row.loaded || row.reloaded);
-    const hot = counted.filter((row) => !row.reloaded && row.samePage);
+    const hot = counted.filter((row) => !row.broke && !row.reloaded && row.samePage);
     console.log(`replay ${replay}: ${hot.length} of ${counted.length} saves the page loads hot-applied`);
   }
 
@@ -356,7 +380,7 @@ try {
   await fs.writeFile(path.join(out, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
   console.log(out);
   const ok = replay
-    ? replayRows.every((row) => !row.reloaded && row.samePage && row.draftKept && row.transcriptKept)
+    ? replayRows.every((row) => !row.broke && !row.reloaded && row.samePage && row.draftKept && row.transcriptKept)
     : results.every(
       (row) =>
         row.midTurn &&
