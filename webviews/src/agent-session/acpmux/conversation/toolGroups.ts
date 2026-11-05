@@ -5,6 +5,7 @@
 import { pathKey, type AcpmuxActivity, type AcpmuxRow } from "../model";
 import type { Translate } from "../i18n";
 import { isBareShellName } from "../toolPaths";
+import { toolKind } from "../toolNames";
 import { acpmuxMcpSends } from "./acpmuxMcpSends";
 import { acpmuxSendCalls, recordedMessageBodyChangesForTool, type AcpmuxSendCallPart } from "./acpmuxSends";
 import { agentMessage, type AgentMessage } from "./agentMessages";
@@ -65,7 +66,8 @@ export const isSentEntry = (group: ToolGroup): group is SentEntry =>
 /// are commands; an MCP call can also say "execute". An edit still waiting for its permission
 /// ("pending") is drawn as the call, not as "Edited" (cx-p5fgx).
 export function toolGroupKind(tool: Tool): ToolGroupKind | undefined {
-  switch (tool.kind) {
+  // By what the call did, whichever harness named it (toolNames.ts): a Claude Code Grep searches.
+  switch (toolKind(tool)) {
     case "execute":
       return tool.command ? "commands" : undefined;
     case "read":
@@ -286,7 +288,9 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
       rememberMessageFiles();
       continue;
     }
-    const kind = tool && !send && !message && !subsession && !call && !agent ? toolGroupKind(tool) : undefined;
+    // A dispatch keeps its own card even when it ran as a shell (`acpmux dispatch` in a Shell call).
+    const kind =
+      tool && !dispatch && !send && !message && !subsession && !call && !agent ? toolGroupKind(tool) : undefined;
     if (kind && run?.kind === kind) {
       run.items.push(...held, item);
       held = [];

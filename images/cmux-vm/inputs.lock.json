@@ -576,17 +576,17 @@
     },
     {
       "name": "cmux-rd",
-      "version": "0.1.0",
-      "url": "https://github.com/manaflow-ai/cmux/releases/download/cmux-rd-v0.1.0/cmux-rd-0.1.0-x86_64-unknown-linux-gnu.tar.gz",
-      "sha256": "8118a53a809e9204e68bb692e88ec1f429c897380c558b98604046dca2d29e73",
-      "size": 6868976,
+      "version": "0.2.1",
+      "url": "https://github.com/manaflow-ai/cmux/releases/download/cmux-rd-v0.2.1/cmux-rd-0.2.1-x86_64-unknown-linux-gnu.tar.gz",
+      "sha256": "3f214b54c267d82a09c4e965304f06ed7926e641ef22d12c9d5f2447483fd63d",
+      "size": 7022630,
       "format": "tar.gz",
       "bin": {
         "cmux-rd": "bin/cmux-rd"
       },
       "versionArgs": [],
-      "checksumsUrl": "https://github.com/manaflow-ai/cmux/releases/download/cmux-rd-v0.1.0/checksums.txt",
-      "checksumsName": "cmux-rd-0.1.0-x86_64-unknown-linux-gnu.tar.gz",
+      "checksumsUrl": "https://github.com/manaflow-ai/cmux/releases/download/cmux-rd-v0.2.1/checksums.txt",
+      "checksumsName": "cmux-rd-0.2.1-x86_64-unknown-linux-gnu.tar.gz",
       "roles": [
         "desktop"
       ],
@@ -594,7 +594,7 @@
         "LICENSE",
         "THIRD_PARTY_LICENSES.md"
       ],
-      "source": "manaflow-ai/cmux release cmux-rd-v0.1.0 (2026-11-05; tag on 11edd026c88b, the merge of #36433; release run 42028500138). The cmux.rd/1 Linux host (cmux-tui/crates/cmux-rd-host, scripts/release.py). sha256 and size from checksums.txt, the release asset digest and the download. Archive: LICENSE (GPL-3.0-or-later), THIRD_PARTY_LICENSES.md, bin/cmux-rd. OpenH264 is not in it: cmux-rd openh264-install fetches Cisco's binary on the machine."
+      "source": "manaflow-ai/cmux release cmux-rd-v0.2.1 (2026-11-05; tag on 96777a49a4b4, the merge of #36736; release run 42083131380). The cmux.rd/1 Linux host (cmux-tui/crates/cmux-rd-host, scripts/release.py). sha256 and size from checksums.txt, the release asset digest and the download. Archive: LICENSE (GPL-3.0-or-later), THIRD_PARTY_LICENSES.md, bin/cmux-rd. OpenH264 is not in it: cmux-rd openh264-install fetches Cisco's binary on the machine."
     }
   ],
   "roles": {

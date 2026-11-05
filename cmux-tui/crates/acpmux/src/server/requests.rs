@@ -2356,7 +2356,7 @@ async fn dispatch_request_with_identity(
         | method::MUX_CHAT_ROUTE_SET => {
             heap(|| super::routes::handle(hub, conn.origin, m, &params)).await
         }
-        method::MUX_ACCOUNTS | method::MUX_ACCOUNT_SET => {
+        method::MUX_ACCOUNTS | method::MUX_ACCOUNT_SET | method::MUX_ACCOUNT_USAGE => {
             heap(|| super::accounts::handle(hub, conn.origin, m, &params)).await
         }
         method::ACP_TRUST_GET | method::ACP_TRUST_SET => {

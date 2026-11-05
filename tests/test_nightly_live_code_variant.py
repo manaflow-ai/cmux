@@ -35,6 +35,7 @@ STUBS = {
         "import os, sys\nargs = sys.argv[sys.argv.index('--') + 1:]\nos.execvp(args[0], args)\n"),
     "scripts/cmux-next/cef-cache-root.sh": "#!/bin/sh\necho /tmp/cef\n",
     "scripts/ci/run-xcodebuild-with-diagnostics.sh": '#!/bin/bash\nshift\nexec "$@"\n',
+    "scripts/ci/nightly-steps/release-build-summary.sh": "",
 }
 
 

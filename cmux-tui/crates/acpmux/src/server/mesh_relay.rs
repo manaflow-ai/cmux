@@ -320,7 +320,7 @@ async fn heartbeats(
             Some(hub) => hub.mesh_rows().await,
             None => break,
         };
-        let listing = Heartbeat { host: host.clone(), sessions };
+        let listing = Heartbeat { host: host.clone(), sessions, leaving: false };
         let mut taken = false;
         let wait = tokio::select! {
             r = client.heartbeat(&listing) => match r {
@@ -407,7 +407,7 @@ async fn heartbeats(
     if let Some(hub) = hub.upgrade() {
         hub.set_mesh_book(Default::default(), Vec::new());
     }
-    let last = Heartbeat { host, sessions: Vec::new() };
+    let last = Heartbeat { host, sessions: Vec::new(), leaving: true };
     let _ = tokio::time::timeout(Duration::from_secs(5), client.heartbeat(&last)).await;
 }
 

@@ -20,18 +20,19 @@ import { sq } from "./lock";
 const NODE_DEPS = ["react", "react-dom", "vite", "typescript", "@types/react", "@types/node", "eslint", "prettier", "zod", "vitest"];
 const PY_DEPS = ["fastapi", "pydantic", "requests", "pytest", "numpy", "httpx"];
 
-// corepack would otherwise ask before downloading a package manager.
+// The work user's login shell has no corepack on PATH (run 42082074422), so pnpm and yarn come through npx, as a
+// person's first `npx pnpm` would; corepack would otherwise ask before downloading a package manager.
 const asUser = (script: string) => `runuser -u ${DEVBOX_WORK_USER} -- env COREPACK_ENABLE_DOWNLOAD_PROMPT=0 bash -lc ${sq(`cd ${DEVBOX_WORK_HOME} && ${script}`)}`;
 const project = (dir: string) =>
   `rm -rf ${dir} && mkdir -p ${dir} && cd ${dir} && printf '%s' '{"name":"first-session","private":true}' > package.json`;
 
 /** One first session's installs, each timed alone, in a fresh dir. */
 export const FIRST_SESSION_WORKLOADS: Record<string, string> = {
-  "corepack-pnpm": "corepack pnpm --version",
-  "corepack-yarn": "corepack yarn --version",
+  "npx-pnpm": "npx --yes pnpm@10 --version",
+  "npx-yarn": "npx --yes yarn@1 --version",
   "npm-install": `${project("/tmp/fs-npm")} && npm install --no-audit --no-fund --loglevel=error ${NODE_DEPS.join(" ")}`,
   "bun-install": `${project("/tmp/fs-bun")} && bun add ${NODE_DEPS.join(" ")} >/dev/null`,
-  "pnpm-install": `${project("/tmp/fs-pnpm")} && corepack pnpm add ${NODE_DEPS.join(" ")} >/dev/null`,
+  "pnpm-install": `${project("/tmp/fs-pnpm")} && npx --yes pnpm@10 add ${NODE_DEPS.join(" ")} >/dev/null`,
   "uv-install": `rm -rf /tmp/fs-uv && mkdir -p /tmp/fs-uv && cd /tmp/fs-uv && uv venv -q && uv pip install -q ${PY_DEPS.join(" ")}`,
 };
 
