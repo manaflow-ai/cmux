@@ -271,7 +271,7 @@ extension JoinedMachineAction {
         (JoinedMachineStrings.revokeTitle(name), JoinedMachineStrings.revokeBody, JoinedMachineStrings.revokeButton)
     }
 
-    /// Why a joined machine's action does nothing: Labs `labs.machineJoin` is off.
+    /// Why a joined machine's action does nothing: its binder's `labsOn` said no (tests; the app's is always on).
     public static var labsOff: String { JoinedMachineStrings.labsOff }
     /// Why Rotate or Revoke waits: another change on the machine is still running.
     public static var busy: String { JoinedMachineStrings.busy }
@@ -297,13 +297,24 @@ nonisolated enum JoinedMachineStrings {
         case .offline: s("machines.joined.offline", "Offline")
         case .revoked: s("machines.joined.revoked", "Revoked")
         }
-        guard let by = machine.mintedBy else { return state }
-        return state + " · " + String(format: s("machines.joined.mintedBy", "added by %@"), by)
+        let platform = machine.platform.map(Self.platform)
+        let by = machine.mintedBy.map { String(format: s("machines.joined.mintedBy", "added by %@"), $0) }
+        return ([state] + [platform, by].compactMap { $0 }).joined(separator: " · ")
+    }
+
+    /// The platform a machine reported at join, as a person reads it (an unknown one as sent).
+    static func platform(_ platform: String) -> String {
+        switch platform.lowercased() {
+        case "macos", "darwin": "macOS"
+        case "linux": "Linux"
+        case "windows": "Windows"
+        default: platform
+        }
     }
 
     static func more(_ name: String) -> String { String(format: s("machines.joined.more", "More for %@"), name) }
     static var noWorkspace: String { s("machines.joined.noWorkspace", "Reached through the mesh; workspaces need a link") }
-    /// A joined machine's action asked to run after Labs `labs.machineJoin` turned off.
+    /// A joined machine's action asked to run while its binder's `labsOn` says no (tests; never in the app).
     static var labsOff: String { s("machines.joined.labsOff", "Joined machines are off in Labs.") }
     static var busy: String { s("machines.joined.busy", "Wait for the last change on this machine to finish.") }
 

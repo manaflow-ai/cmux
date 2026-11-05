@@ -66,17 +66,20 @@ struct AgentPageFlickerLogTests {
         #expect(olderSize <= AgentPageFlickerLog.maximumBytes)
     }
 
-    /// The window watch is the log's own (the composition root makes the one log every pane shares), not
-    /// app-wide static state: each pane asks for it and a window's occlusion flip is one line, not one per pane.
-    @MainActor @Test func everyPaneAsksForTheWindowWatchAndAFlipIsOneLine() throws {
+    /// The log observes no notification itself (the app's one window occlusion observer hands it each
+    /// flip): nothing is written before a pane asks for window lines, and a flip is one line however
+    /// many panes asked.
+    @MainActor @Test func aFlipIsOneLineOnceAPaneAsks() throws {
         let log = AgentPageFlickerLog(directory: directory())
         defer { try? FileManager.default.removeItem(at: log.directory) }
-        let center = NotificationCenter()
-        log.watchWindows(center: center)
-        log.watchWindows(center: center)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 10, height: 10), styleMask: [.borderless], backing: .buffered, defer: false)
         defer { window.closeAfterTest() }
-        center.post(name: NSWindow.didChangeOcclusionStateNotification, object: window)
+        log.recordOcclusion(of: window)
+        log.flush()
+        #expect(!FileManager.default.fileExists(atPath: log.url.path))
+        log.watchWindows()
+        log.watchWindows()
+        log.recordOcclusion(of: window)
         log.flush()
         let flips = try lines(log.url)
         #expect(flips.map { $0["kind"] as? String } == ["window-occlusion"])

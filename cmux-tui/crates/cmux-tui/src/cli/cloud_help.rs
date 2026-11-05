@@ -434,7 +434,7 @@ QUICK START
   (it answers reply, machine_id, session_id, workspace_id and tab_id;
   `cmux cloud start-chat --help` has every flag):
   cmux cloud start-chat --prompt 'Summarize README.md' --wait --json
-  cmux cloud start-chat --name dev --cwd /home/cmux/work --prompt 'Run the tests' --json
+  cmux cloud start-chat --name dev --prompt 'Run the tests' --json
 
   Then, on that chat (MACHINE_ID and SESSION_ID from the answer):
   cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp send --no-wait SESSION_ID \"next prompt\"'
@@ -465,7 +465,7 @@ const INTRO_JA: &str = "\
   reply、machine_id、session_id、workspace_id、tab_id を返す。
   全フラグは `cmux cloud start-chat --help`）:
   cmux cloud start-chat --prompt 'Summarize README.md' --wait --json
-  cmux cloud start-chat --name dev --cwd /home/cmux/work --prompt 'Run the tests' --json
+  cmux cloud start-chat --name dev --prompt 'Run the tests' --json
 
   続けて同じチャットに（MACHINE_ID と SESSION_ID は返答から）:
   cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp send --no-wait SESSION_ID \"next prompt\"'
@@ -534,7 +534,7 @@ The chat opens as a tab in the machine's workspace in the cmux app.
 
   --prompt TEXT      What to send (`-` reads it from stdin)
   --agent AGENT      claude (default), codex, ...
-  --cwd DIR          A folder on the machine (default: the workspace's folder)
+  --cwd DIR          A folder on the machine (default: a new one under ~/chats)
   --name MACHINE     Use the machine with this name, or create it
   --target machine:MACHINE_ID
                      Use this machine (`cmux cloud list-machines`)
@@ -547,7 +547,7 @@ plus reply with --wait.
 
 EXAMPLES
   cmux cloud start-chat --prompt 'Summarize README.md' --wait --json
-  cmux cloud start-chat --name dev --cwd /home/cmux/work --prompt 'Run the tests' --json
+  cmux cloud start-chat --name dev --prompt 'Run the tests' --json
 
 FOLLOW-UPS (MACHINE_ID and SESSION_ID from the answer)
   cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp send --no-wait SESSION_ID \"next prompt\"'

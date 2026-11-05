@@ -34,10 +34,13 @@ public nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHost
     public var withoutTrust: Self { code == "agent_session.untrusted_folder" ? Self(code: "app.trust_update", machine: machine, folder: folder) : self }
     /// The refusals of a start that an older daemon on the machine gives where its current build
     /// would start the chat: a team VM's (`team_vm_blocked`, before cmux#29107) and an owner check
-    /// that daemon cannot take (`host_unverified`, a daemon without the caller's `vm_kind` word).
+    /// that daemon cannot take (`host_unverified`, a daemon without the caller's `vm_kind` word), and
+    /// the app's own `folder_needed` for a chat with no folder on a machine whose cmux-tui predates
+    /// no-folder starts (`agent-session-start-no-cwd-v1`; a current one starts it in `~/chats/<id>`).
     /// `AgentTabRemoteHost.updateMachine` runs only while the link's owner answer says the machine is the caller's,
-    /// so a teammate's machine is never retried (the app refuses that start before it is sent).
-    public static let olderDaemonCodes: Set<String> = [AgentSessionAttachError.teamMachine, "agent_session.host_unverified"]
+    /// so a teammate's machine is never retried (the app refuses that start before it is sent), and an
+    /// SSH host, which has no update, keeps the folder refusal.
+    public static let olderDaemonCodes: Set<String> = [AgentSessionAttachError.teamMachine, "agent_session.host_unverified", appFolderNeeded]
     public static func startUnsupported(machine: String) -> Self { Self(code: AgentSessionAttachClient.startUnsupported, machine: machine) }
 
     public var userMessage: String { errorDescription ?? code }

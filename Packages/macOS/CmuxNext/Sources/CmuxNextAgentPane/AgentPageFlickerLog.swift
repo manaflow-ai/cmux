@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 import CmuxNextCompat
 import Foundation
 import os
@@ -44,8 +44,8 @@ nonisolated private let flickerLogger = Logger(subsystem: "com.cmuxterm.app.next
 
     nonisolated let directory: URL
     private nonisolated let queue = DispatchQueue(label: "com.cmuxterm.app.next.agent-page.flicker-log", qos: .utility)
-    /// The window occlusion watch (``watchWindows()``), started by the first pane.
-    private var occlusion: MainActorObservation?
+    /// Whether a pane asked for window occlusion lines (``watchWindows()``).
+    private(set) var watchingWindows = false
 
     nonisolated init(directory: URL) {
         self.directory = directory
@@ -133,17 +133,20 @@ nonisolated private let flickerLogger = Logger(subsystem: "com.cmuxterm.app.next
         }
     }
 
-    /// Records every window's occlusion flip from now on, once per log (each agent pane calls it; the first starts it).
-    /// - Parameter center: Where windows post their flips (tests pass their own).
-    func watchWindows(center: NotificationCenter = .default) {
-        guard occlusion == nil else { return }
-        occlusion = MainActorObservation(NSWindow.didChangeOcclusionStateNotification, center: center, read: { $0.object as? NSWindow }) { [weak self] window in
-            guard let self, let window else { return }
-            record("window-occlusion", [
-                "window": window.windowNumber,
-                "visible": window.occlusionState.contains(.visible),
-                "type": String(describing: type(of: window)),
-            ])
-        }
+    /// Records every window's occlusion flip from now on (each agent pane calls it; the first turns it on).
+    /// The app's one window occlusion observer (`SurfaceInvariantMonitor`) hands each flip to
+    /// ``recordOcclusion(of:)``; the log keeps no observer of its own.
+    func watchWindows() {
+        watchingWindows = true
+    }
+
+    /// One `window-occlusion` line for `window`'s flip, once a pane asked for them.
+    public func recordOcclusion(of window: NSWindow) {
+        guard watchingWindows else { return }
+        record("window-occlusion", [
+            "window": window.windowNumber,
+            "visible": window.occlusionState.contains(.visible),
+            "type": String(describing: type(of: window)),
+        ])
     }
 }

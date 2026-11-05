@@ -2136,6 +2136,69 @@ class SwiftFormatCacheTests(unittest.TestCase):
             self.assertFalse((tree / "default.cache").exists(), "the lint fell back to a default cache file")
 
 
+def _pinned_rustfmt_runs() -> bool:
+    """Whether the rustfmt that cmux-tui/rust-toolchain.toml pins runs here (never installed for a test)."""
+    try:
+        done = subprocess.run(["rustfmt", "--version"], cwd=SOURCE / "cmux-tui", capture_output=True, timeout=30,
+                              env={**os.environ, "RUSTUP_AUTO_INSTALL": "0"})
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return done.returncode == 0
+
+
+NEEDS_RUSTFMT = unittest.skipUnless(_pinned_rustfmt_runs(), "the pinned rustfmt is not installed here")
+RUST_UNFORMATTED = "pub fn hint(a: u32,b: u32)->u32{ a+b }\n"
+RUST_FORMATTED = "pub fn hint(a: u32, b: u32) -> u32 {\n    a + b\n}\n"
+
+
+class RustfmtLayerTests(unittest.TestCase):
+    """2026-11-05: three tip rust-fmt reds in an hour (#36358, #36524, #36260). Each PR's head left a cmux-tui file
+    unformatted, its warn-only CI rustfmt said so and passed, and it merged on compile before the tip fmt check.
+    The pre-push gate now judges each changed cmux-tui Rust file with the pinned rustfmt."""
+
+    def setUp(self):
+        spec = importlib.util.spec_from_file_location("cmux_next_prepush_gate_rf", SOURCE / GATE)
+        self.gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.gate)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.tree = Path(self.tmp.name)
+        self.config = SOURCE / "cmux-tui" / "rustfmt.toml"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def judge(self, files: dict[str, str]) -> str:
+        for path, text in files.items():
+            (self.tree / path).parent.mkdir(parents=True, exist_ok=True)
+            (self.tree / path).write_text(text)
+        return self.gate.rustfmt(SOURCE, self.config, self.tree, sorted(files))
+
+    @NEEDS_RUSTFMT
+    def test_an_unformatted_changed_file_is_a_finding(self):
+        out = self.judge({"cmux-tui/crates/x/src/hint.rs": RUST_UNFORMATTED})
+        self.assertIn("cmux-tui/crates/x/src/hint.rs: not rustfmt-clean", out)
+
+    @NEEDS_RUSTFMT
+    def test_a_formatted_file_is_no_finding(self):
+        self.assertEqual(self.judge({"cmux-tui/crates/x/src/hint.rs": RUST_FORMATTED}), "")
+
+    @NEEDS_RUSTFMT
+    def test_only_the_changed_file_is_judged_not_the_modules_it_names(self):
+        # lib.rs names `mod child;`; the unformatted child is not in the push, so it is not judged.
+        (self.tree / "cmux-tui/crates/x/src").mkdir(parents=True)
+        (self.tree / "cmux-tui/crates/x/src/child.rs").write_text(RUST_UNFORMATTED)
+        self.assertEqual(self.judge({"cmux-tui/crates/x/src/lib.rs": "mod child;\n"}), "")
+
+    def test_no_rustfmt_warns_and_finds_nothing(self):
+        saved = os.environ.get("PATH", "")
+        os.environ["PATH"] = self.tmp.name  # no rustfmt and no rustup proxy on it
+        try:
+            out = self.judge({"cmux-tui/crates/x/src/hint.rs": RUST_UNFORMATTED})
+        finally:
+            os.environ["PATH"] = saved
+        self.assertEqual(out, "")
+
+
 class StopCleanlyTests(unittest.TestCase):
     """The gate stops what it started with SIGTERM first, so a `git` under it clears `.git/index.lock`.
 

@@ -59,8 +59,7 @@ extension CloudHandlers {
         }
         bind("cloudEnrollMachine", registry, reason: reason) { invocation in try enrollMachine(invocation, context) }
         bind("cloudSetNetworkAccess", registry, reason: reason) { invocation in
-            try CloudNetworkAccessActions.set(invocation, context, read: { try await cloud.api.networkPolicy($0) },
-                                                write: { try await cloud.api.setNetworkPolicy($0, $1) })
+            try CloudNetworkAccessActions.set(invocation, context)
         }
     }
 

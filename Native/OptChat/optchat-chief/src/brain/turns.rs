@@ -475,6 +475,8 @@ impl Brain {
         self.phase = Phase::Running;
         self.stop_wanted = false;
         self.length_refused = false;
+        self.turn_spawned.clear();
+        self.turn_said = false;
         self.tool_stopped = false;
         self.denial_stopped = None;
         // A user message or a report replaces the `until: event` wakes.
@@ -1461,6 +1463,7 @@ impl Brain {
             }
             _ => text,
         };
+        self.check_spawn_words(key, !text.is_empty(), quiet || stalled || owner_stopped);
         if let Some(note) = &failure_note
             && let Err(e) = self.chat.append(Kind::Note, note)
         {

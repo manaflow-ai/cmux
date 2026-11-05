@@ -144,9 +144,12 @@ extension IPhoneHostService {
             return
         }
         let name = Self.displayName(request)
-        var lines = [IPhoneHostStrings.pairBody(account?.email ?? account?.userID ?? "")]
+        let who = account?.email ?? account?.userID ?? ""
+        var lines = [request.isMachine ? IPhoneHostStrings.machinePairBody(who) : IPhoneHostStrings.pairBody(who)]
         if let registered = request.registeredAt { lines.append(IPhoneHostStrings.deviceRegistered(registered)) }
-        lines.append(IPhoneHostStrings.pairKey(MobileHostPairedDevices.fingerprint(request.approvalKey)))
+        // A machine has no approval key: its identity key is the one it proves at every link.
+        let key = request.isMachine ? request.identityKey : request.approvalKey
+        lines.append(IPhoneHostStrings.pairKey(MobileHostPairedDevices.fingerprint(key)))
         let spec = CmuxDialogSpec(
             title: IPhoneHostStrings.pairTitle(name, key: request.shortFingerprint), lines: lines,
             buttons: [CmuxDialogButton(id: Self.denyButton, title: IPhoneHostStrings.pairDeny, role: .cancel),
