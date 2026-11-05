@@ -3560,6 +3560,11 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          filter: blob:none
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
           # Main and RC signing do not need submodules. nightly-next's notice
           # check reads ghostty-next/build.zig.zon, so initialize that optional
           # submodule in the next step only for the cmux-next track.
@@ -5196,6 +5201,11 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ steps.source.outputs.build_sha }}
+          filter: blob:none
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
 
       # The steps below pass this workflow's arguments, so the publication
       # tooling must come from the workflow's own commit, not from the
