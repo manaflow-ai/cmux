@@ -1,20 +1,17 @@
 {
   "title": "Sidebar corner morph (Debug sidebar.cornerMorph): off, shell, bridge and both on the showcase window, comfortable sidebar density, light and dark",
+  "launch_args": [
+    "--showcase"
+  ],
+  "settings": {
+    "sidebar": {
+      "density": "comfortable"
+    }
+  },
   "steps": [
     {
       "title": "Launch",
       "wait": 2,
-      "shot": false
-    },
-    {
-      "title": "Comfortable sidebar density (compact keeps the plain card)",
-      "cmux": [
-        "settings",
-        "set",
-        "sidebar.density",
-        "comfortable"
-      ],
-      "wait": 1,
       "shot": false
     },
     {
@@ -170,16 +167,6 @@
           "value": "off"
         }
       },
-      "wait": 1,
-      "shot": false
-    },
-    {
-      "title": "Density back to the default",
-      "cmux": [
-        "settings",
-        "unset",
-        "sidebar.density"
-      ],
       "wait": 1,
       "shot": false
     }
