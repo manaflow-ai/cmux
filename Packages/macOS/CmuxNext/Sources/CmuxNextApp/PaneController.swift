@@ -308,18 +308,18 @@ final class PaneController: SurfacePresenter, PresentablePane {
                     ?? services.browserProfiles.tabBadge(for: tab, workspaceID: ownWorkspace?.id, room: nil)
                 if services.cache.pageRequests.titleAttention.marks(tab, selected: stripSelection == tab.id, in: services.cache) { item.isUnread = true }
             }
-            browserIcon(key: tab.id, recordFavicon: incognito ? nil : tab.faviconURL, recordURL: tab.url).apply(to: &item)
+            browserIcon(key: tab.id, recordFavicon: incognito ? nil : tab.faviconURL, recordURL: tab.url, known: ownWorkspace.map { (tab, services.windows.isIncognito(workspace: $0)) }).apply(to: &item)
             item.audio = BrowserTabAudio.badge(services.cache.existingBrowser(tab.id)?.tab.state)
         }
         TabItemMapping.shared.applyUserIcon(tab, to: &item, asset: IconAssetImages.shared.tabIcon(owner: daemon))
         return item
     }
 
-    /// The page icon, favicon, throbber or globe of browser tab `key`: its live page's
-    /// address, load state and favicon, else the address and favicon its record names.
-    private func browserIcon(key: String, recordFavicon: String?, recordURL: String? = nil) -> BrowserTabIconState {
+    /// The page icon, favicon, throbber or globe of browser tab `key`: its live page's address, load state and favicon,
+    /// else its record's. `known`: the tab and its own workspace's incognito answer: a lookup by key walks every store's tab list.
+    private func browserIcon(key: String, recordFavicon: String?, recordURL: String? = nil, known: (tab: TabModel, incognito: Bool)? = nil) -> BrowserTabIconState {
         let page = services.cache.existingBrowser(key)?.tab.state
-        let image = services.browserFavicon(key: key, recordFavicon: recordFavicon)
+        let image = services.browserFavicon(key: key, recordFavicon: recordFavicon, known: known)
         let url = page?.url ?? recordURL.flatMap(URL.init(string:))
         return .resolve(isLoading: page?.isLoading ?? false, isDormant: services.cache.dormantTabs.contains(key), favicon: image, url: url, isWaiting: page?.isWaiting ?? false)
     }
