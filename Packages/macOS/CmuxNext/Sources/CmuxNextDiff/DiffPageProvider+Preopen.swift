@@ -4,6 +4,8 @@ import CmuxNextSettings
 /// What the host's own first open of a tab answered: the source it opened, and the answer.
 nonisolated struct DiffPreopened: Sendable {
     let source: JSONValue?
+    /// Whether it asked the sidecar to leave white space changes out (the Hide white space setting).
+    var ignoreWhitespace = false
     let result: Result<JSONValue, any Error>
 }
 
@@ -21,10 +23,16 @@ extension DiffPageProvider {
     public func startPreopen() {
         guard preopen == nil, let ready, !chatPatch, !remote, !isClosed else { return }
         // task-owner: the tab's first session open; the page's first sessionOpen takes it, retire() cancels it
+        // The page asks for white space left out when the setting is on and the sidecar offers it.
+        let hideWhitespace = stores?.prefs.prefs()["hideWhitespace"]?.boolValue == true
         preopen = Task { [self] in
+            let cancelled = DiffPreopened(source: nil, result: .failure(CancellationError()))
             guard let tab = try? await ready.value, let source = tab.config["payload"]?["sessionSource"], source != .null else {
-                return DiffPreopened(source: nil, result: .failure(CancellationError()))
+                return cancelled
             }
+            // Retired (another folder, the tab closed) while the grant was made: open nothing on it.
+            guard !Task.isCancelled, self.ready == ready, !isClosed else { return cancelled }
+            let ignoreWhitespace = hideWhitespace && Self.offersIgnoreWhitespace(tab.config)
             // Precomputed when an agent's turn ended (DiffPageRuntime+Warm.swift): the session is open already.
             if let warm = tab.warm {
                 if let id = Self.openedSession(warm.result) { sessions.insert(id) }
@@ -32,32 +40,35 @@ extension DiffPageProvider {
                 return DiffPreopened(source: source, result: .success(Self.prepared(warm.result, "warm", fingerprint: warm.fingerprint)))
             }
             mark("diff.preopen")
+            var params: [String: JSONValue] = ["source": source, "capabilityToken": .string(tab.grant.token)]
+            if ignoreWhitespace { params["ignoreWhitespace"] = true }
             do {
-                let result = try await open(["source": source, "capabilityToken": .string(tab.grant.token)], tab: tab)
+                let result = try await open(params, tab: tab)
                 mark("diff.preopened")
-                return DiffPreopened(source: source, result: .success(Self.prepared(result, "preopen")))
+                return DiffPreopened(source: source, ignoreWhitespace: ignoreWhitespace, result: .success(Self.prepared(result, "preopen")))
             } catch {
-                return DiffPreopened(source: source, result: .failure(error))
+                return DiffPreopened(source: source, ignoreWhitespace: ignoreWhitespace, result: .failure(error))
             }
         }
     }
 
-    /// The pre-opened answer when the page asks for the same source with no other option (Hide white
-    /// space asks for another diff), else nil and the pre-opened session is closed. A pre-open that
-    /// failed for that source (no changes, no base) answers with its error, so the page gets it without
-    /// a second run; one that was cancelled opens again.
+    /// The pre-opened answer when the page asks for the same source and the same Hide white space
+    /// choice, else nil and the pre-opened session is closed. A pre-open that found no changes for that
+    /// source answers with that, so the page gets it without a second run; any other failure (a busy
+    /// or missing sidecar, a cancel) opens again.
     func takePreopened(matching params: [String: JSONValue], grant: DiffSessionGrant) async throws -> JSONValue? {
         guard let task = preopen else { return nil }
         preopen = nil
         let opened = await task.value
-        let same = opened.source != nil && opened.source == params["source"] && params["ignoreWhitespace"]?.boolValue != true
+        let same = opened.source != nil && opened.source == params["source"]
+            && (params["ignoreWhitespace"]?.boolValue == true) == opened.ignoreWhitespace
         switch opened.result {
         case .success(let result):
             if same { return result }
             if let id = Self.openedSession(result) { await closeQuietly(id, grant: grant) }
             return nil
         case .failure(let error):
-            if same, !Self.isCancellation(error) { throw error }
+            if same, (error as? PageError)?.code == "emptyDiff" { throw error }
             return nil
         }
     }
@@ -72,7 +83,8 @@ extension DiffPageProvider {
         return .object(members)
     }
 
-    nonisolated static func isCancellation(_ error: any Error) -> Bool {
-        error is CancellationError || (error as? PageError)?.code == "cancelled"
+    /// Whether the tab's sidecar takes `ignoreWhitespace` (the page asks for it only then).
+    nonisolated static func offersIgnoreWhitespace(_ config: JSONValue) -> Bool {
+        config["payload"]?["sessionCapabilities"]?.arrayValue?.contains("session.ignoreWhitespace") == true
     }
 }

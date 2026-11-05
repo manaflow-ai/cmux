@@ -58,11 +58,14 @@ export function useDiffFreshness(
 ): boolean {
   const [stale, setStale] = useState<number>();
   const baseline = useRef<string | undefined>(undefined);
+  // A precomputed fingerprint is the baseline of one check only: a later load (the reconcile's own,
+  // a Refresh) starts from what it read, so a generation change never reconciles again.
+  const consumed = useRef<string | undefined>(undefined);
   const latest = useSyncedRef({ canRefresh, refresh, onUnavailable, reconcile: precomputed?.reconcile });
   const precomputedFingerprint = precomputed?.fingerprint;
   useEffect(() => {
-    baseline.current = precomputedFingerprint;
-    let first = precomputedFingerprint !== undefined;
+    let first = precomputedFingerprint !== undefined && consumed.current !== precomputedFingerprint;
+    baseline.current = first ? precomputedFingerprint : undefined;
     latest.current.onUnavailable?.(undefined);
     if (!read) return;
     let current = true;
@@ -75,6 +78,7 @@ export function useDiffFreshness(
         if (!current || now === undefined) return;
         latest.current.onUnavailable?.(undefined);
         const reconcile = first ? latest.current.reconcile : undefined;
+        if (first) consumed.current = precomputedFingerprint;
         first = false;
         if (baseline.current === undefined) baseline.current = now;
         else if (now !== baseline.current) {

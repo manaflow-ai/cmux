@@ -63,7 +63,11 @@ extension DiffPageRuntime {
             return
         }
         // Read before the open: an edit between the two makes the page reconcile once, never miss it.
-        let fingerprint = await Self.fingerprint(of: source, in: repository.root, git: git)
+        // With no fingerprint the page could not tell an old diff from a current one: keep none.
+        guard let fingerprint = await Self.fingerprint(of: source, in: repository.root, git: git) else {
+            await Self.drop(grant)
+            return
+        }
         let params: [String: JSONValue] = ["source": source, "capabilityToken": .string(grant.token),
                                            "sessionId": .string(UUID().uuidString.lowercased())]
         guard let result = try? await DiffPageProvider.request(sidecar, "sessionOpen", params: params),
@@ -109,6 +113,11 @@ extension DiffPageRuntime {
         default: return nil
         }
         guard let diff = try? await git.diff(repository, scope: scope, includePatch: true) else { return nil }
-        return DiffPageProvider.fingerprint(diff)
+        return await Self.hash(diff)
+    }
+
+    /// The hash of a whole diff, off the main thread (a big diff is megabytes of JSON).
+    @concurrent private static func hash(_ diff: JSONValue) async -> String {
+        DiffPageProvider.fingerprint(diff)
     }
 }
