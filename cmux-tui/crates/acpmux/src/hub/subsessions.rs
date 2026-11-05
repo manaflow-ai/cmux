@@ -80,7 +80,8 @@
 //! With `fork: true` the child is a fork of the parent's chat as it is now (`hub/fork.rs`, as Fork
 //! Conversation makes one), with the parent's history, harness, model and folder, and the fork's
 //! `parentId`: an agent branches its own conversation off. It takes no harness, model, effort,
-//! folder or worktree of its own.
+//! folder or worktree of its own. Its link and lineage are in its meta when it is made, and its
+//! harness starts pinned to the folder the start checked, as a new child's does (`fork_into`).
 //!
 //! The index of live children per parent (`subsession_index.rs`) is a leaf lock: nothing else is
 //! locked while it is held, so it may be taken under any other lock.
@@ -651,7 +652,19 @@ impl Hub {
             offered: false,
         };
         if req.fork {
-            let fork = admitted.run(self.fork_subsession(parent, pm, name, link, lineage)).await?;
+            let sub = super::fork::SubsessionFork { link, lineage, checked: &cwd };
+            let fork = admitted
+                .run(self.fork_into(
+                    parent,
+                    Some(name),
+                    None,
+                    Default::default(),
+                    pm.workspace_id.clone(),
+                    None,
+                    false,
+                    Some(sub),
+                ))
+                .await?;
             return self.started_reply(parent, pm, fork, &req, &cwd, short, depth, None).await;
         }
         let request = NewRequest {
@@ -674,38 +687,6 @@ impl Hub {
         };
         let probe = admitted.run(self.new_session(request)).await?;
         self.started_reply(parent, pm, probe, &req, &cwd, short, depth, worktree).await
-    }
-
-    /// `start_session` with `fork`: a fork of `parent`'s chat as it is now, the
-    /// parent's turn that asked for it cut off in the copy (`hub/fork.rs`), then
-    /// made `parent`'s sub-session. The fork keeps its `parentId` and `forkSeq`,
-    /// so the chat shows it was forked from the parent.
-    async fn fork_subsession(
-        self: &Arc<Self>,
-        parent: &Arc<Session>,
-        pm: &SessionMeta,
-        name: String,
-        link: SubsessionLink,
-        lineage: crate::store::Lineage,
-    ) -> Result<Arc<Session>, RpcError> {
-        let fork = self
-            .fork(
-                parent,
-                Some(name),
-                None,
-                Default::default(),
-                pm.workspace_id.clone(),
-                None,
-                false,
-            )
-            .await?;
-        {
-            let mut m = fork.meta.lock().unwrap_or_else(|e| e.into_inner());
-            m.subsession = Some(link);
-            m.lineage = Some(lineage);
-        }
-        self.save_meta(&fork);
-        Ok(fork)
     }
 
     /// A new sub-session `probe` settled to its parent and given its first

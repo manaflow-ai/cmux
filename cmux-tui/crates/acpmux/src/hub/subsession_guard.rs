@@ -381,6 +381,21 @@ impl Hub {
         started.map_err(|e| checked.still_at(&cwd).err().unwrap_or(e))
     }
 
+    /// Starts `session`'s harness (`child_for`) pinned to `checked`, as
+    /// [`Hub::ensure_checked_child`] spawns a new sub-session's: a sub-session's fork
+    /// (`fork.rs` `fork_into`).
+    pub(super) async fn start_checked_child(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        checked: &CheckedFolder,
+    ) -> Result<(), RpcError> {
+        let cwd = session.meta().cwd;
+        checked.still_at(&cwd)?;
+        let started =
+            Box::pin(crate::cwd_pin::CwdPin::scope(checked.pin, self.child_for(session))).await;
+        started.map(|_| ()).map_err(|e| checked.still_at(&cwd).err().unwrap_or(e))
+    }
+
     /// Everything a new sub-session takes before its first prompt: the
     /// parent's rules and turned-off tools, the folder it was checked for,
     /// its start mode, and [`Hub::hold_subsession`]. An error means the

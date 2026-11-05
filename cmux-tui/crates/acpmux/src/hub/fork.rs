@@ -48,6 +48,7 @@ impl Hub {
         (profile.is_some_and(|p| p.kind == crate::config::HarnessKind::ClaudeStdio), env)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn fork(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -58,6 +59,32 @@ impl Hub {
         through: Option<u64>,
         start_later: bool,
     ) -> Result<Arc<Session>, RpcError> {
+        self.fork_into(session, name, cwd, session_env, workspace_id, through, start_later, None)
+            .await
+    }
+
+    /// [`Hub::fork`], and with `sub` a fork that is `session`'s sub-session (`start_session` with
+    /// `fork`, `hub/subsessions.rs`): its link and lineage are in its meta from the start, and its
+    /// harness starts in the folder the start checked, pinned (`ensure_checked_child`), or the
+    /// fork is closed and refused.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) async fn fork_into(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        name: Option<String>,
+        cwd: Option<PathBuf>,
+        session_env: std::collections::BTreeMap<String, String>,
+        workspace_id: Option<String>,
+        through: Option<u64>,
+        start_later: bool,
+        sub: Option<SubsessionFork<'_>>,
+    ) -> Result<Arc<Session>, RpcError> {
+        let (subsession, lineage, checked) = match sub {
+            Some(SubsessionFork { link, lineage, checked }) => {
+                (Some(link), Some(lineage), Some(checked))
+            }
+            None => (None, None, None),
+        };
         let parent_meta = session.meta();
         let (is_claude, mut fork_env) = self.harness_env(&parent_meta).await;
         // The fork's workspace: the one the request names (typed or in its
@@ -343,11 +370,13 @@ impl Hub {
             } else {
                 None
             },
-            // A fork is the person's new chat, never a sub-session of the parent's parent.
-            subsession: None,
+            // A fork is the person's new chat, never a sub-session of the parent's parent; one
+            // an agent started of its own chat is that chat's sub-session (`sub`).
+            subsession,
             subsession_limits: Default::default(),
-            // A fork is the person's branch of the chat, never a spawn (`lineage.rs`).
-            lineage: None,
+            // A fork is the person's branch of the chat, never a spawn (`lineage.rs`), unless
+            // its agent started it (`sub`).
+            lineage,
             subagent_retry_open: false,
             // The person's setting for the chat it came from, not for the fork.
             turn_cap_ms: None,
@@ -485,7 +514,12 @@ impl Hub {
         // holds the spawn lock). A start that fails says why at that prompt.
         self.save_meta(&new);
         creation_guard.disarm();
-        if start_later {
+        if let Some(checked) = checked {
+            // A sub-session's harness runs only in the folder its start checked, or not at all.
+            if let Err(e) = self.start_checked_child(&new, checked).await {
+                return Err(self.close_refused(&new, e).await);
+            }
+        } else if start_later {
             let hub = self.clone();
             let fork = new.clone();
             tokio::spawn(async move {
@@ -498,6 +532,14 @@ impl Hub {
         }
         Ok(new)
     }
+}
+
+/// A fork that is its parent's sub-session ([`Hub::fork_into`]).
+pub(super) struct SubsessionFork<'a> {
+    pub link: crate::store::SubsessionLink,
+    pub lineage: crate::store::Lineage,
+    /// The folder `start_session` checked, the parent's.
+    pub checked: &'a super::subsession_guard::CheckedFolder,
 }
 
 /// Whether an ACP agent's `initialize` capabilities offer `session/fork`. Capabilities
