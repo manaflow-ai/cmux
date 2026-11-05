@@ -78,8 +78,8 @@ enum DebugMouse {
             _ = DebugHover.move(to: baseLocation(point, in: window), in: window)
             events = [mouse(.mouseMoved, at: point, in: window, flags: flags, clicks: 0)]
         case "scroll":
-            guard let event = scroll(at: point, in: window, dx: params["dx"]?.doubleValue ?? 0, dy: params["dy"]?.doubleValue ?? 0,
-                                     phase: params["phase"]?.stringValue, flags: flags) else {
+            guard let event = NSEvent.syntheticScroll(atBase: baseLocation(point, in: window), in: window, dx: params["dx"]?.doubleValue ?? 0,
+                                                      dy: params["dy"]?.doubleValue ?? 0, phase: params["phase"]?.stringValue, flags: flags) else {
                 return .object(["error": .string("could not synthesize events")])
             }
             guard event.window == nil else {
@@ -182,12 +182,12 @@ enum DebugMouse {
         return InputJournal.topLeftPoint(center, in: window, relativeTo: window)
     }
 
-    /// `point` (top-left window points, the journal's) in `window`'s base coordinates (bottom-left).
     /// Moves the synthesized pointer that layout and chrome hover read, for the window's on-screen layouts.
     static func movePointer(_ point: NSPoint?, controller: WindowController, window: NSWindow) {
         LayoutRootView.setDebugPointer(point, in: window, layouts: controller.onScreenContents.map(\.layoutView))
     }
 
+    /// `point` (top-left window points, the journal's) in `window`'s base coordinates (bottom-left).
     static func baseLocation(_ point: NSPoint, in window: NSWindow) -> NSPoint {
         let height = window.contentView?.bounds.height ?? window.frame.height
         return NSPoint(x: point.x, y: height - point.y)
@@ -228,16 +228,6 @@ enum DebugMouse {
         guard miss != .zero else { return first }
         cg.location = CGPoint(x: cg.location.x + miss.x, y: cg.location.y - miss.y)
         return NSEvent(cgEvent: cg)
-    }
-
-    /// A pixel scroll at `point`, addressed to `window` like the window
-    /// server addresses a real one.
-    /// `phase` (`began`, `changed`, `ended`) makes it a trackpad gesture
-    /// event: continuous (precise deltas) with that scroll phase (R99 swipes).
-    /// `flags` are the modifier keys held (NSEvent's flag bits are CGEvent's).
-    private static func scroll(at point: NSPoint, in window: NSWindow, dx: Double, dy: Double, phase: String? = nil,
-                               flags: NSEvent.ModifierFlags = []) -> NSEvent? {
-        NSEvent.syntheticScroll(atBase: baseLocation(point, in: window), in: window, dx: dx, dy: dy, phase: phase, flags: flags)
     }
 
     static func modifiers(_ names: [JSONValue]) -> NSEvent.ModifierFlags {

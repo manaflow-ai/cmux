@@ -73,8 +73,8 @@ extension DebugMouse {
         }
         let location = page.convertPoint(fromScreen: screenPoint)
         let flags = modifiers(params["modifiers"]?.arrayValue ?? [])
-        guard let event = NSEvent.syntheticScroll(atBase: location, in: page, dx: params["dx"]?.doubleValue ?? 0, dy: params["dy"]?.doubleValue ?? 0,
-                                 phase: params["phase"]?.stringValue, flags: flags),
+        guard let event = NSEvent.syntheticScroll(atBase: location, in: page, dx: params["dx"]?.doubleValue ?? 0,
+                                                  dy: params["dy"]?.doubleValue ?? 0, phase: params["phase"]?.stringValue, flags: flags),
               let target = frame.hitTest(frame.convert(location, from: nil)) else {
             return .object(["error": .string("could not synthesize the page scroll")])
         }
