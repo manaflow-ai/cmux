@@ -466,18 +466,22 @@ def watch(cfg: dict, state: Path) -> int:
     edits = Path(cfg["edits"])
     stop = state / "stop"  # cleared by `start` before this watcher began, so a stop sent meanwhile is kept
     last = scan(edits)
+    pending_restore: set[str] = set()
     log(f"watching {edits} (builds {cfg['target']} on {cfg['build_host']})")
     while not stop.exists():  # stop condition: `chromium-live.py stop`
         time.sleep(SCAN_INTERVAL_S)
         cur = scan(edits)
         rels = sorted(r for r, m in cur.items() if last.get(r) != m)
         removed = sorted(r for r in last if r not in cur)
+        pending_restore.update(removed)
+
         last = cur
-        if rels or removed:
+        if rels or pending_restore:
             saved_at = max([cur[r] for r in rels], default=time.time_ns()) / 1e9
             try:
-                if removed:  # an edit deleted here: the build host's tree gets its own copy back
-                    builder.restore(removed)
+                if pending_restore:
+                    builder.restore(sorted(pending_restore))
+                    pending_restore.clear()
                 entry = cycle(cfg, state, builder, rels, saved_at)
                 log(summary(entry))
             except (LiveError, subprocess.SubprocessError, OSError) as err:
