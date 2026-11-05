@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextDaemon
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
@@ -17,7 +18,7 @@ struct GitHubLocalDiffTests {
     nonisolated private static let ghPatch = "diff --git a/gh b/gh\n--- a/gh\n+++ b/gh\n@@ -1 +1 @@\n-a\n+b\n"
 
     private final class Calls: @unchecked Sendable { // crash-allow: test log touched only on the main actor
-        var local: [[String: JSONValue]] = []
+        var local: [[String: CmuxNextDaemon.JSONValue]] = []
         var gh = 0
     }
 
@@ -107,10 +108,10 @@ struct GitHubLocalDiffTests {
         #expect(calls.gh == 0)
         #expect(calls.local.count == 1)
         let params = try #require(calls.local.first)
-        #expect(params["path"]?.stringValue == "/work/cmux")
-        #expect(params["scope"]?.stringValue == "commits")
-        #expect(params["base"]?.stringValue == Self.base)
-        #expect(params["head"]?.stringValue == Self.head)
+        #expect(params["path"] == .string("/work/cmux"))
+        #expect(params["scope"] == .string("commits"))
+        #expect(params["base"] == .string(Self.base))
+        #expect(params["head"] == .string(Self.head))
         #expect(opened.first?.hasPrefix("diff --git a/a.txt b/a.txt\n") == true)
     }
 

@@ -1,5 +1,5 @@
 public import CmuxNextAgentPane
-public import CmuxNextSettings
+public import CmuxNextDaemon
 public import Foundation
 
 /// A pull request's diff from commits already on this Mac, before GitHub's: the session host's
@@ -13,7 +13,7 @@ public import Foundation
 public struct GitHubLocalDiff: Sendable {
     /// The session host's `git.diff` with `params`: the App's local git link; nil when it refused
     /// or got no answer.
-    public typealias Read = @MainActor (_ params: [String: JSONValue]) async -> Data?
+    public typealias Read = @MainActor (_ params: [String: CmuxNextDaemon.JSONValue]) async -> Data?
 
     /// What to read for one pull request: its commits, and the folders that may hold them.
     nonisolated struct Plan: Equatable, Sendable {
@@ -44,9 +44,9 @@ public struct GitHubLocalDiff: Sendable {
     /// The first folder's whole diff for `plan`, as `gh pr diff` prints one; nil when none has it.
     func diff(_ plan: Plan) async -> String? {
         for folder in plan.folders {
-            let params: [String: JSONValue] = [
-                "path": .string(folder), "scope": "commits", "base": .string(plan.base), "head": .string(plan.head),
-                "include_patch": true, "max_files": 5_000, "max_patch_bytes": 4_194_304,
+            let params: [String: CmuxNextDaemon.JSONValue] = [
+                "path": .string(folder), "scope": .string("commits"), "base": .string(plan.base), "head": .string(plan.head),
+                "include_patch": .bool(true), "max_files": .number(5_000), "max_patch_bytes": .number(4_194_304),
             ]
             guard let data = await read(params) else { continue }
             if let text = await Self.unified(data) { return text }
