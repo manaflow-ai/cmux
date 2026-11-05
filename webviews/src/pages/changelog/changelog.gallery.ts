@@ -95,10 +95,10 @@ export default changelogPageEntry({
       notes: longAreaDay,
     },
     "sheet-versions": {
-      note: 'Leo 2026-11-05 ("with a click to a past nightly"): a day\'s Versions open, each build with its commit, its changes since the build before, and Install; Installed on the running one. Real nightly-next index.',
+      note: 'Leo 2026-11-05 ("with a click to a past nightly"): a day\'s Versions open (the second day: the first holds only the installed build), each build with its commit, its changes since the build before, and Install; Installed on the running one. Real nightly-next index.',
       notes: nightlyNext50 as unknown as ReleaseNotes[],
       play: async (ctx) => {
-        await ctx.click({ selector: ".cls-day .cls-versions-toggle" });
+        await ctx.click({ selector: ".cls-day + .cls-day .cls-versions-toggle" });
         await ctx.waitFor(() => document.querySelector(".cls-builds"));
       },
     },
@@ -106,7 +106,7 @@ export default changelogPageEntry({
       note: "Install asks once: Restart into it, then the app downloads that build, checks its signature and team, and restarts with every session.",
       notes: nightlyNext50 as unknown as ReleaseNotes[],
       play: async (ctx) => {
-        await ctx.click({ selector: ".cls-day .cls-versions-toggle" });
+        await ctx.click({ selector: ".cls-day + .cls-day .cls-versions-toggle" });
         await ctx.waitFor(() => document.querySelector(".cls-build-action button"));
         await ctx.click({ selector: ".cls-build-action button" });
         await ctx.waitFor(() => document.querySelector('.cls-build-action button:not([data-variant="ghost"])'));
