@@ -44,10 +44,15 @@ public protocol OnboardingServices: AnyObject {
     // Computer use
     /// The helper app's grants, or nil when this build has no computer use.
     var computerUsePermissions: (any ComputerUsePermissionSource)? { get }
+
+    // Agents
+    /// The installed agent CLIs and their sign-ins, or nil when this app has no acpmux.
+    var agentSignIns: (any AgentSignInSource)? { get }
 }
 
 public extension OnboardingServices {
     var computerUsePermissions: (any ComputerUsePermissionSource)? { nil }
+    var agentSignIns: (any AgentSignInSource)? { nil }
     func canImportPasswords() async -> Bool { false }
     func importFromFiles(into profile: String?) {}
     func browsersAwaitingAccess() async -> [ImportBrowser] { [] }

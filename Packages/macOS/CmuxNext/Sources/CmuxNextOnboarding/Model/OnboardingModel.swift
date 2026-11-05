@@ -2,17 +2,18 @@ public import CmuxNextDesign
 public import Foundation
 public import Observation
 
-/// The tool window: one screen for one tool, Import from Browser or
-/// Computer Use setup (Lawrence 2026-10-09: no onboarding window, no
-/// sequence). Work is async and cancellable; nothing here blocks the main
+/// The tool window: one screen for one tool, Agents (first run), Import
+/// from Browser or Computer Use setup (Lawrence 2026-10-09: no onboarding
+/// window, no sequence). Work is async and cancellable; nothing here blocks the main
 /// thread.
 @MainActor
 @Observable
 public final class OnboardingModel {
     public enum Step: String, CaseIterable, Sendable {
+        // Agents comes first: at first run it opens over Bring your history.
         // The app may host importData as Bring your history (web); the standalone browser
         // importer remains this model's native import tool.
-        case importData, computerUse
+        case agents, importData, computerUse
     }
 
     /// The tool this window shows; it never changes.
@@ -21,6 +22,7 @@ public final class OnboardingModel {
     public var steps: [Step] { [step] }
     public let importer: ImportStepModel
     public let computerUse: ComputerUseStepModel
+    public let agents: AgentsStepModel
     @ObservationIgnored public let services: any OnboardingServices
     /// Set once the window ended, so a second close does not report twice.
     public private(set) var ended = false
@@ -32,6 +34,7 @@ public final class OnboardingModel {
         self.step = step
         importer = ImportStepModel(services: services)
         computerUse = ComputerUseStepModel(source: services.computerUsePermissions)
+        agents = AgentsStepModel(source: services.agentSignIns)
     }
 
     /// The primary button: Find Browsers on the import step before a person
@@ -43,6 +46,7 @@ public final class OnboardingModel {
         if step == .importData, importer.explainingAccess != nil { return OnboardingStrings.continueTitle }
         if step == .importData, importer.isConfirmingPasswords { return OnboardingStrings.beginImporting }
         if step == .importData, importer.canStart { return OnboardingStrings.importButton }
+        if step == .agents { return OnboardingStrings.continueTitle }
         return OnboardingStrings.done
     }
 
@@ -126,7 +130,13 @@ public final class OnboardingModel {
         switch step {
         case .importData: importer.detect()
         case .computerUse: computerUse.start()
+        case .agents: agents.start()
         }
+    }
+
+    /// The window became key: back from an agent's sign-in, the Agents step reads again.
+    public func windowBecameKey() {
+        if step == .agents { agents.cameBack() }
     }
 
     /// The window closed without Skip or Done (the close button, quit):
@@ -136,6 +146,7 @@ public final class OnboardingModel {
         ended = true
         computerUse.stop()
         importer.stopDetecting()
+        agents.stop()
     }
 
     public func finish(completed: Bool) {
@@ -143,6 +154,7 @@ public final class OnboardingModel {
         ended = true
         computerUse.stop()
         importer.stopDetecting()
+        agents.stop()
         onEnd?(completed)
     }
 }

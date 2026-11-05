@@ -48,6 +48,19 @@ public final class OnboardingWindowPresenter {
         presentWindow(controller)
     }
 
+    /// First run only, once per app channel (`defaults`): the Agents step, when `source` lists an
+    /// installed agent CLI and no tool window shows. None found, nothing opens; an existing
+    /// installation (`isFirstRun` false) never gets it.
+    public func showAgentsAtFirstRun(isFirstRun: Bool, source: (any AgentSignInSource)?, defaults: UserDefaults = .standard) async {
+        let key = "home.firstRun.agentsShown"
+        guard !defaults.bool(forKey: key) else { return }
+        // An upgrade is no first run; a first run marks it only once the step showed.
+        guard isFirstRun else { return defaults.set(true, forKey: key) }
+        guard let source, !(await source.agentSignIns(recheck: false)).isEmpty, controller == nil else { return }
+        show(step: .agents)
+        defaults.set(true, forKey: key)
+    }
+
     private func windowDidClose(_ closed: OnboardingWindowController?) {
         onWindowClose?()
         // A replaced window: the presenter already let it go.

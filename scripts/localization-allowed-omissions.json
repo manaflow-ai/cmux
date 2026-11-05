@@ -7197,5 +7197,16 @@
     "identityLocales": {
       "de": "Host is the usual German term for the computer that shares its screen."
     }
+  },
+  "onboarding.agents.title": {
+    "source": "Agents",
+    "identityLocales": {
+      "fr": {
+        "reason": "Agents is the standard French plural noun for AI agents (the Agents onboarding window's title).",
+        "values": [
+          "Agents"
+        ]
+      }
+    }
   }
 }

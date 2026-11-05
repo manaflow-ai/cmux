@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAccounts
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBrowser
@@ -68,6 +69,12 @@ final class OnboardingService {
     /// Computer Use Setup: the helper's grants for the palette action, Settings and the tool window.
     private(set) lazy var computerUseSetup = ComputerUseSetup.app(services: services)
 
+    /// The Agents step's sign-ins: Settings > Agents > Harnesses' reader over this Mac's acpmux.
+    private(set) lazy var signInHarnesses = SettingsHarnesses(environment: { [weak services] in services.flatMap(QuitAgents.environment) },
+                                                              openTerminal: { [weak self] line in self?.openSignIn(line) })
+    /// The top page a Sign In left (Bring your history at first run); it shows again once the tool window closes.
+    private var pageLeftForSignIn: TopPageRoute?
+
     init(services: AppServices) {
         self.services = services
         presenter = OnboardingWindowPresenter(activeLook: services.activeLook)
@@ -107,6 +114,11 @@ final class OnboardingService {
         }
         presenter.makeModel = { [weak self] step in
             self.map { OnboardingModel(services: AppOnboardingServices(owner: $0), step: step) }
+        }
+        presenter.onWindowClose = { [weak self] in
+            guard let self, let page = pageLeftForSignIn else { return }
+            pageLeftForSignIn = nil
+            _ = TopPages.show(page, services: services)
         }
     }
 
@@ -163,6 +175,18 @@ final class OnboardingService {
             DebugTimings.markLaunch("first_run.history_import_shown")
         }
         defaults.set(true, forKey: key)
+    }
+
+    /// The first-run Agents step over Bring your history (``OnboardingWindowPresenter/showAgentsAtFirstRun``); never under showcase.
+    /// A Sign In's login in a terminal tab. A top page covers the workspace, so the tab shows only once it is left.
+    private func openSignIn(_ line: String) {
+        if let window = services.windows.active, let page = window.shownTopPage, window.leaveTopPage() { pageLeftForSignIn = pageLeftForSignIn ?? page }
+        _ = services.inFrontPane { $0.newTerminalTab(typing: line + "\r") }
+    }
+
+    func showAgentsAtFirstRun(isFirstRun: Bool) async {
+        guard !services.environment.showcase else { return }
+        await presenter.showAgentsAtFirstRun(isFirstRun: isFirstRun, source: signInHarnesses)
     }
 
     func historyImportFinished() {
