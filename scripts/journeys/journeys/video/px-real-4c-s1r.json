@@ -46,9 +46,6 @@
    "do": "smoke_make_key"
   },
   {
-   "do": "skip_first_run_history"
-  },
-  {
    "do": "new_terminal",
    "via": "key",
    "name": "px-real-4c-s1r"

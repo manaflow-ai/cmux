@@ -73,8 +73,10 @@ OPEN_P0_JOURNEYS = frozenset({"r3-new-tab-panel", "tipred-1193-stand-in", "focus
 
 
 def skips_first_run(journey_id):
-    """Whether journey JOURNEY_ID skips the first-run page: a resize film that is not an open P0 journey."""
-    return journey_id.startswith(FIRST_RUN_SKIP_PREFIXES) and journey_id not in OPEN_P0_JOURNEYS
+    """Whether journey JOURNEY_ID skips the first-run page: never in this kit (fix/p0-motion-kit-nomerge, R-HARNESS
+    2026-11-05): its resize films px-keys-single-3k-s1r, px-keys-held-2-s1r and px-col-drag-2-s1r are open P0 motion
+    journeys (STATUS 14536), and the P0 runner refuses a kit with the skip (STATUS 10405); ext_firstrun.py is removed."""
+    return False
 
 
 def first_pane(case_id, heavy):

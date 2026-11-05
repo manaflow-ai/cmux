@@ -64,9 +64,6 @@
    "do": "smoke_make_key"
   },
   {
-   "do": "skip_first_run_history"
-  },
-  {
    "do": "new_terminal",
    "via": "key",
    "name": "px-keys-lowprompt-reverse-3kp"
