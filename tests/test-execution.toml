@@ -2393,6 +2393,14 @@ path = "tests/test_cmux_next_dev_landing_workflow.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_tailnet_build_delivery.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_tailnet_go.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_runs_on_values.py"
 lane = "linux-guard"
 
