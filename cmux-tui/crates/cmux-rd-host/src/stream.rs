@@ -68,6 +68,46 @@ pub struct MediaSession {
     stats_every_ns: u64,
     cpu_last: (f64, u64),
     settle_ns: u64,
+    /// Per-frame times for the screen stream eval, when `CMUX_RD_TIMING_LOG` names a file.
+    timing: Option<Timing>,
+}
+
+/// Where each encoded frame's time went, one JSON line a frame (measurement only; the eval's
+/// `scripts/measure/screen-stream-eval` reads it): `input_us`, the last viewer input injected before
+/// this frame, once; `shown_us`, when the display showed the frame (ScreenCaptureKit's display time);
+/// `arrived_us`, when the capture handed it over; `damage_us`, when the session first saw damage
+/// since the last frame; `release_us`, when the gate let the encode start; `encoded_us`, when the
+/// encode ended. All on the protocol clock in µs.
+struct Timing {
+    out: std::fs::File,
+    input_us: Option<u64>,
+    damage_us: Option<u64>,
+}
+
+impl Timing {
+    fn from_env() -> Option<Self> {
+        let path = std::env::var_os("CMUX_RD_TIMING_LOG")?;
+        match std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+            Ok(out) => Some(Self { out, input_us: None, damage_us: None }),
+            Err(e) => {
+                eprintln!("cmux-rd host: CMUX_RD_TIMING_LOG {}: {e}", path.to_string_lossy());
+                None
+            }
+        }
+    }
+
+    fn frame(&mut self, shown: Option<(u64, u64)>, release_us: u64, encoded_us: u64) {
+        use std::io::Write;
+        let line = serde_json::json!({
+            "input_us": self.input_us.take(),
+            "shown_us": shown.map(|t| t.0),
+            "arrived_us": shown.map(|t| t.1),
+            "damage_us": self.damage_us.take(),
+            "release_us": release_us,
+            "encoded_us": encoded_us,
+        });
+        let _ = writeln!(self.out, "{line}");
+    }
 }
 
 /// No feedback for this long ends the session.
@@ -130,6 +170,7 @@ impl MediaSession {
             stats_every_ns: cfg.stats_every_ms * 1_000_000,
             cpu_last: (process_cpu_s(), now_ns()),
             settle_ns: cfg.settle_us * 1000,
+            timing: Timing::from_env(),
         })
     }
 
@@ -214,6 +255,9 @@ impl MediaSession {
             }
             // One gate decision for everything that settled together.
             let merged = damage.iter().copied().reduce(Rect::union);
+            if let (Some(_), Some(timing)) = (merged, self.timing.as_mut()) {
+                timing.damage_us.get_or_insert(now_us());
+            }
             if let Some(r) = merged {
                 let req = self.engine.damage(0, r, now_us());
                 trace(&format!("damage {r:?} -> {req:?}"));
@@ -267,6 +311,9 @@ impl MediaSession {
         self.desktop.set_bitrate(req.target_kbps);
         let t0 = now_ns();
         let idr = self.desktop.encode(req.force_idr, t_capture_us as i64, &mut self.au)?;
+        if let Some(timing) = self.timing.as_mut() {
+            timing.frame(self.desktop.picked_times(), t_capture_us, now_us());
+        }
         self.encode_ms.push_back((now_ns() - t0) as f64 / 1e6);
         if self.encode_ms.len() > 120 {
             self.encode_ms.pop_front();
@@ -339,6 +386,9 @@ impl MediaSession {
         trace(&format!("inject {event:?}"));
         if let Err(e) = self.desktop.inject(event) {
             eprintln!("inject failed: {e}");
+        }
+        if let Some(timing) = self.timing.as_mut() {
+            timing.input_us = Some(now_us());
         }
     }
 

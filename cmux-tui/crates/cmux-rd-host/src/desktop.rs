@@ -19,6 +19,11 @@ pub trait Desktop {
     /// Captures `damage` (the source may capture more) into the picture the next
     /// [`Desktop::encode`] encodes.
     fn capture(&mut self, damage: Rect) -> Res<()>;
+    /// For the picked picture: when the display showed it and when the capture handed it over, on
+    /// the protocol clock in µs, where the source knows them (measurement only: `CMUX_RD_TIMING_LOG`).
+    fn picked_times(&self) -> Option<(u64, u64)> {
+        None
+    }
     /// Encodes the captured picture into `out` as Annex-B. Returns true for an IDR.
     fn encode(&mut self, force_idr: bool, pts_us: i64, out: &mut Vec<u8>) -> Res<bool>;
     fn set_bitrate(&mut self, kbps: u32);
