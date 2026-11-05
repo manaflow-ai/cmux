@@ -90,6 +90,35 @@ def install_dx(cache: Path) -> Path:
     return dx
 
 
+def dx_failed(log_path: Path, proc: subprocess.Popen) -> str | None:
+    """dx serve keeps waiting for an edit after a failed build: read its log."""
+    if proc.poll() is not None:
+        return f"dx exited with {proc.returncode}"
+    text = log_path.read_text(errors="replace") if log_path.exists() else ""
+    for marker in ("Build failed", "error[E", "error: could not compile", "Failed to"):
+        if marker in text:
+            return f"dx build failed ({marker!r})"
+    return None
+
+
+def wait_for_daemon(sock: Path, log_path: Path, proc: subprocess.Popen, deadline: float) -> dict:
+    last_note = now()
+    while now() < deadline:
+        failed = dx_failed(log_path, proc)
+        if failed:
+            raise RuntimeError(failed)
+        try:
+            return request(sock, {"cmd": "identify"})
+        except (OSError, RuntimeError, ValueError):
+            pass
+        if now() - last_note > 60:
+            last_note = now()
+            tail = (log_path.read_text(errors="replace").strip().splitlines() or [""])[-1][:200]
+            print(f"daemon-hotpatch-check: still building ({tail})", file=sys.stderr, flush=True)
+        time.sleep(1)
+    raise TimeoutError("the daemon under dx never answered")
+
+
 def screen_has(sock: Path, surface: int, text: str) -> bool:
     return text in (request(sock, {"cmd": "read-screen", "surface": surface}).get("text") or "")
 
@@ -99,7 +128,7 @@ def main() -> int:
     parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--cache", type=Path, default=Path(tempfile.gettempdir()) / "cmux-hotpatch-tools")
     parser.add_argument("--budget", type=float, default=10.0)
-    parser.add_argument("--build-timeout", type=float, default=3600)
+    parser.add_argument("--build-timeout", type=float, default=2700)
     args = parser.parse_args()
 
     repo = args.repo.resolve()
@@ -109,6 +138,13 @@ def main() -> int:
         print(json.dumps({"passed": False, "error": f"{EDIT_FILE} no longer has the edit anchor"}))
         return 1
     dx = install_dx(args.cache)
+    # A compile error shows here in minutes; under dx it would only wait.
+    check = subprocess.run(["cargo", "check", "-p", "cmux-tui", "--features", "hotpatch"],
+                           cwd=repo / "cmux-tui", capture_output=True, text=True)
+    if check.returncode != 0:
+        print(json.dumps({"passed": False, "error": "cargo check --features hotpatch failed",
+                          "stderr_tail": check.stderr[-4000:]}, indent=2))
+        return 1
     work = Path(tempfile.mkdtemp(prefix="cmux-hotpatch-", dir="/tmp"))
     (work / "cmux-tui").mkdir(mode=0o700)
     sock = work / "mux.sock"
@@ -132,8 +168,7 @@ def main() -> int:
                 cwd=repo / "cmux-tui", env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True,
             )
         start = now()
-        before = wait_until("daemon under dx", start + args.build_timeout,
-                            lambda: request(sock, {"cmd": "identify"}))
+        before = wait_for_daemon(sock, log_path, proc, start + args.build_timeout)
         report["first_build_secs"] = round(now() - start, 1)
         created = request(sock, {"cmd": "run", "argv": ["/bin/sh"], "new_workspace": True})
         surface = created["surface"]
@@ -175,6 +210,9 @@ def main() -> int:
                 proc.wait(timeout=20)
             except subprocess.TimeoutExpired:
                 os.killpg(proc.pid, signal.SIGKILL)
+        out_dir = os.environ.get("FAST_CHECKS_OUT")
+        if out_dir and log_path.exists():
+            subprocess.run(["cp", str(log_path), str(Path(out_dir) / "dx.log")], check=False)
         subprocess.run(["rm", "-rf", str(work)], check=False)
     print(json.dumps(report, indent=2))
     return 0 if report.get("passed") else 1
