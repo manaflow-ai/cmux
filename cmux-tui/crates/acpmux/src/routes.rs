@@ -688,11 +688,20 @@ pub fn remove(dir: Option<&Path>, home: &Path, id: &str) -> Result<String, Route
         std::fs::rename(&route.path, backups.join(&name))
             .map_err(|e| RouteError::Failed(e.to_string()))?;
     }
-    // Chats bound to it fall back to their inherited route, except a one-run
+    // Chats bound to it fall back to their inherited route, and a workspace,
+    // family or global default that named it is cleared, so new chats fall
+    // back too instead of failing on a route that is gone. Except a one-run
     // route's chat: it keeps the binding, so its next spawn fails ("route is
     // gone") instead of running on the owner's own provider without a word.
     if !id.starts_with(ONE_RUN_PREFIX) {
-        update_bindings(home, |b| b.chats.retain(|_, r| r != id))?;
+        update_bindings(home, |b| {
+            b.chats.retain(|_, r| r != id);
+            b.workspaces.retain(|_, r| r != id);
+            b.families.retain(|_, r| r != id);
+            if b.global.as_deref() == Some(id) {
+                b.global = None;
+            }
+        })?;
     }
     Ok(name)
 }

@@ -132,6 +132,47 @@ struct CloudPausedStartTests {
         _ = await wait.value
     }
 
+    /// Retry on a machine the app's record still reads running while the idle auto-pause parked it: it reads the record
+    /// first and resumes the machine, instead of a connect the platform refuses (review of #36760, F2).
+    @Test func retryReadsAStaleRunningRecordAndResumesTheParkedMachine() async {
+        let dials = CloudLinkRedialSessionTests.Dials()
+        let session = Self.session(.running, LateReceiverResolver(refusing: 0, dials: dials))
+        defer { session.disconnect() }
+        var reads = 0, origins: [CloudLinkOrigin] = []
+        session.refresher = { [weak session] _ in
+            reads += 1
+            guard let session, reads == 1 else { return }
+            var parked = session.machine
+            parked.status = .paused
+            parked.pauseReason = .idle
+            session.applyRecord(parked)
+        }
+        session.resumer = { [weak session] _, origin in
+            origins.append(origin)
+            guard let session else { return }
+            var live = session.machine
+            live.status = .running
+            live.pauseReason = nil
+            session.applyRecord(live)
+        }
+        session.retry()
+        #expect(await CloudWait.holds(within: .seconds(10)) { dials.answered > 0 }, "the parked machine was never resumed and dialed")
+        #expect(reads >= 1, "Retry never read the record")
+        #expect(origins == [.user], "Retry dialed a parked machine instead of resuming it")
+    }
+
+    /// A resume that failed ends the link wait (``CloudMachineSession/linkUp(within:)``) but is no link that came
+    /// back (review of #36760, F1): a start's EOF retry and its final check read ``CloudMachineSession/linkHeld()``.
+    @Test func aFailedResumeIsNoLinkThatHolds() async {
+        let session = Self.session(.paused, LateReceiverResolver(refusing: 0, dials: CloudLinkRedialSessionTests.Dials()))
+        defer { session.disconnect() }
+        session.resumer = { _, _ in throw URLError(.badServerResponse) }
+        session.attach(origin: .script)
+        #expect(await session.linkUp(within: .seconds(4)), "the failed resume did not end the wait")
+        #expect(session.resumeFailure != nil)
+        #expect(!session.linkHeld())
+    }
+
     /// A resume the platform settles back to paused is its answer: the wait resumes once, not on every redial.
     @Test func aStartsWaitResumesAMachineOnce() async {
         let resumed = CloudLinkRedialSessionTests.Dials()

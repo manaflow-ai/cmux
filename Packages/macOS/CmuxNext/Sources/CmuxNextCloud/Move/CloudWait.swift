@@ -119,6 +119,18 @@ extension CloudWait {
         return await linkUp()
     }
 
+    /// A start's link wait that holds only when `held` (a live daemon and no failed resume) does after it; when not, and
+    /// `redialable` says the link's last end is one another dial can help, `again` dials and the wait runs once more. A
+    /// just-resumed machine's tunnel peer may not answer the first dials (prod, 2026-11-05: "no handshake within 5 s",
+    /// then "the tunnel peer setup failed: no route to this host", state running), and the start failed at 59 s.
+    public static func linkedAgain(_ wait: () async -> Bool, held: () -> Bool, redialable: () -> Bool,
+                                   again: () -> Void) async -> Bool {
+        if await wait(), held() { return true }
+        guard redialable(), !Task.isCancelled else { return false }
+        again()
+        return await wait() && held()
+    }
+
     /// `start`, tried once more when its first try failed on a connection that closed (`closed`), once `relink`
     /// says the link is back: a just-resumed machine's link can drop once under a start (prod, 2026-11-05: "started
     /// but its agent didn't (cmux-tui connection closed: EOF)"). Any other failure, a second one, or a link that

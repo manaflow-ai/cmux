@@ -111,16 +111,27 @@ def checkout_root(files, module):
 
 
 def from_tree(files, tree, root):
-    """The build's file list with every file of the checkout read from TREE at the same path."""
+    """The build's file list with every file of the checkout read from TREE at the same path.
+
+    A file under the checkout that TREE lacks and ignores is a build product (Xcode's DerivedSources, when
+    DerivedData sits inside the checkout, as on a fleet step) and is read from the build; one it lacks and
+    does not ignore was deleted, which needs a rebuild."""
+    rels = {path: path[len(root) + 1:] for path in files if path.startswith(root + "/")}
+    missing = [rel for rel in rels.values() if not os.path.exists(os.path.join(tree, rel))]
+    ignored = set()
+    if missing:
+        listed = subprocess.run(["git", "-C", tree, "check-ignore", "--no-index", "--stdin"], input="\n".join(missing),
+                                capture_output=True, text=True)
+        ignored = set(listed.stdout.splitlines())
     moved = []
     for path in files:
-        if path.startswith(root + "/"):
-            rel = path[len(root) + 1:]
-            if not os.path.exists(os.path.join(tree, rel)):
-                sys.exit(f"patch.py: {rel} is in the build but not in {tree} (a deleted file needs a rebuild)")
-            moved.append(os.path.join(tree, rel))
-        else:
+        rel = rels.get(path)
+        if rel is None or rel in ignored:
             moved.append(path)
+        elif not os.path.exists(os.path.join(tree, rel)):
+            sys.exit(f"patch.py: {rel} is in the build but not in {tree} (a deleted file needs a rebuild)")
+        else:
+            moved.append(os.path.join(tree, rel))
     return moved
 
 
@@ -233,6 +244,8 @@ def main():
         sys.exit("patch.py: --all is one module's files; these are in " + ", ".join(sorted(modules)))
     work = tempfile.mkdtemp(prefix="cmux-live-code-patch.")
     objects, argv, frontend = [], None, None
+    # Every module's edited files, for the sidecar.
+    all_edited = []
     for module, edited in modules.items():
         frontend, filelist = module_commands(opts.log, module)
         if not frontend:
@@ -267,6 +280,7 @@ def main():
             sys.stderr.write(failed[0][-6000:])
             sys.exit(f"patch.py: the compile of {module} failed (command in {module_work}/command)")
         objects += module_objects
+        all_edited += edited
     compiled = time.time()
     kept = 0
     if opts.all:
@@ -301,7 +315,8 @@ def main():
     os.makedirs(opts.live, exist_ok=True)
     # The sidecar first (`cmux live-code status` shows its commit and files), then the dylib.
     with open(os.path.join(opts.live, name[:-len(".dylib")] + ".json"), "w") as f:
-        json.dump({"commit": source_commit(edited), "files": [os.path.relpath(p, source_root(edited) or "/") for p in edited]}, f)
+        json.dump({"commit": source_commit(all_edited),
+                   "files": [os.path.relpath(p, source_root(all_edited) or "/") for p in all_edited]}, f)
     # Moved into place in one step, so the app never reads a half-written file.
     hidden = os.path.join(opts.live, "." + name)
     shutil.move(dylib, hidden)

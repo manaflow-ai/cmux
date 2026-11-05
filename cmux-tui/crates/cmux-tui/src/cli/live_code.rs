@@ -150,7 +150,12 @@ pub(super) fn status(folder: &Path) -> Option<Value> {
         (Some(recorded), Some(running)) => same_file(Path::new(recorded), &running),
         _ => true,
     };
-    let watching = pid > 0 && process_runs(pid) && same_app;
+    // It watches this folder, not one whose status file was copied or moved here.
+    let same_folder = match value.get("folder").and_then(Value::as_str) {
+        Some(recorded) => same_file(Path::new(recorded), folder),
+        None => true,
+    };
+    let watching = pid > 0 && process_runs(pid) && same_app && same_folder;
     if let Value::Object(map) = &mut value {
         map.insert("watching".into(), json!(watching));
     }
