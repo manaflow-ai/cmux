@@ -74,14 +74,14 @@ fn rust_takes_a_build_host_and_a_session_on_start() {
             "start",
             "--rust",
             "--build-host",
-            "huge-blue",
+            "build-box",
             "--session=cmux-app-nightly"
         ]))
         .unwrap(),
         Command::Rust {
             verb: RustVerb::Start,
             worktree: None,
-            build_host: Some("huge-blue".to_owned()),
+            build_host: Some("build-box".to_owned()),
             session: Some("cmux-app-nightly".to_owned()),
         }
     );
