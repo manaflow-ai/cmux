@@ -4,9 +4,9 @@ name: gallery health
 # reports ready, crashes the renderer, or whose play cannot reach it fails this check unless
 # scripts/gallery-matrix/broken-allowlist.json names it with why. On a pull request, a red state that is red the
 # same way on the base it merged with is the base's: the check warns on it and passes (base reds
-# are warnings, not failures). A crash, a cut-short render, or no base result still fails. A pull request, and each push to
-# feat-cmux-next, renders the entries it touches (touched.ts; everything for a global stylesheet or
-# a change to the checker). Both run only when a path the gallery render reads changes (the list
+# are warnings, not failures). A crash, a cut-short render, or no base result still fails. A pull request
+# renders the entries it touches (touched.ts; everything for a global stylesheet or a change to the
+# checker), and runs only when a path the gallery render reads changes (the list
 # below; tests/test_ci_gallery_health_merge_ref.py keeps it in step with touched.ts and with the
 # files the gallery imports from outside webviews/). The workflow-level filter is safe because no
 # ruleset requires this check: a pull request that changes none of these paths gets no gallery
@@ -19,7 +19,9 @@ name: gallery health
 # asset). It is global to every page. An unreached webviews/src/ source file renders nothing.
 #
 # A dispatch (workflow_dispatch) renders every entry at the dispatched ref: the nightly full render
-# of the base. A schedule here would never fire: GitHub runs schedules only from the default
+# of the base. It replaces the per-push renders of feat-cmux-next, which ran on every merge that
+# touched these paths (about 270,000 runner-minutes in 14 days) and could never excuse a base red. A
+# schedule here would never fire: GitHub runs schedules only from the default
 # branch (main), and this workflow lives on feat-cmux-next, so the nightly needs a dispatcher on
 # main that dispatches this workflow on feat-cmux-next once a day (as
 # cmux-next-resource-budget-dispatch.yml does for cmux-next-perf-bench.yml).
@@ -84,67 +86,14 @@ on:
       - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
       - "web/data/model-catalog/**"
       - "release-notes/next/highlights/**"
-  push:
-    branches: [feat-cmux-next]
-    paths:
-      - "webviews/src/**"
-      - "!webviews/src/**/*.test.ts"
-      - "!webviews/src/**/*.test.tsx"
-      - "webviews/dev-server/**"
-      - "webviews/scripts/gallery/**"
-      - "webviews/scripts/agent-pane/**"
-      - "webviews/scripts/pages/**"
-      - "webviews/test/latency/mock-host.ts"
-      - "webviews/vite.config.ts"
-      - "webviews/vite.config.gallery.ts"
-      - "webviews/reactCompiler.mjs"
-      - "webviews/package.json"
-      - "webviews/bun.lock"
-      - "webviews/bunfig.toml"
-      - "webviews/tsconfig.json"
-      - "config/vite-plus/**"
-      - "scripts/gallery-matrix/**"
-      - "scripts/cmux-next/build-agent-pane-web.sh"
-      - "scripts/ci/test_reds.py"
-      - "scripts/ci/ensure-system-chrome.sh"
-      - ".github/actions/playwright-apt-cache/**"
-      - ".github/workflows/gallery-health.yml"
-      - "schemas/gallery/**"
-      - "schemas/agent-pane/wake-state.json"
-      - "schemas/design-scale/**"
-      - "schemas/type-scale/**"
-      - "schemas/motion-scale/**"
-      - "schemas/layout-grid/**"
-      - "schemas/sync-motion/**"
-      - "schemas/settings/settings-schema.json"
-      - "Resources/ghostty/themes/**"
-      - "Resources/cmux-themes/**"
-      - "Resources/markdown-viewer/**"
-      - "Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/**"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts/**"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/WebTheme.swift"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/MetricTunables.swift"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextActions/ActionCatalog.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextActions/BrowserProfileActions.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextActions/HistoryActions.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextActions/RemoteActions.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/KeybindingsPage.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/MobilePairing.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Passwords.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/Localizable.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextHistory/Resources/Localizable.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
-      - "web/data/model-catalog/**"
-      - "release-notes/next/highlights/**"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  # A push renders only what it touched, so a later push must not cancel it; nor may a push and the
-  # nightly dispatch of the same commit cancel each other.
+  # A pull request's new head cancels its older run; two dispatches of different commits never cancel
+  # each other.
   group: gallery-health-${{ github.event.pull_request.number || format('{0}-{1}', github.event_name, github.sha) }}
   cancel-in-progress: true
 
