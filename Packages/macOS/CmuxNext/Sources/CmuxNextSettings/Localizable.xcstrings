@@ -200855,6 +200855,268 @@
         }
       }
     },
+    "settings.labs.liveCode": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الكود المباشر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kod uživo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Live-kode"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Live-Code"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live Code"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Código en vivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Code en direct"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codice dal vivo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ライブコード"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កូដផ្ទាល់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "라이브 코드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Live-kode"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kod na żywo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Código ao vivo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Живой код"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โค้ดสด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Canlı Kod"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Живий код"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mã trực tiếp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "实时代码"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "即時程式碼"
+          }
+        }
+      }
+    },
+    "settings.labs.liveCode.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "في إصدار cmux المبني للكود المباشر، تُطبَّق تغييرات Swift التي تجمعها من نسختك الخاصة على التطبيق أثناء تشغيله دون انتظار إصدار جديد. أوقفه للعودة إلى الوضع العادي. يسري بعد إعادة تشغيل cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "U cmux buildu za kod uživo, Swift izmjene koje kompajlirate iz svog checkouta primjenjuju se na pokrenutu aplikaciju bez čekanja novog builda. Isključite ga da se vratite na uobičajeno. Primjenjuje se nakon ponovnog pokretanja cmuxa."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I et live-kode-build af cmux bliver Swift-ændringer, du kompilerer fra dit eget checkout, anvendt på den kørende app uden at vente på et nyt build. Slå det fra for at vende tilbage til normal. Træder i kraft, når cmux genstarter."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In einem Live-Code-Build von cmux werden Swift-Änderungen, die du aus deinem eigenen Checkout kompilierst, in der laufenden App übernommen, ohne auf einen neuen Build zu warten. Schalte es aus, um zum Normalzustand zurückzukehren. Wirkt nach einem Neustart von cmux."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In a live code build of cmux, Swift changes you compile from your own checkout apply to the running app without waiting for a new build. Turn it off to go back to normal. Takes effect after cmux restarts."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En una compilación de cmux para código en vivo, los cambios de Swift que compilas desde tu propio checkout se aplican a la app en ejecución sin esperar una nueva compilación. Desactívalo para volver a la normalidad. Surte efecto al reiniciar cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dans une build de cmux pour le code en direct, les modifications Swift que vous compilez depuis votre propre checkout s’appliquent à l’app en cours d’exécution sans attendre une nouvelle build. Désactivez-le pour revenir à la normale. Prend effet au redémarrage de cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In una build di cmux per il codice dal vivo, le modifiche Swift che compili dal tuo checkout si applicano all’app in esecuzione senza attendere una nuova build. Disattivalo per tornare alla normalità. Ha effetto dopo il riavvio di cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ライブコード用にビルドされた cmux では、自分のチェックアウトからコンパイルした Swift の変更が、新しいビルドを待たずに実行中のアプリに反映されます。オフにすると通常に戻ります。cmux の再起動後に有効になります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នៅក្នុង build កូដផ្ទាល់របស់ cmux ការផ្លាស់ប្ដូរ Swift ដែលអ្នក compile ពី checkout ផ្ទាល់ខ្លួន នឹងអនុវត្តលើកម្មវិធីដែលកំពុងដំណើរការ ដោយមិនចាំ build ថ្មី។ បិទវាដើម្បីត្រឡប់ទៅធម្មតាវិញ។ មានប្រសិទ្ធភាពបន្ទាប់ពី cmux ចាប់ផ្ដើមឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "라이브 코드용 cmux 빌드에서는 자신의 체크아웃에서 컴파일한 Swift 변경 사항이 새 빌드를 기다리지 않고 실행 중인 앱에 적용됩니다. 끄면 원래대로 돌아갑니다. cmux를 다시 시작한 후 적용됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I et live-kode-bygg av cmux blir Swift-endringer du kompilerer fra ditt eget checkout, brukt i appen som kjører, uten å vente på et nytt bygg. Slå det av for å gå tilbake til normalen. Trer i kraft når cmux starter på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "W kompilacji cmux z kodem na żywo zmiany w Swift, które kompilujesz z własnego checkoutu, trafiają do działającej aplikacji bez czekania na nową kompilację. Wyłącz, aby wrócić do normalnego trybu. Działa po ponownym uruchomieniu cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Em um build do cmux para código ao vivo, as alterações em Swift que você compila do seu próprio checkout são aplicadas ao app em execução sem esperar um novo build. Desative para voltar ao normal. Entra em vigor após reiniciar o cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "В сборке cmux для живого кода изменения Swift, которые вы компилируете из своего checkout, применяются к работающему приложению без ожидания новой сборки. Выключите, чтобы вернуться к обычному режиму. Вступает в силу после перезапуска cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ใน build ของ cmux สำหรับโค้ดสด การเปลี่ยนแปลง Swift ที่คุณคอมไพล์จาก checkout ของคุณเองจะมีผลกับแอปที่กำลังทำงานโดยไม่ต้องรอ build ใหม่ ปิดเพื่อกลับสู่ปกติ มีผลหลังจากรีสตาร์ท cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux'un canlı kod derlemesinde, kendi checkout'unuzdan derlediğiniz Swift değişiklikleri yeni bir derleme beklemeden çalışan uygulamaya uygulanır. Normale dönmek için kapatın. cmux yeniden başladıktan sonra geçerli olur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "У збірці cmux для живого коду зміни Swift, які ви компілюєте зі свого checkout, застосовуються до запущеного застосунку без очікування нової збірки. Вимкніть, щоб повернутися до звичайного режиму. Діє після перезапуску cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trong bản build mã trực tiếp của cmux, các thay đổi Swift bạn biên dịch từ checkout của mình được áp dụng vào ứng dụng đang chạy mà không cần chờ bản build mới. Tắt để trở lại bình thường. Có hiệu lực sau khi cmux khởi động lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 cmux 的实时代码构建中，你从自己的检出编译的 Swift 更改会直接应用到正在运行的应用，无需等待新构建。关闭即可恢复正常。cmux 重启后生效。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 cmux 的即時程式碼建置中，你從自己的檢出編譯的 Swift 變更會直接套用到執行中的 App，無需等待新建置。關閉即可恢復正常。cmux 重新啟動後生效。"
+          }
+        }
+      }
+    },
     "settings.labs.machineJoin": {
       "extractionState": "manual",
       "localizations": {
