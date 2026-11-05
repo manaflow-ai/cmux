@@ -12,7 +12,7 @@ and each TARGET is
    "latency": {"key"|"pointer": {"p50_ms", "p95_ms", "n", "lost"}},
    "kbps": {"idle"|"typing"|"scroll": number}, "fps": {same},
    "ocr": {"cer", "host_cer_vs_truth", "viewer_cer_vs_truth", ...},
-   "split": {"key"|"pointer": {"encode_ms", "network_ms", "decode_ms", "input_to_capture_ms", "method"},
+   "split": {"key"|"pointer": {"encode_ms", "transport_ms", "decode_ms", "input_to_capture_ms", "method"},
              "typing": {"encode_ms", "decode_ms"}},
    "extra": {...}}
 A number nobody could measure is null, never left out, so two runs always line up key by key.
@@ -66,7 +66,7 @@ def target(name: str, folder: Path, out: Path) -> None:
         g2g = lat.get("g2g_ms") or {}
         result["latency"][kind] = {"p50_ms": g2g.get("p50"), "p95_ms": g2g.get("p95"), "n": g2g.get("n"), "lost": lat.get("lost")}
         split = lat.get("split") or {}
-        result["split"][kind] = {k: split.get(k) for k in ("input_to_capture_ms", "encode_ms", "network_ms", "decode_ms", "method")}
+        result["split"][kind] = {k: split.get(k) for k in ("input_to_capture_ms", "encode_ms", "transport_ms", "decode_ms", "method")}
         if g2g.get("p50") is None:
             errors.append(f"latency {kind}: no samples")
     window = load(folder / "window.json") or {}
@@ -78,8 +78,7 @@ def target(name: str, folder: Path, out: Path) -> None:
                 phases[row["phase"]] = row
     kbps, fps, encode, decode = phase_numbers(window.get("series") or [], phases)
     result["kbps"], result["fps"] = kbps, fps
-    typing_encode = encode.get("typing") if encode.get("typing") is not None else window.get("encode_ms_window")
-    result["split"]["typing"] = {"encode_ms": typing_encode, "decode_ms": decode.get("typing")}
+    result["split"]["typing"] = {"encode_ms": encode.get("typing"), "decode_ms": decode.get("typing")}
     if None in kbps.values():
         errors.append(f"window: no numbers for {[k for k, v in kbps.items() if v is None]} (phases logged: {sorted(phases)})")
     ocr = load(folder / "ocr.json")
@@ -146,13 +145,13 @@ def summary(results_path: Path, out: Path, previous_path: Path | None) -> None:
         lines.append(f"| Text OCR error (13 pt code, viewer vs host screenshot) | {cell('ocr', 'cer', unit='%', digits=2)}"
                      f" (host OCR vs drawn text {fmt(get(t, 'ocr', 'host_cer_vs_truth'), '%', 2)}) |")
         for kind in ("key", "pointer"):
-            lines.append(f"| {kind.capitalize()} split: input→capture / encode / network / decode | "
+            lines.append(f"| {kind.capitalize()} split: input→capture / encode / transport / decode | "
                          f"{cell('split', kind, 'input_to_capture_ms')} / {cell('split', kind, 'encode_ms', digits=2)} / "
-                         f"{cell('split', kind, 'network_ms', digits=2)} / {cell('split', kind, 'decode_ms', digits=2)} |")
+                         f"{cell('split', kind, 'transport_ms', digits=2)} / {cell('split', kind, 'decode_ms', digits=2)} |")
         lines.append(f"| Typing split: encode / decode | {cell('split', 'typing', 'encode_ms', digits=2)} / {cell('split', 'typing', 'decode_ms', digits=2)} |")
         method = get(t, "split", "key", "method")
         if method:
-            lines += ["", f"Split method: {method}."]
+            lines += ["", f"Split method ({name}): {method}. Transport is not comparable across targets."]
         for error in t.get("errors") or []:
             lines.append(f"- {error}")
     out.write_text("\n".join(lines) + "\n")

@@ -39,8 +39,16 @@ case "$verb" in
     ;;
   host-start) host_start ;;
   host-stop)
-    [[ -f "$EVAL_STATE/host.pid" ]] && kill "$(cat "$EVAL_STATE/host.pid")" 2>/dev/null || true
-    rm -f "$EVAL_STATE/host.pid"
+    if [[ -f "$EVAL_STATE/host.pid" ]]; then
+      pid=$(cat "$EVAL_STATE/host.pid")
+      kill "$pid" 2>/dev/null || true
+      for _ in $(seq 1 50); do
+        kill -0 "$pid" 2>/dev/null || break
+        sleep 0.1 # bounded wait for the host to exit and free its port or room (5 s)
+      done
+      kill -9 "$pid" 2>/dev/null || true
+      rm -f "$EVAL_STATE/host.pid"
+    fi
     ;;
   latency)
     # latency INPUT SAMPLES OUT: INPUT is key or pointer (a click on the marker's pad).
@@ -59,14 +67,14 @@ raw = json.load(open(sys.argv[1]))
 g2g, cap, dec = raw.get("g2g_ms") or {}, raw.get("same_clock_capture_to_decoded_ms") or {}, raw.get("decode_ms") or {}
 encode = (raw.get("host_stats_last") or {}).get("encode_ms_p50")
 def p50(d): return d.get("p50") if d else None
-network = None
+transport = None
 if p50(cap) is not None and encode is not None and p50(dec) is not None:
-    network = max(0.0, p50(cap) - encode - p50(dec))
+    transport = p50(cap) - encode - p50(dec)
 json.dump({
     "g2g_ms": g2g, "lost": raw.get("lost"),
     "split": {"input_to_capture_ms": p50(raw.get("same_clock_input_to_capture_ms") or {}),
-              "encode_ms": encode, "network_ms": network, "decode_ms": p50(dec),
-              "method": "same-clock: host capture stamp to viewer decode, minus the host's encode p50 and the viewer's decode p50"},
+              "encode_ms": encode, "transport_ms": transport, "decode_ms": p50(dec),
+              "method": "rd: transport = same-clock capture-to-decoded p50 minus the host's encode p50 and the viewer's decode p50 (packetize, send, reassemble and queue; a difference of medians, so it can be slightly negative)"},
     "raw": raw,
 }, open(sys.argv[2], "w"))
 EOF

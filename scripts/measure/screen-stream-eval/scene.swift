@@ -2,8 +2,10 @@
 // display showing a 5000-line code file at 13 pt Menlo, black on white, that runs the same
 // timeline for every target once the harness creates GO_FILE:
 //
-//   settle 3 s  ->  idle 30 s  ->  typing 20 s  ->  scroll 20 s  ->  ocr 8 s  ->  exit
+//   settle 3 s  ->  idle 30 s  ->  typing 20 s  ->  scroll 20 s  ->  ocr 8 s  ->  hold
 //
+// hold: the ocr screen stays, still, until the harness creates STOP_FILE (the viewer saves its
+// last frame after the timeline), then the scene exits; at most 120 s.
 // idle: nothing changes. typing: a scripted burst, 12 characters a second typed into the line
 // under the top of the view (the same text every run). scroll: the file scrolls down at 600 pt a
 // second, a step every display refresh. ocr: back to the top, still; after 3 s the host's own
@@ -11,7 +13,7 @@
 // end go to PHASES_JSONL on the Unix ms clock the viewers stamp their seconds with.
 //
 //   swiftc -O -o screen-eval-scene scene.swift
-//   screen-eval-scene GO_FILE PHASES_JSONL SHOT_PNG TRUTH_TXT
+//   screen-eval-scene GO_FILE STOP_FILE PHASES_JSONL SHOT_PNG TRUTH_TXT
 //
 // TRUTH_TXT gets the lines the ocr phase shows, for checking the OCR itself.
 // Test hosts only: it covers the menu bar and the Dock while it runs.
@@ -19,11 +21,11 @@
 import AppKit
 
 let args = CommandLine.arguments
-guard args.count == 5 else {
-    FileHandle.standardError.write(Data("usage: screen-eval-scene GO_FILE PHASES_JSONL SHOT_PNG TRUTH_TXT\n".utf8))
+guard args.count == 6 else {
+    FileHandle.standardError.write(Data("usage: screen-eval-scene GO_FILE STOP_FILE PHASES_JSONL SHOT_PNG TRUTH_TXT\n".utf8))
     exit(2)
 }
-let (goFile, phasesFile, shotFile, truthFile) = (args[1], args[2], args[3], args[4])
+let (goFile, stopFile, phasesFile, shotFile, truthFile) = (args[1], args[2], args[3], args[4], args[5])
 
 /// The phases in order, in seconds; the harness reads the same names from PHASES_JSONL.
 let timeline: [(String, Double)] = [("settle", 3), ("idle", 30), ("typing", 20), ("scroll", 20), ("ocr", 8)]
@@ -123,8 +125,21 @@ final class Scene: NSObject, NSApplicationDelegate {
         scroll.reflectScrolledClipView(scroll.contentView)
     }
 
+    /// Keeps the ocr screen until STOP_FILE (bounded: 120 s).
+    func hold() {
+        timer?.invalidate()
+        let started = Date()
+        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
+            if FileManager.default.fileExists(atPath: stopFile) { exit(0) }
+            if Date().timeIntervalSince(started) > 120 {
+                FileHandle.standardError.write(Data("scene: no STOP_FILE within 120 s\n".utf8))
+                exit(0)
+            }
+        }
+    }
+
     func run(_ index: Int) {
-        guard index < timeline.count else { exit(0) }
+        guard index < timeline.count else { return hold() }
         let (phase, seconds) = timeline[index]
         let start = unixMs()
         timer?.invalidate()

@@ -60,7 +60,8 @@ struct StreamWindowTests {
         // The first frame (bounded: 15 s, as the rd bench).
         for _ in 0 ..< 150 where reader.rendered == 0 { try await Task.sleep(for: .milliseconds(100)) }
         try #require(reader.rendered > 0, "no video within 15 s")
-        print("streamwindow: first frame")
+        // Unbuffered: the eval waits for this line while the test runs, with stdout in a file.
+        FileHandle.standardOutput.write(Data("streamwindow: first frame\n".utf8))
         var series: [[String: Any]] = []
         var last = await viewer.videoStats()
         let first = last

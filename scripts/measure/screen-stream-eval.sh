@@ -8,7 +8,8 @@
 #     [--arg=targets=rd,webrtc] [--arg=samples=200] --timeout 5400
 # Output: SCREEN-STREAM-EVAL lines, the summary table, and artifacts/screen-stream-eval/results.json
 # (also each target's raw files and the host and viewer frames under that folder). No gate: it
-# reports, and exits non-zero only when it could not measure at all (3: no grant; 4: no target ran).
+# reports, and exits non-zero only when it could not measure at all (3: no grant; 4: no target ran;
+# 5: no target measured a window).
 set -uo pipefail
 targets="rd,webrtc" samples=200
 for arg in "$@"; do
@@ -29,7 +30,8 @@ mkdir -p "$out" "$work/bin"
 chmod 700 "$work"
 export EVAL_ROOT="$root" EVAL_BIN="$work/bin"
 
-# The scene's timeline is 81 s (scene.swift); the passive window covers it from the first frame.
+# The scene's timeline is 81 s from GO (scene.swift), then it holds the ocr screen until STOP; the
+# passive window starts at the viewer's first frame, GO follows it, so the window ends inside the hold.
 window_s=84
 display=$(system_profiler SPDisplaysDataType 2>/dev/null | sed -n 's/^ *Resolution: //p' | head -1)
 run_json() {
@@ -48,7 +50,7 @@ echo "SCREEN-STREAM-EVAL-MACHINE $run"
 
 pids=()
 cleanup() {
-  for pid in "${pids[@]}"; do kill "$pid" 2>/dev/null || true; done
+  for pid in ${pids[@]+"${pids[@]}"}; do kill "$pid" 2>/dev/null || true; done
 }
 trap cleanup EXIT
 
@@ -135,9 +137,9 @@ for name in "${names[@]}"; do
 
   # Window: the scene's fixed timeline under one passive viewer.
   echo "SCREEN-STREAM-EVAL-STAGE $name window"
-  go="$EVAL_STATE/go"
-  rm -f "$go" "$dir/host.png"
-  "$EVAL_BIN/screen-eval-scene" "$go" "$dir/phases.jsonl" "$dir/host.png" "$dir/truth.txt" >"$EVAL_STATE/scene.log" 2>&1 &
+  go="$EVAL_STATE/go" stop="$EVAL_STATE/stop"
+  rm -f "$go" "$stop" "$dir/host.png"
+  "$EVAL_BIN/screen-eval-scene" "$go" "$stop" "$dir/phases.jsonl" "$dir/host.png" "$dir/truth.txt" >"$EVAL_STATE/scene.log" 2>&1 &
   scene=$!
   pids+=("$scene")
   sleep 2 # the scene's window is up before the host captures its first frame
@@ -146,6 +148,7 @@ for name in "${names[@]}"; do
   else
     err "host did not start for the window"
   fi
+  touch "$stop"
   wait "$scene" || err "scene exited $? ($(tail -1 "$EVAL_STATE/scene.log"))"
   bash "$script" host-stop
 
@@ -155,9 +158,10 @@ for name in "${names[@]}"; do
   else
     err "ocr: missing $( [[ -s "$dir/host.png" ]] || echo 'host screenshot ')$( [[ -s "$dir/viewer-frame" ]] || echo 'viewer frame')"
   fi
-  # The logs, with pairing links (a WebRTC host's room secret) and tokens left behind.
+  # The logs, without the WebRTC host's pairing (its link and the QR code of it: the room secret).
   for log in "$EVAL_STATE"/*.log; do
-    [[ -f "$log" ]] && sed -E 's#cmux-vnc://pair[^ ]*#cmux-vnc://pair(redacted)#g' "$log" >"$dir/$(basename "$log")"
+    [[ -f "$log" ]] || continue
+    grep -v -E 'cmux-vnc://|[█▀▄]' "$log" >"$dir/$(basename "$log")" || true
   done
   python3 -I "$here/eval.py" target "$name" "$dir" "$dir/target.json"
   echo "SCREEN-STREAM-EVAL-TARGET $name $(python3 -I -c 'import json,sys; t=json.load(open(sys.argv[1])); print(json.dumps({k: t[k] for k in ("ok", "latency", "kbps", "ocr")}))' "$dir/target.json")"
@@ -168,4 +172,6 @@ if [[ $ran == 0 ]]; then
   exit 4
 fi
 finish
+# A run with no window numbers at all is not a baseline a later run should diff against.
+python3 -I -c 'import json, sys; t = json.load(open(sys.argv[1]))["targets"].values(); sys.exit(0 if any(v is not None for x in t for v in (x.get("kbps") or {}).values()) else 5)' "$out/results.json" || exit 5
 exit 0

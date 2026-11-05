@@ -182,7 +182,8 @@ struct RdMarkerClickLatencyTests {
             "frame": ["width": size.width, "height": size.height],
             "frames_per_s": (after.framesDecoded - before.framesDecoded) / seconds,
             "mbit_per_s": (after.bytesReceived - before.bytesReceived) * 8 / seconds / 1e6,
-            "decode_ms_mean": after.framesDecoded > 0 ? after.totalDecodeTime / after.framesDecoded * 1000 : -1,
+            "decode_ms_mean": after.framesDecoded > before.framesDecoded
+                ? (after.totalDecodeTime - before.totalDecodeTime) / (after.framesDecoded - before.framesDecoded) * 1000 : -1,
             "rtt_ms": after.rttMs ?? -1,
             "jitter_buffer_ms": after.jitterBufferMs ?? -1,
             "codec": after.codec ?? "?",
