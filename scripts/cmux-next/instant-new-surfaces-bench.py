@@ -69,6 +69,9 @@ parser.add_argument("--arms", default=None,
                          "budget run judges the warm rows only, so its time and its pass or fail do not change)")
 parser.add_argument("--quick-runs", type=int, default=6, help="quick arm: pairs of presses per command")
 parser.add_argument("--cold-launches", type=int, default=2, help="cold arm: launches per command, each timing its first press")
+parser.add_argument("--spare-page", choices=("default", "on", "off"), default="default",
+                    help="Debug Settings browserPage.sparePage (a new Chromium tab takes a page made ahead) for every launch: "
+                         "default leaves it as the build has it (off), on/off set it through debug.tunables; reset at the end")
 parser.add_argument("--link-url", default="", help="link_right's page (default: a local file page in the scratch folder)")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--json")
@@ -227,7 +230,8 @@ def timed(command, phase, index, arm=None):
         result["arm"] = arm
     marks = {s["name"]: round(s["at"], 1) for s in result.get("spans") or [] if s.get("ms", 0) == 0}
     print(f"{phase} {command} #{index}: key={result.get('key_ms')} visible={result.get('visible_ms')} "
-          f"frame={frame_of(result)} confirmed={result.get('confirmed_ms')} page={result.get('page_ms')} marks={marks} "
+          f"frame={frame_of(result)} confirmed={result.get('confirmed_ms')} page={result.get('page_ms')} "
+          f"spare_window={result.get('spare_window')} marks={marks} "
           f"err={result.get('error')}", flush=True)
     return result
 
@@ -439,6 +443,9 @@ def main():
             app = launcher.process
         SOCKET = launcher.socket
         CLI_ENV["CMUX_SOCKET_PATH"] = SOCKET
+        if opts.spare_page != "default":  # every launch, the cold arm's too: the A/B of the page made ahead
+            print("spare page", opts.spare_page, json.dumps(rpc("debug.tunables", {"action": "set", "key": "browserPage.sparePage",
+                                                                        "value": opts.spare_page == "on"}))[:200], flush=True)
 
     def relaunch():
         """The cold arm's launch: the running app quits (cleanup), then a new launch; returns its window."""
@@ -498,5 +505,7 @@ ok = False
 try:
     ok = main()
 finally:
+    if opts.spare_page != "default":  # the setting outlives the launch in a DEV build: back to its default
+        rpc("debug.tunables", {"action": "set", "key": "browserPage.sparePage", "value": None}, timeout=5)
     cleanup()
 sys.exit(0 if ok else 1)
