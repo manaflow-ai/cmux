@@ -1,0 +1,167 @@
+{
+  "version": 1,
+  "build": "4210546330101",
+  "notes": "notes/4210546330101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 36766,
+      "title": "reopen bench: resolve a relative ACPMUX_BIN before the bench runs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36775,
+      "title": "measure: try-pr-live-code finds the copy's socket by its pid",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36769,
+      "title": "vm image: bake the work user's npm cache so a first npm install is fast",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36334,
+      "title": "Settings > Agents > Harnesses: Add account for Claude and Codex, Make Default, Rename, Sign Out and Remove",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36330,
+      "title": "cmux live-code: status, apply, undo and log from the CLI and MCP, through the live folder; team-signed patches only outside Debug",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36772,
+      "title": "cmux-vm: approve cloud-native-cbbeec1-rd021 (cmux-tui cbbeec18, cmux-rd 0.2.1 desktop) for development, staging and production",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36489,
+      "title": "webviews: who-else card in the transcript and Also working here in Session Info",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36773,
+      "title": "Cloud VM image lock: cmux-rd 0.2.2",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36774,
+      "title": "ci(signing): trust glaeda runner hook 7430aae2 (#1883)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36753,
+      "title": "Agent pane: a turn's Timeline redraws on a late background end; reused call ids keep their bars",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36762,
+      "title": "cmux-cloud-client route scan: Rust block comments nest",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36770,
+      "title": "ci(signing): trust glaeda runner hooks 6d4ee21b (#1873) and 87e9ffc8 (#1862)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36768,
+      "title": "Agent pane tail cache: disk-aware ordering, a read fence, and a quit drain (#36492 review)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36453,
+      "title": "cmux NEXT: a one-time sidebar note and an onboarding line for Import from Conductor",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36758,
+      "title": "test(sidebar): abbreviate cost test measures against an in-process pre-fix calibration",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36747,
+      "title": "Agent chat: Find skips fields a card does not draw; 64-bit IDs in tool input stay exact",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36760,
+      "title": "Cloud: Retry and Reconnect resume a paused machine; a held update waits at most 4 minutes; a start retries once after an EOF",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36742,
+      "title": "Machines: joined rows age offline past 90 s while shown; sign-out empties them; Labs wording",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36765,
+      "title": "cmux-rd host 0.2.2: the person master exists only while the person acts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36763,
+      "title": "ci(guards): a cmux-tui/Cargo.toml change runs release-notary",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36759,
+      "title": "acpmux mesh relay: the last heartbeat as the relay stops says leaving",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36755,
+      "title": "web tests: the prod-channel key check allows any named dev mode, first-session included",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36497,
+      "title": "agent pane: a reopened chat shows what it holds at once, never hidden paging back (+ reopen bench under load)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36750,
+      "title": "ci(web): a pull request's webview shard never hands a broken run to the base job as green",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36754,
+      "title": "cmux-vm: approve cloud-native-cbbeec1 (cmux-tui cbbeec18) for development, staging and production",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36757,
+      "title": "measure: try-pr-live-code takes its stills through the copy's own snapshot",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
