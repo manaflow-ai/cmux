@@ -30,7 +30,7 @@ public final class LiveCoordinator {
     public private(set) var presenceConnected = false
     public internal(set) var chiefStatus: String?
     /// Pairing with the linked Mac (verify/phone-approvals.md): the Mac asks the
-    /// user the first time; Allow then signs with Face ID.
+    /// user the first time; Allow then signs with the approval key.
     public internal(set) var pairingState: LinkPairing.State = .idle
     /// The last time the phone moved to another team because one of the
     /// account's Macs is there (the shell shows a toast).
@@ -806,7 +806,7 @@ public final class LiveCoordinator {
     }
 
     /// Signs Chief question answers for the linked Mac with this phone's
-    /// approval key (Face ID); nil without pairing keys or a paired Mac.
+    /// approval key; nil without pairing keys or a paired Mac.
     public func chiefAnswerSigner() -> ChiefAnswerSigner? {
         guard let pairing, let macID = link.target?.macID, focused.pairingState == .paired else { return nil }
         return ChiefAnswerSigner(keys: pairing.keys, macDevice: macID, phoneID: pairing.phoneID)

@@ -11,6 +11,11 @@
 version = 1
 
 [[test]]
+path = "tests/test_web_overlay_manifest_commit.py"
+lane = "manual"
+reason = "Run by the lane that changes web-overlay.sh (no new CI tests): python3 tests/test_web_overlay_manifest_commit.py; needs only bash, git and python3."
+
+[[test]]
 path = "tests/test_prepush_fast_tier.py"
 lane = "manual"
 reason = "Bounded pre-push tier: cmux-ci test -- python3 tests/test_prepush_fast_tier.py; sandbox behavior needs warm Bun and Linux bubblewrap."
@@ -2561,8 +2566,7 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_sign_yield.py"
-lane = "manual"
-reason = "No new CI tests (Lawrence, 2026-10-23); run by the change's author: python3 -m unittest tests/test_nightly_sign_yield.py."
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_next_identity_probe.py"
@@ -2593,3 +2597,11 @@ reason = "Lawrence 2026-10-23: no new CI tests. Drives scripts/ci/lib/notary-wai
 path = "tests/test_cloud_chat_proof_failure_evidence.py"
 lane = "manual"
 reason = "Run by hand when cloud-chat-proof.py changes: python3 tests/test_cloud_chat_proof_failure_evidence.py (fake app CLI and log tool, no app)."
+
+[[test]]
+path = "tests/test_nightly_never_blacksmith.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_one_mini.py"
+lane = "linux-guard"

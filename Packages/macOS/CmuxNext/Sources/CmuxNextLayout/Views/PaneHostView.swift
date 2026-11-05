@@ -17,7 +17,7 @@ import QuartzCore
 /// child window (Chromium pages); the root keeps them on this view's
 /// displayed frame.
 final class PaneHostView: NSView, RestingPlacement {
-    let pane: PaneID
+    private(set) var pane: PaneID
     let content: NSView
     let chrome = PaneOverlayView()
     let clipView = PaneClipView()
@@ -31,7 +31,7 @@ final class PaneHostView: NSView, RestingPlacement {
 
     /// Whether content keeps its size while the host is on a split, close or zoom spring: the provider's rule (an agent
     /// chat holds: page pixels, S5/S6), live resize otherwise. Injected so tests pin it.
-    private let holdsContentInMotion: () -> Bool
+    private var holdsContentInMotion: () -> Bool
     /// True only for a content handoff: its first spring frame already has the narrower
     /// destination size, so the held page must start at that target. Ordinary moves (including
     /// an unzooming chat) keep their painted size even when their rest offset is nonzero.
@@ -57,6 +57,12 @@ final class PaneHostView: NSView, RestingPlacement {
         // reshapes the rounded area and the ring only, and moves no frame of
         // this view or of the content (an ancestor of the reporter).
         reporter?.onPaneHeaderHeightChange = { [weak self] in self?.applyChromeShape() }
+    }
+
+    /// A host made ahead (``LayoutViewContext/parkSpare(_:in:)``) becomes `pane`'s when that pane adopts its content.
+    func adopt(_ pane: PaneID, holdsContentInMotion: @escaping () -> Bool) {
+        self.pane = pane
+        self.holdsContentInMotion = holdsContentInMotion
     }
 
     @available(*, unavailable)

@@ -4,6 +4,12 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use super::*;
 
 #[test]
+fn backend_identity_probe_opts_into_revisions_without_changing_other_requests() {
+    assert_eq!(request_value("identify")["revisions"], true);
+    assert!(request_value("server-stats").get("revisions").is_none());
+}
+
+#[test]
 fn connection_limit_probe_bounds_a_peer_that_never_terminates_its_line() {
     use std::io::Read;
     use std::sync::mpsc;
