@@ -108,6 +108,28 @@ app takes live code (the view shell does today); until then it takes the dev bui
 `scripts/measure/try-pr-side-instance.sh` times a set of PRs from the command to the PR's page
 loading in the side instance.
 
+### An agent's loop: apply, probe, roll back
+
+```sh
+scripts/cmux-next/live-apply.py --probe 'CMD'   # --base SHA (the app's CMUXCommit), --repo DIR, --dry-run
+```
+
+applies this checkout's working tree (tracked edits and untracked files) to the running app with the
+cheapest rung that covers it, runs `CMD` until it exits 0 or `--probe-seconds` (30) runs out, rolls
+back to the previous overlay generation when it does not, and prints one JSON line an agent reads
+before its next edit:
+
+```json
+{"rung": "R0", "applied": true, "probe": "pass", "seconds": 41.2, "rolled_back": false, "verdict": "web-live", "needs": null, ...}
+```
+
+Today the one rung is R0, web bundles (built with `web-overlay.sh build` and swapped in, same
+process). A Swift, daemon or rebuild change applies nothing and says what it needs (exit 3); Swift
+function bodies join once the app's live Swift loader lands (hq#7149 R2). The overlay must be on in
+Debug Settings (Live web reload). `scripts/measure/agent-loop.sh` runs the whole loop on the newest
+NIGHTLY: a scripted Settings change, applied, probed through the app's `errors.list` (the page logs a
+nonce), then a failed probe that must roll back, with the app the same process throughout.
+
 ### No dev server: built bundles
 
 `fleet` needs the team's `cmux-ci` client.
