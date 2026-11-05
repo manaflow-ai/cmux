@@ -1,21 +1,33 @@
 #!/usr/bin/env python3
-"""The classic nightly runs its open jobs on one Mac mini while vars.CI_CLASSIC_NIGHTLY_MINI is set.
+"""The classic nightly runs end to end on one Mac mini, cmux15, while vars.CI_CLASSIC_NIGHTLY_MINI is set.
 
 Lawrence, 2026-11-04: "we need to just make nightlies build on a single mac mini", for next and classic, and
 no one cancels nightlies. Classic run 41920015425 built, signed and verified on Blacksmith macOS, prepared on
-cmux7s's trusted-main runner and decided on cmux12s.
+cmux7s's trusted-main runner and decided on cmux12s. Lawrence, 2026-11-05: every classic nightly job on cmux15,
+0 Blacksmith, behind the same switch (run 41985952019 still signed and verified on Blacksmith).
 
 With vars.CI_CLASSIC_NIGHTLY_MINI set (to cmux15's light nightly-only label, `glaeda-nightly-mini`), every job of
-main's nightly.yml on main (push, schedule or dispatch: glaeda-nightly-only-admit takes all three there), on every
-attempt and picker output, takes that label, except KEPT. The variable is separate from NEXT's vars.CI_NIGHTLY_MINI,
-so classic switches on its own. An rc/** push keeps every route (the nightly-only runners refuse rc/**).
+main's nightly.yml on main, on every attempt and picker output, takes one of cmux15's labels:
 
-KEPT keep their route: every job that holds a key (signing material, Sparkle, R2, App keys, Sentry:
-tests/test_ci_fork_runner_routing.py lets no variable move them, and they must not run on the shared nightly-only
-runners), verify-signed-nightly, which runs the signed bundle (rule 6 of
-tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py), and the helper build (Zig 0.15.2 cannot link main's
-helper on macOS 26). Main has no owned-Mac signing path yet (feat-cmux-next's claim gate and Blacksmith twin), and
-glaeda's trusted runners refuse a dispatch, which is most of main's nightly runs.
+- SIGNER_JOBS, the jobs that sign (Developer ID, notarization and Sparkle keys), take cmux15's trusted signing
+  runner, the literal glaeda-trusted-next-signing, on a push or schedule (the events glaeda's trusted_refusal admits
+  there; a dispatch can check out any ref, so it keeps its route). A literal: no variable chooses where signing
+  secrets go. Each starts with the claim gate (tests/test_signing_runner_claim.py CLAIM_GATE), runs
+  scripts/ci/signing-runner-claim.sh before any step that names a secret, and deletes the keychain
+  scripts/ci/signing-keychain.sh made in an `if: always()` step. glaeda gives each the exclusive class (SIGNING,
+  glaeda's SIGNING_JOBS), so it holds the whole Mac.
+- build-nightly-app takes cmux15's nightly-only builder label, glaeda-nightly-mini-builder.
+- every other job takes `glaeda-nightly-mini` (glaeda-nightly-only-admit takes push, schedule and dispatch there).
+  A job there that holds a secret reads it only in steps that do not run in this mode, except OPEN_SECRETS.
+
+KEPT keep their route: the three publication jobs that never run on main (UNREACHED_ON_MAIN), NEXT's
+promotion (a dispatch of main every few minutes, which the trusted signing runner refuses;
+tests/test_nightly_signing_on_cmux15.py on feat-cmux-next keeps it too), and the two Blacksmith cache warmers, which write
+caches only Blacksmith pull request jobs read and run only on a seed_only dispatch while CI_PR_POOL_OWNED is 1 (tests/test_ci_nightly_off_blacksmith.py NOT_NIGHTLY_JOBS).
+
+The variable is separate from NEXT's vars.CI_NIGHTLY_MINI, so classic switches on its own. Unset, every route is
+the one it had before. An rc/** push keeps every route (cmux15's nightly-only runners refuse rc/**, and its trusted
+runners take only main).
 """
 
 from __future__ import annotations
@@ -33,24 +45,41 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 from test_ci_fork_runner_routing import parse_expression  # noqa: E402
 
-JOBS = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8"))["jobs"]
-MINI, SIGN = "glaeda-nightly-mini", "glaeda-trusted-next-signing"
+WORKFLOW = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8"))
+JOBS = WORKFLOW["jobs"]
+MINI, SIGN, BUILDER = "glaeda-nightly-mini", "glaeda-trusted-next-signing", "glaeda-nightly-mini-builder"
+CMUX15 = (MINI, SIGN, BUILDER)
 MODE = {"vars.CI_CLASSIC_NIGHTLY_MINI": MINI, "vars.CI_NIGHTLY_SIGN_RUNNER": SIGN}
 # glaeda scripts/glaeda-cmux-runner-hook SIGNING_JOBS, nightly.yml entries: the jobs that take the whole Mac.
 SIGNING = {"promote-nightly-next", "build-sign-notarize-nightly", "recover-nightly-next-notarization",
            "publish-nightly", "publish-nightly-next-github", "publish-nightly-next-github-names",
            "sign-nightly-identity-legacy", "generate-nightly-deltas"}
+SIGNER_JOBS = {"build-sign-notarize-nightly"}
+TRUSTED_EVENTS = ("push", "schedule")
 REF = re.compile(r"\b(?:needs\.[\w-]+\.(?:outputs\.\w+|result)|inputs\.\w+|vars\.\w+)")
 BLACKSMITH = "blacksmith-6vcpu-macos-26"
+# publish-nightly runs only while decide's should_publish is false, which a push or schedule of main never is (main
+# publishes through auto-resume-nightly-notarization.yml), and generate-nightly-deltas and republish-nightly-deltas
+# need it to be both true and false, so on main these three never take a runner.
+UNREACHED_ON_MAIN = {"publish-nightly", "generate-nightly-deltas", "republish-nightly-deltas"}
+KEPT = {"promote-nightly-next", "await-release-surface-ack", "promote-nightly-next-acked",
+        "refresh-compilation-cache", "refresh-test-compilation-cache"} | UNREACHED_ON_MAIN
+# Jobs on the shared nightly-only runners that hold a secret in this mode, by design: the CI cache writer keys and
+# the Sentry token of the app build, as on feat-cmux-next's one-mini nightly.
+OPEN_SECRETS = {"build-nightly-app"}
+# Release material (rule 6 of tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py) and App keys.
+RELEASE_SECRET = re.compile(r"secrets\.(APPLE_|ASC_API_|IOS_|SPARKLE_|NIGHTLY_SPARKLE_|CMUX_RELEASE_APP_|CF_R2_"
+                            r"|CONTENT_SIGNING_|NIGHTLY_NEXT_R2_|HOMEBREW_TAP_TOKEN)")
+SECRET = re.compile(r"\bsecrets\.(?!GITHUB_TOKEN\b)\w+|create-github-app-token@")
+CLAIM_SCRIPT = "scripts/ci/signing-runner-claim.sh"
 
 
-KEPT = SIGNING | {"verify-signed-nightly", "promote-nightly-next-acked", "await-release-surface-ack",
-                  "refresh-compilation-cache", "refresh-test-compilation-cache", "pick-nightly-app-runner",
-                  "pick-classic-prepare-runner", "republish-nightly-deltas",
-                  "build-nightly-app", "build-nightly-ghostty-cli-helper"}
-
-
-def want(name: str) -> str:
+def want(name: str, event: str) -> str | None:
+    """The label the job takes in this mode on main, or None for its old route (never one of CMUX15)."""
+    if name in SIGNER_JOBS:
+        return SIGN if event in TRUSTED_EVENTS else None
+    if name == "build-nightly-app":
+        return BUILDER
     return MINI
 
 
@@ -131,7 +160,7 @@ def sources(job: dict) -> list[str]:
 
 
 class ClassicNightlyOneMini(unittest.TestCase):
-    def test_every_job_takes_the_nightly_mini(self) -> None:
+    def test_every_job_takes_a_cmux15_label(self) -> None:
         rng = random.Random(41920015425)
         failures = {}
         for name, job in JOBS.items():
@@ -141,14 +170,74 @@ class ClassicNightlyOneMini(unittest.TestCase):
                 for _ in range(200):
                     event = rng.choice(("push", "schedule", "workflow_dispatch"))
                     value, context = resolve(source, rng, "refs/heads/main", event, MODE)
-                    if name in KEPT:
-                        if value in (MINI, SIGN):
-                            failures[name] = (value, {k: v for k, v in context.items() if v})
-                            break
-                    elif value != want(name):
-                        failures[name] = (value, {k: v for k, v in context.items() if v})
+                    expected = None if name in KEPT else want(name, event)
+                    if (value in CMUX15) if expected is None else (value != expected):
+                        failures[name] = (event, value, {k: v for k, v in context.items() if v})
                         break
         self.assertEqual(sorted(failures), [], "\n".join(f"{k}: {v}" for k, v in sorted(failures.items())))
+
+    def test_the_signer_jobs_are_glaedas_signing_jobs(self) -> None:
+        self.assertLessEqual(SIGNER_JOBS, SIGNING)
+        held = {name for name, job in JOBS.items() if RELEASE_SECRET.search(json.dumps(job))}
+        # Every job with release material signs on the signer, except NEXT's promotion (KEPT).
+        self.assertEqual(held - KEPT, SIGNER_JOBS)
+
+    def test_no_job_with_release_material_reaches_a_shared_label(self) -> None:
+        # Any event, attempt, picker output and switch value: never the nightly-only runners.
+        rng = random.Random(20261105)
+        for name, job in JOBS.items():
+            if job.get("uses") or not RELEASE_SECRET.search(json.dumps(job)):
+                continue
+            for source in sources(job):
+                for _ in range(300):
+                    event = rng.choice(("push", "schedule", "workflow_dispatch"))
+                    mode = {**MODE, "vars.CI_CLASSIC_NIGHTLY_MINI": rng.choice((MINI, "", BLACKSMITH))}
+                    value, _ = resolve(source, rng, rng.choice(("refs/heads/main", "refs/heads/rc/1.2")), event, mode)
+                    self.assertNotIn(value, (MINI, BUILDER), name)
+                    self.assertFalse(str(value).startswith("glaeda-nightly-"), (name, value))
+
+    def test_a_signer_job_holds_the_whole_mac_before_any_credential(self) -> None:
+        import test_signing_runner_claim as claim  # noqa: PLC0415
+        self.assertFalse(SECRET.search(json.dumps(WORKFLOW.get("env") or {})), "workflow env names a secret")
+        for name in SIGNER_JOBS:
+            job = JOBS[name]
+            steps = job["steps"]
+            with self.subTest(job=name):
+                first = steps[0]
+                self.assertEqual((first.get("id"), first.get("name")), (claim.CLAIM_GATE_ID, claim.CLAIM_GATE_NAME))
+                self.assertEqual(str(first.get("run", "")).strip(), claim.CLAIM_GATE.strip())
+                self.assertNotIn("if", first, "the gate is unconditional")
+                self.assertFalse(SECRET.search(json.dumps(job.get("env") or {})), "job env names a secret")
+                claims = [i for i, step in enumerate(steps) if CLAIM_SCRIPT in str(step.get("run", ""))]
+                secrets = [i for i, step in enumerate(steps) if SECRET.search(json.dumps(step))]
+                self.assertTrue(claims and secrets, (claims, secrets))
+                self.assertLess(claims[0], secrets[0], "the claim script runs before the first step with a secret")
+                self.assertNotIn("if", steps[claims[0]], "the claim script is unconditional")
+                text = json.dumps(steps)
+                if "signing-keychain.sh create" in text:
+                    self.assertTrue(any("always()" in str(step.get("if", "")) and
+                                        "signing-keychain.sh delete" in str(step.get("run", "")) for step in steps),
+                                    "an always() step deletes the keychain")
+
+    def test_a_mini_job_reads_no_secret_in_this_mode(self) -> None:
+        # The nightly-only runners share cmux15 with every other nightly job: a secret there could outlive the job.
+        rng = random.Random(5323)
+        for name, job in JOBS.items():
+            if job.get("uses") or name in KEPT | SIGNER_JOBS | OPEN_SECRETS:
+                continue
+            self.assertFalse(SECRET.search(json.dumps({k: v for k, v in job.items() if k != "steps"})), name)
+            for step in job.get("steps") or []:
+                if not SECRET.search(json.dumps(step)):
+                    continue
+                condition = str(step.get("if", "")).strip()
+                with self.subTest(job=name, step=step.get("name")):
+                    self.assertTrue(condition, "a step with a secret on the mini needs an if that is false here")
+                    expression = condition.removeprefix("${{").removesuffix("}}")
+                    for _ in range(50):
+                        event = rng.choice(("push", "schedule", "workflow_dispatch"))
+                        context = {**sample(expression, rng, "refs/heads/main", event), **MODE}
+                        context.update({"steps.route-token.outcome": rng.choice(("failure", "success", ""))})
+                        self.assertFalse(evaluate(parse_expression(expression), context), context)
 
     def test_a_mini_job_has_room_for_the_capacity_wait(self) -> None:
         # glaeda's job-started hook on cmux15 waits for capacity inside "Set up runner" with no limit, and the wait
@@ -179,8 +268,9 @@ class ClassicNightlyOneMini(unittest.TestCase):
                 continue
             for source in sources(job):
                 for _ in range(50):
-                    value, _ = resolve(source, rng, "refs/heads/main", "push", off)
-                    self.assertNotEqual(value, MINI, name)
+                    event = rng.choice(("push", "schedule", "workflow_dispatch"))
+                    value, _ = resolve(source, rng, "refs/heads/main", event, off)
+                    self.assertNotIn(value, CMUX15, name)
 
     def test_an_rc_push_keeps_its_route(self) -> None:
         # cmux15's nightly-only runners refuse an rc/** ref.
@@ -192,7 +282,7 @@ class ClassicNightlyOneMini(unittest.TestCase):
                 for ref, event in (("refs/heads/rc/1.2", "push"), ("refs/heads/rc/1.2", "workflow_dispatch")):
                     for _ in range(30):
                         value, _ = resolve(source, rng, ref, event, MODE)
-                        self.assertNotEqual(value, MINI, (name, ref, event))
+                        self.assertNotIn(value, CMUX15, (name, ref, event))
 
     def test_the_variables_hold_only_the_mini_labels(self) -> None:
         sys.path.insert(0, str(ROOT / "scripts/ci"))
