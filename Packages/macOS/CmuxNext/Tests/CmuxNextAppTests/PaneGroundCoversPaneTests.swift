@@ -210,7 +210,7 @@ struct PaneGroundCoversPaneTests {
 
     /// (c) Cmd-W on the middle of three split panes; (d) on the middle of three columns. At every tick the closed pane's
     /// place is covered by panes (the closing one shrinking on its neighbours' spring) beyond the gap it rests at.
-    @Test
+    @Test(arguments: [false, true])
     func aCloseLeavesNoHoleWhereThePaneWas(columns: Bool) throws {
         let layout: ScreenLayout = columns
             ? .columns([LayoutColumn(id: "c0", width: 1.0 / 3, root: .leaf("p1")), LayoutColumn(id: "c1", width: 1.0 / 3, root: .leaf("p2")),
