@@ -12,8 +12,7 @@ const spawn = (id: string, parent: string | null): Step => ({
   update: { sessionUpdate: "subagent_spawned" },
   acpmux: { subagents: [{ id, parent, name: `Sample ${id}` }] },
 });
-const text = (kind: string, value: string) =>
-  own({ sessionUpdate: kind, content: { type: "text", text: value } });
+const text = (kind: string, value: string) => own({ sessionUpdate: kind, content: { type: "text", text: value } });
 const tool = (id: string, extra: Record<string, unknown> = {}) =>
   own({
     sessionUpdate: "tool_call",
@@ -45,10 +44,7 @@ test("child views preserve call generations, match cold replay and keep old snap
     tool("second", { status: "in_progress" }),
     text("agent_message_chunk", "First pass finished."),
     spawn("nested", "parent"),
-    own(
-      { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Nested sample." } },
-      "nested",
-    ),
+    own({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Nested sample." } }, "nested"),
     own({
       sessionUpdate: "tool_call_update",
       toolCallId: "second",
@@ -97,9 +93,7 @@ test("child views preserve call generations, match cold replay and keep old snap
     ["echo reused", undefined],
   ]);
   expect(
-    activity.items
-      ?.filter((item) => item.tool?.id === "hidden")
-      .every((item) => isCompletedPlumbingTool(item.tool)),
+    activity.items?.filter((item) => item.tool?.id === "hidden").every((item) => isCompletedPlumbingTool(item.tool)),
   ).toBe(true);
   expect(activity.items?.find((item) => item.tool?.id === "second")?.tool?.output).toBe("done");
   feed(
@@ -114,9 +108,10 @@ test("child views preserve call generations, match cold replay and keep old snap
   expect(after).not.toBe(before);
   expect(after.find((row) => row.id === activity.id)).toBe(activity);
   expect(JSON.stringify(published)).toBe(frozen);
-  expect(
-    after.find((row) => row.kind === "subagents")?.subagents?.map((agent) => agent.state),
-  ).toEqual(["completed", "failed"]);
+  expect(after.find((row) => row.kind === "subagents")?.subagents?.map((agent) => agent.state)).toEqual([
+    "completed",
+    "failed",
+  ]);
   expect(fold.views().parent).toBe(after);
 });
 
@@ -162,15 +157,9 @@ test("a subagent's background shell that ended reads ended in its view, never ru
   );
   const view = fold.views().parent!;
   expect(running(view)).toEqual([]);
-  const call = view
-    .flatMap((row) => row.items ?? [])
-    .find((item) => item.tool?.id === "watch")?.tool;
+  const call = view.flatMap((row) => row.items ?? []).find((item) => item.tool?.id === "watch")?.tool;
   expect(call?.background?.state).toBe("stopped");
   // A late running update leaves it ended.
-  feed(
-    fold,
-    own({ sessionUpdate: "background_task_update", toolCallId: "watch", state: "running" }),
-    steps.length + 2,
-  );
+  feed(fold, own({ sessionUpdate: "background_task_update", toolCallId: "watch", state: "running" }), steps.length + 2);
   expect(running(fold.views().parent!)).toEqual([]);
 });

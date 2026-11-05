@@ -98,15 +98,9 @@ export const ToolRunSteps = memo(function ToolRunSteps({
     <InStep.Provider value>
       <div className="cv-tool-group is-flat cv-steps" data-mixed-tool-steps>
         {shownSummaries.map(({ kind, items: groupItems }, index) => {
-          const files =
-            kind === "edits" ? toolFiles(groupCalls(groupItems).map((item) => item.tool!)) : [];
+          const files = kind === "edits" ? toolFiles(groupCalls(groupItems).map((item) => item.tool!)) : [];
           return (
-            <button
-              key={`${kind}:${index}`}
-              type="button"
-              className="cv-tool is-toggle is-run"
-              aria-expanded="true"
-            >
+            <button key={`${kind}:${index}`} type="button" className="cv-tool is-toggle is-run" aria-expanded="true">
               <span className="cv-tool__text" data-find-skip>
                 <ToolLabel
                   whole
@@ -123,8 +117,7 @@ export const ToolRunSteps = memo(function ToolRunSteps({
           );
         })}
         {items.map((item, at) => {
-          const thoughtId =
-            item.tool || item.kind === "note" ? "" : `${rowId}:thought:${thoughts++}`;
+          const thoughtId = item.tool || item.kind === "note" ? "" : `${rowId}:thought:${thoughts++}`;
           const id = item.tool?.id || thoughtId;
           const key = seen.has(id) ? `${id}:${at}` : id;
           seen.add(id);
