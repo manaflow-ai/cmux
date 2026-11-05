@@ -126,7 +126,7 @@ def main():
     compiled = time.time()
     target = argv[argv.index("-target") + 1]
     sdk = argv[argv.index("-sdk") + 1] if "-sdk" in argv else None
-    name = f"patch-{int(time.time())}-{os.getpid()}.dylib"
+    name = f"patch-{time.time_ns()}-{os.getpid()}.dylib"  # unique and in order, even for two saves in a second
     dylib = os.path.join(work, name)
     # The swiftc beside the build's frontend: the same toolchain compiles and links.
     swiftc = os.path.join(os.path.dirname(frontend[0]), "swiftc")

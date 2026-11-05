@@ -582,6 +582,8 @@ def start_locked(args, path, ident, tag, root):
     # The person's edits since the live build compiled: in right away, then every save (watch).
     patchable, waiting = changed_sources(load_sources(built_from), swift_sources(args.tree))
     applied = apply_edits(args.tree, entry, patchable)
+    if applied["exit"]:
+        waiting = sorted(set(waiting) | set(patchable))  # did not compile: they wait for the stop build
     write_state(root, {**state, "waiting": waiting})
     watcher = detach(["watch", "--tag", tag, "--tree", str(args.tree)], root, quiet=True)
     return {**state, **result, "built_s": built_s, "setting": setting, "edits": applied, "waiting": waiting,
@@ -648,6 +650,8 @@ def watch(args):
     state = read_state(root)
     tree, entry = Path(state.get("tree") or args.tree), Path(state.get("entry") or "")
     seen = swift_sources(tree)
+    # Files whose last patch did not compile: they wait for the stop build until a save compiles.
+    refused = {f for f in state.get("waiting") or [] if f.startswith(f"{SOURCES}/{PATCHED_MODULE}/")}
     built_tree, last_save = None, time.monotonic()
     started = time.monotonic()
     while time.monotonic() - started < WATCH_MAX_S:
@@ -662,10 +666,13 @@ def watch(args):
         if patchable or waiting:
             last_save = time.monotonic()
             applied = apply_edits(tree, entry, patchable)
+            refused = (refused | set(patchable)) if applied["exit"] else (refused - set(patchable))
             print(f"{now()} saved {len(patchable) + len(waiting)} file(s): patch exit {applied['exit']}"
                   + (f"; waiting for the stop build: {', '.join(waiting)}" if waiting else ""), flush=True)
             # What waits is what differs from the live build now: a reverted file no longer waits.
-            still = changed_sources(load_sources(entry / "sources.json"), now_sources)[1]
+            patchable_now, waiting_now = changed_sources(load_sources(entry / "sources.json"), now_sources)
+            refused &= set(patchable_now)  # a reverted file no longer waits
+            still = sorted(set(waiting_now) | refused)
             if still != (state.get("waiting") or []):
                 try:
                     with SwapLock(root):  # never over a start or stop's state
