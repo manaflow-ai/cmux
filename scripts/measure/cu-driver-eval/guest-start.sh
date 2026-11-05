@@ -50,5 +50,5 @@ for attempt in $(seq 1 24); do
   sleep 5
 done
 echo "guest-start.sh: launchctl bootstrap gui/$uid failed $attempt times; the session as it stands:" >&2
-{ stat -f 'console owner %Su' /dev/console; who; pgrep -lu "$uid" | head -30; sudo -n launchctl print "gui/$uid" 2>&1 | head -15; } >&2
+{ stat -f 'console owner %Su' /dev/console; who; pgrep -lu "$uid" | head -30; sudo -n launchctl print "gui/$uid" 2>&1 | head -15; } >&2 || true
 sudo -n launchctl bootstrap "gui/$uid" "$tree/agent.plist" # once more, with its error shown
