@@ -342,6 +342,108 @@ def build_stack(root, name, variant):
     return base
 
 
+# The touching-ground films (3e.3): terminal A's ground strip runs on into another ground of the same color with no shell
+# between (#00FFFF: the fixture's terminal ground), past A's own pane edge.
+#   touch-close: A | B | C (terminals A and B, page C), every pane touching the next with no shell band (as the columns
+#     of ab-s3d-base-154073f px-close-column-c3-s1r-s1: A's right ground meets B's left ground). B closes over samples
+#     10-29 while A grows over it; from sample 30 B is gone and A touches C.
+#   ground-touch: A | band | P | band | C at rest; P closes over samples 10-29: its slot shows only its ground (S3d
+#     `closing` key, not a pane row), A grows into it and touches it with no band, A's picture not yet redrawn for its new
+#     grid (its fill runs to its view's last whole cell, no right ring), from sample 30 A redrawn at its new width.
+#   page-late: A | C (page C touching terminal A, no band); A shrinks 2 px per sample over samples 10-29 and C grows into
+#     its place; frames 15-18 show A and C one sample late (A's ground runs 2 px past A's pane edge, into C's rect).
+TG_B, TG_P = 160, 60        # B's and P's widths at rest (device px; B wide enough to show its fill)
+
+
+def tg_widths(k, variant):
+    """(A's width, the closing pane's or ground's width) in sample k (device px)."""
+    if variant == "page-late":
+        return float(A_REST - 2 * min(max(k - MOVE[0] + 1, 0), MOVE[1] - MOVE[0])), 0.0
+    full = TG_B if variant == "touch-close" else TG_P
+    if k < MOVE[0]:
+        return float(A_REST if variant == "touch-close" else A_REST), float(full)
+    gone = min(k - MOVE[0] + 1, MOVE[1] - MOVE[0]) / (MOVE[1] - MOVE[0])
+    grow = full * gone + (0 if variant == "touch-close" else DIV_PX * gone)
+    return float(A_REST + grow), float(full * (1 - gone))
+
+
+def tg_frame(k, variant):
+    s = min(max(k - 1 - (1 if variant == "page-late" and 15 <= k <= 18 else 0), 0), N - 1)
+    aw, cw = tg_widths(s, variant)
+    img = np.zeros((H, W, 3), np.uint8)
+    img[:] = MAGENTA
+    a = int(round(aw))
+    closing = variant == "ground-touch" and MOVE[0] <= s < MOVE[1]
+    if closing:
+        draw_tui(img, 0, a, picture_w=a + 8 * CW)  # the old grid: no right ring, fill to the last whole cell
+    else:
+        draw_tui(img, 0, a)
+    x = a
+    if variant in ("touch-close", "page-late"):
+        if cw >= 1:
+            draw_tui_at(img, x, int(round(cw)), BLUE)  # B, touching A
+        x += int(round(cw))
+        draw_page(img, x, W - x)  # C, touching B (or A)
+        return img
+    else:
+        if s < MOVE[0]:
+            x += DIV_PX
+            draw_tui_at(img, x, int(round(cw)), BLUE)  # P at rest, its own band on both sides
+            x += int(round(cw))
+        elif closing and cw >= 1:
+            img[:, x:x + int(round(cw))] = CYAN  # P's closing ground, touching A
+            x += int(round(cw))
+    draw_page(img, x + DIV_PX, W - x - DIV_PX)
+    return img
+
+
+def build_touch(root, name, variant):
+    base = Path(root) / name
+    header = {"width": W, "height": H, "rows": ROWS, "columns": COLS, "format": "BGRA", "time": "float64-le host seconds"}
+    with open(f"{base}.mov.scan", "wb") as out:
+        out.write(json.dumps(header).encode() + b"\n")
+        for k in range(N):
+            px = bgra(tg_frame(k, variant))
+            out.write(struct.pack("<d", T0 + k * P))
+            for y in ROWS:
+                out.write(px[y].tobytes())
+            for x in COLS:
+                out.write(px[:, x].tobytes())
+    samples = []
+    for k in range(N):
+        aw, cw = (v / SCALE for v in tg_widths(k, variant))
+        a = ["pa", 0, 0, aw, 150, 1, 0, 0, 0, aw, 150, aw, 150, 0, 0, 0, aw, 150]
+        panes, closing_key, x = [a], None, aw
+        if variant in ("touch-close", "page-late"):
+            if cw > 0:
+                panes.append(["pb", x, 0, cw, 150, 1, 1, x, 0, cw, 150, cw, 150, 0, x, 0, cw, 150])
+            x += cw
+        elif k < MOVE[0]:
+            x += DIV_PX / SCALE
+            panes.append(["pp", x, 0, cw, 150, 1, 1, x, 0, cw, 150, cw, 150, 0, x, 0, cw, 150])
+            x += cw
+        elif k < MOVE[1]:
+            closing_key = [["pp", x, 0, cw, 150, 1, 2]]
+            x += cw
+        cx = x + (0 if variant in ("touch-close", "page-late") else DIV_PX / SCALE)
+        panes.append(["pc", cx, 0, 300 - cx, 150, 1, 2, cx, 0, 300 - cx, 150, 300 - cx, 150, 0, cx, 0, 300 - cx, 150])
+        # touch-close: the divider's rect straddles the touching panes' edge (a hit area under them, as the app's).
+        dx = x - DIV_PX / SCALE / 2 if variant in ("touch-close", "page-late") else x
+        samples.append({"t": k * P * 1000, "window": [300, 150], "panes": panes,
+                        "dividers": [["d0", dx, 0, DIV_PX / SCALE, 150, 1, 2]], "page": [],
+                        **({"closing": closing_key} if closing_key else {})})
+    Path(f"{base}.trace.json").write_text(json.dumps({"t0_s": T0 - 0.001, "refresh_ms": P * 1000, "samples": samples}))
+    note = {"scale": SCALE, "panes": {"pa": {"kind": "tui", "fill": "#FFFF00", "label": "p0"},
+                                      "pb": {"kind": "tui", "fill": "#0000FF", "label": "p1"},
+                                      "pp": {"kind": "tui", "fill": "#0000FF", "label": "p1"},
+                                      "pc": {"kind": "page", "fill": "#00FF00", "label": "p2"}},
+            "speed": 1, "reduce": False, "input": "drag", "window_frame": [WINDOW_X, 50, 300, 150], "page_backdrop": False}
+    Path(f"{base}.events.json").write_text(json.dumps({"hid": [], "journal": []}))
+    meta = {"start": {"width": W, "height": H, "scale": SCALE, "rows": ROWS, "columns": COLS}, "notes": {"pixel": note}}
+    Path(f"{base}.meta.json").write_text(json.dumps(meta))
+    return base
+
+
 def bgra(img):
     return np.concatenate((img[..., ::-1], np.full(img.shape[:-1] + (1,), 255, np.uint8)), axis=-1)
 
@@ -1377,6 +1479,90 @@ class RepeatedFrameTests(unittest.TestCase):
         r = self.reports["strip-repeat"]
         self.assertEqual(r["repeats"]["late"], [20])
         self.assertEqual((r["m6"]["late_as_a_whole"], r["m6"]["late_as_a_whole_ranges"]), (1, "20"))
+
+
+class TouchingGroundTests(unittest.TestCase):
+    """3e.3 (pixel-perfect, 2026-11-04): a terminal's ground strip that runs on into another ground of the same color with
+    no shell between, past the terminal's own pane edge (the next pane's cell or a closing pane's ground starts there,
+    in the shown sample), is not judged there: the edge between two grounds of one color is not in the pixels (never a
+    pass, and never the trace's edge taken as the content's). Where it does not touch, the side is judged as before.
+    Facts: ab-s3d-pr3-2f13aa4 px-close-pane-3t-s1r-s1 (p0's edge read at the closing ground's far end: E3 20, E4 33)
+    and ab-s3d-base-154073f px-close-column-c3-s1r-s1 (p0's rest offset took p1's padding: E3 at rest after the close,
+    60-63 frames)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp(prefix="judge-pixel-touch-")
+        cls.reports = {v: jp.judge(build_touch(cls.tmp, v, v), all_frames=True)
+                       for v in ("touch-close", "ground-touch", "page-late")}
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def terminal(self, variant):
+        return self.reports[variant]["m6"]["kinds"]["terminal"]
+
+    def touching(self, variant, label, which, frames):
+        """The frames of FRAMES where LABEL's WHICH side on row@110 is not judged because its ground touches another's."""
+        got = entries(self.reports[variant], label, "row@110", which)
+        return {f for f in frames if got.get(f, {}).get("status") == "not found" and got[f].get("why") == jp.TOUCH_NOT_JUDGED}
+
+    def test_a_neighbours_touching_ground_is_not_the_terminals(self):
+        # touch-close: at rest A's right ground meets B's left ground; after B's close A touches C. 3e.1 took B's padding
+        # into A's rest offset: A's right edge read off in every frame from the close on.
+        t = self.terminal("touch-close")
+        self.assertEqual(t["fail"], 0, t)
+        hi = side(self.reports["touch-close"], "p0", "row@110", "hi")
+        self.assertEqual(hi["off_ranges"], "", hi)
+        # While A's ground meets B's (at rest and while B closes), A's right side is not judged, for that reason.
+        meets = set(range(0, MOVE[0])) | set(range(MOVE[0] + 2, MOVE[1]))
+        self.assertEqual(self.touching("touch-close", "p0", "hi", meets), meets)
+        # m6 says so: those edges are counted as not judged, with their frames (never a pass, never silent).
+        self.assertLessEqual(meets, jp_frames(t["touch_not_judged_ranges"]), t)
+        self.assertGreaterEqual(t["touch_not_judged"], len(meets), t)
+        # Once B is gone, A's ground ends at C's ring (no ground of A's color beyond): judged, on A's pane edge.
+        got = entries(self.reports["touch-close"], "p0", "row@110", "hi")
+        after = range(MOVE[1] + 2, N)
+        self.assertEqual({f for f in after if got.get(f, {}).get("status") == "found"}, set(after))
+        self.assertLess(max(abs(got[f]["edge_dev"]) for f in after), TOL_TEST_PX)
+
+    def test_a_terminal_touching_a_closing_ground_is_not_judged_there(self):
+        # ground-touch: A grows into P's closing ground with no band between; A's fill runs to its view's last cell and
+        # its ground on into P's. 3e.1 read A's right edge at the closing ground's far end (up to + P's width).
+        hi = side(self.reports["ground-touch"], "p0", "row@110", "hi")
+        self.assertEqual(hi["off_ranges"], "", hi)
+        self.assertLess(abs(hi["max_edge_dev_px"]), TOL_TEST_PX, hi)
+        closing = set(range(MOVE[0] + 2, MOVE[1]))
+        self.assertEqual(self.touching("ground-touch", "p0", "hi", closing), closing)
+        # At rest (P behind its own shell band) and after P's close (A's band before C), A's right side is judged.
+        got = entries(self.reports["ground-touch"], "p0", "row@110", "hi")
+        judged = set(range(0, MOVE[0])) | set(range(MOVE[1] + 2, N))
+        self.assertEqual({f for f in judged if got.get(f, {}).get("status") == "found"}, judged)
+
+    def test_a_shrinking_edge_whose_ground_runs_into_a_neighbours_is_not_judged(self):
+        # touch-close: B's left edge moves right while B closes, and its ground runs on into A's: a lag of B's content would
+        # show only as more of the same color past B's edge, so that edge is not judged there (never a pass).
+        lo = side(self.reports["touch-close"], "p1", "row@110", "lo")
+        self.assertGreaterEqual(len(jp_frames(lo["not_found_ranges"]) & set(range(MOVE[0] + 2, MOVE[1]))), 15, lo)
+        # While B still shows its fill on the line (to frame 15; then its rings fill its narrow view), for that reason.
+        shows_fill = set(range(MOVE[0] + 2, MOVE[0] + 6))
+        self.assertEqual(self.touching("touch-close", "p1", "lo", shows_fill), shows_fill)
+
+    def test_a_terminals_ground_past_its_edge_into_a_page_is_its_own(self):
+        # page-late: a page never shows the ground color (rings, then its fill), so A's ground past A's pane edge into C's
+        # rect is A's: frames 15-18 are judged, one frame late (lag 1), never "not judged" (cmux22 S7 window resize:
+        # px-window-resize-4-sw-liveresize-motion-off-reduce frames 155-174, p0's late ground into p1's page rect).
+        # (Frame 15 repeats frame 14: 3e.5 reads it with frame 14's sample, late as a whole.)
+        got = entries(self.reports["page-late"], "p0", "row@110", "hi")
+        late = range(15, 19)
+        self.assertEqual({f: got[f]["status"] for f in late}, {f: "found" for f in late})
+        self.assertEqual({f: got[f].get("lag") for f in range(16, 19)}, {f: 1 for f in range(16, 19)})
+        self.assertEqual(self.touching("page-late", "p0", "hi", range(N)), set())
+        self.assertEqual(self.terminal("page-late").get("touch_not_judged", 0), 0)
+
+
+TOL_TEST_PX = 1.0
 
 
 def jp_frames(ranges):
