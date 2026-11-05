@@ -487,7 +487,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
 
     /// How long a still screen goes without a frame before the host sends
     /// the last one again (it was 500 ms).
-    static let keepAliveMilliseconds: UInt64 = 1000
+    static let keepAliveMilliseconds: UInt64 = 500
 
     /// What the keep-alive sends: the newest picture the source held back as
     /// unchanged (it may show a cursor the skip gate missed), else the last
