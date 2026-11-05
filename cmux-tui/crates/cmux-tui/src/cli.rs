@@ -117,6 +117,8 @@ mod screen_help;
 #[cfg(unix)]
 mod script;
 #[cfg(unix)]
+mod remote_host;
+#[cfg(unix)]
 mod setup;
 #[cfg(unix)]
 mod share_cli;
@@ -406,7 +408,7 @@ pub(crate) fn rewrite_deprecated_server_lifecycle(args: &mut Vec<String>) {
 /// agents` answered "unknown resource scope".
 pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "agents", "chats", "harness", "remote", "script", "host", "github", "avatar", "chief", "setup",
-    "device", "workflow",
+    "device", "workflow", "remote-host",
 ];
 
 /// Rewrites `cmux help <scope>` to the scope's own help (`cmux <scope>
@@ -539,6 +541,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| apps_run::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))
+        .or_else(|| remote_host::run_if_requested(args))
         .or_else(|| status::run_args(args))
     {
         return code;

@@ -33,6 +33,7 @@ mod keybinding_tools;
 mod messages;
 mod open_tool;
 mod placement;
+mod remote_tools;
 mod render_tool;
 mod schema;
 mod settings_tools;
@@ -177,6 +178,10 @@ pub(super) trait Backend {
         request: browser_tools::Request,
         mutation: bool,
     ) -> Result<Value, CallFailure>;
+    /// One legacy daemon command (cmux Remote's `remote-host-*`).
+    fn daemon(&self, _request: Value) -> Result<Value, CallFailure> {
+        Err(CallFailure::local(FailureKind::NotRun, "daemon.unavailable", "this server cannot reach the daemon"))
+    }
     /// One harness-agnostic agent dispatch request. The acpmux daemon owns
     /// target selection, brief persistence and sender attribution; this
     /// surface deliberately carries no shell command or remote path.
@@ -342,6 +347,14 @@ impl Backend for LiveBackend {
             error,
             idempotency_key: idempotency_key.map(str::to_owned),
         })
+    }
+
+    #[cfg(unix)]
+    fn daemon(&self, mut request: Value) -> Result<Value, CallFailure> {
+        if let Some(fields) = request.as_object_mut() {
+            fields.insert("id".into(), json!(1));
+        }
+        super::remote_host::daemon_value(&self.global, &request).map_err(remote_tools::daemon_failure)
     }
 
     fn resource(
@@ -800,6 +813,7 @@ impl<B: Backend> Server<B> {
         tools.push(render_tool::descriptor());
         tools.push(open_tool::descriptor());
         tools.extend(video_tools::descriptors());
+        tools.extend(remote_tools::TOOLS.iter().map(remote_tools::RemoteTool::descriptor_json));
         tools
             .extend(settings_tools::TOOLS.iter().map(settings_tools::SettingTool::descriptor_json));
         tools.extend(automation_tools::descriptors());
@@ -1052,6 +1066,9 @@ impl<B: Backend> Server<B> {
         }
         if let Some(result) = automation_tools::call(&self.backend, name, &arguments) {
             return Ok(result);
+        }
+        if let Some(tool) = remote_tools::find(name) {
+            return Ok(tool.call(&self.backend, &arguments));
         }
         if let Some(tool) = keybinding_tools::find(name) {
             return Ok(match tool.params(&arguments) {

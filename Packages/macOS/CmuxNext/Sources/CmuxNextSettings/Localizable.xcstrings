@@ -64411,6 +64411,399 @@
         }
       }
     },
+    "settings.remote.enabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدام cmux Remote"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koristi cmux Remote"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug cmux Remote"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote verwenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use cmux Remote"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar cmux Remote"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utiliser cmux Remote"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa cmux Remote"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote を使用"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រើ cmux Remote"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote 사용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk cmux Remote"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Używaj cmux Remote"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar o cmux Remote"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использовать cmux Remote"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้ cmux Remote"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote’u Kullan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використовувати cmux Remote"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dùng cmux Remote"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用 cmux Remote"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用 cmux Remote"
+          }
+        }
+      }
+    },
+    "settings.remote.enabled.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتفظ cmux Remote بإذنَي تسهيلات الاستخدام وتسجيل الشاشة لـComputer Use (برنامج التشغيل Upstream) ومشاركة الشاشة، لذا لا يحتاج منح الإذن أبدًا إلى إعادة التشغيل. يُطبَّق عند إعادة تشغيل cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote drži Pristupačnost i Snimanje ekrana za Computer Use (Upstream upravljački program) i Dijeljenje ekrana, pa dozvola nikada ne zahtijeva ponovno pokretanje. Primjenjuje se kada se cmux ponovo pokrene."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote har Tilgængelighed og Skærmoptagelse til Computer Use (Upstream-driver) og Skærmdeling, så en tilladelse aldrig kræver en genstart. Træder i kraft, når cmux genstarter."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote hält Bedienungshilfen und Bildschirmaufnahme für Computer Use (Upstream-Treiber) und Bildschirmfreigabe, sodass eine erteilte Berechtigung nie einen Neustart erfordert. Wird beim Neustart von cmux wirksam."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote holds Accessibility and Screen Recording for Computer Use (Upstream driver) and Screen Sharing, so a grant never needs a relaunch. Applies when cmux restarts."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote mantiene Accesibilidad y Grabación de pantalla para Computer Use (controlador Upstream) y Compartir pantalla, así que un permiso nunca requiere reiniciar. Se aplica cuando cmux se reinicia."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote détient l’Accessibilité et l’Enregistrement de l’écran pour Computer Use (pilote Upstream) et le Partage d’écran : une autorisation ne demande donc jamais de relance. S’applique au redémarrage de cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote mantiene Accessibilità e Registrazione schermo per Computer Use (driver Upstream) e Condivisione schermo, così un permesso non richiede mai un riavvio. Si applica al riavvio di cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote が Computer Use（Upstream ドライバー）と画面共有のためのアクセシビリティと画面収録の許可を保持するため、許可後に再起動する必要はありません。cmux の再起動時に適用されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote រក្សាការអនុញ្ញាត ភាពងាយស្រួល និង ការថតអេក្រង់ សម្រាប់ Computer Use (កម្មវិធីបញ្ជា Upstream) និង ការចែករំលែកអេក្រង់ ដូច្នេះការអនុញ្ញាតមិនដែលត្រូវការបើកឡើងវិញទេ។ មានប្រសិទ្ធភាពពេល cmux ចាប់ផ្ដើមឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote가 Computer Use(Upstream 드라이버)와 화면 공유에 필요한 손쉬운 사용 및 화면 기록 권한을 보유하므로, 권한을 허용한 후 다시 실행할 필요가 없습니다. cmux를 다시 시작하면 적용됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote har Tilgjengelighet og Skjermopptak for Computer Use (Upstream-driver) og Skjermdeling, så en tillatelse aldri krever omstart. Gjelder når cmux startes på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote przechowuje uprawnienia Dostępność i Nagrywanie ekranu dla Computer Use (sterownik Upstream) i funkcji Udostępnianie ekranu, więc przyznanie uprawnienia nigdy nie wymaga ponownego uruchomienia. Obowiązuje po ponownym uruchomieniu cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux Remote mantém Acessibilidade e Gravação de Tela para o Computer Use (driver Upstream) e o Compartilhamento de Tela, então uma permissão nunca exige reabrir o app. Aplica-se quando o cmux reinicia."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote хранит разрешения «Универсальный доступ» и «Запись экрана» для Computer Use (драйвер Upstream) и функции «Общий экран», поэтому после выдачи разрешения перезапуск не нужен. Применяется после перезапуска cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote ถือสิทธิ์การช่วยการเข้าถึงและการบันทึกหน้าจอสำหรับ Computer Use (ไดรเวอร์ Upstream) และการแชร์หน้าจอ จึงไม่ต้องเปิดใหม่หลังให้สิทธิ์ มีผลเมื่อ cmux เริ่มใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote, Computer Use (Upstream sürücüsü) ve Ekran Paylaşma için Erişilebilirlik ve Ekran Kaydı izinlerini tutar; böylece bir izin hiçbir zaman yeniden başlatma gerektirmez. cmux yeniden başladığında uygulanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote утримує дозволи «Доступність» і «Запис екрана» для Computer Use (драйвер Upstream) і функції «Спільний екран», тож після надання дозволу перезапуск не потрібен. Застосовується після перезапуску cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote giữ quyền Trợ năng và Ghi màn hình cho Computer Use (trình điều khiển Upstream) và Chia sẻ màn hình, nên cấp quyền không bao giờ cần mở lại. Áp dụng khi cmux khởi động lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote 为 Computer Use（Upstream 驱动）和屏幕共享持有辅助功能和屏幕录制权限，因此授权后无需重新启动。在 cmux 重新启动后生效。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote 為 Computer Use（Upstream 驅動程式）和螢幕共享持有輔助使用與螢幕錄製權限，因此授權後無需重新啟動。在 cmux 重新啟動後生效。"
+          }
+        }
+      }
+    },
+    "settings.remote.enabled.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مساعد واحد يحتفظ بأذونات Computer Use ومشاركة الشاشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jedan pomoćnik drži dozvole za Computer Use i Dijeljenje ekrana"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Én hjælper har tilladelserne til Computer Use og Skærmdeling"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Helfer hält die Berechtigungen für Computer Use und Bildschirmfreigabe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One helper holds Computer Use and Screen Sharing permissions"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un solo asistente tiene los permisos de Computer Use y Compartir pantalla"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un seul assistant détient les autorisations de Computer Use et du Partage d’écran"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un solo helper detiene i permessi di Computer Use e Condivisione schermo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1つのヘルパーが Computer Use と画面共有の許可を保持"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្មវិធីជំនួយតែមួយរក្សាការអនុញ្ញាត Computer Use និងការចែករំលែកអេក្រង់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하나의 도우미가 Computer Use 및 화면 공유 권한 보유"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Én hjelper har tillatelsene for Computer Use og Skjermdeling"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jeden pomocnik przechowuje uprawnienia Computer Use i Udostępniania ekranu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um único auxiliar mantém as permissões do Computer Use e do Compartilhamento de Tela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Один помощник хранит разрешения Computer Use и общего экрана"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตัวช่วยตัวเดียวถือสิทธิ์ของ Computer Use และการแชร์หน้าจอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tek bir yardımcı Computer Use ve Ekran Paylaşma izinlerini tutar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Один помічник утримує дозволи Computer Use і спільного екрана"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Một trình trợ giúp giữ quyền cho Computer Use và Chia sẻ màn hình"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由一个辅助程序持有 Computer Use 和屏幕共享权限"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由一個輔助程式持有 Computer Use 與螢幕共享權限"
+          }
+        }
+      }
+    },
     "settings.tabs.barPosition": {
       "extractionState": "manual",
       "localizations": {
@@ -202685,6 +203078,530 @@
           "stringUnit": {
             "state": "translated",
             "value": "方案用量"
+          }
+        }
+      }
+    },
+    "settings.group.cmuxRemote": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote"
+          }
+        }
+      }
+    },
+    "settings.remote.endSharingOnQuit": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إنهاء المشاركة عند إنهاء cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Završi dijeljenje kada se cmux zatvori"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afslut deling, når cmux afsluttes"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teilen beenden, wenn cmux beendet wird"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "End Sharing When cmux Quits"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dejar de compartir al salir de cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrêter le partage à la fermeture de cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Termina la condivisione quando cmux viene chiuso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux の終了時に共有を終了"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ចប់ការចែករំលែក ពេល cmux បិទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 종료 시 공유 종료"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avslutt deling når cmux avsluttes"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zakończ udostępnianie po zamknięciu cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Encerrar compartilhamento quando o cmux for encerrado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Завершать общий доступ при выходе из cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หยุดแชร์เมื่อออกจาก cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Kapandığında Paylaşmayı Sonlandır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Завершувати спільний доступ після виходу з cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kết thúc chia sẻ khi thoát cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "退出 cmux 时结束共享"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "結束 cmux 時停止共享"
+          }
+        }
+      }
+    },
+    "settings.remote.endSharingOnQuit.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند الإيقاف، يُبقي cmux Remote جهاز Mac هذا متاحًا لأجهزتك ويعرض طلباتها أثناء إنهاء cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada je isključeno, cmux Remote drži ovaj Mac računar dostupnim vašim uređajima i prikazuje njihove zahtjeve dok je cmux zatvoren."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når den er slået fra, holder cmux Remote denne Mac tilgængelig for dine enheder og viser deres anmodninger, mens cmux er afsluttet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ist die Option aus, hält cmux Remote diesen Mac für deine Geräte verfügbar und zeigt ihre Anfragen, während cmux beendet ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off, cmux Remote keeps this Mac available to your devices and shows their requests while cmux is quit."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Si está desactivado, cmux Remote mantiene este Mac disponible para tus dispositivos y muestra sus solicitudes mientras cmux está cerrado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Si l’option est désactivée, cmux Remote garde ce Mac disponible pour vos appareils et affiche leurs demandes lorsque cmux est fermé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se disattivato, cmux Remote mantiene questo Mac disponibile per i tuoi dispositivi e ne mostra le richieste mentre cmux è chiuso."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフにすると、cmux の終了中も cmux Remote がこのMacをお使いのデバイスから利用できる状態に保ち、リクエストを表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពេលបិទជម្រើសនេះ cmux Remote រក្សា Mac នេះឱ្យឧបករណ៍របស់អ្នកអាចប្រើបាន ហើយបង្ហាញសំណើរបស់វា ពេល cmux ត្រូវបានបិទ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끄면 cmux가 종료된 동안에도 cmux Remote가 이 Mac을 내 기기에서 사용할 수 있도록 유지하고 요청을 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når det er av, holder cmux Remote denne Macen tilgjengelig for enhetene dine og viser forespørslene deres mens cmux er avsluttet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Po wyłączeniu cmux Remote utrzymuje tego Maca dostępnego dla Twoich urządzeń i pokazuje ich prośby, gdy cmux jest zamknięty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desativado, o cmux Remote mantém este Mac disponível para seus dispositivos e mostra as solicitações deles enquanto o cmux está encerrado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Если выключено, cmux Remote сохраняет доступ ваших устройств к этому Mac и показывает их запросы, пока cmux закрыт."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หากปิดไว้ cmux Remote จะทำให้อุปกรณ์ของคุณใช้ Mac เครื่องนี้ได้ต่อและแสดงคำขอของอุปกรณ์ขณะที่ออกจาก cmux แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapalıysa cmux Remote, cmux kapalıyken bu Mac’i cihazlarınızın kullanımına açık tutar ve isteklerini gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Якщо вимкнено, cmux Remote залишає цей Mac доступним для ваших пристроїв і показує їхні запити, поки cmux закрито."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nếu tắt, cmux Remote giữ máy Mac này sẵn sàng cho các thiết bị của bạn và hiển thị yêu cầu của chúng khi cmux đã thoát."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭后，退出 cmux 时 cmux Remote 仍让你的设备可以使用这台 Mac，并显示它们的请求。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉後，結束 cmux 時 cmux Remote 仍讓你的裝置可以使用這台 Mac，並顯示它們的要求。"
+          }
+        }
+      }
+    },
+    "settings.remote.endSharingOnQuit.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تنتهي الجلسة عند إنهاء cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesija završava kada se cmux zatvori"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En session slutter, når cmux afsluttes"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine Sitzung endet, wenn cmux beendet wird"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A session ends when cmux quits"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La sesión termina al salir de cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une session se termine quand vous quittez cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La sessione termina quando esci da cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux の終了時にセッションが終了"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "វគ្គបញ្ចប់នៅពេល cmux បិទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux를 종료하면 세션이 종료됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En økt avsluttes når cmux avsluttes"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesja kończy się wraz z zamknięciem cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A sessão termina quando o cmux é encerrado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сеанс завершается при выходе из cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เซสชันจะสิ้นสุดเมื่อออกจาก cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum, cmux kapandığında sona erer"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сеанс завершується після виходу з cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phiên kết thúc khi cmux thoát"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "退出 cmux 时会话即结束"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "結束 cmux 時工作階段即結束"
           }
         }
       }
