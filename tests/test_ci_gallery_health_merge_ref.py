@@ -272,7 +272,7 @@ class GalleryHealthPathRouting(unittest.TestCase):
 
     def test_every_broad_touched_path_triggers_it(self) -> None:
         # touched.ts's EVERYTHING list re-renders every entry; each of its files must start the workflow. The
-        # repository's root bun.lock is the one exception: neither install here (webviews/, scripts/gallery-matrix/)
+        # repository's root bun.lock is the exception: neither install here (webviews/, scripts/gallery-matrix/)
         # reads it.
         source = (ROOT / "webviews/scripts/gallery/touched.ts").read_text(encoding="utf-8")
         block = source[source.index("const EVERYTHING"):source.index("];", source.index("const EVERYTHING"))]
@@ -280,7 +280,9 @@ class GalleryHealthPathRouting(unittest.TestCase):
         self.assertGreater(len(broad), 5)
         paths = triggers()["pull_request"]["paths"]
         files = [path for path in tracked(".") if any(pattern.search(path) for pattern in broad)]
-        missed = [path for path in files if path != "bun.lock" and not triggered(path, paths)]
+        # A unit test beside the gallery (`*.test.ts`) is never bundled, so it renders nothing either.
+        missed = [path for path in files
+                  if path != "bun.lock" and not re.search(r"\.test\.tsx?$", path) and not triggered(path, paths)]
         self.assertEqual(missed, [])
 
     def test_every_file_the_gallery_imports_from_outside_webviews_triggers_it(self) -> None:
