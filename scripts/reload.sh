@@ -1816,6 +1816,9 @@ if [[ "${CMUX_LIVE_CODE_BUILD:-0}" == "1" ]]; then
   live_mode=wholemodule
   [[ "$BUILD_CONFIGURATION" == "Debug" ]] && live_mode=singlefile
   live_ldflags='$(inherited) -Xlinker -no_fixup_chains'
+  # CMUX_LIVE_CODE compiles the watcher in outside Debug and bench (a NIGHTLY live code build),
+  # where it loads only patches signed by the app's own team (PatchSignature.swift).
+  SWIFT_OTHER_FLAGS+=" -DCMUX_LIVE_CODE"
   if [[ -n "${CMUX_LIVE_CODE_INTERPOSABLE_LIST:-}" ]]; then
     live_ldflags+=" -Xlinker -interposable_list -Xlinker $CMUX_LIVE_CODE_INTERPOSABLE_LIST"
   fi

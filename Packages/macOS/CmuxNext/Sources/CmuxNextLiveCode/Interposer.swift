@@ -12,6 +12,7 @@ enum LiveCodeError: Error, CustomStringConvertible {
     case noInterposer
     case nothingToReplace
     case layoutChanged([String])
+    case notOurTeam(String)
 
     var description: String {
         switch self {
@@ -20,6 +21,7 @@ enum LiveCodeError: Error, CustomStringConvertible {
         case .noInterposer: "dyld_dynamic_interpose is not available"
         case .nothingToReplace: "the patch defines no function this build has (built against another build?)"
         case .layoutChanged(let types): "stored properties changed, rebuild instead: \(types.joined(separator: ", "))"
+        case .notOurTeam(let detail): "not signed by this app's team: \(detail)"
         }
     }
 }

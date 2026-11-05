@@ -21,7 +21,7 @@ public final class LiveCode {
     /// patch's signed pointer is checked (cmux#13742).
     public static func fromEnvironment() -> LiveCode {
         let live = LiveCode()
-        #if DEBUG || CMUX_BENCH_HOOKS
+        #if DEBUG || CMUX_BENCH_HOOKS || CMUX_LIVE_CODE
         if let path = ProcessInfo.processInfo.environment["CMUX_LIVE_CODE_DIR"], !path.isEmpty {
             live.watch(LiveFolder(url: URL(fileURLWithPath: path, isDirectory: true)))
         }
@@ -33,7 +33,7 @@ public final class LiveCode {
     /// live folder, ~/Library/Caches/cmux-next/live-code, unless CMUX_LIVE_CODE_DIR already named one.
     /// Off, nothing changes. Debug and bench builds only, as `fromEnvironment`.
     public func labsSwitch(_ on: Bool) {
-        #if DEBUG || CMUX_BENCH_HOOKS
+        #if DEBUG || CMUX_BENCH_HOOKS || CMUX_LIVE_CODE
         guard on, folder == nil else { return }
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Caches")
@@ -137,7 +137,13 @@ public final class LiveCode {
         let path = patch.path
         loading += 1
         Task.detached(priority: .userInitiated) {
-            let loaded = Result { try Interposer.load(path) }
+            let loaded = Result {
+                #if !DEBUG && !CMUX_BENCH_HOOKS
+                // Outside Debug and bench, only a patch signed by this app's team loads (cmux#13742).
+                try PatchSignature.check(path)
+                #endif
+                return try Interposer.load(path)
+            }
             await MainActor.run { self.applyLoaded(loaded, patch: patch, started: started) }
         }
     }
