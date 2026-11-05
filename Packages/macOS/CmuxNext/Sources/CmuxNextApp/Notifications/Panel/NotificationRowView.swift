@@ -31,7 +31,7 @@ final class NotificationRowView: NSView {
         self.callbacks = callbacks
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerRadius = Metrics.space2
+        layer?.cornerRadius = Metrics.insetCornerRadius
         layer?.cornerCurve = .continuous
         translatesAutoresizingMaskIntoConstraints = false
         build(now: now)
@@ -87,7 +87,7 @@ final class NotificationRowView: NSView {
 
     private func build(now: Date) {
         dot.wantsLayer = true
-        dot.layer?.cornerRadius = Metrics.space2 / 2
+        dot.layer?.cornerRadius = Metrics.capsuleRadius(CGSize(width: Metrics.space2, height: Metrics.space2))
         dot.isHidden = !row.unread
         dot.translatesAutoresizingMaskIntoConstraints = false
 

@@ -164,7 +164,7 @@ public final class ShareCmuxView: NSView {
         messageScroll.drawsBackground = false
         messageScroll.borderType = .noBorder
         messageScroll.wantsLayer = true
-        messageScroll.layer?.cornerRadius = 7
+        messageScroll.layer?.cornerRadius = Metrics.controlCornerRadius
         messageScroll.layer?.cornerCurve = .continuous
         messageScroll.translatesAutoresizingMaskIntoConstraints = false
         messageScroll.widthAnchor.constraint(equalToConstant: contentWidth).isActive = true
