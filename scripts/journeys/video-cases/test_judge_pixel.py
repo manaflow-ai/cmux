@@ -491,6 +491,8 @@ def build_touch(root, name, variant):
 #     px-keys-rk-3t-sw-terminals-on-s1 frame 158: one program grid per press).
 #   tui-view-wider: the same picture while A SHRINKS (C grows): the view kept its old, wider size anchored top-left, so
 #     its rings run past the window's edge.
+#   tui-lo-cut (3e.8): A GROWS to the left as in tui-grid, but A's grid sits 60 px left of A's pane: A's pane edge cuts
+#     its left rings, so A's fill runs into the shell at A's lo edge (content pushed past the pane's near edge).
 WE_W = 640                  # scan width (device px); the window is W (600) wide
 DESKTOP = [BLACK] * 17 + [(128, 128, 128)] + [RED] + [(128, 128, 128)] * 3 + [BLACK] * 2 + [(128, 128, 128)] * 16
 
@@ -500,13 +502,18 @@ def we_frame(k, variant):
     aw = a_width(s, "strip")
     img = np.zeros((H, WE_W, 3), np.uint8)
     img[:] = MAGENTA
-    if variant in ("tui-grid", "tui-view-wider"):
-        if variant == "tui-grid":
+    if variant in ("tui-grid", "tui-view-wider", "tui-lo-cut"):
+        if variant in ("tui-grid", "tui-lo-cut"):
             aw = 2 * A_REST - a_width(s, "strip")  # C shrinks while A grows
         draw_page(img, 0, int(round(aw)), y0=STRIP_PX)
         t_x = int(round(aw)) + DIV_PX
-        draw_tui_at(img, t_x, W - t_x, BLUE, y0=STRIP_PX)
-        if MOVE[0] <= s < MOVE[1]:
+        if variant == "tui-lo-cut" and MOVE[0] <= s < MOVE[1]:
+            tmp = np.zeros((H, W + 64, 3), np.uint8)
+            draw_tui_at(tmp, 0, W - t_x + 60, BLUE, y0=STRIP_PX)  # the grid 60 px wider, its left 60 px past A's lo edge
+            img[:, t_x:W] = tmp[:, 60:60 + W - t_x]
+        else:
+            draw_tui_at(img, t_x, W - t_x, BLUE, y0=STRIP_PX)
+        if MOVE[0] <= s < MOVE[1] and variant != "tui-lo-cut":
             img[STRIP_PX + PAD + CH:H - PAD - CH, W - 40:W - 12] = BLUE  # the final grid's inner cells, then its ring 3
             img[STRIP_PX:, W - 12:W] = BLACK
         draw_strip(img, 0, int(round(aw)), 0)
@@ -539,13 +546,13 @@ def build_window_edge(root, name, variant):
                 out.write(px[:, x].tobytes())
     samples = []
     for k in range(N):
-        aw = (2 * A_REST - a_width(k, "strip") if variant == "tui-grid" else a_width(k, "strip")) / SCALE
+        aw = (2 * A_REST - a_width(k, "strip") if variant in ("tui-grid", "tui-lo-cut") else a_width(k, "strip")) / SCALE
         cx = aw + DIV_PX / SCALE
         cy = STRIP_PX / SCALE
         a = ["pa", 0, 0, aw, 150, 1, 0, 0, 0, aw, 150, aw, 150 - cy, 0, 0, cy, aw, 150 - cy]
         cw = 300 - cx + (10 if variant == "pane-past" else 0)  # pane-past: C's pane runs 20 device px past the window
         c = ["pc", cx, 0, cw, 150, 1, 1, cx, 0, cw, 150, cw, 150 - cy, 0, cx, cy, cw, 150 - cy]
-        if variant in ("tui-grid", "tui-view-wider"):  # the page on the left, the terminal on the right
+        if variant in ("tui-grid", "tui-view-wider", "tui-lo-cut"):  # the page on the left, the terminal on the right
             a = ["pa", cx, 0, 300 - cx, 150, 1, 1, cx, 0, 300 - cx, 150, 300 - cx, 150 - cy, 0, cx, cy, 300 - cx, 150 - cy]
             c = ["pc", 0, 0, aw, 150, 1, 0, 0, 0, aw, 150, aw, 150 - cy, 0, 0, cy, aw, 150 - cy]
         samples.append({"t": k * P * 1000, "window": [300, 150], "panes": [a, c],
@@ -556,10 +563,10 @@ def build_window_edge(root, name, variant):
             "speed": 1, "reduce": False, "input": "keys", "window_frame": [WINDOW_X, 50, 300, 150], "page_backdrop": False,
             "lines": {"strip_rows": {"pa": STRIP_ROW, "pc": STRIP_ROW}}}
     a0, c0 = A_REST / SCALE, (A_REST + DIV_PX) / SCALE
-    left, right = ("pc", "pa") if variant in ("tui-grid", "tui-view-wider") else ("pa", "pc")
+    left, right = ("pc", "pa") if variant in ("tui-grid", "tui-view-wider", "tui-lo-cut") else ("pa", "pc")
     note["chrome"] = [{"pane": left, "cell": [0, 0, a0, 150], "strip": [0, 0, a0, 12], "pill": [8, 2, 100, 8]},
                       {"pane": right, "cell": [c0, 0, 300 - c0, 150], "strip": [c0, 0, 300 - c0, 12], "pill": [c0 + 8, 2, 100, 8]}]
-    if variant in ("tui-grid", "tui-view-wider"):
+    if variant in ("tui-grid", "tui-view-wider", "tui-lo-cut"):
         note["panes"]["pa"]["fill"] = "#0000FF"
     Path(f"{base}.events.json").write_text(json.dumps({"hid": [], "journal": []}))
     meta = {"start": {"width": WE_W, "height": H, "scale": SCALE, "rows": rows, "columns": COLS}, "notes": {"pixel": note}}
@@ -1775,6 +1782,7 @@ class WindowEdgeTests(unittest.TestCase):
         cls.far = jp.judge(build_window_edge(cls.tmp, "page-far", "page-far"), all_frames=True)
         cls.grid = jp.judge(build_window_edge(cls.tmp, "tui-grid", "tui-grid"), all_frames=True)
         cls.wider = jp.judge(build_window_edge(cls.tmp, "tui-view-wider", "tui-view-wider"), all_frames=True)
+        cls.lo_cut = jp.judge(build_window_edge(cls.tmp, "tui-lo-cut", "tui-lo-cut"), all_frames=True)
 
     @classmethod
     def tearDownClass(cls):
@@ -1828,6 +1836,16 @@ class WindowEdgeTests(unittest.TestCase):
         self.assertLessEqual(set(moving), jp_frames(t["fail_frames_by_rule"]["E3"]), t)
         self.assertEqual(t["clipped_grid_not_judged"], 0, t)
         self.assertLessEqual(set(moving), jp_frames(self.wider["m14"]["kinds"]["terminal"]["edge_ranges"]))
+
+    def test_a_terminal_grid_cut_on_its_lo_side_fails_even_while_its_pane_grows(self):
+        # a grid is anchored top-left: one program grid per press can only be cut at the view's far (hi) edge; a cut at
+        # the lo edge is content pushed past the pane's near edge, never allowed (review of 9901b18a1b7)
+        got = entries(self.lo_cut, "p0", "row@180", "lo")
+        moving = range(MOVE[0] + 2, MOVE[1])
+        self.assertEqual({got[f]["status"] for f in moving}, {"clipped"})
+        t = self.lo_cut["m6"]["kinds"]["terminal"]
+        self.assertLessEqual(set(moving), jp_frames(t["fail_frames_by_rule"]["E2"]), t)
+        self.assertLessEqual(set(moving), jp_frames(self.lo_cut["m14"]["kinds"]["terminal"]["edge_ranges"]))
 
     def test_a_pane_past_the_window_is_not_judged_there(self):
         page = self.past["m6"]["kinds"]["page"]
