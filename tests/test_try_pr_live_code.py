@@ -25,8 +25,11 @@ BASE_SWIFT = 'struct Greeting {\n    func text() -> String {\n        return "he
 
 # Records the compile (its primaries and their text) and writes each object it was asked for.
 FRONTEND = '''#!/usr/bin/env python3
-import sys
+import os, sys, time
 args = sys.argv[1:]
+if os.environ.get("SLOW_COMPILE"):
+    open(os.environ["SLOW_COMPILE"], "w").close()
+    time.sleep(20)
 prim = args[args.index("-primary-filelist") + 1]
 with open(sys.argv[0] + ".record", "a") as rec:
     for path in open(prim).read().split():
@@ -84,8 +87,8 @@ class TryPrLiveCodeTests(unittest.TestCase):
         self.record = tc / "swift-frontend.record"
         # The build's own checkout, as reload.sh's log names it.
         build = self.tmp / "build"
-        (build / APP_FILE).parent.mkdir(parents=True)
-        (build / APP_FILE).write_text(BASE_SWIFT)
+        subprocess.run(["git", "clone", "-q", str(origin), str(build)], check=True)
+        self.build = build
         filelist = self.tmp / "CmuxNextApp.SwiftFileList"
         filelist.write_text(f"{build / APP_FILE}\n{self.tmp}/DerivedData/resource_bundle_accessor.swift\n")
         self.log = self.tmp / "reload.log"
@@ -169,6 +172,26 @@ class TryPrLiveCodeTests(unittest.TestCase):
         self.assertIn("so a dev build", out.stdout)
         self.assertEqual(list(self.live.glob("patch-*.dylib")), [], "no patch is left for a late watcher")
 
+    def test_an_interrupted_try_removes_the_scratch_worktree(self):
+        self.push_pr(lambda w: (w / APP_FILE).write_text(BASE_SWIFT.replace('"hello"', '"hi"')))
+        started = self.tmp / "compiling"
+        self.env["SLOW_COMPILE"] = str(started)
+        scratch = self.tmp / "scratch"
+        scratch.mkdir()
+        self.env["TMPDIR"] = str(scratch)
+        proc = subprocess.Popen(["bash", str(self.checkout / "scripts/cmux-next/try-pr.sh"), "1", "--here", "--from",
+                                 str(self.app), "--live-code", str(self.log), "--no-build"],
+                                env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        for _ in range(300):
+            if started.exists():
+                break
+            time.sleep(0.05)
+        self.assertTrue(started.exists(), "the compile started")
+        proc.terminate()  # SIGTERM to the script, as a closed terminal or a kill would
+        proc.communicate(timeout=60)
+        self.assertEqual(len(self.worktrees()), 1, "\n".join(self.worktrees()))
+        self.assertEqual([p for p in scratch.iterdir() if p.name.startswith("try-pr-live.")], [])
+
     def test_a_new_file_takes_the_dev_build(self):
         def edit(w):
             (w / APP_FILE).write_text(BASE_SWIFT.replace('"hello"', '"hi"'))
@@ -180,6 +203,38 @@ class TryPrLiveCodeTests(unittest.TestCase):
         self.assertIn("so a dev build", out.stdout)
         self.assertFalse(self.record.exists(), "nothing was compiled")
         self.assertEqual(len(self.worktrees()), 1)
+
+    def unrecorded(self):
+        """The app as a reload or DEV build: no CMUXCommit."""
+        with open(self.app / "Contents/Info.plist", "wb") as f:
+            plistlib.dump({"CFBundleIdentifier": "com.cmuxterm.app.debug.live", "CFBundleVersion": "1"}, f)
+
+    def test_a_build_with_no_recorded_commit_uses_its_checkouts_head(self):
+        self.unrecorded()
+        self.push_pr(lambda w: (w / APP_FILE).write_text(BASE_SWIFT.replace('"hello"', '"hello from the PR"')))
+        self.answer_patches()
+        out = self.try_pr()
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertRegex(out.stdout, r"live code: applied patch-")
+        self.assertIn("hello from the PR", self.record.read_text())
+
+    def test_an_edited_build_checkout_takes_the_dev_build(self):
+        self.unrecorded()
+        (self.build / APP_FILE).write_text(BASE_SWIFT.replace('"hello"', '"local edit"'))
+        self.push_pr(lambda w: (w / APP_FILE).write_text(BASE_SWIFT.replace('"hello"', '"hi"')))
+        out = self.try_pr("--no-build")
+        self.assertIn("uncommitted CmuxNextApp changes", out.stdout)
+        self.assertIn("so a dev build", out.stdout)
+        self.assertFalse(self.record.exists())
+
+    def test_a_build_checkout_that_moved_since_the_build_takes_the_dev_build(self):
+        self.unrecorded()
+        then = time.time() - 3600
+        os.utime(self.log, (then, then))  # the build is older than the checkout's last HEAD move
+        self.push_pr(lambda w: (w / APP_FILE).write_text(BASE_SWIFT.replace('"hello"', '"hi"')))
+        out = self.try_pr("--no-build")
+        self.assertIn("moved to another commit after the build", out.stdout)
+        self.assertIn("so a dev build", out.stdout)
 
     def test_a_build_of_a_commit_this_checkout_lacks_takes_the_dev_build(self):
         with open(self.app / "Contents/Info.plist", "wb") as f:
