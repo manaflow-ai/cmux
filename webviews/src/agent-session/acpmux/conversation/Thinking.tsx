@@ -23,6 +23,7 @@ import { compactTokens, hasTokens, tokenDetail, TurnTokens } from "./TurnTokens"
 import { verbLeads } from "./ToolVerb";
 import { useTicking, WorkingCountsContext, workingParts } from "./WorkingFor";
 import { statusVerbAt, statusVerbLabels, useStatusVerbConfig } from "../statusVerbs";
+import { thinkingVerb, ThinkingVerbsContext } from "./thinkingVerbs";
 import type { AcpmuxTurnRetry } from "../model";
 import type { Translate } from "../i18n";
 
@@ -124,6 +125,7 @@ export function Thinking({
   thoughtMs,
   turnTotal = false,
   untimed = false,
+  verbKey,
   quietKey,
   quietAt,
   below = false,
@@ -156,6 +158,8 @@ export function Thinking({
   /// finished step's own time when it has one, so no wait reads as that long a think or call.
   turnTotal?: boolean;
   untimed?: boolean;
+  /// The turn's prompt id, used to keep one playful verb for the whole turn when Rotate is on.
+  verbKey?: string;
   quietKey?: string;
   /// When the reply `quietKey` names was written (turns.ts `codexLiveTurn`): a reply already
   /// still past WRITING_MS when the line mounts reads "Thinking" at once.
@@ -179,6 +183,7 @@ export function Thinking({
   const timed = !waiting && from !== undefined;
   const time = useTicking(timed, now);
   const statusVerbConfig = useStatusVerbConfig();
+  const thinkingVerbs = useContext(ThinkingVerbsContext);
   const verbs = useMemo(() => statusVerbLabels(t, language, statusVerbConfig), [t, language, statusVerbConfig]);
   // CSS sizes both shimmer layers from these inert samples once, not by measuring on each tick.
   const verbSizes = useMemo(
@@ -195,6 +200,7 @@ export function Thinking({
   const waitsOnAgents = liveState === "subagents" && liveAgents > 0;
   const writing = liveState === "writing" && stillWriting;
   const elapsedMs = timed ? Math.max(0, time - from) : 0;
+  const turnVerb = thinkingVerb(thinkingVerbs, verbKey);
   const decorative = doing === undefined && !waitsOnAgents && !writing;
   const label =
     doing === undefined
@@ -202,7 +208,7 @@ export function Thinking({
         ? t("turn.live.waitingOnSubagents", { n: liveAgents })
         : writing
           ? t("turn.live.writing")
-          : statusVerbAt(elapsedMs, { mode: "custom", verbs })
+          : turnVerb ?? (statusVerbConfig.mode === "custom" ? statusVerbAt(elapsedMs, { mode: "custom", verbs }) : t("thinking"))
       : sendName !== undefined
         ? t("send.sending", { target: sendName })
         : doingShell

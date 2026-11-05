@@ -51,21 +51,10 @@ extension AgentPaneCloudMachines {
             services.map { Self.perform("cloudPauseMachine", on: id, services: $0) { $0.effectiveStatus == .running } } ?? false
         }
         prewarm = { [weak services] id in
-            guard let services,
-                  !services.registry.disabledFeatures.contains(.cloud),
-                  services.cloud.mayCallCloud,
-                  services.cloud.unavailableReason == nil,
-                  services.cloud.isSignedIn, services.cloud.hasLoadedCurrentMachines,
-                  let session = services.machines.cloud.first(where: { $0.machineID == id }),
-                  session.effectiveStatus == .paused, let resumer = session.passiveResumer else { return false }
-            // Typing is a hint, not a user action: resume through the account-scoped Cloud
-            // service, then let its reconciliation connect the machine. No page gesture is used.
-            do {
-                try await resumer(id)
-                return true
-            } catch {
-                return false
-            }
+            guard let services else { return false }
+            let cloud = services.cloud, status = services.machines.cloud.first(where: { $0.machineID == id })?.effectiveStatus
+            let allowed = !services.registry.disabledFeatures.contains(.cloud) && cloud.mayCallCloud && cloud.unavailableReason == nil
+            return await Self.prewarmIfPaused(allowed: allowed && cloud.isSignedIn && cloud.hasLoadedCurrentMachines, status: status) { try await cloud.resumeMachine(id, origin: .script) }
         }
     }
 

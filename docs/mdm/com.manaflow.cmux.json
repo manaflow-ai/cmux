@@ -5242,6 +5242,12 @@
       "title" : "When an Update Is Ready",
       "type" : "string"
     },
+    "updates.oneClickInstall" : {
+      "default" : false,
+      "description" : "Off: Update downloads the update, then cmux asks before it restarts into it. On: one click on Update downloads it, shows its progress, then installs it and restarts cmux. Terminals and agents keep running across the restart.",
+      "title" : "Update in One Click",
+      "type" : "boolean"
+    },
     "updates.showFeatureTips" : {
       "default" : true,
       "description" : "Now and then, a small tip points at a feature an update added. Close it or use the feature and it never comes back.",

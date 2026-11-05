@@ -10,6 +10,7 @@ import { installPaintedFrames } from "./support/paintedFrames";
 import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 import type {} from "./browser/status-verbs.harness";
+import { THINKING_VERBS, thinkingVerb } from "../src/agent-session/acpmux/conversation/thinkingVerbs";
 
 await requireBrowserLane("status-verbs-browser.test.ts", async () => {
   if (!(await probeEngineOrSkip("status-verbs", "chromium", chromium))) return;
@@ -146,11 +147,11 @@ await requireBrowserLane("status-verbs-browser.test.ts", async () => {
   if (!baseline)
     test("real clock rotates, settings switch in place, and long custom labels keep the timer in bounds", async () => {
       const page = await open();
+      const rotatingVerb = thinkingVerb(THINKING_VERBS, "status-verbs")!;
       try {
         await page.evaluate(() => window.__statusVerbs.mode("rotate"));
         await page.evaluate(() => window.__statusVerbs.show(1));
-        expect((await sample(page))[0]!.label).toBe("Thinking");
-        await page.waitForFunction(() => document.querySelector(".cv-shimmer__base")?.textContent === "Exploring");
+        expect((await sample(page))[0]!.label).toBe(rotatingVerb);
         await page.evaluate(() => window.__statusVerbs.mode("thinking"));
         expect((await sample(page))[0]!.label).toBe("Thinking");
         await page.evaluate(() => window.__statusVerbs.mode("custom", "Imagining"));

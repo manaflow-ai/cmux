@@ -80,9 +80,7 @@ test("incomplete locales keep their translated Thinking for the entire rotation"
 test("complete locales rotate translated labels and thinking-only stays localized", () => {
   const t = translatorFor("ja");
   const words = statusVerbLabels(t, "ja", resolveStatusVerbConfig({ "agentPane.display.statusVerbs.mode": "rotate" }));
-  expect(words).toHaveLength(DEFAULT_STATUS_VERBS.length);
-  expect(words[0]).toBe(t("thinking"));
-  expect(words).not.toContain("Exploring");
+  expect(words).toEqual([t("thinking")]);
   expect(
     statusVerbLabels(
       t,

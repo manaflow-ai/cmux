@@ -170,7 +170,7 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 ]),
                 .string("transcript"), ["presentation", "messages", "bubbles", "chat", "tools"]),
             // The live line's short working verbs (webviews/.../statusVerbs.ts). Thinking is the
-            // default; Rotate opts into the short -ing list and Custom reads the comma list.
+            // default; Rotate opts into the per-turn -ing verbs and Custom reads the comma list.
             row(["statusVerbs", "mode"], SettingsText.keyed("settings.agentPane.display.statusVerbs", "Working Status Verbs"),
                 help: SettingsText.keyed("settings.agentPane.display.statusVerbs.help",
                                          "Choose whether the live status line rotates through verbs or stays on Thinking."),

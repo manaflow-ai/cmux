@@ -1,32 +1,17 @@
 import { createContext, useContext, useSyncExternalStore } from "react";
 import type { Translate } from "./i18n";
 
-const VERB_KEYS = {
-  Thinking: "thinking",
-  Exploring: "turn.live.verb.exploring",
-  Sketching: "turn.live.verb.sketching",
-  Weighing: "turn.live.verb.weighing",
-  Mapping: "turn.live.verb.mapping",
-  Checking: "turn.live.verb.checking",
-  Reasoning: "turn.live.verb.reasoning",
-  Shaping: "turn.live.verb.shaping",
-  Connecting: "turn.live.verb.connecting",
-  Considering: "turn.live.verb.considering",
-} as const;
-
-/// The live line's default personality. These are cmux's own words; they are deliberately not
-/// copied from another client. The live line reserves room for the complete localized list.
+/// The Rotate setting uses this original per-turn list from thinkingVerbs.ts rather than a second
+/// status-verb vocabulary. The conversation module re-exports it for the hash picker.
 export const DEFAULT_STATUS_VERBS = [
-  "Thinking",
-  "Exploring",
-  "Sketching",
-  "Weighing",
-  "Mapping",
-  "Checking",
-  "Reasoning",
-  "Shaping",
-  "Connecting",
-  "Considering",
+  "Baking", "Brainstorming", "Brewing", "Calculating", "Caramelizing", "Channeling", "Churning", "Cmuxing",
+  "Cogitating", "Composing", "Concocting", "Conjuring", "Considering", "Contemplating", "Cooking", "Crafting",
+  "Crunching", "Daydreaming", "Deliberating", "Distilling", "Doodling", "Fermenting", "Fiddling", "Finagling",
+  "Forging", "Gallivanting", "Grooving", "Hatching", "Ideating", "Imagining", "Improvising", "Incubating",
+  "Kneading", "Marinating", "Meandering", "Mulling", "Musing", "Mustering", "Noodling", "Orbiting", "Percolating",
+  "Philosophizing", "Pondering", "Puttering", "Puzzling", "Reckoning", "Ruminating", "Scheming", "Simmering",
+  "Sketching", "Spelunking", "Steeping", "Stewing", "Synthesizing", "Tinkering", "Untangling", "Vibing", "Whirring",
+  "Whisking", "Wondering", "Wrangling",
 ] as const;
 
 /// The default cadence is slow enough to read while a user scans the transcript, without making a
@@ -123,14 +108,11 @@ export function statusVerbLabels(
   table: Partial<Record<string, string>> | undefined = globalThis.__cmuxPaneStrings?.[language],
 ): readonly string[] {
   if (config.mode === "custom" && config.verbs.length > 0) return config.verbs;
-  if (
-    config.mode === "thinking" ||
-    (language !== "en" && !Object.values(VERB_KEYS).every((key) => table?.[key]?.trim()))
-  )
+  if (config.mode === "thinking" || language !== "en")
     return [t("thinking")];
   // The verb catalog entries are optional until the native catalog carries them. Keep the
   // shipped English defaults readable in the meantime, while using a translated value whenever
   // one is present in a loaded table. Reading the table directly also keeps this fallback
   // independent of the generated StringKey union.
-  return DEFAULT_STATUS_VERBS.map((word) => table?.[VERB_KEYS[word]]?.trim() || word);
+  return DEFAULT_STATUS_VERBS.map((word) => table?.[word]?.trim() || word);
 }

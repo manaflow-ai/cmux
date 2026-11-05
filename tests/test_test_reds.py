@@ -299,6 +299,74 @@ class PerTest(unittest.TestCase):
         new = log(shared, '✘ Test "Another" recorded an issue at X.swift:3:4: Expectation failed', SUMMARY)
         self.assertIn('"Another"', reds.classify(new, log(shared, SUMMARY)).reasons[0])
 
+    def test_two_suites_same_display_name_are_not_one_test(self):
+        # A `@Test("...")` name prints with no suite, and suites interleave (three were open at once in
+        # tests/fixtures/test_reds/26346-head-run-40620080851.log), so the suite cannot be read from the
+        # ✘ line. The issue's file can: a display name whose head and base failures record their issues in
+        # files that do not overlap is two tests, not one red (cmux#35902).
+        head = log('✘ Test "shows the plan" recorded an issue at CloudPlanTests.swift:25:9: Expectation failed',
+                   '✘ Test "shows the plan" failed after 0.1 seconds with 1 issue.', SUMMARY)
+        base = log('✘ Test "shows the plan" recorded an issue at HomePlanTests.swift:14:9: Expectation failed',
+                   '✘ Test "shows the plan" failed after 0.1 seconds with 1 issue.', SUMMARY)
+        verdict = reds.classify(head, base)
+        self.assertTrue(verdict.own, verdict.reasons)
+        self.assertIn("CloudPlanTests.swift", verdict.reasons[0])
+        self.assertEqual(verdict.shared, [])
+
+    def test_the_same_display_named_test_is_still_a_base_red(self):
+        # The same test, failing at another line of its own file, or at a second expectation in it: the
+        # files overlap, so it stays the base's red. The classifier is per test, not per assertion.
+        head = log('✘ Test "shows the plan" recorded an issue at CloudPlanTests.swift:25:9: Expectation failed',
+                   '✘ Test "shows the plan" recorded an issue at CloudPlanHelper.swift:3:1: Expectation failed',
+                   SUMMARY)
+        base = log('✘ Test "shows the plan" recorded an issue at CloudPlanTests.swift:31:9: Expectation failed',
+                   SUMMARY)
+        self.assertFalse(reds.classify(head, base).own, reds.classify(head, base).reasons)
+
+    def test_a_module_relative_issue_location_records_its_file(self):
+        # A location can be module-relative (`Package/CloudPlanTests.swift:25:9`). With no `/` in the file
+        # class, neither side recorded a file, both fell back to name-only comparison, and two distinct
+        # suites with one display name read as a single base red (cmux#35961 F1).
+        head = log('✘ Test "shows the plan" recorded an issue at Pkg/Cloud/CloudPlanTests.swift:25:9: '
+                   'Expectation failed', '✘ Test "shows the plan" failed after 0.1 seconds with 1 issue.',
+                   SUMMARY)
+        base = log('✘ Test "shows the plan" recorded an issue at Pkg/Home/HomePlanTests.swift:14:9: '
+                   'Expectation failed', '✘ Test "shows the plan" failed after 0.1 seconds with 1 issue.',
+                   SUMMARY)
+        self.assertEqual(reds.read(head).sites, {'"shows the plan"': {"Pkg/Cloud/CloudPlanTests.swift"}})
+        verdict = reds.classify(head, base)
+        self.assertTrue(verdict.own, verdict.reasons)
+        self.assertIn("Pkg/Cloud/CloudPlanTests.swift", verdict.reasons[0])
+        self.assertEqual(verdict.shared, [])
+
+    def test_a_location_quoted_after_the_real_one_is_not_the_issue_site(self):
+        # The source location is not at end of line: the expectation text follows it and can quote another
+        # ` at <file>.swift:<line>:<col>`. Reading the last one recorded the wrong file, so a test that fails
+        # in the same file on both sides read as two tests and the shared base red became the head's own
+        # (cmux#35961 F2). The first location after the arguments clause is the one Swift Testing printed.
+        head = log('✘ Test "shows the plan" recorded an issue at CloudPlanTests.swift:25:9: Expectation '
+                   'failed: (trace → "raised at HomePlanTests.swift:14:2")',
+                   '✘ Test "shows the plan" failed after 0.1 seconds with 1 issue.', SUMMARY)
+        base = log('✘ Test "shows the plan" recorded an issue at CloudPlanTests.swift:25:9: Expectation failed',
+                   '✘ Test "shows the plan" failed after 0.1 seconds with 1 issue.', SUMMARY)
+        self.assertEqual(reds.read(head).sites, {'"shows the plan"': {"CloudPlanTests.swift"}})
+        verdict = reds.classify(head, base)
+        self.assertFalse(verdict.own, verdict.reasons)
+        self.assertEqual(verdict.shared, ['"shows the plan"'])
+
+    def test_an_arguments_clause_still_yields_the_location_after_it(self):
+        # A parameterized test prints `with N arguments ...` before the location, and an argument value may
+        # itself hold a `.swift:` (cmux#35902); the clause is skipped, the location after it is recorded.
+        head = log('✘ Test "shows the plan" recorded an issue with 1 argument p → "A.swift:1:1" at '
+                   'Pkg/CloudPlanTests.swift:25:9: Expectation failed', SUMMARY)
+        self.assertEqual(reds.read(head).sites, {'"shows the plan"': {"Pkg/CloudPlanTests.swift"}})
+
+    def test_a_display_name_with_no_file_on_either_side_compares_by_name(self):
+        # Only the `failed after` line, as a rerun summary prints: nothing says which suite, so the name
+        # alone decides, exactly as before this comparison existed.
+        both = log('✘ Test "shows the plan" failed after 0.1 seconds with 1 issue.', SUMMARY)
+        self.assertFalse(reds.classify(both, both).own)
+
     def test_a_crash_on_both_sides_is_still_the_heads_own(self):
         both = log(failed("a()"), ABORT, "*** Terminating app due to uncaught exception 'NSInternalInconsistencyException'")
         verdict = reds.classify(both, both)

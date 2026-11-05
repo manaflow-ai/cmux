@@ -64,7 +64,9 @@ public struct PushOutbox: Sendable {
         }
     }
 
-    public struct Refused: Error, Equatable, Sendable {}
+    public struct Refused: Error, Equatable, Sendable {
+        public init() {}
+    }
 
     /// Queues `reply` for the app. Text into a terminal is refused: the outbox
     /// is written before the phone unlocks, and only the unlock-gated Reply
@@ -292,5 +294,61 @@ extension Data.WritingOptions {
         #else
         [.atomic]
         #endif
+    }
+}
+
+/// A reply the content extension hands the app in a build signed without the App Group
+/// (every device build until the group exists: verify/rich-push.md, "What is registered").
+/// Without it there is no outbox, and a tapped option row, Submit or a typed answer used to
+/// open the app with nothing in hand: the answer was dropped and the agent kept waiting
+/// (manaflow-ai/cmux, "multiple choice on cmux NEXT iOS does nothing", 2026-11-04).
+///
+/// The push keychain group is in every build (`PushSharedPreference`), so the reply goes
+/// there under the notification's request id. The extension then opens the app with
+/// `performNotificationDefaultAction()`, whose response names that same request: the app
+/// takes exactly that reply and sends it like an outbox reply (signed first, on the Mac's
+/// link). Keyed by request, so nothing lists the keychain and two processes never race.
+public struct PushHandover: Sendable {
+    public let store: any PushSecretStore
+
+    public init(store: any PushSecretStore) {
+        self.store = store
+    }
+
+    /// This build's push keychain group, under a service of its own so sign-out can clear
+    /// every handover without touching the push keys; nil when Info.plist names none.
+    public static func live(bundle: Bundle = .main) -> PushHandover? {
+        PushKeychainStore.current(bundle: bundle).map {
+            PushHandover(store: PushKeychainStore(group: $0.group, service: "dev.cmux.mobile.push.handover"))
+        }
+    }
+
+    /// Sign-out: a handover never taken (unlock cancelled, the push no longer trusted) goes too.
+    public func removeAll() {
+        store.deleteAll()
+    }
+
+    /// The keychain account of the notification `requestID`'s reply.
+    static func account(_ requestID: String) -> String {
+        let key = Data(requestID.utf8).base64EncodedString()
+            .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "=", with: "")
+        return "handover." + String(key.prefix(200))
+    }
+
+    /// Leaves `reply` for the app under the notification `requestID`. Text into a terminal is
+    /// refused, as the outbox refuses it (PR B security review H2).
+    public func put(_ reply: PushReply, requestID: String) throws {
+        if case .text = reply.action, reply.kind == .terminal { throw PushOutbox.Refused() }
+        try store.write(JSONEncoder().encode(reply), account: Self.account(requestID))
+    }
+
+    /// Takes the reply left for the notification `requestID`, once, while fresh (`PushOutbox.maxAge`).
+    public func take(requestID: String, now: Date = Date()) -> PushReply? {
+        let account = Self.account(requestID)
+        guard let data = try? store.read(account) else { return nil }
+        store.delete(account)
+        guard let reply = try? JSONDecoder().decode(PushReply.self, from: data),
+              now.timeIntervalSince(reply.createdAt) < PushOutbox.maxAge else { return nil }
+        return reply
     }
 }

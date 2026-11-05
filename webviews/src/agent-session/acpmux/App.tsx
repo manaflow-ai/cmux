@@ -271,7 +271,7 @@ import { QUESTION_RECORD } from "./question/record";
 import { DECISION_TEXT, PERMISSION_RECORD } from "./permissions/record";
 import type { QuestionReply } from "./question/model";
 import { agentName } from "./agents";
-import { type Translate, translate, useT } from "./i18n";
+import { type Translate, translate, usePaneLanguage, useT } from "./i18n";
 import { PeerCopyBanner } from "./PeerCopyBanner";
 import { chatCloudMachine, cloudMachineRows, createStopWaiter } from "./cloudMachineMenu";
 import {
@@ -631,6 +631,8 @@ import { presentationRow } from "./header/presentationRow";
 import { usePresentation } from "./conversation/presentation";
 import { messagesRows } from "./conversation/messagesRows";
 import { AssistantPresentation, PresentationContext } from "./conversation/PresentationContext";
+import { thinkingVerbsFor, ThinkingVerbsContext } from "./conversation/thinkingVerbs";
+import { useStatusVerbConfig } from "./statusVerbs";
 import { configureCodexToolRuns, useCodexToolRuns } from "./codexToolRuns";
 import { configureLiveLineBelow, useLiveLineBelow } from "./liveLineBelow";
 import { configureToolRunLook } from "./toolRunLook";
@@ -1631,6 +1633,7 @@ const ThinkingRow = memo(
         thoughtMs={row.thoughtMs}
         turnTotal={row.turnTotal}
         untimed={row.untimed}
+        verbKey={row.verbKey}
         quietKey={row.quietKey}
         quietAt={row.quietAt}
         below={row.below}
@@ -1657,6 +1660,7 @@ const ThinkingRow = memo(
     a.row.thoughtMs === b.row.thoughtMs &&
     a.row.turnTotal === b.row.turnTotal &&
     a.row.untimed === b.row.untimed &&
+    a.row.verbKey === b.row.verbKey &&
     a.row.quietKey === b.row.quietKey &&
     a.row.quietAt === b.row.quietAt &&
     a.row.below === b.row.below &&
@@ -7416,6 +7420,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Thinking and Verbose also open each finished turn's "Worked for" (conversation/viewFolds.ts).
   // One object per view, set or toggle change, so the turns are not reshaped per event.
   const chatPresentation = usePresentation(shownSessionId);
+  // Leo's alternate -ing verbs stay behind the explicit Rotate setting. The normal path leaves
+  // this context empty so the live line remains the bare translated Thinking label.
+  const statusVerbConfig = useStatusVerbConfig();
+  const thinkingVerbs =
+    statusVerbConfig.mode === "rotate" ? thinkingVerbsFor(usePaneLanguage()) : undefined;
   const chatView = useTranscriptView(shownSessionId);
   const chatViewRef = useRef(chatView);
   chatViewRef.current = chatView;
@@ -9307,7 +9316,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const backgroundable = !quick && (foreground.length > 0 || foregroundAgent);
   useBackgroundKey(backgroundable, runInBackground);
   const backgroundHint = backgroundable ? runInBackground : undefined;
-  const chatTones = useMemo(() => (chatAgents.length > 0 ? agentTones(chatAgents) : undefined), [chatAgents]);
+  // The chat's subagents and the chats it started take their tones together, so up to five never
+  // share one (agentTones.ts; Leo, 2026-11-04: "Each subagent gets its own colour").
+  const chatTones = useMemo(
+    () =>
+      chatAgents.length > 0 || childSessions.length > 0
+        ? agentTones([
+            ...chatAgents,
+            ...childSessions.map((child) => ({ id: child.sessionId, startedAt: child.createdAt })),
+          ])
+        : undefined,
+    [chatAgents, childSessions],
+  );
   // A message to a subagent names it by its description, never its agentId (MessageCard.tsx).
   const chatAgentNames = useMemo(() => agentNames(chatAgents), [chatAgents]);
   // A sent message's "Sent to <subagent>" chip opens that subagent's view (MessageCard.tsx).
@@ -14105,7 +14125,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       </ArtifactContext.Provider>
     </TranscriptChief.Provider>
   );
-  const transcript = <PresentationContext.Provider value={chatPresentation}>{transcriptContent}</PresentationContext.Provider>;
+  const transcript = (
+    <PresentationContext.Provider value={chatPresentation}>
+      <ThinkingVerbsContext.Provider value={thinkingVerbs}>{transcriptContent}</ThinkingVerbsContext.Provider>
+    </PresentationContext.Provider>
+  );
   // Folder trust's question heads the bottom stack, and the chat's other asks stay under it
   // (Leo 2026-10-21, P0: a pending trust prompt never blocks answering a question). The question
   // holds new prompts; a permission, question or secret card asks for a turn already running,

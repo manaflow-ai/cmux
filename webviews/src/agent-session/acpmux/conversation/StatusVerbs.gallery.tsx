@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import { Thinking } from "./Thinking";
 import { resolveStatusVerbConfig, StatusVerbContext } from "../statusVerbs";
+import { THINKING_VERBS, ThinkingVerbsContext } from "./thinkingVerbs";
 
 type Variant = "rotating" | "thinking-only" | "custom";
 
@@ -22,23 +23,25 @@ function Fixture({ variant }: { variant: Variant }) {
   );
   return (
     <StatusVerbContext.Provider value={config}>
-      <div style={{ padding: 24, maxWidth: 640 }}>
-        <label style={{ display: "block", marginBottom: 12 }}>
-          Working status{" "}
-          <select aria-label="Working status" value={mode} onChange={(event) => setMode(event.target.value)}>
-            <option value="rotate">Rotating verbs</option>
-            <option value="thinking">Thinking only</option>
-            <option value="custom">Custom verbs</option>
-          </select>
-        </label>
-        {mode === "custom" && (
+      <ThinkingVerbsContext.Provider value={mode === "rotate" ? THINKING_VERBS : undefined}>
+        <div style={{ padding: 24, maxWidth: 640 }}>
           <label style={{ display: "block", marginBottom: 12 }}>
-            Custom verbs{" "}
-            <input aria-label="Custom verbs" value={custom} onChange={(event) => setCustom(event.target.value)} />
+            Working status{" "}
+            <select aria-label="Working status" value={mode} onChange={(event) => setMode(event.target.value)}>
+              <option value="rotate">Rotating verbs</option>
+              <option value="thinking">Thinking only</option>
+              <option value="custom">Custom verbs</option>
+            </select>
           </label>
-        )}
-        <Thinking since={since} />
-      </div>
+          {mode === "custom" && (
+            <label style={{ display: "block", marginBottom: 12 }}>
+              Custom verbs{" "}
+              <input aria-label="Custom verbs" value={custom} onChange={(event) => setCustom(event.target.value)} />
+            </label>
+          )}
+          <Thinking since={since} verbKey="status-verbs-gallery" />
+        </div>
+      </ThinkingVerbsContext.Provider>
     </StatusVerbContext.Provider>
   );
 }

@@ -110,7 +110,7 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
       ) : doing || row.thinkingNow ? (
         <>
           <span className={doing ? "cv-worked__label cv-worked__doing" : "cv-worked__label"}>
-            {doing ?? (held ? t("thinking") : <StatusVerb elapsedMs={Math.max(0, until - row.at)} />)}
+            {doing ?? (held ? t("thinking") : <StatusVerb elapsedMs={Math.max(0, until - row.at)} verbKey={row.verbKey} />)}
           </span>
           <span className="cv-worked__time">{formatDuration(Math.max(0, until - row.at))}</span>
         </>

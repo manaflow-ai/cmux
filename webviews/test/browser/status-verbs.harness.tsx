@@ -4,6 +4,7 @@
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { Thinking } from "../../src/agent-session/acpmux/conversation/Thinking";
+import { THINKING_VERBS, ThinkingVerbsContext } from "../../src/agent-session/acpmux/conversation/thinkingVerbs";
 import { setChatDisplay } from "../../src/agent-session/acpmux/chatDisplay";
 import { setPaneLanguage } from "../../src/agent-session/acpmux/i18n";
 import { pageClocks } from "../../src/ui/pageClock";
@@ -15,6 +16,7 @@ import "../../src/agent-session/acpmux/conversation/conversation.css";
 
 const root = createRoot(document.getElementById("root")!);
 let generation = 0;
+let mode = "thinking";
 
 export type StatusVerbsHarness = {
   ready: Promise<void>;
@@ -46,22 +48,25 @@ window.__statusVerbs = {
     flushSync(() =>
       root.render(
         <>
-          {Array.from({ length: count }, (_, index) => (
-            <div
-              key={`${generation}-${index}`}
-              style={{ width: 360, padding: 12, boxSizing: "border-box", flex: "none" }}
-            >
-              <Thinking since={since} now={now} />
-            </div>
-          ))}
+          <ThinkingVerbsContext.Provider value={mode === "rotate" ? THINKING_VERBS : undefined}>
+            {Array.from({ length: count }, (_, index) => (
+              <div
+                key={`${generation}-${index}`}
+                style={{ width: 360, padding: 12, boxSizing: "border-box", flex: "none" }}
+              >
+                <Thinking since={since} now={now} verbKey="status-verbs" />
+              </div>
+            ))}
+          </ThinkingVerbsContext.Provider>
         </>,
       ),
     );
   },
-  mode(mode, custom = "Planning, Reading, Testing") {
+  mode(nextMode, custom = "Planning, Reading, Testing") {
+    mode = nextMode;
     flushSync(() =>
       setChatDisplay({
-        "agentPane.display.statusVerbs.mode": mode,
+        "agentPane.display.statusVerbs.mode": nextMode,
         "agentPane.display.statusVerbs.custom": custom,
       }),
     );

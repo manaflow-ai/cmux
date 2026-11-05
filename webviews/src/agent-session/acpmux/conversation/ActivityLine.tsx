@@ -61,7 +61,7 @@ export function ActivityLine({ row, now = Date.now }: { row: AcpmuxRow; now?: ()
       ) : (
         <>
           <span className="cv-activity__label">
-            <StatusVerb elapsedMs={Math.max(0, time - row.at)} />
+            <StatusVerb elapsedMs={Math.max(0, time - row.at)} verbKey={row.verbKey} />
           </span>
           <span className="cv-activity__time">{formatDuration(Math.max(0, time - row.at))}</span>
         </>

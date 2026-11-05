@@ -127,7 +127,7 @@ test("saved display settings update an already mounted live line", () => {
     setChatDisplay({ "agentPane.display.statusVerbs.mode": "rotate" });
     root!.render(<Thinking since={0} now={() => 2_400} />);
   });
-  expect(container.querySelector(".cv-thinking")?.textContent).toContain("Exploring");
+  expect(container.querySelector(".cv-thinking")?.textContent).toContain("Thinking");
   act(() => setChatDisplay({ "agentPane.display.statusVerbs.mode": "thinking" }));
   expect(container.querySelector(".cv-thinking")?.textContent).toContain("Thinking");
   act(() =>

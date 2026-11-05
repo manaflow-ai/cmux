@@ -1,4 +1,4 @@
-import CmuxNextDaemon
+public import CmuxNextDaemon
 import Foundation
 import os
 
@@ -10,16 +10,16 @@ import os
 /// on the connection that sent it. A non-verified connection never
 /// registers, so no credential call reaches it.
 @MainActor
-final class CloudCredentialProvider {
-    typealias Register = @Sendable (AppsProviderRegisterRequest) async throws -> JSONValue
-    typealias Reply = @Sendable (AppsProviderResultRequest) async throws -> Void
+public final class CloudCredentialProvider {
+    public typealias Register = @Sendable (AppsProviderRegisterRequest) async throws -> JSONValue
+    public typealias Reply = @Sendable (AppsProviderResultRequest) async throws -> Void
 
     private nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.relay")
     private let relay: CloudCredentialRelay
     /// One task per call in flight, by request id; a cancel ends it.
     private var running: [UInt64: Task<Void, Never>] = [:]
 
-    init(relay: CloudCredentialRelay) {
+    public init(relay: CloudCredentialRelay) {
         self.relay = relay
     }
 
@@ -28,7 +28,7 @@ final class CloudCredentialProvider {
 
     /// Registers the family when `userOriginAllowed`; returns whether it is
     /// registered. A refusal is logged and not retried on this connection.
-    static func register(userOriginAllowed: Bool, send: Register) async -> Bool {
+    public static func register(userOriginAllowed: Bool, send: Register) async -> Bool {
         guard userOriginAllowed else {
             logger.info("credential provider: not the verified app connection; not registered")
             return false
@@ -44,7 +44,7 @@ final class CloudCredentialProvider {
 
     /// Handles one local daemon event: a provider call of the family starts
     /// its answer, a cancel stops it. Other events are ignored.
-    func handle(_ event: DaemonEvent, reply: @escaping Reply) {
+    public func handle(_ event: DaemonEvent, reply: @escaping Reply) {
         if let cancel = AppsProviderCancel(event) {
             running.removeValue(forKey: cancel.requestID)?.cancel()
             return
@@ -68,7 +68,7 @@ final class CloudCredentialProvider {
     }
 
     /// Ends every call in flight (sign-out, quit, connection gone).
-    func stop() {
+    public func stop() {
         for task in running.values { task.cancel() }
         running.removeAll()
     }

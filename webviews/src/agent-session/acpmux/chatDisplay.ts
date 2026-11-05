@@ -115,8 +115,8 @@ export type Presentation = "transcript" | "messages";
 export const PRESENTATIONS: readonly Presentation[] = ["transcript", "messages"];
 export const isPresentation = (value: unknown): value is Presentation => value === "transcript" || value === "messages";
 
-/// Settings > Agent Chat > Working Status Verbs. The mode is `rotate` by default; `thinking` keeps
-/// the traditional label and `custom` reads the comma-separated list in `STATUS_VERB_CUSTOM_KEY`.
+/// Settings > Agent Chat > Working Status Verbs. The mode is `thinking` by default; `rotate` opts
+/// into the per-turn -ing verbs and `custom` reads the comma-separated list in `STATUS_VERB_CUSTOM_KEY`.
 export const STATUS_VERB_MODE_KEY = "agentPane.display.statusVerbs.mode";
 export const STATUS_VERB_CUSTOM_KEY = "agentPane.display.statusVerbs.custom";
 

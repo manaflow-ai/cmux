@@ -7,7 +7,14 @@
 // Stop-gap seam: acpmux owns the turn structure (spec acp-ui.md, OWNERSHIP-PRINCIPLES.md). When
 // acpmux serves turn-structured rows (`acp.view.subscribe`, `_acpmux/view`), `turnView` becomes
 // a field-for-field mapping of them and nothing else in the pane changes.
-import { TURN_RETRY, type AcpmuxActivity, type AcpmuxPlanEntry, type AcpmuxRow } from "../model";
+import {
+  pathKey,
+  TURN_RETRY,
+  type AcpmuxActivity,
+  type AcpmuxFileDiff,
+  type AcpmuxPlanEntry,
+  type AcpmuxRow,
+} from "../model";
 import type { Folds } from "./viewFolds";
 import { continuesTurn, opensTurn } from "../turnStart";
 import { findRowIndex } from "./chatFind";
@@ -149,6 +156,57 @@ export const endsChatOnWork = (row: AcpmuxRow) => row.retryable === true && (row
 
 const isEditTool = (tool: { kind?: string } | undefined) => tool?.kind === "edit" || tool?.kind === "fileChange";
 const isEdit = (row: AcpmuxRow) => row.kind === "activity" && (row.items ?? []).some((item) => isEditTool(item.tool));
+
+/// A completed whole-file tool diff proves a file changed only when both before and after text are
+/// known. A path-only or unknown-old write can be a no-op (even when its replacement text is
+/// non-empty), so it stays neutral for the reply Retry hint. Comparing the first before and final
+/// after also keeps an edit that is reverted within one turn neutral (A -> B -> A). Fragment edits
+/// are deliberately excluded because their net file contents are not available here.
+const turnChangedFiles = (rows: readonly AcpmuxRow[]) => {
+  const byPath = new Map<string, { diffs: AcpmuxFileDiff[]; uncertain: boolean }>();
+  const keysByBasename = new Map<string, Set<string>>();
+  for (const row of rows) {
+    if (row.kind !== "activity") continue;
+    for (const item of row.items ?? []) {
+      const tool = item.tool;
+      if (tool?.status !== "completed" || !isEditTool(tool)) continue;
+      for (const diff of tool.diffs ?? []) {
+        const key = pathKey(diff);
+        const entry = byPath.get(key) ?? { diffs: [], uncertain: false };
+        // An unknown-old or fragment write can hide a no-op or a later revert. Keep the path
+        // marked uncertain instead of filtering that event out and claiming a net change from
+        // the remaining diffs.
+        if (diff.fragment === true || diff.oldText === undefined) entry.uncertain = true;
+        else entry.diffs.push(diff);
+        byPath.set(key, entry);
+        const basename = diff.path.slice(diff.path.lastIndexOf("/") + 1);
+        const keys = keysByBasename.get(basename) ?? new Set<string>();
+        keys.add(key);
+        keysByBasename.set(basename, keys);
+      }
+    }
+  }
+  // A path can gain its canonical spelling after an earlier event (`file.ts` then
+  // `/repo/file.ts` with canonical `/repo/file.ts`). If a basename has multiple path keys, keep
+  // all of those histories neutral: the net chain cannot be proven without a path resolver.
+  for (const keys of keysByBasename.values()) {
+    if (keys.size < 2) continue;
+    for (const key of keys) {
+      const entry = byPath.get(key);
+      if (entry) entry.uncertain = true;
+    }
+  }
+  return [...byPath.values()].some(({ diffs, uncertain }) => {
+    if (uncertain) return false;
+    const first = diffs[0];
+    const last = diffs[diffs.length - 1];
+    if (!first || !last || first.oldText === undefined) return false;
+    // A missing chain link means the file's net contents are not proven by this snapshot.
+    for (let index = 1; index < diffs.length; index++)
+      if (diffs[index]!.oldText !== diffs[index - 1]!.newText) return false;
+    return first.oldText !== last.newText;
+  });
+};
 
 /// The rows to draw. `expanded` holds the ids of open disclosures; `working` says the last
 /// turn is still running (the snapshot's `isWorking`); `now` dates the turns (timestamps.ts);
@@ -955,6 +1013,9 @@ function shapeTurn(
   const noticeStarted = user.incoming?.kind === "notice" || user.incoming?.kind === "inbox";
   const continuable =
     offers && lastSummary < 0 && isFailed(summary) && (noticeStarted || body.some((row) => row.kind !== "user"));
+  // The hint is only rendered for a settled retry target. Avoid scanning the turn body on each
+  // live snapshot/token while the turn is still running.
+  const changedFiles = retryable && !live ? turnChangedFiles(body) : false;
   shaped.push({
     ...summary,
     folded,
@@ -964,6 +1025,7 @@ function shapeTurn(
     ...(resumable && { resumable }),
     ...(retryable && { retryable }),
     ...(continuable && { continuable }),
+    ...(changedFiles && { changedFiles: true as const }),
     ...(answer && { answerId: answer.id }),
     // Retry sends the prompt as the agent got it: an incoming message with its sender. A
     // notification, or acpmux's inbox notice, is not a prompt to send again (incomingMessage.ts).
@@ -976,7 +1038,7 @@ function shapeTurn(
         retryAttachments: user.retryAttachments,
       }),
     // A turn is either stopped or failed, so Continue's bit serves both.
-    version: version * 4 + (retryable ? 1 : 0) + (resumable || continuable ? 2 : 0),
+    version: version * 8 + (retryable ? 1 : 0) + (resumable || continuable ? 2 : 0) + (changedFiles ? 4 : 0),
   });
   // Anything after the summary (late tool updates, or a turn the agent started on its own)
   // draws as it came.
