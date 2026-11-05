@@ -122,8 +122,11 @@ extension TerminalSurfaceView {
         updateReflowPreview()
     }
 
-    /// A size drawn ahead that no layout took (its spring ended or moved elsewhere): Ghostty goes back to the view's size.
+    /// Its pane's hold ended and the final placement did not take the size drawn ahead (the spring ended elsewhere): Ghostty
+    /// goes back to the view's size (``TerminalHostView`` `placeSurface`). Only then: while the hold runs, the next layout
+    /// takes it, whenever its refresh comes.
     func dropAhead() {
+        frameOwnership.pendingAhead = nil
         guard frameOwnership.ahead != nil else { return }
         frameOwnership.ahead = nil
         updateSurfaceSize()

@@ -48,7 +48,11 @@ public final class TerminalSurfaceView: NSView {
     /// cmux-ad m18: while the view's size changes frame by frame (a key resize its host follows, a divider drag that does
     /// not hold), its grid goes to the PTY owner at most once per 25 ms, the newest (Ghostty.app's `min_ms` rule), and the
     /// last always goes. Every report goes through it, so its last-sent grid is the PTY's (``sendGridReport(_:)``).
-    private(set) lazy var gridReportCoalescer = TerminalGridReportCoalescer { [weak self] grid in
+    /// Its window ends at the first refresh of this view's window at or after 25 ms (that window's presenter ticks it), or
+    /// at its timer if no refresh comes first.
+    private(set) lazy var gridReportCoalescer = TerminalGridReportCoalescer(ticks: { [weak self] in
+        self?.window.map(TerminalFramePresenter.forWindow)
+    }) { [weak self] grid in
         self?.sendGridReport(grid)
     }
 
@@ -69,6 +73,14 @@ public final class TerminalSurfaceView: NSView {
     /// A gesture or a spring ended, or a test reads the PTY's grids: the grid that waits in the coalescer's window goes now.
     func flushGridReport() {
         gridReportCoalescer.flush()
+    }
+
+    /// Hidden, closed or detached from its session: the grid that waits in the coalescer's window goes nowhere. Shown
+    /// again, the view reports its grid then (forced): the PTY never keeps a grid only the dropped window had.
+    func cancelGridReport() {
+        guard gridReportCoalescer.isWaiting else { return }
+        gridReportCoalescer.cancel()
+        pendingForcedReport = true
     }
 
     /// Who presents this view's new sizes and a held display scale (``place(_:)``).
@@ -289,6 +301,7 @@ public final class TerminalSurfaceView: NSView {
     public override func viewDidHide() {
         super.viewDidHide()
         isShown = false
+        cancelGridReport()
         // A hidden terminal gets no mouseExited: its link hover and modifier watcher end here.
         linkPointer.exited()
         observeWindow(false)
@@ -306,7 +319,10 @@ public final class TerminalSurfaceView: NSView {
         let shown = window != nil && !isHiddenOrHasHiddenAncestor && !isParkedOrHasParkedAncestor
         isShown = shown
         observeWindow(shown)
-        if !shown { linkPointer.exited() }
+        if !shown {
+            linkPointer.exited()
+            cancelGridReport()
+        }
         // Out of its window, no drag's end may reach it (its layout root can go before it): it stops following, so
         // its next shown size reports as any other, never held for a drag that is gone.
         if window == nil { stopFollowingResizeGesture() }

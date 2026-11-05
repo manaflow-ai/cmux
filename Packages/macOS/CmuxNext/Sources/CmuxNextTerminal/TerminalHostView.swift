@@ -395,6 +395,9 @@ public final class TerminalHostView: NSView {
     private(set) var surfaceHold: (size: CGSize, anchor: PaneMotionAnchor)?
     /// FRAME OWNER S3: the hold this host follows its pane through (``PaneMotionHoldFollowing``) and its size then; nil at rest.
     var followedHold: (hold: PaneMotionHold, heldSize: CGSize)?
+    /// The followed hold ended: the host's next layout places the surface at its final frame, and a size drawn ahead that
+    /// this placement did not take goes (``TerminalSurfaceView/dropAhead()``).
+    var dropsAheadAtRest = false
     /// A person drags a divider or edge of this host's pane (``PaneResizeGestureFollowing``): the surface it shows follows.
     var followsResizeGesture = false
 
@@ -418,6 +421,13 @@ public final class TerminalHostView: NSView {
         guard let current else { return }
         let placement = surfacePlacement
         current.place(placement.frame, anchor: placement.anchor)
+        // B1 (diag bf2b674a): a size drawn ahead goes only when its hold ended, never on a timer (a spring's next refresh
+        // can come 2 display ticks later, and dropping it then made that refresh wait for its frame again). The final
+        // placement took it if it is the final size; else Ghostty goes back to the view's size.
+        if dropsAheadAtRest, !surfaceFollowsArea {
+            dropsAheadAtRest = false
+            current.dropAhead()
+        }
     }
 
     public override func layout() { // perf-hot: 4ms motion-frame (each frame of a key resize the host follows, FRAME OWNER S3)

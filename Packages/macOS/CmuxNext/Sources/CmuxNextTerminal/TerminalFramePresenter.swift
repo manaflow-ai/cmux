@@ -69,6 +69,10 @@ final class TerminalFramePresenter {
         var ticks = 0
     }
 
+    private struct GridReports {
+        weak var coalescer: TerminalGridReportCoalescer?
+    }
+
     private weak var window: NSWindow?
     private var requests: [ObjectIdentifier: Request] = [:]
     /// Terminals whose shown size changed outside a present (a first frame, a reveal, a fallback), until their layer
@@ -80,9 +84,8 @@ final class TerminalFramePresenter {
     /// Terminals whose spring's next size goes to Ghostty after this turn's pass (``drawAhead(_:)``); one whose frame
     /// still waits keeps its entry until that frame lands.
     private var aheads: [ObjectIdentifier: Request] = [:]
-    /// Terminals whose draw-ahead size went to Ghostty, and the refresh it went in: one that no layout took within 2
-    /// refreshes (its spring ended or moved elsewhere) goes back to its bounds' size (``TerminalSurfaceView/dropAhead()``).
-    private var applied: [ObjectIdentifier: Request] = [:]
+    /// Terminals' grid-report windows that end at a refresh (``TerminalGridReportCoalescer/frameTicked()``).
+    private var gridReports: [ObjectIdentifier: GridReports] = [:]
     /// The pass before each commit, installed while a request waits.
     private var passObserver: MainRunLoopObserver?
     private lazy var client = FrameClient(owner: "Terminal.framePresenter", isAnimation: false, scheduler: { [weak self] in
@@ -135,7 +138,6 @@ final class TerminalFramePresenter {
         let id = ObjectIdentifier(view)
         requests[id] = nil
         aheads[id] = nil
-        applied[id] = nil
         watched[id] = nil
         commits[id] = nil
     }
@@ -164,14 +166,9 @@ final class TerminalFramePresenter {
             for (_, done) in commits { done.view?.hostFrameCommitted() }
             commits.removeAll(keepingCapacity: true)
         }
-        for (id, ahead) in applied {
-            guard let view = ahead.view, view.frameOwnership.ahead != nil else {
-                applied[id] = nil
-                continue
-            }
-            guard epoch &- ahead.epoch >= 2 else { continue }
-            applied[id] = nil
-            view.dropAhead()
+        // A grid-report window ends at the first refresh at or after its 25 ms (its timer is the backstop).
+        for (id, reports) in gridReports where reports.coalescer?.frameTicked() != true {
+            gridReports[id] = nil
         }
         for (id, watch) in watched {
             guard let view = watch.view else {
@@ -197,7 +194,7 @@ final class TerminalFramePresenter {
                 watched[id] = next.ticks > Self.watchLimit ? nil : next
             }
         }
-        return !requests.isEmpty || !watched.isEmpty || !commits.isEmpty || !applied.isEmpty || !aheads.isEmpty
+        return !requests.isEmpty || !watched.isEmpty || !commits.isEmpty || !aheads.isEmpty || !gridReports.isEmpty
     }
 
     /// Installs the pass before each commit while a request waits. An observer never wakes the run loop: the
@@ -276,10 +273,7 @@ final class TerminalFramePresenter {
             guard view.frameOwnership.inFlight == nil else { continue }
             aheads[id] = nil
             view.applyAhead()
-            if view.frameOwnership.ahead != nil {
-                stats.drawnAhead += 1
-                applied[id] = Request(view: view, epoch: epoch)
-            }
+            if view.frameOwnership.ahead != nil { stats.drawnAhead += 1 }
         }
         if requests.isEmpty, aheads.isEmpty { passObserver = nil }
     }
@@ -302,5 +296,13 @@ final class TerminalFramePresenter {
     private static func isReady(_ state: ghostty_host_frame_e) -> Bool {
         state == GHOSTTY_HOST_FRAME_READY || state == GHOSTTY_HOST_FRAME_SHOWN
             || state == GHOSTTY_HOST_FRAME_NONE || state == GHOSTTY_HOST_FRAME_HIDDEN
+    }
+}
+
+extension TerminalFramePresenter: TerminalGridReportTicks {
+    /// `coalescer`'s window ends at the first refresh at or after its interval: it is ticked each refresh until then.
+    func tickGridReports(_ coalescer: TerminalGridReportCoalescer) {
+        gridReports[ObjectIdentifier(coalescer)] = GridReports(coalescer: coalescer)
+        client.activate()
     }
 }

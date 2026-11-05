@@ -27,6 +27,8 @@ extension TerminalHostView: PaneResizeGestureFollowing {
 /// each size's frame. No key hold is left (m18), and no switch (m19).
 extension TerminalHostView: PaneMotionHoldFollowing {
     public func followPaneMotion(_ hold: PaneMotionHold?, heldSize: CGSize?) {
+        // The end of a followed hold: its last size drawn ahead goes at the final placement unless that placement takes it.
+        if hold == nil, followedHold != nil { dropsAheadAtRest = true }
         followedHold = hold.map { ($0, heldSize ?? bounds.size) }
         needsLayout = true
     }
