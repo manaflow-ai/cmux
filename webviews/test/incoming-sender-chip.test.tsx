@@ -274,3 +274,75 @@ test("a sender nothing describes keeps no tooltip", async () => {
   expect(host.querySelector(".cv-received__from")?.getAttribute("title")).toBeNull();
   expect(host.querySelector(".cv-received__mark")?.getAttribute("title")).toBeNull();
 });
+
+// Leo, 2026-11-05, on received lines from `fleet-mesh-3` and `try-pr-side-instance` (a lane on a
+// GCP VM): "i can't click to go to these for some reason". A sender the page's list cannot name was
+// a plain pill a click did nothing on. Where acpmux resolves sessions (`_acpmux/resolve`, the
+// `HOST/NAME` refs' resolver, sessionRefs.ts), its chip is the session link: a click opens the
+// session acpmux names, on whatever machine, and a name acpmux has no chat for says so.
+const refs = await import("../src/agent-session/acpmux/conversation/sessionRefs");
+
+async function asked(name: string, answers: Record<string, { sessionId: string; name: string; host: string }>) {
+  const queries: string[] = [];
+  refs.resetSessionRefs();
+  refs.setSessionRefResolver(async (query) => {
+    queries.push(query);
+    const session = answers[query];
+    if (!session) throw new Error("not found");
+    return { session };
+  });
+  const store = new SubsessionStore();
+  store.set(sessions);
+  const opened: string[] = [];
+  const missing: string[] = [];
+  const text = "the hq#7125 lane is up";
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <SubsessionContext.Provider
+        value={{ store, open: () => undefined, senderMissing: (who) => void missing.push(who) }}
+      >
+        <IncomingMessageLine id="row-1" message={{ name, text, raw: text }} onOpen={(id) => void opened.push(id)} />
+      </SubsessionContext.Provider>,
+    ),
+  );
+  const open = host.querySelector<HTMLButtonElement>("button.cv-received__from--open");
+  return { open, opened, missing, queries };
+}
+
+test("an unlisted sender on another machine opens the session acpmux resolves, by its id", async () => {
+  try {
+    const remote = {
+      sessionId: "01a1a7ca-78a0-70d1-95f0-bc17ea7f7973",
+      name: "try-pr-side-instance",
+      host: "gcp-agent-lane-1",
+    };
+    const { open, opened, queries } = await asked("gcp-agent-lane-1/try-pr-side-instance", {
+      "gcp-agent-lane-1/try-pr-side-instance": remote,
+    });
+    expect(open).not.toBeNull();
+    await act(async () => open!.click());
+    expect(queries).toEqual(["gcp-agent-lane-1/try-pr-side-instance"]);
+    expect(opened).toEqual([remote.sessionId]);
+    // Resolved, the chip names the session and its machine, and carries it for the right-click menu.
+    const chip = host.querySelector<HTMLButtonElement>("button.cv-received__from--open")!;
+    expect(chip.getAttribute("data-open-session")).toBe(remote.sessionId);
+    expect(chip.getAttribute("aria-label")).toBe(
+      t("subagents.openOnHost", { name: "gcp-agent-lane-1/try-pr-side-instance", host: "gcp-agent-lane-1" }),
+    );
+  } finally {
+    refs.setSessionRefResolver(undefined);
+  }
+});
+
+test("a sender acpmux has no chat for says so on the click, never a silent no-op", async () => {
+  try {
+    const { open, opened, missing } = await asked("fleet-mesh-3", {});
+    expect(open).not.toBeNull();
+    await act(async () => open!.click());
+    expect(opened).toEqual([]);
+    expect(missing).toEqual(["fleet-mesh-3"]);
+  } finally {
+    refs.setSessionRefResolver(undefined);
+  }
+});
