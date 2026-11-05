@@ -5692,7 +5692,8 @@ jobs:
     needs: [path_route, checks, generated-files, generated-verdict, swift-test, daemon-test]
     # generated-files skips a push whose generated files daemon-test checks (CMUX_NEXT_FOLD_GENERATED);
     # generated-verdict gives that verdict.
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.checks.result == 'success' && (needs.generated-files.result == 'success' || needs.generated-files.result == 'skipped' && needs.generated-verdict.result == 'success') && needs.swift-test.result == 'success' && needs.daemon-test.result == 'success' }}
+    # !cancelled() and each need's result: the implicit success() reads every ancestor, and pr-quiet-period skips on a push.
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.path_route.result == 'success' && needs.checks.result == 'success' && (needs.generated-files.result == 'success' || needs.generated-files.result == 'skipped' && needs.generated-verdict.result == 'success') && needs.swift-test.result == 'success' && needs.daemon-test.result == 'success' }}
     name: cmux-next Swift exports cache
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }}
     timeout-minutes: 10

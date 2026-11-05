@@ -123,6 +123,10 @@ class RunnerSetTests(unittest.TestCase):
                 continue
             with self.subTest(job=name):
                 self.assertTrue(job.get("needs"), f"{name} starts before the quiet period ends")
+                # The implicit success() reads every ancestor, the skipped gate included (a push, a re-run),
+                # so each job after it says how it treats a skipped or failed need (#35871).
+                self.assertRegex(str(job.get("if", "")), r"always\(\)|cancelled\(\)|failure\(\)",
+                                 f"{name} would skip whenever pr-quiet-period skips")
         self.assertTrue(jobs["dev-landing-place"]["if"].startswith("${{ github.event_name == 'push'"))
 
     def test_fast_checks_keeps_the_broker_overflow_set(self) -> None:
