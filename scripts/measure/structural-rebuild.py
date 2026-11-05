@@ -39,11 +39,13 @@ def reload(config, log_dir, index):
     started, start = time.time(), time.monotonic()
     # Streamed to the step's log as it runs, so a long cold build is never a silent step the fleet's watchdog ends.
     # Its own process group, so a run that ends early (a SIGTERM, a failed write) ends xcodebuild with it. The stop
-    # signals are held from the fork until the try below, so one that arrives in between still finds the group.
+    # signals are held from the fork until the try below, so one that arrives in between still finds the group; the
+    # child unblocks them before it execs, so reload.sh and xcodebuild still get the cleanup's SIGTERM.
     signal.pthread_sigmask(signal.SIG_BLOCK, STOP_SIGNALS)
     try:
         proc = subprocess.Popen(cmd, cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                                start_new_session=True)
+                                start_new_session=True,
+                                preexec_fn=lambda: signal.pthread_sigmask(signal.SIG_UNBLOCK, STOP_SIGNALS))
     except BaseException:
         signal.pthread_sigmask(signal.SIG_UNBLOCK, STOP_SIGNALS)
         raise
@@ -71,7 +73,16 @@ def reload(config, log_dir, index):
 
 def end_group(proc):
     """SIGTERM to the reload's process group, then SIGKILL to whatever of the group is left after GROUP_GRACE_S: the
-    group, not only reload.sh, since an xcodebuild below it can outlive or ignore the SIGTERM."""
+    group, not only reload.sh, since an xcodebuild below it can outlive or ignore the SIGTERM. Stop signals are held
+    while it runs, so a second SIGTERM cannot cut the cleanup short; one that came is delivered when it ends."""
+    held = signal.pthread_sigmask(signal.SIG_BLOCK, STOP_SIGNALS)
+    try:
+        end_group_now(proc)
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, held)
+
+
+def end_group_now(proc):
     def group_alive():
         proc.poll()                    # reaps reload.sh, whose zombie would keep the group alive
         try:

@@ -3,7 +3,7 @@
 out of a reload log (not an earlier build's receipt), the edit adds one stored property inside HomeHostView, and a
 run refuses a source file with local edits; a SIGTERM during a reload unwinds and ends the reload's process
 group, SIGKILLing a member that ignores SIGTERM."""
-import importlib.util, json, os, signal, subprocess, sys, tempfile
+import importlib.util, json, os, signal, subprocess, sys, tempfile, time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -74,9 +74,12 @@ with tempfile.TemporaryDirectory(prefix="structural-rebuild-") as tmp:
     run = subprocess.Popen([sys.executable, "-c", driver], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     assert "started" in run.stdout.readline()
     child = int((Path(tmp) / "child.pid").read_text())
+    sent = time.monotonic()
     run.send_signal(signal.SIGTERM)
     _, err = run.communicate(timeout=60)
     assert run.returncode == 1 and "ended by signal" in err, (run.returncode, err)
+    # reload.sh takes the cleanup's SIGTERM at once: the run does not sit out the grace and SIGKILL it.
+    assert time.monotonic() - sent < 10, f"cleanup took {time.monotonic() - sent:.1f} s"
     assert (Path(tmp) / "unwound").read_text() == "yes"
     try:
         os.kill(child, 0)
