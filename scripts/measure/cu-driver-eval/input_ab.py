@@ -107,6 +107,11 @@ class Log:
         return None
 
 
+def base_env() -> dict[str, str]:
+    """What any process of the login session has; a cmux-cua arm adds only cmux's own variables."""
+    return {k: os.environ[k] for k in ("HOME", "PATH", "TMPDIR", "USER", "LOGNAME", "LANG", "SHELL") if k in os.environ}
+
+
 def serve_argv(binary: str, socket_path: str) -> list[str]:
     """`cmux-cua serve` as ComputerUseHelperDaemon.arguments builds it: each optional flag only
     when the helper's manifest declares it (an older helper exits on an unknown flag), with
@@ -147,10 +152,13 @@ class Mcp:
         if name.startswith("cmux-cua"):
             state = Path(tempfile.mkdtemp(prefix="cu-eval-cmux-cua-"))
             socket_path, token = str(state / "cua.sock"), secrets.token_hex(16)
-            serve_env = {**os.environ, "CMUX_CUA_EXTERNAL_PERMISSION_FLOW": "1", "CMUX_CUA_PERMISSIONS_GATE": "0",
+            # Exactly ComputerUseHelperDaemon.environment over a login session's basics: nothing of
+            # this runner's environment (no CMUX_CUA_* of its own) reaches the helper.
+            serve_env = {**base_env(), "CMUX_CUA_EXTERNAL_PERMISSION_FLOW": "1", "CMUX_CUA_PERMISSIONS_GATE": "0",
                          "CMUX_CUA_RESPONSIBILITY_DISCLAIMED": "1", "CMUX_CUA_TELEMETRY_ENABLED": "false",
-                         "CMUX_CUA_UPDATE_CHECK": "false", "CMUX_CUA_STATE_DIR": str(state),
-                         "CMUX_CUA_SOCKET_AUTH_TOKEN": token, "CMUX_CUA_SOCKET_HOST_AUTH_TOKEN": secrets.token_hex(16)}
+                         "CMUX_CUA_UPDATE_CHECK": "false", "CMUX_CUA_CURSOR_LABEL": "cmux",
+                         "CMUX_CUA_STATE_DIR": str(state), "CMUX_CUA_SOCKET_AUTH_TOKEN": token,
+                         "CMUX_CUA_SOCKET_HOST_AUTH_TOKEN": secrets.token_hex(16)}
             self.state = state
             self.server = subprocess.Popen(serve_argv(binary, socket_path), stdin=subprocess.DEVNULL,
                                            stdout=self.stderr, stderr=self.stderr, env=serve_env)
@@ -169,8 +177,11 @@ class Mcp:
                 self.close()
                 raise RuntimeError(f"{name}: serve did not listen on its socket (exit {self.server.poll()})")
             argv = [binary, "mcp", "--socket", socket_path]
-            env = {**os.environ, "CMUX_CUA_MCP_FORCE_PROXY": "1", "CMUX_CUA_SOCKET_AUTH_TOKEN": token,
-                   "CMUX_CUA_TELEMETRY_ENABLED": "false", "CMUX_CUA_UPDATE_CHECK": "false"}
+            # Exactly the cmux-cua MCP server's environment in acpmux's agent_tools.rs.
+            env = {**base_env(), "CMUX_CUA_MCP_FORCE_PROXY": "1", "CMUX_CUA_TELEMETRY_ENABLED": "false",
+                   "CMUX_CUA_UPDATE_CHECK": "false", "CMUX_CUA_CURSOR_GRADIENT": "#12c7f5,#2d8cff,#6c5cff",
+                   "CMUX_CUA_CURSOR_BLOOM": "#2d8cff", "CMUX_CUA_CURSOR_LABEL": "cmux",
+                   "CMUX_CUA_SOCKET_AUTH_TOKEN": token}
         else:
             argv = [binary, "mcp", "--direct"]
         try:
