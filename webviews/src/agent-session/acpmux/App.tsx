@@ -10591,8 +10591,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   useEffect(() => {
     if (!showsWhatItIs || paintReported.current) return;
     paintReported.current = true;
+    acpmuxPerf.markLaunch("chatDrawn");
     requestAnimationFrame(() =>
       setTimeout(() => {
+        acpmuxPerf.markLaunch("paintPosted");
         void callNative("pane.painted", { drewKeptTail }).catch(() => undefined);
         void loadHighlightedCode();
         void loadEditDiffHunks();
