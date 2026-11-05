@@ -66,6 +66,7 @@ import {
   type CmuxTuiSource,
 } from "../../services/vms/drivers/cmuxTuiDaemon";
 import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER, devboxWorkUserSetupCommand } from "../../services/vms/images/workUser";
+import { npmCachePrefillCommand, npmCacheSizeCommand } from "./dep-cache";
 import {
   cmuxTuiWebsocketSmokeCommand,
   DEVBOX_INSTANCE_ID_COMMAND,
@@ -692,6 +693,11 @@ async function installAgentTools(ctx: Ctx): Promise<void> {
   await L.step(vm, "agent-tools-desktop", rdSetupCommand());
 }
 
+/** The npm cache a first `npm install` finds (dep-cache.ts); the image record's size is read after clean. */
+async function prefillDepCaches(ctx: Ctx): Promise<void> {
+  await ctx.L.step(ctx.vm, "npm-cache-prefill", npmCachePrefillCommand(), 290_000);
+}
+
 /**
  * Role desktop in the image record (the platform's desktop capability): an --agent-tools image carries the
  * cmux-rd host. Recorded by bake() from the lock, so a layered bake whose agents layer came from cache records
@@ -764,6 +770,8 @@ async function finalizeAndCollect(ctx: Ctx): Promise<void> {
   await writeGuestFile(vm, "/root/cmux-clean.py", readFileSync(path.join(GUEST_DIR, "clean.py")), 0o755);
   const clean = await L.step(vm, "clean", `python3 /root/cmux-clean.py && rm -f /root/cmux-clean.py && ${devboxJournalResetCommand}`);
   result.clean = JSON.parse(clean.split("CLEAN_JSON ")[1].split("\n")[0]);
+  // What the image ships, whether the agents layer was built this run or came from cache.
+  result.npmCacheMb = Number((await L.step(vm, "npm-cache-size", npmCacheSizeCommand())).trim());
   // The SBOM and file manifest: here, or after the snapshot on the same builder (--defer-inventory).
   if (!options.deferInventory) await collectInventory(vm, L, options, lock, result, name);
   await L.step(vm, "tmp-empty", `rm -rf /tmp/cmux-out /tmp/cmux-syft /root/.cache && ${TMP_LEFTOVERS} | head -5; test -z "$(${TMP_LEFTOVERS})"`);
@@ -825,6 +833,7 @@ async function baseSteps(ctx: Ctx): Promise<void> {
   if (options.teamVm) ctx.result.teamFilesRoot = (await L.step(ctx.vm, "team-files-root", teamVmDirsCommand())).trim();
   await configureRoles(ctx);
   if (options.agentTools) await installAgentTools(ctx);
+  await prefillDepCaches(ctx);
   if (options.devTree) await installDevTree(ctx);
   await installMachineHealth(ctx);
   await installHostConfig(ctx);
@@ -849,6 +858,7 @@ async function overlaySteps(ctx: Ctx, layer: "agents" | "app"): Promise<void> {
   if (layer === "agents") {
     await configureRoles(ctx);
     if (ctx.options.agentTools) await installAgentTools(ctx);
+    await prefillDepCaches(ctx);
     await L.step(vm, "agents-done", "rm -rf /tmp/cmux-dl && echo agents-layer-ok");
     return;
   }

@@ -14,10 +14,11 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../../services/vms/images/workUser";
 import { argValue, createVm, deleteVm, firstExec, freestyleClient, Ledger, run, type Vm } from "./guest";
+import { PREFILL_NODE_DEPS } from "./dep-cache";
 import { sq } from "./lock";
 
 /** A web app's and a Python service's usual first installs; unpinned, as a person's new project resolves them. */
-const NODE_DEPS = ["react", "react-dom", "vite", "typescript", "@types/react", "@types/node", "eslint", "prettier", "zod", "vitest"];
+const NODE_DEPS = PREFILL_NODE_DEPS;
 const PY_DEPS = ["fastapi", "pydantic", "requests", "pytest", "numpy", "httpx"];
 
 // The work user's login shell has no corepack on PATH (run 42082074422), so pnpm and yarn come through npx, as a
@@ -41,9 +42,11 @@ export const PREWARM_STEPS: readonly string[] = [
   ...Object.values(FIRST_SESSION_WORKLOADS).map(asUser),
   // Only the package caches stay; the project dirs were the vehicle.
   "rm -rf /tmp/fs-npm /tmp/fs-bun /tmp/fs-pnpm /tmp/fs-uv",
-  `du -sb ${DEVBOX_WORK_HOME}/.npm ${DEVBOX_WORK_HOME}/.bun/install/cache ${DEVBOX_WORK_HOME}/.local/share/pnpm ${DEVBOX_WORK_HOME}/.cache/uv ${DEVBOX_WORK_HOME}/.cache/node/corepack 2>/dev/null; true`,
   "sync && echo 3 > /proc/sys/vm/drop_caches",
 ];
+
+/** Bytes each package manager's cache takes on the seed after the prewarm (the cost of baking it). */
+const CACHE_SIZES = `du -sb ${["/.npm/_cacache", "/.bun/install/cache", "/.local/share/pnpm", "/.cache/uv", "/.npm/_npx"].map((d) => DEVBOX_WORK_HOME + d).join(" ")} 2>/dev/null; true`;
 
 type Side = { vmId: string; firstExecMs: number; workloadsMs: Record<string, number>; failed: Record<string, string> };
 
@@ -86,17 +89,18 @@ export async function main(argv = process.argv): Promise<number> {
       timeWorkloads(cold.vm),
       (async () => {
         const t = Date.now();
-        let out = "";
         for (const step of PREWARM_STEPS) {
           const r = await run(seed.vm, step, 290_000);
           if (r.code !== 0) throw new Error(`prewarm failed: ${(r.stderr || r.stdout).slice(-600)}`);
-          out = r.stdout;
         }
-        return { ms: Date.now() - t, sizes: out.trim().split("\n").slice(-5) };
+        const ms = Date.now() - t;
+        const sizes = Object.fromEntries((await run(seed.vm, CACHE_SIZES)).stdout.trim().split("\n").filter(Boolean).map((l) => { const [b, p] = l.split("\t"); return [p, Number(b)]; }));
+        return { ms, cacheBytes: sizes };
       })(),
     ]);
     report.cold = { vmId: cold.vmId, firstExecMs: cold.firstExecMs, ...coldTimes } satisfies Side;
     report.prewarm = prewarm;
+    for (const [dir, bytes] of Object.entries(prewarm.cacheBytes)) console.log(`FIRST_SESSION cache ${dir} ${(Number(bytes) / 1048576).toFixed(1)} MB`);
     report.rootUsedBytes = { before: (await run(cold.vm, "df -B1 --output=used / | tail -1")).stdout.trim(), afterPrewarm: (await run(seed.vm, "df -B1 --output=used / | tail -1")).stdout.trim() };
     const snap = await seed.vm.snapshot({ displayName: `cmuxnp-dev-vmimg-${tag}-fs-warm`, slug: `cmuxnp-dev-vmimg-${tag}-fs-warm` });
     warmSnapshot = snap.snapshotId;

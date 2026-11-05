@@ -225,3 +225,36 @@ describe("deferred inventory", () => {
     expect(recordedFlags("images/cmux-vm/bake.ts --agent-tools --layered --defer-inventory (CI run 7)")).toEqual(["--agent-tools", "--layered", "--defer-inventory"]);
   });
 });
+
+describe("baked npm cache", () => {
+  test("the prefill parses, installs as the work user, reports its size and enforces the cap", async () => {
+    const { npmCachePrefillCommand, NPM_CACHE_CAP_MB, PREFILL_NODE_DEPS } = await import("../scripts/cmux-vm-image/dep-cache");
+    const cmd = npmCachePrefillCommand();
+    await bashSyntax(cmd);
+    expect(cmd).toContain("runuser -u cmux");
+    for (const dep of PREFILL_NODE_DEPS) expect(cmd).toContain(dep);
+    expect(cmd).toContain(`-gt ${NPM_CACHE_CAP_MB}`);
+    expect(cmd).toContain("npm-cache-mb");
+    // No package's lifecycle scripts run in the build, and every prefill starts from an empty cache.
+    expect(cmd).toContain("npm install --ignore-scripts");
+    expect(cmd).toContain("rm -rf /tmp/cmux-npm-prefill /home/cmux/.npm/_cacache");
+  });
+
+  test("clean.py keeps the work user's npm cache content and nothing else under ~/.npm", () => {
+    const clean = readFileSync(path.join(repoRoot, "images/cmux-vm/guest/clean.py"), "utf8");
+    expect(clean).toContain('"/home/cmux/.npm/_cacache"');
+    expect(clean).toContain('"/home/cmux/.npm/*"');
+    expect(clean).not.toContain('"/home/cmux/.npm"]');
+  });
+
+  test("the bake runs dep-cache.ts, so a change to the prefill rebuilds the agents' parent layer", () => {
+    const scripts = bakeScriptClosure((f) => {
+      try {
+        return readFileSync(path.join(repoRoot, f), "utf8");
+      } catch {
+        return undefined;
+      }
+    });
+    expect(scripts.has("web/scripts/cmux-vm-image/dep-cache.ts")).toBe(true);
+  });
+});

@@ -720,13 +720,15 @@ class FeatGuardRoutingTests(unittest.TestCase):
             "Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateRing.swift",
             "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/AppcastParser.swift",
             "Native/OptChat/optchat-chief/inspector/index.html", "ghostty", "ghostty-next",
+            "cmux-tui/Cargo.toml",
             "Resources/Info.plist", "Config/Release.xcconfig", "new-area/input",
         ):
             with self.subTest(path=path):
                 self.assertIn("release-notary", self.feat([path]))
         for paths in (
             ["Packages/macOS/CmuxNext/Sources/CmuxNextApp/X.swift"], ["webviews/src/x.ts"],
-            ["cmux-tui/crates/a/src/lib.rs"], ["backend/x.ts"], ["docs/guide.md", "AGENTS.md"],
+            ["cmux-tui/crates/a/src/lib.rs"], ["cmux-tui/crates/a/Cargo.toml"], ["backend/x.ts"],
+            ["docs/guide.md", "AGENTS.md"],
             ["Packages/macOS/CmuxNext/Package.resolved"], ["Native/OptChat/x.swift"],
         ):
             with self.subTest(paths=paths):
@@ -760,6 +762,10 @@ class FeatGuardRoutingTests(unittest.TestCase):
                       ["agent-chat/src/x.ts"], ["Resources/Info.plist"], ["../escape"]):
             with self.subTest(paths=paths):
                 self.assertEqual(self.feat(paths), detect_linux_guard_changes.FEAT_ROUTED)
+
+    def test_a_cmux_tui_manifest_only_change_runs_release_notary(self):
+        """tests/test_nightly_version.py reads cmux-tui/Cargo.toml's [workspace.package] version (#36734 review F1)."""
+        self.assertEqual(self.feat(["cmux-tui/Cargo.toml"]), ("release-notary",))
 
     def test_unknown_product_source_runs_no_extra_group(self):
         """254 of feat-cmux-next's last 300 commits touched a path ci.yml routes to every group; running all ten

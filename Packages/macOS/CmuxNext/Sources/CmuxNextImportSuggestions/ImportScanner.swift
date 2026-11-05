@@ -45,7 +45,7 @@ public nonisolated struct ImportScanner: Sendable {
     /// Every source found, browsers first in the order people most often come from.
     public func scan() -> [ImportFinding] {
         var findings = browsers()
-        let others: [() -> ImportFinding?] = [claudeCode, codex, classic, iterm2, ghostty]
+        let others: [() -> ImportFinding?] = [claudeCode, codex, classic, conductor, iterm2, ghostty]
         for source in others {
             if shouldStop() { break }
             if let found = source() { findings.append(found) }
@@ -191,6 +191,19 @@ public nonisolated struct ImportScanner: Sendable {
     func classic() -> ImportFinding? {
         guard let workspaces = classicWorkspaces() else { return nil }
         return ImportFinding(id: "cmux.classic", kind: .cmuxClassic, name: "cmux Classic", count: workspaces)
+    }
+
+    /// Conductor's workspaces, one folder each under `~/conductor/workspaces/<repo>`, when its
+    /// database or that folder is here. Folder listings only: what each one becomes is the
+    /// import's dry run (`conductor_import.plan`), read when the person presses Import.
+    func conductor() -> ImportFinding? {
+        let database = home.appending(path: "Library/Application Support/com.conductor.app/conductor.db")
+        let root = home.appending(path: "conductor/workspaces", directoryHint: .isDirectory)
+        let workspaces = listing(root).reduce(0) { total, repo in
+            total + listing(root.appending(path: repo, directoryHint: .isDirectory)).count
+        }
+        guard workspaces > 0 || size(database) > 0 else { return nil }
+        return ImportFinding(id: "agents.conductor", kind: .conductor, name: "Conductor", count: workspaces)
     }
 
     /// Ghostty's config: cmux terminals read it as it is, so it is listed as already in use.
