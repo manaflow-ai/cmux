@@ -2393,6 +2393,15 @@ def xctrace_stop(handle, action_id):
                 continue
             intervals.append({"name": name, "category": category, "start": int(start.text), "end": int(start.text) + int(dur.text),
                               "text": " ".join(texts)[:200]})
+    if "os-signpost-interval" in exports:
+        with open(exports["os-signpost-interval"], errors="replace") as fh:
+            out["interval_xml_head"] = fh.read(4000)
+        diag = []
+        for n_row, row in enumerate(xml_rows(exports["os-signpost-interval"])):
+            if n_row >= 3:
+                break
+            diag.append({t: [c.get("fmt"), (c.text or "")[:60]] for t, c in row.items()})
+        out["interval_rows_head"] = diag
     windows = sorted((i["start"], i["end"]) for i in intervals if i["name"] == "action.commit" and f"id={action_id}" in i["text"])
     out["commit_windows"] = len(windows)
     out["sample_intervals"] = [i for i in intervals[:3]]
@@ -2419,6 +2428,7 @@ def xctrace_stop(handle, action_id):
     if "time-profile" in exports:
         import collections
         self_w, incl_w, total, total_all = collections.Counter(), collections.Counter(), 0, 0
+        self_all, incl_all = collections.Counter(), collections.Counter()
         for row in xml_rows(exports["time-profile"]):
             th = row.get("thread")
             if th is None or not (th.get("fmt") or "").startswith("Main Thread"):
@@ -2427,6 +2437,12 @@ def xctrace_stop(handle, action_id):
             w = row.get("weight")
             weight = int(w.text) if w is not None and (w.text or "").isdigit() else 1000000
             total_all += weight
+            bt_all = row.get("backtrace")
+            frames_all = [f.get("name") or "?" for f in bt_all.findall("frame")] if bt_all is not None else []
+            if frames_all:
+                self_all[frames_all[0][:150]] += weight
+            for name in set(frames_all):
+                incl_all[name[:150]] += weight
             if t is None or not (t.text or "").isdigit() or not inside(int(t.text)):
                 continue
             total += weight
@@ -2440,6 +2456,8 @@ def xctrace_stop(handle, action_id):
         out["main_ms_recorded"] = round(total_all / 1e6, 1)
         out["main_self_ms"] = {k: round(v / 1e6, 1) for k, v in self_w.most_common(40)}
         out["main_inclusive_ms"] = {k: round(v / 1e6, 1) for k, v in incl_w.most_common(120)}
+        out["main_self_ms_all"] = {k: round(v / 1e6, 1) for k, v in self_all.most_common(40)}
+        out["main_inclusive_ms_all"] = {k: round(v / 1e6, 1) for k, v in incl_all.most_common(150)}
     print(f"XCTRACE {action_id} {json.dumps(out)[:20000]}", flush=True)
     return out
 
@@ -2458,6 +2476,35 @@ def _run_action_profiled(self, action):
             profile = xctrace_stop(handle, action["id"])
         except Exception as error:  # SCRATCH: a profile that fails must not lose the row
             profile = {"error": repr(error)[:400]}
+    try:
+        spans = []
+        everything = SIGNPOSTS.intervals()
+        commits = []
+        for w in row.get("windows") or []:
+            c = next((i for i in everything if i["name"] == "action.commit" and i.get("id") == action["id"]
+                      and w[0] - 0.002 <= i["begin"] <= w[1]), None)
+            if c:
+                commits.append((c["begin"], c["end"]))
+        profile["stream_commit_ms"] = stat([(b - a) * 1000 for a, b in commits])
+        for a, b in commits:
+            sums = {}
+            for i in everything:
+                if i["end"] < a or i["begin"] > b or i["name"] == "action.commit":
+                    continue
+                k = f'{i.get("category")}/{i["name"]}'
+                sums[k] = sums.get(k, 0.0) + (min(i["end"], b) - max(i["begin"], a)) * 1000
+            spans.append(sums)
+        keys = sorted({k for d in spans for k in d})
+        n = max(1, len(spans))
+        profile["stream_intervals_in_window"] = sorted(({"name": k, "n": sum(1 for d in spans if k in d),
+                                                          "p50": pct([d.get(k, 0.0) for d in spans], 0.5),
+                                                          "p95": pct([d.get(k, 0.0) for d in spans], 0.95),
+                                                          "max": round(max(d.get(k, 0.0) for d in spans), 2),
+                                                          "mean": round(sum(d.get(k, 0.0) for d in spans) / n, 2)} for k in keys),
+                                                        key=lambda r: -r["mean"])[:40]
+        profile["stream_windows"] = len(spans)
+    except Exception as error:
+        profile["stream_error"] = repr(error)[:300]
     row["xctrace"] = profile
     return row
 
