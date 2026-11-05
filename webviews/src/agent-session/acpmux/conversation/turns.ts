@@ -24,7 +24,7 @@ import { showsTimestamp, type TurnTimes } from "./timestamps";
 import { isRunGroup, isSubagentGroup, WORKFLOW_CARD } from "../subagents/subagentRows";
 import { STARTED_SESSIONS } from "../started/startedSessions";
 import { QUESTION_RECORD } from "../question/record";
-import { chosenAnswer, nextStepAsk } from "./nextStepAsk";
+import { chosenAnswer, nextStepAsk, pickedAnswer } from "./nextStepAsk";
 import { lastWrapUp, withoutWrapUp } from "./wrapUp";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
@@ -77,7 +77,8 @@ export const PREVIEW = "preview";
 export const RENDER = "render";
 /// A row added for an ended turn whose answer ends on one tagged ask (nextStepAsk.ts): the ask as a
 /// card with its answers as buttons (NextStepCard.tsx), right under the answer, which drops the
-/// ask's lines. Its `nextStep` carries the ask and, once a prompt follows the turn, the answer.
+/// ask's lines. Its `nextStep` carries the ask; `settleNextSteps` adds the answer a later prompt
+/// picked, or folds it once a later card takes over.
 export const NEXT_STEP = "nextStep";
 /// The id prefix of the footer `supersededFooters` adds where the person came in on a stretch of a
 /// turn: before a steer that landed in it, or at the end of a turn a new prompt opened over.
@@ -142,7 +143,8 @@ const footerSays = (row: AcpmuxRow) =>
 /// reply after its last call, is not empty: it ends the chat, so its row with Copy (the whole turn,
 /// turnCopy.ts) shows once it ends, as ChatGPT's does under every finished turn (Leo, 2026-11-02:
 /// "the latest copy buttons auto showing when the turn is done like chatgpt"). Before, that footer
-/// drew nothing, so the chat ended on a blank band with no buttons.
+/// drew nothing, so the chat ended on a blank band with no buttons. A footer that is empty never
+/// carries Retry: the prompt keeps it (`retryPlacement`).
 export const isEmptyFooter = (row: AcpmuxRow) =>
   row.kind === "turnSummary" &&
   row.status !== "failed" &&
@@ -150,6 +152,80 @@ export const isEmptyFooter = (row: AcpmuxRow) =>
   !row.text &&
   !row.resumable &&
   !endsChatOnWork(row);
+
+/// The footer with the person's last prompt to send again (TurnRows.tsx TurnFooter's Retry): the
+/// chat's last turn, or the last one a prompt opened when every turn after it came from a notice
+/// or a reminder (`retryTarget`). transcriptGrid.ts rowMark and model.ts isBlankFooter repeat it inline.
+export const offersRetry = (row: AcpmuxRow) =>
+  row.retryTarget === true && Boolean(row.prompt) && Boolean(row.retryRowId);
+
+/// A prompt row that drew its own Retry on base, before Retry moved to the reply footer (cmux#34779),
+/// taken over unchanged: the row UserBubble draws (the person's own prompt: no `incoming`, not a
+/// `received` result; App.tsx's registry draws those as message cards), with its footer (not
+/// `failed`), not `pending` and not still sending, with text to send (`resend`, else `text`). Whether
+/// the chat can send and the reader may act are ``retryPlacement``'s (base: PromptRetry's `retry` and
+/// read-only checks). Only which row draws Retry moved; which prompts can be retried did not.
+export const isRetryablePrompt = (row: AcpmuxRow) =>
+  row.kind === "user" &&
+  !row.incoming &&
+  row.received === undefined &&
+  !row.failed &&
+  !row.pending &&
+  row.delivery?.state !== "sending" &&
+  Boolean(row.resend ?? row.text);
+
+/// The chat's one Retry in the transcript (cmux#34779): the last prompt that would have drawn its
+/// own Retry on base (``isRetryablePrompt``, `promptId`), and its turn's footer when that footer
+/// draws Retry for it (`footerId`). Read by ``retryPlacement``. A steer's turn footer resends the
+/// turn's opener, not the steer, so a steer keeps Retry under its bubble (held while it waits, as
+/// on base).
+export type RetryTarget = { promptId?: string; footerId?: string };
+export const NO_RETRY_TARGET: RetryTarget = {};
+
+export function retryTargetIn(rows: readonly AcpmuxRow[]): RetryTarget {
+  for (let at = rows.length - 1; at >= 0; at -= 1) {
+    const row = rows[at]!;
+    if (!isRetryablePrompt(row)) continue;
+    // Its turn's footer is the first summary after it. A turn with none (history that ended
+    // without a turn result, or one still running) reaches the next turn's summary, which resends
+    // another prompt: then the prompt keeps Retry.
+    for (let next = at + 1; next < rows.length; next += 1) {
+      const footer = rows[next]!;
+      if (footer.kind !== "turnSummary") continue;
+      return offersRetry(footer) && footer.retryRowId === row.id && !isEmptyFooter(footer)
+        ? { promptId: row.id, footerId: footer.id }
+        : { promptId: row.id };
+    }
+    return { promptId: row.id };
+  }
+  return NO_RETRY_TARGET;
+}
+
+/// Where the transcript draws its one Retry: on the reply footer when that footer shows and offers
+/// it (the person's last prompt's turn ended with a footer that has something at rest, or failed),
+/// else under the prompt, as the prompt's Retry was drawn before Retry moved to the footer, so
+/// Retry never vanishes where it was (a turn of tool calls alone, whose empty footer draws nothing;
+/// history with no turn result; a turn still running). Nowhere when the reader may not act (read
+/// only) or the chat cannot send now (no `retry`, as while disconnected). The Messages view, which
+/// draws no footer for a turn that ended well, keeps Retry under its prompts.
+export type RetryPlace = "footer" | "prompt" | "none";
+export function retryPlacement(
+  target: RetryTarget,
+  ctx: { canRetry: boolean; readOnly: boolean; messages: boolean },
+): RetryPlace {
+  if (!target.promptId || !ctx.canRetry || ctx.readOnly) return "none";
+  if (ctx.messages || !target.footerId) return "prompt";
+  return "footer";
+}
+
+/// The turn whose footer may offer Retry: the last one a prompt opened that would have drawn its own
+/// Retry on base (``isRetryablePrompt``), whatever came after it (a notice's, a reminder's, another
+/// agent's or a task result's turn), as that prompt kept its Retry under it before Retry moved to
+/// the footer (cmux#34779). -1: none.
+function retryTargetAt(rows: readonly AcpmuxRow[], starts: readonly number[]): number {
+  for (let at = starts.length - 1; at >= 0; at -= 1) if (isRetryablePrompt(rows[starts[at]!]!)) return at;
+  return -1;
+}
 
 /// The last turn's footer when the turn said something and ended on work (`isEmptyFooter` above).
 /// transcriptGrid.ts rowMark repeats it inline (that module imports nothing).
@@ -255,6 +331,8 @@ export type TurnView = {
   pending: readonly AcpmuxRow[];
   /// Where the first prompt is: the rows before it draw as they are.
   lead: number;
+  /// The turn whose footer offers Retry (`retryTargetAt`), -1 for none.
+  retryAt: number;
   /// Each turn's prompt index in `source`, its times, whether it is dated, and how many drawn
   /// rows there are up to its end.
   starts: number[];
@@ -265,6 +343,9 @@ export type TurnView = {
   foldedBackground: ReadonlySet<string>;
   /// Each boundary keeps its count and last row before the next prompt extends a fold.
   ends: { count: number; row: AcpmuxRow | undefined; visible?: number }[];
+  /// Where each next-step card is in `rows`, with the row as its turn shaped it
+  /// (`settleNextSteps`).
+  nextSteps: NextStepAt[];
   rows: AcpmuxRow[];
 };
 
@@ -367,6 +448,7 @@ export function turnViewFrom(
   let times: TurnTimes[];
   let dated: boolean[];
   let ends: TurnView["ends"];
+  let nextSteps: NextStepAt[];
   if (reuse > 0) {
     lead = previous!.lead;
     index = previous!.starts[reuse]!;
@@ -378,6 +460,7 @@ export function turnViewFrom(
     times = previous!.times.slice(0, reuse);
     dated = previous!.dated.slice(0, reuse);
     ends = previous!.ends.slice(0, reuse);
+    nextSteps = previous!.nextSteps.filter((card) => card.at < out.length);
   } else {
     out = [];
     index = 0;
@@ -394,8 +477,12 @@ export function turnViewFrom(
     times = [];
     dated = [];
     ends = [];
+    nextSteps = [];
   }
   const first = starts.length;
+  // The cards before the last reused one keep their state: what follows each, up to the next card,
+  // is reused too.
+  const keptCards = nextSteps.length;
   let firstVisible =
     previous?.firstVisible !== undefined && previous.firstVisible < first ? previous.firstVisible : undefined;
   let visible = ends.at(-1)?.visible;
@@ -422,9 +509,13 @@ export function turnViewFrom(
     const turn = { promptAt: rows[start]!.at, answerAt };
     times.push(turn);
   }
+  const retryAt = retryTargetAt(rows, starts);
   // Reused turns were drawn with the previous view's folds. A row after them can change which
-  // background turns fold (cmux#30535), so a different set draws every turn again.
-  if (reuse > 0 && !sameIds(foldedBackground, previous!.foldedBackground))
+  // background turns fold (cmux#30535), so a different set draws every turn again. So does a Retry
+  // that moves off or onto a reused turn (`retryTargetAt`).
+  const retryMoved =
+    reuse > 0 && retryAt !== previous!.retryAt && [retryAt, previous!.retryAt].some((at) => at >= 0 && at < first);
+  if (reuse > 0 && (!sameIds(foldedBackground, previous!.foldedBackground) || retryMoved))
     return turnViewFrom(rows, expanded, {
       now,
       working,
@@ -459,6 +550,7 @@ export function turnViewFrom(
       agentFamily,
       foldedBackground,
       live ? trayAgents : 0,
+      at === retryAt,
     );
     // Other sessions' messages the agent read stay each its own line where it read them
     // (IncomingMessageCard.tsx). One it has not read yet (a steer that waits for its step) leaves
@@ -479,9 +571,14 @@ export function turnViewFrom(
       firstVisible ??= at;
       visible = at;
     } else dated[at] = false;
-    for (const row of drawn) out.push(row);
+    for (const row of drawn) {
+      if (row.kind === NEXT_STEP && row.nextStep) nextSteps.push({ at: out.length, row });
+      out.push(row);
+    }
     ends.push({ count: out.length, row: out.at(-1), visible });
   }
+  // A reused card a later one now supersedes changed: the unchanged prefix ends before it.
+  reusedRows = Math.min(reusedRows, settleNextSteps(out, nextSteps, Math.max(0, keptCards - 1)));
   return {
     source: rows,
     expanded,
@@ -497,14 +594,78 @@ export function turnViewFrom(
     ...(waitingSteers ? { waitingSteers } : {}),
     pending: pending.length ? pending : NO_PENDING,
     lead,
+    retryAt,
     starts,
     times,
     dated,
     firstVisible,
     foldedBackground,
     ends,
+    nextSteps,
     rows: out,
   };
+}
+
+/// A next-step card in a turn view: its index in the drawn rows and the row as its turn shaped it.
+type NextStepAt = { at: number; row: AcpmuxRow };
+
+/// A card's version spans its shaped version and its settled state (none, answered, superseded,
+/// both), so its memo and height cache redraw when it settles.
+const SETTLED_STATES = 4;
+/// Each shaped card's settled row, kept while its state holds, so the memo and height cache keep it.
+const settledCards = new WeakMap<AcpmuxRow, { answer?: string; superseded: boolean; row: AcpmuxRow }>();
+
+/// The person's own prompt, sent or on its way: what can answer a card. A prompt that failed to
+/// send answered nothing, so its card stays answerable.
+const personPrompt = (row: AcpmuxRow) =>
+  row.kind === "user" && !row.incoming && !row.received && !row.failed && row.text ? row.text : undefined;
+
+/// Each next-step card in `out` from `cards[from]` on, settled by what follows it. Another prompt
+/// leaves a card answerable (Leo, 2026-11-05, on Claude desktop's box: "after i sent a prompt
+/// icouldn't select the thing... we can make a better thing in cmux-next for y'all to call"): a
+/// prompt after it that picks one of its answers settles it with that answer, and a later card
+/// (the agent's next wrap-up or tagged ask) supersedes it, showing what the person said after it.
+/// Until then its buttons still send, whatever the person typed between. Returns the first index
+/// whose row it changed, `out.length` for none.
+function settleNextSteps(out: AcpmuxRow[], cards: readonly NextStepAt[], from: number): number {
+  let changed = out.length;
+  const put = (at: number, row: AcpmuxRow) => {
+    if (out[at] !== row) changed = Math.min(changed, at);
+    out[at] = row;
+  };
+  for (let index = from; index < cards.length; index += 1) {
+    const { at, row } = cards[index]!;
+    const { ask } = row.nextStep!;
+    const next = index + 1 < cards.length ? cards[index + 1]!.at : out.length;
+    const superseded = index + 1 < cards.length;
+    let answer: string | undefined;
+    let first: string | undefined;
+    if (ask.question)
+      for (let later = at + 1; later < next && answer === undefined; later += 1) {
+        const said = personPrompt(out[later]!);
+        if (said === undefined) continue;
+        first ??= said;
+        answer = pickedAnswer(ask, said);
+      }
+    if (answer === undefined && superseded && first !== undefined) answer = chosenAnswer(ask, first);
+    if (answer === undefined && !superseded) {
+      put(at, row);
+      continue;
+    }
+    const kept = settledCards.get(row);
+    if (kept && kept.answer === answer && kept.superseded === superseded) {
+      put(at, kept.row);
+      continue;
+    }
+    const settled: AcpmuxRow = {
+      ...row,
+      version: row.version + (answer === undefined ? 0 : 1) + (superseded ? 2 : 0),
+      nextStep: { ask, ...(answer !== undefined && { answer }), ...(superseded && { superseded }) },
+    };
+    settledCards.set(row, { answer, superseded, row: settled });
+    put(at, settled);
+  }
+  return changed;
 }
 
 /// A turn as drawn, kept while its rows (by identity) and what shapes them stay the same: a long
@@ -522,6 +683,8 @@ type ShapedTurn = {
   /// Which of its background-task runs' lines are open (backgroundRuns.ts `openBackgroundRuns`).
   backgroundRuns: string;
   last: boolean;
+  /// Whether its footer offers Retry (`retryTargetAt`).
+  retryTarget: boolean;
   clockOffset: number;
   dated: boolean;
   liveRuns: boolean;
@@ -587,6 +750,7 @@ function shapedTurn(
   agentFamily?: string,
   foldedBackground: ReadonlySet<string> = new Set(),
   trayAgents = 0,
+  retryTarget = false,
 ): AcpmuxRow[] {
   const user = rows[start]!;
   // A running turn changes with every event: it is neither read from nor kept in the cache, so its
@@ -611,6 +775,7 @@ function shapedTurn(
     cached.messageRuns === messageRuns &&
     cached.backgroundRuns === backgroundRuns &&
     cached.last === last &&
+    cached.retryTarget === retryTarget &&
     cached.clockOffset === clockOffset &&
     cached.dated === dated &&
     cached.liveRuns === liveRuns &&
@@ -656,7 +821,15 @@ function shapedTurn(
   const waiting = !live && last && user.pending && !user.failed && turn.length === 0 && held.length === 0;
   let shaped: AcpmuxRow[];
   if (waiting) {
-    const line: AcpmuxRow = { id: LIVE_THINKING, version: 1, at: user.at, kind: THINKING, verbKey: user.id };
+    const line: AcpmuxRow = {
+      id: LIVE_THINKING,
+      version: 1,
+      at: user.at,
+      kind: THINKING,
+      verbKey: user.id,
+      // The running turn's slot from the send (`liveSlot`): the turn opening never resizes the line.
+      ...liveSlot(lineBelow),
+    };
     // Held behind the agent's start: the line draws the start look (agentStart.experiment.ts), with
     // no time yet. The sent prompt's row is stamped when it goes, so a time here would jump from
     // "Thinking 20s" back to 0s when the turn opens (cmux#30642).
@@ -675,6 +848,7 @@ function shapedTurn(
       live,
       last,
       last && held.length === 0,
+      retryTarget && (!last || held.length === 0),
       clockOffset,
       liveRuns,
       sessionStatus,
@@ -701,7 +875,7 @@ function shapedTurn(
     // IT LOOK KLIKE YOU'RE NOT RESPONDING HERE???", "this is bad. it looks like you're not working.").
     // The line is the first prompt's (`waiting` above), by id, so the turn that opens goes on with it.
     const sent = last && liveLine.length === 0 ? sentAfterTurn(held) : undefined;
-    const line = sent ? [sentLine(sent)] : liveLine;
+    const line = sent ? [sentLine(sent, lineBelow)] : liveLine;
     const emptyCompleted =
       isVisiblyEmptyMessage(user) &&
       body.length === 0 &&
@@ -731,6 +905,7 @@ function shapedTurn(
       messageRuns,
       backgroundRuns,
       last,
+      retryTarget,
       clockOffset,
       dated,
       liveRuns,
@@ -754,11 +929,26 @@ function sentAfterTurn(held: readonly AcpmuxRow[]): AcpmuxRow | undefined {
 /// (`waiting` in ``shapedTurn``): the same id, so the turn that opens goes on with it, and one held
 /// behind its agent's start draws the start look with no time yet (agentStart.experiment.ts,
 /// cmux#30642).
-function sentLine(sent: AcpmuxRow): AcpmuxRow {
-  const line: AcpmuxRow = { id: LIVE_THINKING, version: 1, at: sent.at, kind: THINKING, verbKey: sent.id };
+function sentLine(sent: AcpmuxRow, lineBelow: boolean): AcpmuxRow {
+  const line: AcpmuxRow = {
+    id: LIVE_THINKING,
+    version: 1,
+    at: sent.at,
+    kind: THINKING,
+    verbKey: sent.id,
+    ...liveSlot(lineBelow),
+  };
   if (sent.queued) Object.assign(line, { queued: sent.queued, untimed: true });
   return line;
 }
+
+/// The slot a sent prompt's Thinking line takes before its turn opens: with the line drawn below
+/// (`lineBelow`), the running turn's last row, the footer's slot (model.ts `fallbackRowHeight`), as
+/// the turn's line is from then on. As a plain status row it was 28 px and became 32 when the turn
+/// opened, moving every row above it in the middle of the send (Leo, 2026-11-05: "there's the gap
+/// between when you send off a message versus otherwise, like it's like there's a one-two
+/// discontinuity. That's not good.").
+const liveSlot = (lineBelow: boolean): Partial<AcpmuxRow> => (lineBelow ? { below: true } : {});
 
 const isAnswer = (row: AcpmuxRow) => row.kind === "assistant";
 
@@ -852,6 +1042,7 @@ function shapeTurn(
   live: boolean,
   last: boolean,
   retryable: boolean,
+  retryTarget: boolean,
   clockOffset = 0,
   liveRuns = false,
   sessionStatus = false,
@@ -889,9 +1080,9 @@ function shapeTurn(
   if (isVisiblyEmptyMessage(user) && body.length === 0 && summary.status === "completed") return [];
   const final = answerAt(body);
   const answer = final >= 0 ? body[final] : undefined;
-  // A tagged ask the answer ends on (nextStepAsk.ts) draws as a card under it: waiting while this is
-  // the last turn and nothing follows it, answered once a prompt does. Read once per ended turn,
-  // never while the turn runs. A turn that stopped or failed, or that another agent's message
+  // A tagged ask the answer ends on (nextStepAsk.ts) draws as a card under it, answerable until a
+  // later prompt picks one of its answers or a later card takes over (`settleNextSteps`). Read
+  // once per ended turn, never while the turn runs. A turn that stopped or failed, or that another agent's message
   // follows, keeps the ask in its prose.
   // The agent's wrap-up call goes before a tagged ask in its prose, and stays as the turn's recap
   // once a prompt follows. A recap alone needs no reply to wait for.
@@ -994,16 +1185,14 @@ function shapeTurn(
         isPlan(row) ? [] : out(row) ? [endedPlan(row)] : dialogue ? [row] : renderRows([row], version),
       );
     shaped.push(...outside(before));
-    const card = (at: number): AcpmuxRow => {
-      const answered = reply === undefined || !nextStep!.question ? undefined : chosenAnswer(nextStep!, reply);
-      return {
-        id: `${NEXT_STEP}-${segment.anchor.id}`,
-        version: version * 2 + (answered === undefined ? 0 : 1),
-        at,
-        kind: NEXT_STEP,
-        nextStep: { ask: nextStep!, ...(answered !== undefined && { answer: answered }) },
-      };
-    };
+    // Waiting as shaped: whether a later prompt answered it is `settleNextSteps`'s to say.
+    const card = (at: number): AcpmuxRow => ({
+      id: `${NEXT_STEP}-${segment.anchor.id}`,
+      version: version * SETTLED_STATES,
+      at,
+      kind: NEXT_STEP,
+      nextStep: { ask: nextStep! },
+    });
     const underAnswer = Boolean(said && nextStep && said === answer);
     if (underAnswer) {
       // A wrap-up's answer stays whole. A tagged ask's answer drops the ask's lines, which the
@@ -1044,7 +1233,7 @@ function shapeTurn(
     offers && lastSummary < 0 && isFailed(summary) && (noticeStarted || body.some((row) => row.kind !== "user"));
   // The hint is only rendered for a settled retry target. Avoid scanning the turn body on each
   // live snapshot/token while the turn is still running.
-  const changedFiles = retryable && !live ? turnChangedFiles(body) : false;
+  const changedFiles = (retryable || retryTarget) && !live ? turnChangedFiles(body) : false;
   shaped.push({
     ...summary,
     folded,
@@ -1053,12 +1242,15 @@ function shapeTurn(
     turnCopy: turnCopyParts(body),
     ...(resumable && { resumable }),
     ...(retryable && { retryable }),
+    ...(retryTarget && { retryTarget }),
     ...(continuable && { continuable }),
     ...(changedFiles && { changedFiles: true as const }),
     ...(answer && { answerId: answer.id }),
     // Retry sends the prompt as the agent got it: an incoming message with its sender. A
     // notification, or acpmux's inbox notice, is not a prompt to send again (incomingMessage.ts).
-    ...(retryable &&
+    // The retry target's prompt (``isRetryablePrompt``, which implies the rest), or, as on base, the
+    // chat's last turn's for a failed turn's Retry (TurnFooter `failedRetry`, unchanged).
+    ...((retryable || retryTarget) &&
       user.incoming?.kind !== "notice" &&
       user.incoming?.kind !== "inbox" &&
       (user.resend ?? user.text) && {
@@ -1067,7 +1259,12 @@ function shapeTurn(
         retryAttachments: user.retryAttachments,
       }),
     // A turn is either stopped or failed, so Continue's bit serves both.
-    version: version * 8 + (retryable ? 1 : 0) + (resumable || continuable ? 2 : 0) + (changedFiles ? 4 : 0),
+    version:
+      version * 16 +
+      (retryable ? 1 : 0) +
+      (resumable || continuable ? 2 : 0) +
+      (retryTarget ? 4 : 0) +
+      (changedFiles ? 8 : 0),
   });
   // Anything after the summary (late tool updates, or a turn the agent started on its own)
   // draws as it came.

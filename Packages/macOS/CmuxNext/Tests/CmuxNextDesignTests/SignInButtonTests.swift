@@ -9,18 +9,18 @@ import Testing
 /// controls around it at every density, and a click runs the sign-in that place passes.
 @Suite @MainActor struct SignInButtonTests {
     @Test func compactIsAControlsSize() {
-        #expect(SignInButtonMetrics(density: DensityPreset.compact.tokens)
+        #expect(SignInButtonMetrics(density: DensityPreset.compact.tokens, cornerRadius: 6)
             == SignInButtonMetrics(height: 24, paddingX: 10, cornerRadius: 6, textSize: 12))
     }
 
     @Test func comfortableIsAComfortableControlsSize() {
-        #expect(SignInButtonMetrics(density: DensityPreset.comfortable.tokens)
+        #expect(SignInButtonMetrics(density: DensityPreset.comfortable.tokens, cornerRadius: 7)
             == SignInButtonMetrics(height: 30, paddingX: 10, cornerRadius: 7, textSize: 13))
     }
 
     @Test func denserAndRoomierDensitiesFollow() {
-        let ultra = SignInButtonMetrics(density: DensityPreset.ultraCompact.tokens)
-        let spacious = SignInButtonMetrics(density: DensityPreset.spacious.tokens)
+        let ultra = SignInButtonMetrics(density: DensityPreset.ultraCompact.tokens, cornerRadius: 6)
+        let spacious = SignInButtonMetrics(density: DensityPreset.spacious.tokens, cornerRadius: 8)
         #expect(ultra == SignInButtonMetrics(height: 21, paddingX: 8, cornerRadius: 6, textSize: 11.5))
         #expect(spacious == SignInButtonMetrics(height: 35, paddingX: 13, cornerRadius: 8, textSize: 14))
     }
@@ -28,14 +28,14 @@ import Testing
     /// A custom density's exact control height (`tokens["controlHeight"]`) sizes the button too.
     @Test func exactControlHeightWins() {
         let custom = DensityTokens(id: "tight", name: "Tight", tokens: ["controlHeight": 22])
-        #expect(SignInButtonMetrics(density: custom).height == 22)
+        #expect(SignInButtonMetrics(density: custom, cornerRadius: 6).height == 22)
     }
 
     @Test func buttonTakesItsDensitysHeight() {
         for preset in [DensityPreset.compact, .comfortable] {
             let button = SignInButton {}
             button.density = preset.tokens
-            #expect(button.intrinsicContentSize.height == SignInButtonMetrics(density: preset.tokens, scale: Metrics.scale(1)).height)
+            #expect(button.intrinsicContentSize.height == SignInButtonMetrics(density: preset.tokens, cornerRadius: Metrics.controlCornerRadius, scale: Metrics.scale(1)).height)
             #expect(button.intrinsicContentSize.width > button.metrics.paddingX * 2)
         }
     }

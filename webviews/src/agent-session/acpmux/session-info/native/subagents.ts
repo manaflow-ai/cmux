@@ -7,6 +7,7 @@
 import { formatDuration } from "../../conversation/turns";
 import type { PaneLanguage, Translate } from "../../i18n";
 import { isRepeatedAgentKind } from "../../subagents/AgentIdentity";
+import { agentTone } from "../../subagents/agentTones";
 import { nestAgents } from "../../subagents/AgentsPill";
 import { elapsed } from "../../subagents/SubagentGroup";
 import { subagentProgress } from "../../subagents/subagentProgress";
@@ -176,6 +177,7 @@ export function subagentsSection(
     ...(item.progress ? { progress: item.progress } : {}),
     trailing: [item.time, item.state].filter(Boolean).join(" · "),
     tone: TONE[item.status],
+    identityTone: agentTone(item.identity),
     ...(item.working ? { working: true } : {}),
     ...(waveIndex !== undefined ? { wave: nativeInfoWave(waveIndex) } : {}),
     ...(item.depth > 0 ? { indent: Math.min(item.depth, 3) } : {}),

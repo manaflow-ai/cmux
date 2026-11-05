@@ -203,7 +203,7 @@ public final class HomeAgentMessagePlayground: NSObject, NSWindowDelegate {
             },
             close: { [weak self] in self?.closePeek() }))
         chat.frame = NSRect(x: 0, y: 0, width: 380, height: 300)
-        let surface = Glass.makeOverlayPanel(content: chat, cornerRadius: 14)
+        let surface = Glass.makeOverlayPanel(content: chat, cornerRadius: Metrics.surfaceCornerRadius)
         surface.translatesAutoresizingMaskIntoConstraints = true
         let mouse = content.convert(window.mouseLocationOutsideOfEventStream, from: nil)
         let anchor = content.bounds.contains(mouse) ? mouse : NSPoint(x: 200, y: content.bounds.midY)
