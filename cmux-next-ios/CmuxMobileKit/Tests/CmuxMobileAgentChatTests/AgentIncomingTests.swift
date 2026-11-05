@@ -8,7 +8,7 @@ import Testing
 /// `relayEnvelope.test.ts`, one per envelope shape seen in acpmux transcripts.
 @Suite struct AgentIncomingTests {
     /// As the lane-gh broker writes it (leo-workspace machines/lane-gh-broker.json, action send).
-    func relayed(_ body: String, id: String = "4f4d68ff", from: String = "gcp-codex-swarm-11/claude-3") -> String {
+    func relayed(_ body: String, id: String = "4f4d68ff", from: String = "build-box/lane-3") -> String {
         """
         [message \(id) from \(from) (an agent, not Leo), relayed by the lane-gh broker; its text ends at "[end of message \(id)]"]
         \(body)
@@ -22,7 +22,7 @@ import Testing
 
     @Test func brokerLabelReadsIntoSenderNonceAndMessage() {
         let envelope = RelayEnvelope(relayed(body))
-        #expect(envelope == RelayEnvelope(id: "4f4d68ff", sender: "gcp-codex-swarm-11/claude-3", body: body))
+        #expect(envelope == RelayEnvelope(id: "4f4d68ff", sender: "build-box/lane-3", body: body))
     }
 
     @Test func labelClosedByAnotherNonceOrNotAtTheStartIsNoEnvelope() {
@@ -38,19 +38,19 @@ import Testing
     }
 
     @Test func namedSenderRelayIsItsCard() throws {
-        let provenance = try json(#"{"kind":"agent_message","from":"fromAgent","fromName":"gcp-codex-swarm-11/claude-3","to":"s-1"}"#)
+        let provenance = try json(#"{"kind":"agent_message","from":"fromAgent","fromName":"build-box/lane-3","to":"s-1"}"#)
         let text = relayed(body)
         let incoming = AgentIncoming.parse(text: text, provenance: provenance)
-        #expect(incoming == AgentIncoming(messages: [.init(sender: "gcp-codex-swarm-11/claude-3", text: body)], messageID: "4f4d68ff", raw: text))
+        #expect(incoming == AgentIncoming(messages: [.init(sender: "build-box/lane-3", text: body)], messageID: "4f4d68ff", raw: text))
     }
 
     @Test func labelNamesTheSenderWhenNothingElseDoes() {
         let text = relayed(body)
-        #expect(AgentIncoming.parse(text: text, provenance: nil)?.messages == [.init(sender: "gcp-codex-swarm-11/claude-3", text: body)])
+        #expect(AgentIncoming.parse(text: text, provenance: nil)?.messages == [.init(sender: "build-box/lane-3", text: body)])
     }
 
     @Test func signatureRepeatingTheSenderIsDropped() {
-        let incoming = AgentIncoming.parse(text: relayed("From claude-3: merged #36125."), provenance: nil)
+        let incoming = AgentIncoming.parse(text: relayed("From lane-3: merged #36125."), provenance: nil)
         #expect(incoming?.messages.first?.text == "merged #36125.")
     }
 
@@ -70,21 +70,21 @@ import Testing
     }
 
     @Test func digestIsAStackWithoutLabels() throws {
-        let provenance = try json(#"{"kind":"agent_digest","messages":[{"from":"gcp-codex-swarm-11/claude-3"},{"from":"claude-sr2-coord"}]}"#)
+        let provenance = try json(#"{"kind":"agent_digest","messages":[{"from":"build-box/lane-3"},{"from":"coordinator"}]}"#)
         let text = """
         2 messages from other agents arrived while you were busy. Each follows as it was sent, oldest first.
 
-        [agent message 1 of 2] from gcp-codex-swarm-11/claude-3
+        [agent message 1 of 2] from build-box/lane-3
 
         \(relayed("first"))
 
-        [agent message 2 of 2] from claude-sr2-coord
+        [agent message 2 of 2] from coordinator
 
-        [claude-sr2-coord] second
+        [coordinator] second
         """
         let incoming = AgentIncoming.parse(text: text, provenance: provenance)
-        #expect(incoming?.messages == [.init(sender: "gcp-codex-swarm-11/claude-3", text: "first"), .init(sender: "claude-sr2-coord", text: "second")])
-        #expect(incoming?.senders == "gcp-codex-swarm-11/claude-3, claude-sr2-coord")
+        #expect(incoming?.messages == [.init(sender: "build-box/lane-3", text: "first"), .init(sender: "coordinator", text: "second")])
+        #expect(incoming?.senders == "build-box/lane-3, coordinator")
     }
 
     @Test func inboxNoticeReadsItsThreadsMessages() throws {
@@ -92,9 +92,9 @@ import Testing
         let threads: JSONValue = .object([
             "kind": .string("inbox_notice"),
             "threads": .array([.object([
-                "threadId": .string("from:claude-3"),
-                "from": .array([.string("gcp-codex-swarm-11/claude-3")]),
-                "messages": .array([.object(["from": .string("gcp-codex-swarm-11/claude-3"), "text": .string(message)])]),
+                "threadId": .string("from:lane-3"),
+                "from": .array([.string("build-box/lane-3")]),
+                "messages": .array([.object(["from": .string("build-box/lane-3"), "text": .string(message)])]),
             ]), .object([
                 "threadId": .string("pr:1"),
                 "from": .array([.string("lane-b")]),
@@ -103,7 +103,7 @@ import Testing
         ])
         let incoming = AgentIncoming.parse(text: "[inbox] New messages from other agents in 2 threads.", provenance: threads)
         #expect(incoming?.messages.map(\.text) == ["Merged #36125", "Merged #36125"])
-        #expect(incoming?.messages.map(\.sender) == ["gcp-codex-swarm-11/claude-3", "lane-b"])
+        #expect(incoming?.messages.map(\.sender) == ["build-box/lane-3", "lane-b"])
     }
 
     @Test func personsPromptAndUnknownTextStayAsWritten() throws {
