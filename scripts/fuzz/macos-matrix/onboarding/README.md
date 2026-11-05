@@ -106,3 +106,4 @@ Copy: the iPhone asks to "turn on Share This Mac in its Settings › Devices", b
 | F6 | Screen Sharing grants Screen Recording to cmux.app: Quit & Reopen relaunches cmux | the signed helper (cmux#28584, Aziz) |
 | F7 | Screen Sharing's grants have no drag panel and no comeback | Screen Sharing (Aziz) |
 | F8 | "Share This Mac" on the iPhone, "Allow Mac Screen on this Mac" on the Mac | Screen Sharing (Aziz) |
+| F9 | The helper refuses a drag in a background app ("macOS background drags are unavailable; use foreground", `scripts/cmux-cua-codex-delivery-mode.patch`), so the agent step fails on drag until the driver supports it; foreground delivery would be a focus steal | the Cua Driver bump to v0.38, which adds background drag (lane cua-driver-v038) |
