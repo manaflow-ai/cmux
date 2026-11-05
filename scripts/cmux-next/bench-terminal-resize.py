@@ -67,6 +67,7 @@ sys.path.insert(0, HERE)
 import bench_launch  # noqa: E402
 import terminal_resize_arms as arms  # noqa: E402
 import terminal_resize_verdict  # noqa: E402
+import main_profile  # noqa: E402  SCRATCH (RESIZE MAIN BUDGET)
 from tag_teardown import TagTeardown  # noqa: E402
 
 parser = argparse.ArgumentParser()
@@ -85,6 +86,17 @@ parser.add_argument("--probe-pt", type=float, default=40.0, help="how far the dr
 parser.add_argument("--key-repeat", type=int, default=1, help="presses of each key per round (keys layouts)")
 parser.add_argument("--key-gap-ms", type=float, default=33.0, help="between repeated presses of one key")
 parser.add_argument("--key-settle-s", type=float, default=0.6, help="after the last press of a key")
+# SCRATCH (RESIZE MAIN BUDGET, never merge): tunables set after launch, held-key rows, a main-thread profile per round.
+parser.add_argument("--set", action="append", default=[], help="KEY=true|false: a boolean tunable set after launch")
+parser.add_argument("--held-repeat", type=int, default=0, help="keys layouts: also measure a held key (this many presses)")
+parser.add_argument("--xctrace-rounds", type=int, default=0, help="Time Profiler (attached to the app pid) on this many rounds per layout")
+parser.add_argument("--held-is-data", action="store_true",
+                    help="SCRATCH (SMOOTH-PAGES-PROFILE): a terminal held through a key resize (S4 OFF arm) is data, not a failed layout")
+parser.add_argument("--pages-mix", action="store_true",
+                    help="SCRATCH (SMOOTH-PAGES-PROFILE): in STRESS, every other pane of each column shows a Chromium page")
+parser.add_argument("--devtools-docked", action="store_true",
+                    help="SCRATCH (SMOOTH-PAGES-PROFILE): with --pages-mix, one page in column 2 (moved by keys and drag) docks DevTools")
+parser.add_argument("--newtab-runs", type=int, default=0, help="keys layout: also Cmd-T this many times, each after a key resize of its pane")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 APP = (opts.app or "").rstrip("/")
@@ -320,6 +332,42 @@ def refresh_period():
     return idle.get("refresh_ms") or 16.67
 
 
+APP_BINARIES = set()
+
+
+def profile_start(name, index):
+    """SCRATCH: a Time Profiler recording of the app pid for the first --xctrace-rounds rounds of a layout."""
+    if index >= opts.xctrace_rounds or not report.get("pid"):
+        return None
+    return main_profile.start(report["pid"], f"{name}-{index}", opts.out)
+
+
+def profile_stop(recording, entry):
+    """SCRATCH: ends the recording; the round keeps the summary (`main_profile`) and the raw samples (`main_samples`)."""
+    if not recording:
+        return
+    raw = main_profile.stop(recording)
+    if not APP_BINARIES:
+        APP_BINARIES.add(info["CFBundleExecutable"])
+        for path in glob.glob(os.path.join(APP, "Contents/Frameworks/*")):
+            APP_BINARIES.add(os.path.basename(path).split(".")[0])
+    entry["main_profile"] = main_profile.summarize(raw, APP_BINARIES)
+    entry["main_profile"]["mode"] = (raw or {}).get("mode")
+    entry["main_profile"]["threads_ms"] = (raw or {}).get("threads_ms")
+    entry["main_samples"] = {k: (raw or {}).get(k) for k in ("samples", "stacks", "frames")}
+
+
+def apply_sets():
+    """SCRATCH: --set KEY=true|false after launch (a bench build's tunable store is off until activated)."""
+    applied = {}
+    for item in opts.set:
+        key, _, value = item.partition("=")
+        rpc("debug.tunables", {"action": "activate"})
+        row = rpc("debug.tunables", {"action": "set", "key": key, "value": value.lower() == "true"}) or {}
+        applied[key] = row.get("value")
+    return applied
+
+
 def measure(name):
     dividers = vertical_dividers()
     if not dividers:
@@ -340,11 +388,15 @@ def measure(name):
                 rounds.append({**entry, "error": problem})
                 continue
             before = surfaces()
+            recording = profile_start(name, index)
+            background = main_profile.background_cpu()
             rpc("debug.terminal_display", {"action": "start"})
             rpc("debug.frames", {"action": "start"})
             drag(x0, y0, refresh_ms / 1000)
             frames = rpc("debug.frames", {"action": "stop", "raw": True}) or {}
             display = rpc("debug.terminal_display", {"action": "stop"}) or {}
+            entry["background_cpu"] = main_profile.background_delta(background)
+            profile_stop(recording, entry)
             time.sleep(1.0)  # bench script: the drag's last grid lands at the owner
             after = surfaces()
             numbers, raw = frame_numbers(frames)
@@ -361,10 +413,10 @@ def measure(name):
                    "divider": {"x": round(x0, 1), "height": round(height, 1), "vertical_dividers": len(dividers)}})
 
 
-def measure_keys(name):
+def measure_keys(name, repeat=None):
     """Ctrl-Shift-L then Ctrl-Shift-H on the focused pane, per round and arm (see the module docstring)."""
     refresh_ms = refresh_period()
-    plan = [action for action in ("resizePaneRight", "resizePaneLeft") for _ in range(max(1, opts.key_repeat))]
+    plan = [action for action in ("resizePaneRight", "resizePaneLeft") for _ in range(max(1, repeat or opts.key_repeat))]
     rounds = []
     for index in range(opts.rounds):
         for arm in arms.order(index, opts.ab):
@@ -374,6 +426,8 @@ def measure_keys(name):
                 rounds.append({**entry, "error": problem})
                 continue
             before = surfaces()
+            recording = profile_start(name, index)
+            background = main_profile.background_cpu()
             rpc("debug.terminal_display", {"action": "start"})
             rpc("debug.frames", {"action": "start"})
             presses = []
@@ -396,6 +450,8 @@ def measure_keys(name):
                 presses.append(press)
             frames = rpc("debug.frames", {"action": "stop", "raw": True}) or {}
             display = rpc("debug.terminal_display", {"action": "stop"}) or {}
+            entry["background_cpu"] = main_profile.background_delta(background)
+            profile_stop(recording, entry)
             if entry.get("error"):
                 rounds.append(entry)
                 continue
@@ -436,7 +492,36 @@ def keys():
         return {"layout": "keys", "error": f"the 2x2 grid did not form ({len(surfaces())} terminals shown)"}
     history()
     time.sleep(2.0)  # bench script: the history prints before the presses
-    return measure_keys("keys")
+    results = [measure_keys("keys")]
+    if opts.held_repeat:
+        results.append(measure_keys("keys-held", opts.held_repeat))
+    if opts.newtab_runs:
+        results.append(newtab_after_resize())
+    return results
+
+
+def newtab_after_resize():
+    """SCRATCH (RESIZE MAIN BUDGET fix 1): Cmd-T in the focused pane right after a key resize changed its size (the
+    spring landed, past the spare's old 120 ms settle): key ms, first visible frame, the cover the page showed, and
+    whether the spare was laid out at another size than its pane's (`refit`)."""
+    runs = []
+    for index in range(opts.newtab_runs):
+        action = "resizePaneRight" if index % 2 == 0 else "resizePaneLeft"
+        rpc("action.run", {"action": action, "focus": True})
+        time.sleep(0.8)  # bench script: the spring lands, then 120 ms more than the old fit settle
+        result = rpc("debug.new_tab", {"action": "bench_create", "command": "new_tab"}, timeout=20) or {}
+        marks = sorted({s["name"] for s in result.get("spans") or [] if s.get("ms", 0) == 0 and s["name"].startswith("newTab.cover")})
+        state = rpc("debug.new_tab", {}) or {}
+        openings = state.get("openings") or []
+        row = {"run": index, "after": action, "key_ms": result.get("key_ms"), "visible_ms": result.get("visible_ms"),
+               "frames_to_visible": result.get("frames_to_visible"), "cover": marks, "error": result.get("error"),
+               "last_opening": openings[-1] if openings else None}
+        print(f"NEWTAB-AFTER-RESIZE {json.dumps(row)}", flush=True)
+        runs.append(row)
+        time.sleep(0.5)  # bench script: the page shows before its close
+        rpc("action.run", {"action": "closeTab", "focus": True})
+        time.sleep(0.8)  # bench script: the close lands and the next spare is made
+    return {"layout": "newtab-after-resize", "runs": runs}
 
 
 def keys_stress():
@@ -448,7 +533,12 @@ def keys_stress():
         time.sleep(1.0)  # bench script: the focus lands before the presses
     result = measure_keys("keys-stress")
     result["session"] = session_fields(summary)
-    return result
+    results = [result]
+    if opts.held_repeat:
+        held = measure_keys("keys-stress-held", opts.held_repeat)
+        held["session"] = result["session"]
+        results.append(held)
+    return results
 
 
 def light():
@@ -514,14 +604,83 @@ def stress_session():
         STRESS["summary"] = session.build()
         STRESS["session"] = session
         time.sleep(3.0)  # bench script: the session's pages and busy terminals start
+        if opts.pages_mix:
+            STRESS["summary"]["pages_mix"] = pages_mix(session)
+            print(f"SMOOTH-PAGES-MIX {json.dumps(STRESS['summary']['pages_mix'])}", flush=True)
     else:
         STRESS["session"].show(STRESS["session"].measured)
         time.sleep(1.0)  # bench script: the measured workspace shows again after another layout's
     return STRESS["session"], STRESS["summary"]
 
 
+def pages_mix(session):
+    """SCRATCH (SMOOTH-PAGES-PROFILE): every other pane of each column (rows 2, 4, ... from the top) shows its first
+    Chromium page (tab.focus, no focus move); the first pane of each column stays a terminal, so keys-stress still
+    starts from a terminal. With --devtools-docked, the first page pane of column 2 (moved by the keys, column 1|2, and
+    by the drag, column 2|3) docks DevTools at the bottom (devtools.openDocked). Raises when a page or DevTools does
+    not show: a mix that is not there is not measured."""
+    workspace = session.measured
+    frames = {}
+    for plane in session.shown_window().get("planes") or []:
+        for ring in plane.get("rings") or []:
+            if ring.get("pane") and ring.get("frame_in_window"):
+                frames[ring["pane"]] = ring["frame_in_window"]
+    columns = {}
+    for pane, (x, y, w, h) in frames.items():
+        columns.setdefault(round(x), []).append((y, pane))
+    # Rows by y: every other row shows a page, whichever way y runs (3 rows: the middle one; 4 rows: two of them).
+    picked, devtools_tab = [], None
+    for column_index, (_, cells) in enumerate(sorted(columns.items())):
+        panes = [pane for _, pane in sorted(cells)]
+        for row, pane in enumerate(panes):
+            if row % 2 == 0:
+                continue
+            # The builder's own record (asked kind, daemon id): the first tab asked as Chromium, not a WebKit one.
+            page = next((ident for kind, ident, _ in session.made.get(pane) or [] if kind == "chromium" and ident), None)
+            if not page:
+                raise RuntimeError(f"pages-mix: pane {pane} has no Chromium tab")
+            session.action("tab.focus", target=f"tab:{page}", focus=False)
+            picked.append({"pane": pane, "tab": page, "column": column_index + 1, "row": row + 1})
+            if opts.devtools_docked and column_index == 1 and devtools_tab is None:
+                devtools_tab = page
+    time.sleep(2.0)  # bench script: the shown pages load and draw
+    shown = wait(lambda: (lambda w: w if sum(1 for b in w.get("browsers") or [] if b.get("engine") == "cef")
+                          >= len(picked) else None)(session.shown_window()), 20)
+    engines = [b.get("engine") for b in (session.shown_window().get("browsers") or [])]
+    if not shown:
+        raise RuntimeError(f"pages-mix: {len(picked)} pages asked, shown browsers by engine {engines}")
+    result = {"page_panes": len(picked), "panes": picked, "shown_browsers": engines}
+    if devtools_tab:
+        pane = next(p["pane"] for p in picked if p["tab"] == devtools_tab)
+        # As cef-layer-verify: the page's pane focused, then the action on it (a tab target can name the daemon id while
+        # the page is still keyed by its provisional id). A DevTools that does not open is recorded, not fatal: the rows
+        # with pages still measure, and the table says DevTools was missing.
+        session.focus_pane(pane)
+        session.action("tab.focus", target=f"tab:{devtools_tab}", focus=True)
+        time.sleep(0.5)  # bench script: the page is the pane's content before the action
+        reply = session.action("devtools.openDocked", target=f"pane:{pane}", focus=True)
+        def opened():
+            return next((d for d in (rpc("debug.cef") or {}).get("devtools") or []
+                         if d.get("open") and d.get("devtools_frame")), None)
+        entry = wait(opened, 30)
+        if not entry:
+            reply2 = session.action("devtools.openDocked", focus=True)  # the focused web view, no target
+            entry = wait(opened, 30)
+            reply = {"pane_target": reply, "no_target": reply2}
+        if entry:
+            time.sleep(2.5)  # bench script: the DevTools front end loads and draws
+        result["devtools"] = {"tab": devtools_tab, "pane": pane, "open": bool(entry), "reply": json.dumps(reply)[:300],
+                              "entry": entry if entry else (rpc("debug.cef") or {}).get("devtools")}
+        print(f"SMOOTH-PAGES-DEVTOOLS {json.dumps(result['devtools'])[:1500]}", flush=True)
+    first = Stress.panes(session.workspace(workspace))
+    if first:
+        session.focus_pane(first[0]["id"])
+    return result
+
+
 def session_fields(summary):
-    return {k: summary.get(k) for k in ("workspaces", "measured_panes", "measured_tabs", "busy_terminals", "build_s")} \
+    return {k: summary.get(k) for k in ("workspaces", "measured_panes", "measured_tabs", "busy_terminals", "build_s",
+                                         "pages_mix")} \
         if isinstance(summary, dict) else None
 
 
@@ -647,16 +806,25 @@ try:
         log.flush()
         tail = open(os.path.join(opts.out, "app.log"), errors="replace").read()[-3000:]
         sys.exit(f"app did not come up: socket {SOCKET} exists={os.path.exists(SOCKET)}; app log tail:\n{tail}")
+    if opts.set:
+        report["set"] = apply_sets()
+        print(f"MAIN-BUDGET set {json.dumps(report['set'])}", flush=True)
     for name in [n for n in opts.layouts.split(",") if n]:
-        result = {"idle-cursor": idle_cursor, "light": light, "stress": stress, "split-resize": split_resize,
-                  "split-resize-stress": lambda: split_resize(in_stress=True), "keys": keys, "keys-stress": keys_stress}[name]()
-        found = terminal_resize_verdict.problems(result)
-        if found:
-            # A layout that measured nothing fails the run (its zeros are not a result).
-            result["problems"] = found
-            unmeasured.extend(found)
-        report["layouts"].append(result)
-        print(f"TERMINAL-RESIZE {json.dumps(result)}", flush=True)
+        produced = {"idle-cursor": idle_cursor, "light": light, "stress": stress, "split-resize": split_resize,
+                    "split-resize-stress": lambda: split_resize(in_stress=True), "keys": keys, "keys-stress": keys_stress}[name]()
+        for result in (produced if isinstance(produced, list) else [produced]):
+            found = terminal_resize_verdict.problems(result)
+            if opts.held_is_data:
+                result["held_as_data"] = [p for p in found if "did not change size with their pane" in p]
+                found = [p for p in found if "did not change size with their pane" not in p]
+            if found:
+                # A layout that measured nothing fails the run (its zeros are not a result).
+                result["problems"] = found
+                unmeasured.extend(found)
+            report["layouts"].append(result)
+            printed = dict(result, rounds=[{k: v for k, v in r.items() if k not in ("main_samples", "raw")}
+                                           for r in result.get("rounds") or []])
+            print(f"TERMINAL-RESIZE {json.dumps(printed)}", flush=True)
 finally:
     if app.poll() is None:
         reset_arm()  # a layout that stopped early (an exception) did not reset it
