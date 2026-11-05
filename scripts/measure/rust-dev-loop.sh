@@ -53,7 +53,7 @@ if [[ "$(uname -s)" == Linux && "$(uname -m)" == x86_64 ]] && ! command -v mold 
   fi
 fi
 # blaze, when asked for: its pinned release, checked against the sha256 GitHub publishes, with its
-# home (daemon state, build directory, its own nightly) under .build; the toolchain download
+# home (daemon state, build directory) outside the checkout; the toolchain download
 # happens here, before any clock starts.
 if [[ ",$variants," == *,blaze,* ]]; then
   blaze_version=0.20261105.1
@@ -64,7 +64,9 @@ if [[ ",$variants," == *,blaze,* ]]; then
     *) blaze_target="" ;;
   esac
   blaze_dir="$root/.build/rust-dev-loop-blaze"
-  export BLAZE_HOME="$blaze_dir/home"
+  # Outside the checkout: blaze's daemon watches the checkout and reads every file in it, its own
+  # socket included ("v2.sock changed and can't be read", 0.20261105.1).
+  export BLAZE_HOME="${TMPDIR:-/tmp}/cmux-rust-dev-loop-blaze-home-$$"
   mkdir -p "$blaze_dir/bin" "$BLAZE_HOME"
   blaze_tgz="$blaze_dir/blaze-v$blaze_version-$blaze_target.tar.gz"
   if [[ -n "$blaze_target" ]] \

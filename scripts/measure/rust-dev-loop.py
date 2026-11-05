@@ -196,9 +196,9 @@ def blaze_reset(log) -> None:
     next blaze build is cold."""
     subprocess.run(["blaze", "stop"], capture_output=True, text=True)
     home = Path(os.environ.get("BLAZE_HOME", "")).resolve() if os.environ.get("BLAZE_HOME") else None
-    if home is None or ".build" not in home.parts:
-        raise SystemExit("blaze variant: BLAZE_HOME must be set under .build (rust-dev-loop.sh sets it); "
-                         "refusing to reset any other blaze home")
+    if home is None or not home.name.startswith("cmux-rust-dev-loop-blaze-home-"):
+        raise SystemExit("blaze variant: BLAZE_HOME must be this run's cmux-rust-dev-loop-blaze-home-* "
+                         "(rust-dev-loop.sh sets it); refusing to reset any other blaze home")
     for child in home.iterdir() if home.is_dir() else []:
         if child.name in ("toolchains", "native"):
             continue
@@ -411,6 +411,9 @@ def main() -> int:
             st = subprocess.run(["blaze", "status", "--json"], capture_output=True, text=True)
             log(f"DEVLOOP-BLAZE-STATUS {st.stdout.strip()[:2000]}")
             subprocess.run(["blaze", "stop"], capture_output=True, text=True)
+            home = os.environ.get("BLAZE_HOME", "")
+            if Path(home).name.startswith("cmux-rust-dev-loop-blaze-home-"):
+                shutil.rmtree(home, ignore_errors=True)
 
     if a.tests and "base" in chosen:
         lp = out / "tests.log"
