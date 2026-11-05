@@ -188,6 +188,7 @@ function shim(config) {
   let last = 0;
   let shown = false;
   let top; // [rowId, px from the scroller's top] of the top visible row in the last frame
+  let lastGeometry;
   const frame = (now) => {
     if (last && now - last > 50) probe.longTasks.push([last, now - last]);
     last = now;
@@ -198,6 +199,23 @@ function shim(config) {
       getComputedStyle(scroller).visibility === "hidden" ||
       scroller.clientHeight === 0;
     const box = scroller?.getBoundingClientRect();
+    const geometry = scroller
+      ? {
+          top: Math.round(scroller.scrollTop),
+          height: scroller.scrollHeight,
+          client: scroller.clientHeight,
+          dock: getComputedStyle(scroller).getPropertyValue("--acpmux-dock-space").trim(),
+          rows: scroller.querySelectorAll("[data-row-id]").length,
+          first: scroller.querySelector("[data-row-id]")?.getAttribute("data-row-id"),
+          // The bottom stack's parts two levels down, as class:height: what grew under the rows.
+          dockParts: [...document.querySelectorAll(".acpmux-dock > *, .acpmux-dock > * > *")]
+            .map(
+              (el) =>
+                `${String(el.className).split(" ")[0] || el.tagName}:${Math.round(el.getBoundingClientRect().height)}`,
+            )
+            .join(" "),
+        }
+      : undefined;
     let visible;
     if (!hidden) {
       for (const row of scroller.querySelectorAll("[data-row-id]")) {
@@ -226,7 +244,15 @@ function shim(config) {
           probe.shiftPx += moved;
           probe.shifts += 1;
           probe.lastChange = now;
-          if (probe.trace.length < 200) probe.trace.push(["shift", Math.round(now), Math.round(moved)]);
+          if (probe.trace.length < 200)
+            probe.trace.push([
+              "shift",
+              Math.round(now),
+              Math.round(moved),
+              top[0],
+              // What moved it: the scroller's own geometry against the frame before.
+              { ...geometry, was: lastGeometry },
+            ]);
         }
       } else {
         // The row the reader saw is gone from the DOM: the view jumped to other rows.
@@ -237,15 +263,17 @@ function shim(config) {
       }
     }
     if (visible && probe.placed === undefined) {
+      // The saved place's row, or the newest message: a place older than what the pane holds
+      // opens at the latest message.
       const want = config.anchor?.rowId;
       if (
-        want
-          ? scroller.querySelector(`[data-row-id="${CSS.escape(want)}"]`)
-          : scroller.textContent.includes(config.marker)
+        (want && scroller.querySelector(`[data-row-id="${CSS.escape(want)}"]`)) ||
+        scroller.textContent.includes(config.marker)
       )
         probe.placed = now;
     }
     top = visible;
+    lastGeometry = geometry;
     requestAnimationFrame(frame);
   };
   requestAnimationFrame(frame);

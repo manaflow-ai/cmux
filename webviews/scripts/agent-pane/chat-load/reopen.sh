@@ -6,7 +6,7 @@
 #     bash webviews/scripts/agent-pane/chat-load/reopen.sh
 #
 #   reopen.sh [OUT_DIR] [--turns 1500] [--noise 20] [--others 40] [--rounds 10] [--load-pages 30]
-#                     [--configs warm:none,restart:none]   (DAEMON:HOST_TAIL pairs)
+#                     [--configs warm:none,restart:none]   (DAEMON:HOST_TAIL[:TARGET])
 #
 # ACPMUX_BIN names a daemon binary; else the published Linux acpmux of ACPMUX_TREE (a cmux-tui
 # tree key, files.cmux.com), sha256-checked.
@@ -54,10 +54,13 @@ sizes="$turns"; for _ in $(seq 1 "$others"); do sizes="$sizes,20"; done
 du -sh "$work/home"
 cp "$work/fixture.json" "$out/fixture.json"
 
+# DAEMON:HOST_TAIL[:TARGET]: TARGET 0 is the long chat (default); 1 opens a 20-turn one under the same
+# load, the floor a short chat sets.
 for config in ${configs//,/ }; do
-  daemon="${config%%:*}"; tail="${config##*:}"
+  IFS=: read -r daemon tail target <<<"$config"; target="${target:-0}"
+  name="reopen-$daemon-$tail"; [[ "$target" != 0 ]] && name="$name-t$target"
   (cd "$root/webviews" && node "$here/reopen_bench.mjs" --pane "$work/pane" --fixture "$work/fixture.json" \
-    --acpmux "$bin" --out "$out/reopen-$daemon-$tail.json" --rounds "$rounds" --load-pages "$load_pages" \
-    --daemon "$daemon" --host-tail "$tail") | tee "$out/reopen-$daemon-$tail.log"
+    --acpmux "$bin" --out "$out/$name.json" --rounds "$rounds" --load-pages "$load_pages" \
+    --daemon "$daemon" --host-tail "$tail" --target "$target") | tee "$out/$name.log"
 done
 echo "results in $out"
