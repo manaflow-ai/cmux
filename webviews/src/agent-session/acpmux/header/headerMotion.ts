@@ -72,12 +72,17 @@ export function useIconArrivals(host: RefObject<HTMLElement | null>, style: Head
   const key = ids.join(" ");
   useLayoutEffect(() => {
     const root = host.current;
-    if (!root) return;
+    // `still` and `animated-cue` read no boxes at all: the shipped header pays nothing.
+    if (!root || !motionSprings(style)) {
+      lefts.current = new Map();
+      mounted.current = false;
+      return;
+    }
     const origin = root.getBoundingClientRect().left;
     const buttons = [...root.querySelectorAll<HTMLElement>("[data-quick-action]")];
     const before = lefts.current;
     const after = new Map<string, number>();
-    const mode = motionSprings(style) && mounted.current ? motionMode() : "none";
+    const mode = mounted.current ? motionMode() : "none";
     for (const button of buttons) {
       const id = button.dataset.quickAction!;
       // The box includes a running glide's offset; the layout position is without it.
