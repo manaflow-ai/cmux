@@ -18,7 +18,7 @@
 # per build, and .build/rust-dev-loop/samples.json. Exit 1 when a dev build failed.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
-variants=base n=8 clean_n=1 scenarios=core,tui,acpmux,switch tests="" out=""
+variants=base n=8 clean_n=1 scenarios=core,tui,acpmux,switch tests="" out="" timings=0
 for kv in "$@"; do
   case "$kv" in
     variants=*) variants="${kv#*=}" ;;
@@ -27,6 +27,7 @@ for kv in "$@"; do
     scenarios=*) scenarios="${kv#*=}" ;;
     tests=*) tests="${kv#*=}" ;;
     out=*) out="${kv#*=}" ;;
+    timings=*) timings="${kv#*=}" ;;
     *) echo "error: unknown argument $kv" >&2; exit 2 ;;
   esac
 done
@@ -86,4 +87,4 @@ rustup show active-toolchain || true
 out="${out:-$root/.build/rust-dev-loop}"
 mkdir -p "$out"
 exec python3 "$root/scripts/measure/rust-dev-loop.py" --workspace "$root/cmux-tui" --out "$out" \
-  --target-root "$root/.build/rust-dev-loop-target" --zig-packages "$zig_packages/p" --variants "$variants" --n "$n" --clean-n "$clean_n" --scenarios "$scenarios" --tests "$tests"
+  --target-root "$root/.build/rust-dev-loop-target" --zig-packages "$zig_packages/p" --variants "$variants" --n "$n" --clean-n "$clean_n" --scenarios "$scenarios" --tests "$tests" $([[ "$timings" == 1 ]] && echo --timings)

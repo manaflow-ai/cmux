@@ -298,6 +298,7 @@ def main() -> int:
     ap.add_argument("--clean-n", type=int, default=1, help="clean builds per variant (the first warms it)")
     ap.add_argument("--scenarios", default="core,tui,acpmux,switch")
     ap.add_argument("--tests", default="", help="packages to time cargo test vs cargo nextest on (base variant)")
+    ap.add_argument("--timings", action="store_true", help="after the rounds, per-unit --timings of one edit per crate (base)")
     ap.add_argument("--zig-packages", default="", help="a zig global cache p/ already holding Ghostty's packages")
     ap.add_argument("--target-root", default="", help="where the per-variant target directories go (default OUT/target)")
     a = ap.parse_args()
@@ -414,6 +415,26 @@ def main() -> int:
             home = os.environ.get("BLAZE_HOME", "")
             if Path(home).name.startswith("cmux-rust-dev-loop-blaze-home-"):
                 shutil.rmtree(home, ignore_errors=True)
+
+    if a.timings and "base" in chosen:
+        # Where one edit's time goes: cargo's --timings report for one more edit of each crate,
+        # per unit (crate or build script): total seconds and seconds to its metadata (rmeta).
+        for s_name, rel in EDITS.items():
+            edit(ws / rel, 9999)
+            env_t = targets["base"]
+            cargo({}, env_t, [*BUILD, "--timings"], out / "timings.log")
+            html = sorted((env_t / "cargo-timings").glob("cargo-timing-*.html"))
+            restore(ws / rel)
+            if not html:
+                log(f"DEVLOOP-UNIT {s_name} no timing report")
+                continue
+            m = re.search(r"const UNIT_DATA = (\[.*?\]);", html[-1].read_text(), re.S)
+            units = json.loads(m.group(1)) if m else []
+            for u in sorted(units, key=lambda u: -u.get("duration", 0))[:8]:
+                log(f"DEVLOOP-UNIT {s_name} {u.get('name')} {u.get('target', '').strip() or 'lib'} "
+                    f"total={u.get('duration', 0):.2f}s rmeta={u.get('rmeta_time') or 0:.2f}s "
+                    f"mode={u.get('mode')}")
+        cargo({}, targets["base"], BUILD, out / "timings.log")
 
     if a.tests and "base" in chosen:
         lp = out / "tests.log"
