@@ -1269,6 +1269,9 @@ impl Hub {
         let mut waiting = queue_waiting::Waiting::default();
         let mut order = queue_waiting::Order::default();
         let mut held: std::collections::HashSet<String> = Default::default();
+        // Of those, the ones whose hold let them go by themselves (`queue_paused` `retrying`): a
+        // record without the field, from an older daemon, held every prompt for Resume.
+        let mut retrying: std::collections::HashSet<String> = Default::default();
         // The revision the owner approved, by the queued prompt's turn id (`queue_approve.rs`):
         // its incarnation, never its client-chosen prompt id, which a later prompt may reuse.
         let mut approved: HashMap<String, Value> = Default::default();
@@ -1420,9 +1423,17 @@ impl Hub {
                         }
                     }
                     "queue_paused" => {
-                        let ids = e.msg.get("held").and_then(Value::as_array);
-                        let ids = ids.into_iter().flatten().filter_map(Value::as_str);
-                        held.extend(ids.map(str::to_owned));
+                        let ids = |k: &str| {
+                            let ids = e.msg.get(k).and_then(Value::as_array).into_iter().flatten();
+                            ids.filter_map(Value::as_str).map(str::to_owned).collect::<Vec<_>>()
+                        };
+                        let (now_held, now_retrying) = (ids("held"), ids("retrying"));
+                        // The newest hold of each says whether it retries.
+                        for id in &now_held {
+                            retrying.remove(id);
+                        }
+                        held.extend(now_held);
+                        retrying.extend(now_retrying);
                     }
                     // `resume_held` names the prompts it resumed; `resume_queue` resumes them all.
                     "queue_resumed" => match e.msg.get("promptIds").and_then(Value::as_array) {
@@ -1568,6 +1579,12 @@ impl Hub {
                 restored: true,
                 resume: true,
                 steer: false,
+                // The person's prompt a hold kept for Resume waits for it again (`waits_for_resume`).
+                retries: if held.contains(&prompt_id) && !retrying.contains(&prompt_id) {
+                    PERSON_RETRIES
+                } else {
+                    0
+                },
                 held: held.contains(&prompt_id),
                 awaiting_owner,
                 revision,
@@ -1575,7 +1592,6 @@ impl Hub {
                 sent_now: false,
                 joined: Arc::new(StdMutex::new(None)),
                 requeued: e.msg.get("requeued") == Some(&Value::Bool(true)),
-                retries: 0,
             });
             restored_any = true;
             session.queued.fetch_add(1, Ordering::SeqCst);
