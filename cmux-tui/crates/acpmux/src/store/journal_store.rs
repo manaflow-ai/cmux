@@ -73,7 +73,7 @@ pub(super) use fenced::FencedStorage;
 pub(super) use meta::SETTLE_HOLD;
 use repair::Replay;
 #[cfg(test)]
-pub(super) use repair::{FAIL_NEXT_WRITE_BACK, STOP_AFTER_CUT};
+pub(super) use repair::{FAIL_NEXT_WRITE_BACK, HELD_CAP, STOP_AFTER_CUT};
 
 /// The journal record kinds. (Kind 3, a `cancel` of a line the log refused, was used before the
 /// review of #34901 and never shipped: a refused line is never journaled now. Kind 4 is `meta`,
@@ -315,10 +315,12 @@ struct Order {
     /// next checkpoint syncs them before it retires their records. A killed daemon's writes may
     /// be in the page cache only, and a previous run's failed sync may have dropped pages that
     /// still read back; the write marked the range dirty again, so the sync puts the bytes on the
-    /// disk whatever happened before (delta review 2 of #35866, D2). The checkpoint only syncs,
-    /// by path: a file put at the path since is never written (delta review 3, D3). A delete
-    /// drops its chat's.
-    read_segments: BTreeSet<PathBuf>,
+    /// disk whatever happened before (delta review 2 of #35866, D2). The checkpoint only syncs:
+    /// a file put at the path since is never written (delta review 3, D3). A delete drops its
+    /// chat's.
+    read_segments: BTreeMap<PathBuf, repair::WrittenBack>,
+    /// How many more written-back segments the open may keep open (`repair::held_cap`).
+    held_left: usize,
     /// The open replayed a `frozen` record (a previous run's failed sync) or found the freeze
     /// marker: its repair writes every replayed chat's lines again.
     rewrite_all: bool,
@@ -400,6 +402,7 @@ impl JournalStore {
                 damage: !report.damage.is_empty(),
                 rewrite_all: replay.frozen || marker,
                 marker,
+                held_left: repair::held_cap(),
                 ..Order::default()
             }),
             checkpointing: Mutex::new(()),
@@ -457,6 +460,19 @@ impl JournalStore {
     #[cfg(test)]
     pub(super) fn opened(&self) -> &cmux_journal::OpenReport {
         &self.opened
+    }
+
+    /// Tests: the written-back segments listed for the next checkpoint (`Order::read_segments`):
+    /// how many the open keeps open, and how many it closed.
+    #[cfg(test)]
+    pub(super) fn written_back(&self) -> (usize, usize) {
+        let order = self.inner.order.lock_or_recover();
+        let held = order
+            .read_segments
+            .values()
+            .filter(|written| matches!(written, repair::WrittenBack::Held(_)))
+            .count();
+        (held, order.read_segments.len().saturating_sub(held))
     }
 }
 
@@ -811,7 +827,7 @@ impl Store for JournalStore {
         }
         // Its folder is gone: the segments the open wrote back need no sync.
         let dir = inner.local.dir(id);
-        inner.order.lock_or_recover().read_segments.retain(|path| !path.starts_with(&dir));
+        inner.order.lock_or_recover().read_segments.retain(|path, _| !path.starts_with(&dir));
         if let Some(path) = repair {
             inner.remove_repair(&path)?;
             inner.order.lock_or_recover().repairs.remove(id);

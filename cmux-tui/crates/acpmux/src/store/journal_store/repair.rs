@@ -13,6 +13,55 @@ thread_local! {
     /// would (not a failed sync).
     pub(crate) static FAIL_NEXT_WRITE_BACK: std::cell::Cell<bool> =
         const { std::cell::Cell::new(false) };
+    /// Tests: the open on this thread keeps at most this many written-back segments open
+    /// ([`held_cap`]).
+    pub(crate) static HELD_CAP: std::cell::Cell<Option<usize>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// The most written-back segments an open keeps open until its checkpoint syncs them
+/// ([`held_cap`]): far above any real count of replayed chats, and far below any raised limit.
+#[cfg(unix)]
+const HELD_MAX: usize = 4096;
+
+/// [`held_cap`] when the open-file limit cannot be read.
+#[cfg(unix)]
+const HELD_WHEN_UNKNOWN: usize = 64;
+
+/// A log segment the open wrote its verified bytes back into (`Order::read_segments`): the next
+/// checkpoint syncs it before it retires the records of those bytes.
+#[derive(Clone, Debug)]
+pub(super) enum WrittenBack {
+    /// Through the handle the open wrote with, kept open until that sync, after which the
+    /// checkpoint's thread closes it: the file the open read, wherever a delete, a folder move
+    /// or a retention rewrite has put it since. The open closes nothing it wrote.
+    Held(Arc<File>),
+    /// By path: the open closed the file after the write (Windows, where an open file can block
+    /// its folder's rename or removal, and the segments past [`held_cap`]).
+    Closed,
+}
+
+/// How many written-back segments the open keeps open (`WrittenBack::Held`): a quarter of the
+/// daemon's open-file limit, which it raised before the store opened, at most [`HELD_MAX`]. So a
+/// limit the daemon could not raise (256 under launchd) leaves room for everything else. None
+/// on Windows.
+#[cfg(unix)]
+pub(super) fn held_cap() -> usize {
+    #[cfg(test)]
+    if let Some(cap) = HELD_CAP.with(std::cell::Cell::get) {
+        return cap;
+    }
+    let mut limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+    // SAFETY: getrlimit writes the struct it is given and reads nothing else.
+    if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) } != 0 {
+        return HELD_WHEN_UNKNOWN;
+    }
+    (usize::try_from(limit.rlim_cur).unwrap_or(usize::MAX) / 4).min(HELD_MAX)
+}
+
+#[cfg(not(unix))]
+pub(super) fn held_cap() -> usize {
+    0
 }
 
 /// The records after the checkpoint, by chat.
@@ -249,12 +298,11 @@ impl Inner {
     /// back stale. The write marks the range dirty again, so the checkpoint's sync puts these
     /// bytes on the disk even when an earlier sync failed and left no note of it (delta review 2
     /// of #35866, D2). It runs here, before any other thread uses the logs, so it writes the file
-    /// it read; the checkpoint only syncs, by path, so it never writes into another file that a
-    /// delete, a folder replace or a retention rewrite put at the path since, whose sync is
-    /// harmless (delta review 3, D3). No handle is kept: a held one per replayed segment could
-    /// use up the daemon's descriptors, and on Windows it would block the folder's rename or
-    /// removal.
-    fn write_back(&self, id: &str, pieces: &[Piece]) -> Result<Vec<PathBuf>> {
+    /// it read; the checkpoint only syncs, never writes, so a file that a delete, a folder
+    /// replace or a retention rewrite put at the path since is never changed (delta review 3,
+    /// D3). Each segment keeps its handle open for that sync while the open's budget
+    /// (`Order::held_left`, [`held_cap`]) lasts, else it is closed and synced by path.
+    fn write_back(&self, id: &str, pieces: &[Piece]) -> Result<Vec<(PathBuf, WrittenBack)>> {
         let mut written = Vec::new();
         for (index, path) in self.local.segments(id)? {
             // The segment's verified range: from its first piece to its last piece's end, the
@@ -274,7 +322,16 @@ impl Inner {
                 .with_context(|| format!("write back {}", path.display()))?;
             #[cfg(all(test, unix))]
             sync_model::rewritten(&file, offset);
-            written.push(path);
+            let held = {
+                let mut order = self.order.lock_or_recover();
+                let left = order.held_left;
+                order.held_left = left.saturating_sub(1);
+                left > 0
+            };
+            written.push((
+                path,
+                if held { WrittenBack::Held(Arc::new(file)) } else { WrittenBack::Closed },
+            ));
         }
         Ok(written)
     }

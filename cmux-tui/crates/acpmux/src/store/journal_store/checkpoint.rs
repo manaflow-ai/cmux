@@ -163,7 +163,7 @@ impl Inner {
         }
         // Synced: no later checkpoint needs to sync them again (the list only shrinks after the
         // open, so these are exactly the ones the sync covered).
-        self.order.lock_or_recover().read_segments.retain(|path| !read.contains(path));
+        self.order.lock_or_recover().read_segments.retain(|path, _| !read.contains_key(path));
         if let Err(error) = self.sync_logs(&dirty) {
             self.order.lock_or_recover().dirty.extend(dirty);
             return Err(error);
@@ -209,20 +209,28 @@ impl Inner {
     }
 
     /// Syncs, in write order, each segment the open wrote its verified bytes back into
-    /// (`Order::read_segments`), by path. The checkpoint writes nothing here, so a file that a
-    /// delete, a folder replace or a retention rewrite put at the path since is never changed
-    /// (delta review 3 of #35866, D3), and its sync is harmless; a segment that is gone is
-    /// passed. (A retention rewrite of a replayed chat checkpoints first: `Order::log_lsn`.) A
-    /// failed sync freezes the store, as a failed log sync does; a segment that does not open
-    /// fails only this checkpoint, and the next one tries again.
-    fn sync_read_segments(&self, read: &BTreeSet<PathBuf>) -> Result<()> {
-        for path in read {
-            let file = match repair::open_segment_to_write(path) {
-                Ok(file) => file,
-                Err(error) if is_not_found(&error) => continue,
-                Err(error) => return Err(error.context(format!("sync {}", path.display()))),
+    /// (`Order::read_segments`): through the handle the open kept, else by path. The checkpoint
+    /// writes nothing here, so a file that a delete, a folder replace or a retention rewrite put
+    /// at the path since is never changed (delta review 3 of #35866, D3), and its sync is
+    /// harmless; a closed segment that is gone is passed. (A retention rewrite of a replayed chat
+    /// checkpoints first: `Order::log_lsn`.) A failed sync freezes the store, as a failed log
+    /// sync does; a segment that does not open fails only this checkpoint, and the next one tries
+    /// again.
+    fn sync_read_segments(&self, read: &BTreeMap<PathBuf, repair::WrittenBack>) -> Result<()> {
+        for (path, written) in read {
+            let opened;
+            let file = match written {
+                repair::WrittenBack::Held(file) => file.as_ref(),
+                repair::WrittenBack::Closed => match repair::open_segment_to_write(path) {
+                    Ok(file) => {
+                        opened = file;
+                        &opened
+                    }
+                    Err(error) if is_not_found(&error) => continue,
+                    Err(error) => return Err(error.context(format!("sync {}", path.display()))),
+                },
             };
-            if let Err(error) = log_sync::sync_segment_ordered(&file) {
+            if let Err(error) = log_sync::sync_segment_ordered(file) {
                 self.freeze(format!("an event log failed to sync: {error}"));
                 return Err(anyhow::Error::from(SyncFailed(error))
                     .context(format!("sync {}", path.display())));
