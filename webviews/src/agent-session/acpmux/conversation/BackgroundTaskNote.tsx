@@ -136,6 +136,18 @@ export function BackgroundTaskNote({ task }: { task: AcpmuxBackgroundTask }) {
               {duration && <span className="cv-bgtask__detail">{duration}</span>}
               {detail && <span className="cv-bgtask__detail">{detail}</span>}
               {exitCode !== undefined && <span className="cv-bgtask__detail">exit {exitCode}</span>}
+              {task.toolCallId && !readOnly && (
+                <div className="cv-bgtask__foot">
+                  <button
+                    type="button"
+                    className="cv-bgtask__open"
+                    onClick={() => void openProcessTerminal(task.toolCallId)}
+                  >
+                    <TerminalSquare />
+                    {t("shell.openInTerminal")}
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>

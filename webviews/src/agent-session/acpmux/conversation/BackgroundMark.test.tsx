@@ -221,7 +221,7 @@ const settle = () => act(async () => await new Promise((resolve) => setTimeout(r
 const LONG =
   'export PATH="/Applications/cmux NIGHTLY.app/Contents/Resources/bin:$PATH"; cd ~/src/app && cargo watch -x test';
 
-test("a task with no output opens its command details without a terminal card", async () => {
+test("a task with no output opens its command details and terminal action without a card", async () => {
   const container = await render(<BackgroundTaskNote task={{ toolCallId: "bg1", command: LONG, state: "failed" }} />);
   const posted = recordNative();
   const note = container.querySelector<HTMLButtonElement>("button.cv-bgtask")!;
@@ -240,12 +240,15 @@ test("a task with no output opens its command details without a terminal card", 
   expect(container.querySelector(".cv-shell")).toBeNull();
   // A failure keeps its red mark open.
   expect(note.dataset.state).toBe("failed");
-  expect(terminals(posted)).toEqual([]);
+  const open = container.querySelector<HTMLButtonElement>(".cv-bgtask__details button.cv-bgtask__open")!;
+  expect(open.textContent).toBe(translate("shell.openInTerminal"));
+  await click(open);
+  expect(terminals(posted)).toEqual([{ toolCallId: "bg1" }]);
   // A second click closes it, still with no terminal.
   await click(note);
   expect(note.getAttribute("aria-expanded")).toBe("false");
   expect(container.querySelector(".cv-shell")).toBeNull();
-  expect(terminals(posted)).toEqual([]);
+  expect(terminals(posted)).toEqual([{ toolCallId: "bg1" }]);
 });
 
 test("a task with output offers Open in terminal inside its opened card", async () => {
