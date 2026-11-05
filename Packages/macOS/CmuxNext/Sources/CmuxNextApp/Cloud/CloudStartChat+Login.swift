@@ -98,4 +98,6 @@ extension CloudStartChat {
     static let loginFailed = "failed: "
     /// The start record's outcome when the person said no to the copy.
     static let loginDeclined = "declined"
+    /// The outcomes when this Mac held no login to give: the machine signs in with its chat's Sign in to Claude card.
+    static let signInOnMachine: Set<String?> = [CloudCredentialTransfer.CachedLogin.none.startOutcome, CloudCredentialTransfer.CachedLogin.unreadable.startOutcome]
 }

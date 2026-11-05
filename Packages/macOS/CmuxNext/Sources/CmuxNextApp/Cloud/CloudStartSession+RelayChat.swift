@@ -28,9 +28,7 @@ extension CloudStartSession {
         var loginWithin: Duration = CloudStartSession.loginWithin
 
         static func live(_ services: AppServices) -> RelaySteps {
-            RelaySteps(login: { machine, started, still in
-                try await CloudStartSession(services: services).passHarnessLogin(machine, agent: started.agent, login: started.login, still: still)
-            }, relay: { services.cloud.relayChat })
+            RelaySteps(login: { try await CloudStartSession(services: services).passHarnessLogin($0, agent: $1.agent, login: $1.login, still: $2) }, relay: { services.cloud.relayChat })
         }
     }
 
@@ -83,13 +81,11 @@ extension CloudStartSession {
                 // the rest. A step still running sends nothing (it goes on and ends on its own); the caller goes the
                 // start-session way, whose start waits for its own step.
                 let clock = ContinuousClock(), begun = clock.now
-                let refusal: (code: String, message: String)?
-                do {
-                    guard let decided = try await Self.first(within: steps.loginWithin, login) else {
-                        return notSent("cloud.relay.login_pending", CloudStartSessionStrings.relayLoginPending(started.asked(machine: machine.machine.title)))
-                    }
-                    refusal = decided
-                } catch let failure as ActionFailure { return notSent("cloud.relay.refused", failure.message) }
+                let decided: (code: String, message: String)??
+                do { decided = try await Self.first(within: steps.loginWithin, login) } catch let failure as ActionFailure { return notSent("cloud.relay.refused", failure.message) }
+                guard let refusal = decided else {
+                    return notSent("cloud.relay.login_pending", CloudStartSessionStrings.relayLoginPending(started.asked(machine: machine.machine.title)))
+                }
                 if let refusal {
                     // The rules' reason, and the start-session command that recovers (its `--login` choice is the caller's).
                     var fields = notSent(refusal.code, refusal.message)
@@ -114,7 +110,7 @@ extension CloudStartSession {
         // No login copied to a machine that needs one: none cached on this Mac, or the person said no to the copy of the
         // one it holds (the confirm, or Release's one-time consent: both come only after the cache check).
         if decision.outcome == CloudStartChat.loginDeclined { return ("cloud.relay.login_declined", CloudStartSessionStrings.relayLoginDeclined(asked)) }
-        if [CloudCredentialTransfer.CachedLogin.none, .unreadable].map(\.startOutcome).contains(decision.outcome) { return ("cloud.relay.login_missing", CloudStartSessionStrings.relayLoginMissing(asked)) }
+        if CloudStartChat.signInOnMachine.contains(decision.outcome) { return ("cloud.relay.login_missing", CloudStartSessionStrings.relayLoginMissing(asked)) }
         if let outcome = decision.outcome, outcome.hasPrefix(CloudStartChat.loginFailed) {
             return ("cloud.relay.login_failed", CloudStartSessionStrings.relayLoginFailed(asked, reason: Self.reason(String(outcome.dropFirst(CloudStartChat.loginFailed.count)))))
         }
@@ -127,7 +123,7 @@ extension CloudStartSession {
     /// `work`'s answer if it comes within `wait`, else nil (the work goes on to its end). Its error is thrown.
     static func first<T: Sendable>(within wait: Duration, _ work: @escaping @MainActor () async throws -> T) async throws -> T? {
         // task-owner: the login step; it runs to its end even when the run answers without it.
-        let step = Task { @MainActor in try await work() }
+        let step = Task { try await work() } // inherits this type's main actor: the login step's own awaits leave it
         let (answers, continuation) = AsyncStream<Result<T, any Error>?>.makeStream(bufferingPolicy: .bufferingOldest(1))
         // task-owner: relays the step's answer; it ends with the step (a yield after finish is dropped).
         Task { continuation.yield(await step.result) }
