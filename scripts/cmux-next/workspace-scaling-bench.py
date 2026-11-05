@@ -160,6 +160,22 @@ def collect(reports):
     return rows
 
 
+def coverage_failures(rows):
+    """Return missing interaction rows for report-only replay validation."""
+    present = {(int(row["workspaces"]), row["interaction"]) for row in rows
+               if isinstance(row.get("workspaces"), int) and isinstance(row.get("interaction"), str)}
+    failures = []
+    for count in COUNTS:
+        expected = {"new_workspace", "open_pane", "type"}
+        if count > 1:
+            expected |= {"sidebar_scroll", "switch"}
+        measured = {interaction for topology, interaction in present if topology == count}
+        missing = sorted(expected - measured)
+        if missing:
+            failures.append({"workspaces": count, "missing": missing, "incomplete": "missing_rows"})
+    return failures
+
+
 def run_probe(script, args, out, timeout=900):
     path = out / (script.stem + ".log")
     with path.open("w") as log:
@@ -198,22 +214,29 @@ def run_app(opts):
         instant = root / "instant"
         code = run_probe(HERE / "instant-new-surfaces-bench.py",
                          ["--tag", opts.tag, "--app", opts.app, "--commands", "new_workspace,split_right",
-                          "--workspaces", str(count), "--empty-workspaces", "--arms", "warm", "--phases", "idle", "--runs", "6",
+                          "--workspaces", str(count), "--empty-workspaces", "--exact-workspaces",
+                          "--arms", "warm", "--phases", "idle", "--runs", "6",
                           "--out", str(instant), "--json", str(instant / "report.json")], root, probe_timeout)
         if code != 0 or not (instant / "report.json").exists():
             failures.append({"workspaces": count, "probe": "instant", "exit": code,
                              "report": str(instant / "report.json")})
         sidebar = root / "sidebar"
         # sidebar-stress-bench starts with one workspace before grow(size). Ask it to grow size-1 so
-        # its measured topology is exactly the headline count rather than count+1.
+        # its measured topology is exactly the headline count rather than count+1. A one-row list
+        # cannot perform either gesture, so skip the probe instead of asking it to run a zero-size
+        # switch scenario that reports a false incomplete measurement.
         sidebar_count = max(0, count - 1)
-        code = run_probe(HERE / "sidebar-stress-bench.py",
-                         ["--tag", opts.tag, "--app", opts.app, "--sizes", str(sidebar_count), "--tickers", "15",
-                          "--scenarios", "scroll,scroll_ticking,switch", "--stop", "--no-trace", "--out", str(sidebar)], root,
-                         probe_timeout)
-        if code != 0 or not (sidebar / "results.json").exists():
-            failures.append({"workspaces": count, "probe": "sidebar", "exit": code,
-                             "report": str(sidebar / "results.json")})
+        if count == 1:
+            sidebar_report = {}
+        else:
+            code = run_probe(HERE / "sidebar-stress-bench.py",
+                             ["--tag", opts.tag, "--app", opts.app, "--sizes", str(sidebar_count), "--tickers", "15",
+                              "--scenarios", "scroll,scroll_ticking,switch", "--stop", "--no-trace", "--out", str(sidebar)], root,
+                             probe_timeout)
+            if code != 0 or not (sidebar / "results.json").exists():
+                failures.append({"workspaces": count, "probe": "sidebar", "exit": code,
+                                 "report": str(sidebar / "results.json")})
+            sidebar_report = read_report(sidebar / "results.json")
         typing = root / "typing"
         # Keep the typing workload invariant across topology sizes. The typing workspace is the
         # sole active row and all other seeded rows are empty, so a ratio reflects workspace count
@@ -227,7 +250,7 @@ def run_app(opts):
             failures.append({"workspaces": count, "probe": "typing", "exit": code,
                              "report": str(typing / "report.json")})
         reports[count] = {"instant": read_report(instant / "report.json"),
-                          "sidebar": read_report(sidebar / "results.json"),
+                          "sidebar": sidebar_report,
                           "typing": read_report(typing / "report.json"),
                           "sidebar_count": sidebar_count}
         # A successful probe can still contain missed display samples. Do not let a partial
@@ -308,6 +331,12 @@ def main():
                                      "error": str(error)})
                     reports[count][probe] = {}
     rows = collect(reports)
+    # Report-only mode is used by CI replay and should have the same coverage contract as an
+    # app run. Empty or malformed JSON must be visible as an incomplete budget part, rather than
+    # silently producing a successful report with no scaling rows. App mode already validates each
+    # topology while it runs, so do not duplicate those failure records here.
+    if not opts.app:
+        failures.extend(coverage_failures(rows))
     warnings = scaling_warnings(rows)
     result = {"workspaces": list(COUNTS), "rows": rows, "warnings": warnings, "incomplete": failures,
               "budget": {"ratio": LIMIT, "advisory": True}}

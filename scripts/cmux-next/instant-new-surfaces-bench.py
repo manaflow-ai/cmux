@@ -62,6 +62,8 @@ parser.add_argument("--commands", default="split_right,split_down,new_tab,new_te
 parser.add_argument("--workspaces", default="", help="comma-separated workspace counts to run every phase at (empty: as launched)")
 parser.add_argument("--empty-workspaces", action="store_true",
                     help="seed additional workspaces without terminals (safe for 1000-workspace scaling runs)")
+parser.add_argument("--exact-workspaces", action="store_true",
+                    help="close restored workspaces before each count so the topology is exactly the requested size")
 parser.add_argument("--budget-frames", type=float, default=0, help="fail when a command's p95 display frame of visibility is above this (1: the first frame; 0: report only)")
 parser.add_argument("--budget-key-ms", type=float, default=16.7)
 parser.add_argument("--hang-stacks", action="store_true",
@@ -360,6 +362,15 @@ def grow_workspaces(count):
     return now
 
 
+def reset_workspaces():
+    """Drop restored rows in this isolated bench profile before an exact topology run."""
+    if workspace_count() == 0:
+        return
+    done = run("workspace", "close-all-in-all-windows", "--confirm", timeout=120)
+    if done.returncode != 0 or not wait(lambda: workspace_count() == 0, 30):
+        sys.exit(f"could not clear restored workspaces: {done.stderr[-400:]}")
+
+
 def frame_of(row, key="visible_ms"):
     """Which display frame after the key showed it (1 = the first frame the display link drew).
     The app's `frames_to_visible` divides by the refresh period, which counts a late first frame
@@ -462,8 +473,12 @@ def main():
     for count in counts:
         suffix = ""
         if count is not None:
+            if opts.exact_workspaces:
+                reset_workspaces()
             ensure_terminal()
             suffix = f"@{grow_workspaces(count)}ws"
+            if opts.exact_workspaces and workspace_count() != count:
+                sys.exit(f"exact workspace count failed: requested {count}, have {workspace_count()}")
         for phase in opts.phases.split(","):
             if phase == "load":
                 start_load()
