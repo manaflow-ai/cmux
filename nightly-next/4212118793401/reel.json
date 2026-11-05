@@ -1,0 +1,221 @@
+{
+  "version": 1,
+  "build": "4212118793401",
+  "notes": "notes/4212118793401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 36672,
+      "title": "base red: cmux-host updater tests compile on macOS again (role::short_hex test runs on Linux only)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36793,
+      "title": "cmux NEXT sidebar: delete seven Debug switches whose default stays",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36834,
+      "title": "Cloud start: a Keychain that does not answer is not \"no cached login\"",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36844,
+      "title": "prepush-gate: the rustfmt layer judges only what cargo fmt --all in cmux-tui formats, with each crate's edition",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36784,
+      "title": "cmux NEXT: Import from Conductor review follow-ups",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36842,
+      "title": "fix(vnc): CaptureTimingLog is checked Sendable: its pending input lives in an OSAllocatedUnfairLock (tip crash-ratchet red from #36659)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36822,
+      "title": "ci(fleet): cmux-tui-rust-check acpmux-hot mode runs the hot-module bench on a fleet Mac",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36791,
+      "title": "cmux NEXT Home: delete the hero, launch-into-Home and rich tables Debug switches",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36777,
+      "title": "Machines: re-read joined rows on account switch; restart aging when a covered window shows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36832,
+      "title": "Cloud VM image lock: pin cmux-tui 8c00572a, the golden cbbeec18 plus only the relay fix (hq#7086)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36776,
+      "title": "gallery-health: URL-loaded assets and string catalogs reach a render; the raw-key gate check refuses prod-copy",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36814,
+      "title": "Updater: re-enabling automatic downloads keeps the rollback hold's click",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36807,
+      "title": "side-instance: refuse a root under ~/Documents, ~/Desktop or ~/Downloads",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36805,
+      "title": "measure: rust-dev-loop stops a dead run's blaze daemon before removing its scratch",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36803,
+      "title": "ci: pair-machine-join-check runs once on its own push, so it is registered for dispatch",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36786,
+      "title": "Debug and Labs keys: a case for every key older than a week",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36372,
+      "title": "Onboarding: a first-run Agents step with each agent CLI's sign-in",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36781,
+      "title": "Agent chat: exact tool arguments print clean; Find reads a message card's words",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36809,
+      "title": "vm image workflow: a first-session probe queues apart from the bakes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36448,
+      "title": "Cloud desktop: rd viewer in release over the owner's link (service desktop), Take over / Hand back",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36801,
+      "title": "vm image: a bake step the guest's /bin/sh would refuse fails before it reaches the guest",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35339,
+      "title": "cmux NEXT: the running app opens the view window itself (Debug > Open View Window)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36799,
+      "title": "live code: patch.py --tree reads Xcode's generated sources from the build",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36800,
+      "title": "measure: rust-dev-loop keeps blaze's home on disk, not /tmp (stacked on #36581)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36798,
+      "title": "pairing: log why no machine join token was minted; a names-only INTERNAL_TOKEN check and tail for production",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36790,
+      "title": "ci(nightly): a corrupt CAS object retries the Release build with the local cache",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36797,
+      "title": "Cloud VM image agent tools probe: record the launch acpmux makes today; a failed probe drops the snapshot",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36375,
+      "title": "What's New: install any recent version with a click, checked like a Sparkle update",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36403,
+      "title": "feat(agent-pane): attribute background tasks and bound shell output",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36147,
+      "title": "webviews: hot-reload:proof measures what survives an edit mid-turn",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36792,
+      "title": "Cloud VM image: pin cmux-tui 5ad32fb8 (relay thread panic fix #36739)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36789,
+      "title": "vm image npm cache: the prefill runs under the guest's /bin/sh; one prefill per layered bake",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36782,
+      "title": "acpmux who-else: refuse a remote caller's raw files or cwd even beside a query object",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36779,
+      "title": "live code: a cross-module patch's sidecar lists every file; status checks the folder",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36778,
+      "title": "Cloud: a failed resume is no link that came back; Retry reads the record first; a just-resumed machine is dialed once more",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
