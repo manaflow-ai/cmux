@@ -155,7 +155,7 @@ fn doctor(global: &GlobalArgs, name: &str) -> i32 {
     let device_id = machine.get("device_id").and_then(Value::as_str).unwrap_or_default().to_owned();
     let label = machine.get("name").and_then(Value::as_str).unwrap_or(name).to_owned();
     let started = Instant::now();
-    let request = json!({"op": "open", "peer": device_id, "service": "machine", "args": {}, "origin": origin()});
+    let request = json!({"op": "open", "peer": device_id, "service": "machine", "args": {}});
     let mut conversation = match Conversation::start(&socket, &request) {
         Ok(conversation) => conversation,
         Err(error) => return fail(error),
@@ -215,15 +215,6 @@ fn doctor(global: &GlobalArgs, name: &str) -> i32 {
         OutputMode::Quiet => {}
     }
     0
-}
-
-/// `person` when a person typed this in a terminal; `agent` otherwise. The
-/// target only ever narrows on it (an agent never gets `install`).
-fn origin() -> &'static str {
-    let agent = ["CLAUDECODE", "CODEX_SANDBOX", "CMUX_AGENT_SESSION", "ACPMUX_SESSION"]
-        .iter()
-        .any(|key| std::env::var_os(key).is_some());
-    if agent { "agent" } else { "person" }
 }
 
 #[cfg(test)]

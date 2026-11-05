@@ -14,7 +14,7 @@
 //!
 //! - `{"op":"machines"}`: the person's Macs from the hub (`GET /v1/me/devices`),
 //!   with presence, this one marked.
-//! - `{"op":"open","peer":DEVICE_ID,"service":S,"args":{},"origin":"person"|"agent"}`:
+//! - `{"op":"open","peer":DEVICE_ID,"service":S,"args":{}}`:
 //!   a link to the peer (reused while it lives), `auth` as a Mac with this
 //!   Mac's identity key (the peer may answer `pending` while its person
 //!   decides; each is passed on as `{"pending":true}`), then the channel.
@@ -153,11 +153,11 @@ async fn open(
 ) -> Result<()> {
     let text = |key: &str| request.get(key).and_then(Value::as_str).unwrap_or_default().to_owned();
     let (peer, service) = (text("peer"), text("service"));
-    let origin = match text("origin").as_str() {
-        "person" => "person",
-        // Anything else counts as an agent: the target only ever narrows on it.
-        _ => "agent",
-    };
+    // Any process of this user can write here, an agent's included, so a
+    // request on this socket is always `agent`, whatever it claims
+    // (docs/multi-machine-sessions.md, "The person or an agent"). `person`
+    // comes only from the app's own control line.
+    let origin = "agent";
     if uuid::Uuid::parse_str(&peer).is_err() || service.is_empty() || service == "auth" {
         return reply(&mut write, json!({"error": "bad_request", "message": "peer is a device id; service is not auth"}))
             .await;

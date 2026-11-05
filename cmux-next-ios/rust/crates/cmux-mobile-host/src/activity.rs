@@ -2,6 +2,8 @@
 //! (docs/multi-machine-sessions.md, "Audit and revoke").
 //!
 //! Append only, 0600, never content: who, what, the target and the decision.
+//! Bounded: at [`ROTATE_AT`] the file becomes `<name>.1.jsonl` (one previous
+//! file kept), so a peer repeating refused requests cannot fill the disk.
 //! Phones are not logged here; their lanes keep their own records.
 
 use std::io::Write;
@@ -33,27 +35,37 @@ pub struct Entry {
 #[derive(Debug)]
 pub struct Activity {
     path: Option<PathBuf>,
+    /// The size at which the file rotates.
+    rotate_at: u64,
     /// Kept in memory as well, newest last, for tests and `machine activity`.
     recent: Mutex<Vec<Entry>>,
 }
 
 /// How many entries stay in memory.
 const RECENT: usize = 512;
+/// The file's size bound before it rotates (two files, so twice this on disk).
+pub const ROTATE_AT: u64 = 4 * 1024 * 1024;
 
 impl Activity {
     /// Kept in memory only (tests, unsupervised hostd).
     pub fn memory() -> Self {
-        Self { path: None, recent: Mutex::default() }
+        Self { path: None, rotate_at: ROTATE_AT, recent: Mutex::default() }
     }
 
     /// Appended to `path` as well.
     pub fn file(path: PathBuf) -> Self {
-        Self { path: Some(path), recent: Mutex::default() }
+        Self { path: Some(path), rotate_at: ROTATE_AT, recent: Mutex::default() }
+    }
+
+    /// The same, rotating at `bytes` (tests).
+    pub fn rotating_at(mut self, bytes: u64) -> Self {
+        self.rotate_at = bytes;
+        self
     }
 
     pub fn record(&self, entry: Entry) {
         if let Some(path) = &self.path
-            && let Err(error) = append(path, &entry)
+            && let Err(error) = append(path, &entry, self.rotate_at)
         {
             tracing::warn!(path = %path.display(), %error, "could not write machine activity");
         }
@@ -68,9 +80,12 @@ impl Activity {
     }
 }
 
-fn append(path: &std::path::Path, entry: &Entry) -> std::io::Result<()> {
+fn append(path: &std::path::Path, entry: &Entry, rotate_at: u64) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
+    }
+    if std::fs::metadata(path).is_ok_and(|meta| meta.len() >= rotate_at) {
+        std::fs::rename(path, path.with_extension("1.jsonl"))?;
     }
     let mut options = std::fs::OpenOptions::new();
     options.create(true).append(true);
@@ -127,5 +142,20 @@ mod tests {
             assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
         }
         assert_eq!(activity.recent().len(), 2);
+    }
+
+    #[test]
+    fn the_file_rotates_and_keeps_one_previous() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("machine-activity.jsonl");
+        let activity = Activity::file(path.clone()).rotating_at(300);
+        for _ in 0..20 {
+            activity.record(entry("daemon", "not_granted"));
+        }
+        let previous = dir.path().join("machine-activity.1.jsonl");
+        assert!(std::fs::metadata(&path).unwrap().len() < 300 + 200);
+        assert!(std::fs::metadata(&previous).unwrap().len() < 300 + 200);
+        let names = std::fs::read_dir(dir.path()).unwrap().count();
+        assert_eq!(names, 2, "never more than the file and one previous");
     }
 }
