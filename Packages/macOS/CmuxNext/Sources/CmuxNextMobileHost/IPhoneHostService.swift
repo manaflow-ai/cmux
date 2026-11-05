@@ -636,10 +636,11 @@ public final class IPhoneHostService {
                 guard !Task.isCancelled, self?.running == key else { return }
                 logger.error("iPhone host waits for the Keychain (\(status, privacy: .public)) to read this Mac's identity")
                 await supervisor.stop(phase: .waiting(IPhoneHostStrings.keychainLocked))
-                guard !Task.isCancelled, self?.running == key else { return }
-                // Nothing to serve while it waits: the Mac may sleep (the retry's reconcile sets it
-                // again), unless a newer reconcile set the hold for its own start meanwhile.
-                if self?.reconcileGeneration == generation { self?.setKeepAwake(false) }
+                // A newer reconcile (same key after off and on, or A to B to A) owns the state now:
+                // this stale start neither ends its hold nor clears its key for a retry of its own.
+                guard !Task.isCancelled, self?.running == key, self?.reconcileGeneration == generation else { return }
+                // Nothing to serve while it waits: the Mac may sleep (the retry's reconcile sets it again).
+                self?.setKeepAwake(false)
                 self?.running = nil
                 self?.retryIdentity(for: key)
             } catch {
