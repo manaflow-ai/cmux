@@ -78,8 +78,15 @@ esac
 CI=${CMUX_CI:-$HOME/.local/bin/cmux-ci}
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "run os-matrix.sh from a cmux worktree" >&2; exit 2; }
 if [[ -z "$REF" ]]; then
-  git -C "$ROOT" fetch -q origin feat-cmux-next || { echo "os-matrix: git fetch failed" >&2; exit 75; }
-  REF=$(git -C "$ROOT" rev-parse FETCH_HEAD)
+  # The tip without a write to the clone: other runs and agents share it, and a ref, FETCH_HEAD or
+  # maintenance lock held by their fetch failed a `git fetch origin feat-cmux-next` here (exit 75),
+  # and a FETCH_HEAD read after it could name their commit. ls-remote reads the sha only; the fetch
+  # of that exact sha, only when its commit is missing, writes objects and no ref or FETCH_HEAD.
+  REF=$(git -C "$ROOT" ls-remote origin refs/heads/feat-cmux-next | awk 'NR == 1 {print $1}') || REF=""
+  [[ "$REF" =~ ^[0-9a-f]{40}$ ]] || { echo "os-matrix: cannot read the feat-cmux-next tip from origin" >&2; exit 75; }
+  git -C "$ROOT" cat-file -e "$REF^{commit}" 2>/dev/null \
+    || git -C "$ROOT" fetch -q --no-write-fetch-head --no-auto-maintenance origin "$REF" \
+    || { echo "os-matrix: cannot fetch $REF from origin" >&2; exit 75; }
 fi
 [[ "$REF" =~ ^[0-9a-f]{40}$ ]] || { echo "--ref needs a 40-character commit" >&2; exit 2; }
 images=$(git -C "$ROOT" show "$REF:scripts/fuzz/macos-matrix/images.json") || {
