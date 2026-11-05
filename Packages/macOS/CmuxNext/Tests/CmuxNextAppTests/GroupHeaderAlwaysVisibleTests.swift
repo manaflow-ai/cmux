@@ -49,4 +49,14 @@ import Testing
         }
         #expect(failures.isEmpty, Comment(rawValue: "\(failures.count) invisible group backgrounds:\n" + failures.joined(separator: "\n")))
     }
+
+    /// Switching `sidebar.groupHeader.background` redraws the headers already on screen.
+    @Test func changingTheBackgroundStyleRedrawsTheList() {
+        var before = SidebarSectionsPreferences()
+        before.groupHeaderBackground = .solid
+        var after = before
+        after.groupHeaderBackground = .glass
+        #expect(after.changesList(from: before))
+        #expect(!before.changesList(from: before))
+    }
 }

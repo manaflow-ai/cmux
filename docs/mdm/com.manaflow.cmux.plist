@@ -740,6 +740,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Edits to cmux's web UI from your own checkout show up in this app as you save, with no build and no relaunch. Start it with scripts/cmux-next/web-overlay.sh server --local. Off: cmux ignores ~/.config/cmux/web-dev.json and shows the web UI it shipped with.</string>
+			<key>pfm_name</key>
+			<string>updates.liveWebReload</string>
+			<key>pfm_title</key>
+			<string>Live Web Reload</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
 			<string>A downloaded update installs as cmux quits. Terminals keep running.</string>
@@ -5373,6 +5385,24 @@
 			<string>Show Group Unread Count</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>auto</string>
+			<key>pfm_description</key>
+			<string>How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses glass when the sidebar is see-through. A group always has a visible background, also when it has no color.</string>
+			<key>pfm_name</key>
+			<string>sidebar.groupHeader.background</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>auto</string>
+				<string>glass</string>
+				<string>solid</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Group Background</string>
+			<key>pfm_type</key>
+			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>

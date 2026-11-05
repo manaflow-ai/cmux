@@ -3951,6 +3951,17 @@
       "title" : "Group Workspaces by Computer",
       "type" : "boolean"
     },
+    "sidebar.groupHeader.background" : {
+      "default" : "auto",
+      "description" : "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses glass when the sidebar is see-through. A group always has a visible background, also when it has no color.",
+      "enum" : [
+        "auto",
+        "glass",
+        "solid"
+      ],
+      "title" : "Group Background",
+      "type" : "string"
+    },
     "sidebar.groupHeader.memberCount" : {
       "default" : false,
       "description" : "A collapsed group shows how many workspaces it holds after its name. Off, it shows only its loading spinner.",
@@ -5251,6 +5262,12 @@
       "minimum" : 0,
       "title" : "Keep Previous Versions",
       "type" : "number"
+    },
+    "updates.liveWebReload" : {
+      "default" : true,
+      "description" : "Edits to cmux's web UI from your own checkout show up in this app as you save, with no build and no relaunch. Start it with scripts/cmux-next/web-overlay.sh server --local. Off: cmux ignores ~/.config/cmux/web-dev.json and shows the web UI it shipped with.",
+      "title" : "Live Web Reload",
+      "type" : "boolean"
     },
     "updates.meteredNetwork" : {
       "default" : "defer-low-data",

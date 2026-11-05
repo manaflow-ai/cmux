@@ -8,7 +8,9 @@
   color dot). New setting `sidebar.groupHeader.background`: Automatic (default: glass where the sidebar is see-through,
   else solid), Glass (translucent fill at 0.6 that composites to the same color, hairline rim), Solid. The band, wash,
   line and tinted looks all draw it; the members' line under a no-color band takes the neutral fill. Gallery: Sidebar
-  States Playground > Group backgrounds. Regression: `GroupHeaderAlwaysVisibleTests`, `GroupBackgroundEveryThemeTests`.
+  States Playground > Group backgrounds. Hovered and dropped states stay visible too (a darkening hover on a bar
+  darker than the sidebar), and changing the setting redraws the headers on screen. Regression:
+  `GroupHeaderAlwaysVisibleTests`, `GroupBackgroundEveryThemeTests`. Capture tour: `sidebar-group-background`.
 - 2026-11-05: Update in One Click (`updates.oneClickInstall`, off by default; #35951). Leo, verbatim, on the Codex app's
   Update available pill: "codex having this update available and then me clicking it enabling it to auto install and
   restart is... interesting". On, the footer's Update Available button (tooltip "…: Click to Update and Restart") and

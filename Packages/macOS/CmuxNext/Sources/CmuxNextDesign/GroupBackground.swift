@@ -118,22 +118,28 @@ public nonisolated struct GroupBackground: Equatable, Sendable {
     /// - Returns: The color to paint.
     public func painted(over steps: [ThemeRGB]) -> ThemeRGB {
         guard !steps.isEmpty else { return fill }
-        let stepped = steps.reduce(shown) { $1.composited(over: $0) }
+        // A state step can move the bar back toward the sidebar (a darkening hover on a bar darker than it): keep it visible.
+        let stepped = Self.visible(steps.reduce(shown) { $1.composited(over: $0) }, over: ground)
         return isGlass ? Self.glassFill(showing: stepped, over: ground) : stepped
     }
 
-    /// `color`, pushed away from `ground` (toward white or black) until it keeps ``minimumVisibleContrast``.
+    /// `color`, pushed away from `ground` until it keeps ``minimumVisibleContrast``: further the way it already
+    /// differs (darker stays darker, lighter stays lighter), the other way when that pole cannot get there.
     static func visible(_ color: ThemeRGB, over ground: ThemeRGB) -> ThemeRGB {
         let opaque = color.withAlpha(1)
         guard opaque.contrast(with: ground) < minimumVisibleContrast else { return opaque }
-        let pole: ThemeRGB = ground.relativeLuminance < 0.18 ? .white : .black
-        var step = 0.0
-        var candidate = opaque
-        while step < 1, candidate.contrast(with: ground) < minimumVisibleContrast {
-            step += 0.02
-            candidate = opaque.mixed(toward: pole, step)
+        let lum = opaque.relativeLuminance, groundLum = ground.relativeLuminance
+        let first: ThemeRGB = lum < groundLum ? .black : lum > groundLum ? .white : (groundLum < 0.18 ? .white : .black)
+        for pole in [first, first == .black ? ThemeRGB.white : .black] {
+            var step = 0.0
+            var candidate = opaque
+            while step < 1, candidate.contrast(with: ground) < minimumVisibleContrast {
+                step += 0.02
+                candidate = opaque.mixed(toward: pole, step)
+            }
+            if candidate.contrast(with: ground) >= minimumVisibleContrast { return candidate }
         }
-        return candidate
+        return opaque.contrast(with: .white) > opaque.contrast(with: .black) ? .white : .black
     }
 
     /// The translucent paint that composites to `shown` over `ground`: ``glassOpacity``, or the least opacity above it

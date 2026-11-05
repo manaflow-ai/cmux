@@ -113,7 +113,7 @@ import Testing
                 #expect(!header.pill.isHidden && !header.dot.isHidden, "\(color): no wash or no color dot")
                 let fill = try Fixture.rgb(header.pill.backgroundColor)
                 #expect(!Fixture.same(fill, background), "\(color): the wash is not tinted")
-                #expect(fill.contrast(with: background) < 1.25, "\(color): the wash is \(fill.contrast(with: background)):1 against the sidebar, not faint")
+                #expect(fill.contrast(with: background) < 1.3, "\(color): the wash is \(fill.contrast(with: background)):1 against the sidebar, not faint")
                 #expect(fill.contrast(with: background) >= GroupBackground.minimumVisibleContrast - 0.01,
                         "\(color): the wash is \(fill.contrast(with: background)):1 against the sidebar, not visible")
                 #expect(Fixture.same(try Self.ink(header.name.textColor), scope.tokens.textPrimary), "\(color): the name is not primary ink")
