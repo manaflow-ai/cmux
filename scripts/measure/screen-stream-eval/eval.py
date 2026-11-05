@@ -13,7 +13,8 @@ and each TARGET is
    "latency": {"key"|"pointer": {"p50_ms", "p95_ms", "n", "lost"}},
    "kbps": {"idle"|"typing"|"scroll": number}, "fps": {same},
    "ocr": {"cer", "host_cer_vs_truth", "viewer_cer_vs_truth", ...},
-   "split": {"key"|"pointer": {"encode_ms", "transport_ms", "decode_ms", "input_to_capture_ms", "method"},
+   "split": {"key"|"pointer": {"encode_ms", "transport_ms", "decode_ms", "input_to_capture_ms", "method",
+                                [rd: "input_to_capture_parts": {"render_ms"|"sck_ms"|"pickup_ms"|"gate_ms"|"encode_ms": {"n", "p50", "p95"}}]},
              "typing": {"encode_ms", "decode_ms"}},
    "extra": {..., "repeats": [{"repeat", "kbps", "fps", "ocr_cer", ...}]}}
 The window and OCR scenarios run several times (the harness's repeats=, 3 by default): each of
@@ -87,6 +88,8 @@ def target(name: str, folder: Path, out: Path) -> None:
         result["latency"][kind] = {"p50_ms": g2g.get("p50"), "p95_ms": g2g.get("p95"), "n": g2g.get("n"), "lost": lat.get("lost")}
         split = lat.get("split") or {}
         result["split"][kind] = {k: split.get(k) for k in ("input_to_capture_ms", "encode_ms", "transport_ms", "decode_ms", "method")}
+        if split.get("input_to_capture_parts"):
+            result["split"][kind]["input_to_capture_parts"] = split["input_to_capture_parts"]
         if g2g.get("p50") is None:
             errors.append(f"latency {kind}: no samples")
     # Repeats (window-N.json, phases-N.jsonl, ocr-N.json): every number is the median of the repeats
@@ -201,6 +204,11 @@ def summary(results_path: Path, out: Path, previous_path: Path | None) -> None:
             lines.append(f"| {kind.capitalize()} split: input→capture / encode / transport / decode | "
                          f"{cell('split', kind, 'input_to_capture_ms')} / {cell('split', kind, 'encode_ms', digits=2)} / "
                          f"{cell('split', kind, 'transport_ms', digits=2)} / {cell('split', kind, 'decode_ms', digits=2)} |")
+        for kind in ("key", "pointer"):
+            parts = get(t, "split", kind, "input_to_capture_parts") or {}
+            if parts:
+                lines.append(f"| {kind.capitalize()} input→capture parts (p50): render / SCK / pickup / gate | "
+                             + " / ".join(fmt((parts.get(k) or {}).get("p50"), " ms", 2) for k in ("render_ms", "sck_ms", "pickup_ms", "gate_ms")) + " |")
         lines.append(f"| Typing split: encode / decode | {cell('split', 'typing', 'encode_ms', digits=2)} / {cell('split', 'typing', 'decode_ms', digits=2)} |")
         reps = (t.get("extra") or {}).get("repeats") or []
         if len(reps) > 1:

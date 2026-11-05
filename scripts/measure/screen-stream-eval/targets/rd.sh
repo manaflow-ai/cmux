@@ -18,7 +18,8 @@ host_start() {
   # Two Macs (EVAL_BIND, a LAN address): the host's own opt-in for a private network, else loopback only.
   reach=()
   [[ -n "${EVAL_BIND:-}" ]] && reach=(--single-tenant-overlay 1)
-  "$rd" host --owner owner --bind "${EVAL_BIND:-127.0.0.1}" ${reach[@]+"${reach[@]}"} --port "$port" \
+  : >"$EVAL_STATE/timing.jsonl"
+  CMUX_RD_TIMING_LOG="$EVAL_STATE/timing.jsonl" "$rd" host --owner owner --bind "${EVAL_BIND:-127.0.0.1}" ${reach[@]+"${reach[@]}"} --port "$port" \
     --token-fd 3 3< <(cat "$EVAL_STATE/token") >>"$EVAL_STATE/host.log" 2>&1 &
   echo $! >"$EVAL_STATE/host.pid"
   for _ in $(seq 1 100); do
@@ -72,12 +73,33 @@ case "$verb" in
     # latency-report INPUT RAW OUT. bench's "same clock" times compare the host's capture time with the
     # viewer's: on two Macs they move onto the viewer's clock by the host-minus-viewer CLOCK_MONOTONIC
     # offset (EVAL_PEER_MONO_OFFSET_MS, peer.py).
+    # The host's timing log since the last report (the report empties it: the host appends) splits
+    # input-to-capture by the frames that followed an input.
     input=$1 raw=$2 out=$3
-    python3 -I - "$raw" "$out" "${EVAL_PEER_MONO_OFFSET_MS:-0}" <<'EOF'
-import json, sys
+    timing="$EVAL_STATE/timing.jsonl.$input"
+    if [[ -f "$EVAL_STATE/timing.jsonl" ]]; then cp "$EVAL_STATE/timing.jsonl" "$timing"; : >"$EVAL_STATE/timing.jsonl"; fi
+    python3 -I - "$raw" "$out" "${EVAL_PEER_MONO_OFFSET_MS:-0}" "$timing" <<'EOF'
+import json, os, sys
 text = open(sys.argv[1]).read().strip()
 raw = json.loads(text) if text else {}
 offset = float(sys.argv[3])
+frames = [json.loads(l) for l in open(sys.argv[4]) if l.strip()] if os.path.exists(sys.argv[4]) else []
+def pct(values):
+    values = sorted(v for v in values if v is not None and v >= 0)
+    if not values:
+        return None
+    return {"n": len(values), "p50": round(values[len(values) // 2], 3), "p95": round(values[min(len(values) - 1, int(len(values) * 0.95))], 3)}
+def span(f, a, b):
+    return (f[b] - f[a]) / 1000 if f.get(a) is not None and f.get(b) is not None else None
+after_input = [f for f in frames if f.get("input_us") is not None]
+# Where input-to-capture goes, for the first frame after each injected input: render (the input until
+# the display showed the change: the app and the window server), sck (ScreenCaptureKit handing the
+# frame over), pickup (the session loop seeing its damage), gate (the frame gate holding it until
+# its interval allows), each as p50/p95 ms on the host's own clock.
+parts = {name: pct(span(f, a, b) for f in after_input) for name, a, b in (
+    ("render_ms", "input_us", "shown_us"), ("sck_ms", "shown_us", "arrived_us"),
+    ("pickup_ms", "arrived_us", "damage_us"), ("gate_ms", "damage_us", "release_us"),
+    ("encode_ms", "release_us", "encoded_us"))}
 g2g, cap, dec = raw.get("g2g_ms") or {}, raw.get("same_clock_capture_to_decoded_ms") or {}, raw.get("decode_ms") or {}
 encode = (raw.get("host_stats_last") or {}).get("encode_ms_p50")
 def p50(d): return d.get("p50") if d else None
@@ -88,7 +110,7 @@ if p50(cap) is not None and encode is not None and p50(dec) is not None:
     transport = p50(cap) + offset - encode - p50(dec)
 json.dump({
     "g2g_ms": g2g, "lost": raw.get("lost"),
-    "split": {"input_to_capture_ms": to_capture,
+    "split": {"input_to_capture_ms": to_capture, "input_to_capture_parts": parts,
               "encode_ms": encode, "transport_ms": transport, "decode_ms": p50(dec),
               "method": "rd: transport = same-clock capture-to-decoded p50 minus the host's encode p50 and the viewer's decode p50 (packetize, send, reassemble and queue; a difference of medians, so it can be slightly negative); on two Macs the host's capture times move onto the viewer's clock by the measured offset"},
     "raw": raw,
