@@ -458,7 +458,6 @@
     "nightly.yml#build-nightly-app": "apple-app-build",
     "nightly.yml#visual-gate-nightly-verdict": {"class": "portable-checks"},
     "nightly.yml#report-visual-gate-nightly": {"class": "portable-checks"},
-    "nightly.yml#nightly-identity-legacy-published": {"class": "portable-checks"},
     "nightly.yml#report-nightly-failure": {"class": "portable-checks"},
     "nightly.yml#republish-nightly-next": {"class": "portable-checks"},
     "nightly.yml#decide": {"class": "portable-checks"},
@@ -494,9 +493,7 @@
       "class": "apple-app-build",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
     },
-    "nightly.yml#sign-nightly-identity-legacy": "apple-signing-release",
     "nightly.yml#verify-final-dmg-nightly": "apple-signing-release",
-    "nightly.yml#verify-nightly-identity-legacy": "apple-signing-release",
     "nightly.yml#verify-recovered-nightly-next": "apple-signing-release",
     "nightly.yml#verify-signed-nightly": "apple-signing-release",
     "nightly.yml#visual-gate-nightly": "apple-gui",

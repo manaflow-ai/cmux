@@ -172,9 +172,14 @@ class LegacyTests(unittest.TestCase):
     def test_a_promoted_build_replaces_the_older_nightly_item(self):
         current = feed(item("300", "cmux-next-dev"), item("200"))
         out, summary = ring.legacy(feed(item("400")), current, "on", self.verdicts(b200=True, b300=True))
-        self.assertEqual(summary["channels"], {"400": "cmux-next-dev", "300": "cmux-next"})
-        self.assertEqual(summary["dropped"], ["200"])
-        self.assertEqual(offered(out, NIGHTLY_RING), ["300"])
+        self.assertEqual(summary["channels"], {"400": "cmux-next-dev", "300": "cmux-next", "200": "cmux-next"})
+        self.assertEqual(offered(out, NIGHTLY_RING), ["300", "200"])
+
+    def test_only_one_earlier_nightly_item_is_kept(self):
+        current = feed(item("300"), item("200"), item("100"))
+        out, summary = ring.legacy(feed(item("400")), current, "off", self.verdicts())
+        self.assertEqual(summary["channels"], {"400": "cmux-next", "300": "cmux-next"})
+        self.assertEqual(summary["dropped"], ["200", "100"])
 
     def test_at_most_five_dev_items_above_the_nightly_one(self):
         current = feed(*(item(str(b), "cmux-next-dev") for b in range(301, 307)), item("200"))
@@ -184,14 +189,14 @@ class LegacyTests(unittest.TestCase):
     def test_a_nightly_build_copied_below_a_dev_one_keeps_both(self):
         current = feed(item("300", "cmux-next-dev"), item("100"))
         out, summary = ring.legacy(feed(item("200")), current, "on", self.verdicts(b100=True, b200=True))
-        self.assertEqual(summary["channels"], {"300": "cmux-next-dev", "200": "cmux-next"})
-        self.assertEqual(offered(out, NIGHTLY_RING), ["200"])
+        self.assertEqual(summary["channels"], {"300": "cmux-next-dev", "200": "cmux-next", "100": "cmux-next"})
+        self.assertEqual(offered(out, NIGHTLY_RING), ["200", "100"])
 
-    def test_off_keeps_only_the_newest_build_on_nightly(self):
+    def test_off_keeps_the_newest_build_and_the_one_before_on_nightly(self):
         current = feed(item("300", "cmux-next-dev"), item("200"))
         out, summary = ring.legacy(feed(item("400")), current, "off", self.verdicts())
-        self.assertEqual(summary["channels"], {"400": "cmux-next"})
-        self.assertEqual(out.count("<item>"), 1)
+        self.assertEqual(summary["channels"], {"400": "cmux-next", "300": "cmux-next"})
+        self.assertEqual(out.count("<item>"), 2)
 
     def test_no_current_feed_and_the_guard_passes(self):
         out, summary = ring.legacy(feed(item("300")), None, "on", self.verdicts())
@@ -231,7 +236,7 @@ printf {live_code}
             new = root / "appcast-arm64.xml"
             new.write_text(feed(item("400", "cmux-next-dev")))
             env = {"PATH": f"{root}:/usr/bin:/bin", "DEV_RING": ring, "CHANNEL_FEED_BASE": "https://example.invalid/next",
-                   "NIGHTLY_NEXT_FEED_BASE": str(root), "RUNNER_TEMP": str(root), "GITHUB_RUN_ID": "1"}
+                   "NIGHTLY_NEXT_VERDICTS_BASE": str(root), "RUNNER_TEMP": str(root), "GITHUB_RUN_ID": "1"}
             result = subprocess.run(["bash", str(self.SCRIPT), str(new)], env=env, capture_output=True, text=True)
             return result, new.read_text()
 
@@ -274,10 +279,17 @@ printf {live_code}
         self.assertEqual(offered(out, NIGHTLY_RING), ["200"])
         ET.fromstring(out)  # nightly-next-guard.py appcast reads it next, with ElementTree
 
-    def test_ring_off_leaves_the_feed_alone(self):
+    def test_ring_off_keeps_the_build_before_the_new_one(self):
+        # The one feed's shape (cmux NIGHTLY): every item Nightly, the earlier build kept for a rollback.
+        result, out = self.run_script(200, feed(item("300"), item("200")), ring="off")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(offered(out, NIGHTLY_RING), ["400", "300"])
+
+    def test_ring_off_publishes_through_an_unreadable_feed(self):
         result, out = self.run_script(503, ring="off")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(out, feed(item("400", "cmux-next-dev")))
+        self.assertEqual(offered(out, NIGHTLY_RING), ["400"])
+        self.assertIn("::warning", result.stdout)
 
 
 # A fixed clock for the legacy sign skip (LEGACY_NOW_EPOCH): 2026-10-31 00:00:00 UTC.
@@ -418,26 +430,15 @@ class WorkflowTests(unittest.TestCase):
         text = nightly_text()
         ring_expr = "vars.NIGHTLY_NEXT_DEV_RING == 'on' && 'cmux-next-dev' || 'cmux-next'"
         tags = re.findall(r"^\s+SPARKLE_CHANNEL: (.*)$", text, re.MULTILINE)
-        # First publication, its deltas and a recovered build follow the switch;
-        # the old cmux NIGHTLY-identity feed's item starts on cmux-next and is
-        # retagged from its verdict (nightly_next_ring.py legacy).
+        # First publication, its deltas and a recovered build follow the switch.
         self.assertEqual(sum(ring_expr in tag for tag in tags), 3, tags)
-        self.assertEqual(tags.count("cmux-next"), 1, tags)
+        self.assertEqual(tags.count("cmux-next"), 0, tags)
 
     def test_the_delta_feed_is_retagged_from_verdicts_before_it_is_published(self):
         text = nightly_text()
         job = text[text.index("\n  republish-nightly-deltas:"):text.index("\n  published-in:")]
         retag = job.index("nightly_next_ring.py retag")
         self.assertLess(retag, job.index('python3 "$publisher"'))
-
-    def test_the_old_feed_copies_nightly_first_then_dev(self):
-        text = nightly_text()
-        job = text[text.index("\n  legacy-identity-target:"):text.index("\n  sign-nightly-identity-legacy:")]
-        target = job.index("nightly-next-legacy-target.py")
-        self.assertLess(job.index("nightly_next_ring.py select --feed next-all.xml"), target)
-        self.assertLess(job.index("nightly_next_ring.py select --feed old-all.xml"), target)
-        # The full feeds (Dev too) only when the old feed's Nightly is current and the ring is on.
-        self.assertLess(job.index('elif [ "$DEV_RING" = on ]; then\n            cp next-all.xml next.xml'), target)
 
     def test_the_next_feed_keeps_its_newest_nightly_item_before_it_goes_live(self):
         # 2026-10-27: the /next/ feed held only the newest build, on cmux-next-dev, so a
@@ -468,153 +469,33 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(offered(out, NIGHTLY_RING), ["200"])
         self.assertEqual(offered(out, DEV_RING), ["400", "300", "200"])
         out, _ = ring.legacy(feed(item("500", "cmux-next-dev")), out, "on", self.verdicts_of(b200=True, b300=True))
-        self.assertEqual(offered(out, NIGHTLY_RING), ["300"])
-        # Ring off: the new build alone, on Nightly, as before.
+        # The promoted build first, the Nightly build before it kept for a launch-crash rollback.
+        self.assertEqual(offered(out, NIGHTLY_RING), ["300", "200"])
+        # Ring off: the new build on Nightly, and the build before it.
         out, summary = ring.legacy(feed(item("400")), live, "off", self.verdicts_of())
-        self.assertEqual(summary["channels"], {"400": "cmux-next"})
+        self.assertEqual(summary["channels"], {"400": "cmux-next", "300": "cmux-next"})
 
     @staticmethod
     def verdicts_of(**passed):
         return lambda build: "pass" if passed.get(f"b{build}") else None
 
-    def test_the_old_feed_is_merged_from_verdicts_before_its_guard(self):
-        text = nightly_text()
-        job = text[text.index("\n  publish-nightly-identity-legacy:"):]
-        merge = job.index("nightly_next_ring.py legacy --new")
-        self.assertLess(merge, job.index('nightly-next-guard.py appcast "legacy-out/$LEGACY_APPCAST"'))
-        self.assertIn('--verdicts-base "$NIGHTLY_NEXT_FEED_BASE"', job[merge:merge + 400])
-
-    def test_signing_and_publishing_skip_the_same_builds(self):
-        # A Dev item above the old feed's Nightly must not hold back an older
-        # Nightly build in either job (else Nightly installs stay stuck).
-        text = nightly_text()
-        rule = [
-            'nightly_next_ring.py select --feed "$RUNNER_TEMP/old-feed.xml" --out "$RUNNER_TEMP/old-nightly.xml" --channel cmux-next',
-            'grep -q "<sparkle:version>${NIGHTLY_BUILD}</sparkle:version>" "$RUNNER_TEMP/old-feed.xml"',
-            '{ [ -n "$current" ] && [ "$NIGHTLY_BUILD" -le "$current" ]; }',
-        ]
-        for start, end in (("\n  sign-nightly-identity-legacy:", "Initialize cmux-next notices submodule"),
-                           ("\n  publish-nightly-identity-legacy:", "name: Download the stapled cmux NIGHTLY DMG")):
-            begin = text.index(start)
-            step = text[text.index("name: Skip a build the old feed already has", begin):text.index(end, begin)]
-            for line in rule:
-                self.assertIn(line, step, start)
-
-    def test_a_pending_build_the_old_feed_lists_is_not_continued(self):
-        text = nightly_text()
-        job = text[text.index("\n  legacy-identity-target:"):text.index("\n  sign-nightly-identity-legacy:")]
-        stale = job.index('grep -q "<sparkle:version>${pending_build}</sparkle:version>" old-all.xml')
-        self.assertLess(stale, job.index("pending_args=(--pending-meta"))
-
-    def test_a_verdict_promotes_on_the_old_feed_too(self):
+    def test_a_verdict_promotes_on_the_one_feed(self):
+        # The track's one feed is cmux NIGHTLY's (hq#7156); the retired /next/ feed is not retagged.
         text = VERDICT_YML.read_text()
-        main = text.index("name: Move builds whose canary passed to Nightly")
-        legacy = text.index("name: Move the old feed's builds whose canary passed to Nightly")
-        self.assertLess(main, legacy)
-        step = text[legacy:]
-        self.assertIn("${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${NIGHTLY_APPCAST}", step)
-        self.assertIn("--replace-sha256", step)
-        self.assertIn('verdicts/${KEY##*/}', text)
-
-    def test_a_failed_old_feed_promotion_fails_the_verdict_run(self):
-        # The NEXT feed's promotion runs first and is kept when the old feed's
-        # write fails; that failure turns the run red instead of passing
-        # quietly with the two feeds on different rings.
-        steps = yaml.safe_load(VERDICT_YML.read_text())["jobs"]["write"]["steps"]
+        steps = yaml.safe_load(text)["jobs"]["write"]["steps"]
         names = [s.get("name") for s in steps]
-        main = names.index("Move builds whose canary passed to Nightly")
-        legacy = names.index("Move the old feed's builds whose canary passed to Nightly")
-        self.assertLess(main, legacy)
-        self.assertNotIn("continue-on-error", steps[legacy])
-        self.assertNotIn("never fails the verdict", VERDICT_YML.read_text())
+        self.assertNotIn("Move builds whose canary passed to Nightly", names)
+        step = steps[names.index("Move the old feed's builds whose canary passed to Nightly")]
+        self.assertIn("${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${NIGHTLY_APPCAST}", step["run"])
+        self.assertIn("--replace-sha256", step["run"])
+        self.assertNotIn("continue-on-error", step)
+        self.assertIn('verdicts/${KEY##*/}', text)
 
     def test_a_verdict_promotes_on_the_live_feed_with_if_match(self):
         text = VERDICT_YML.read_text()
         self.assertIn("nightly_next_ring.py retag", text)
         self.assertIn("--replace-sha256", text)
         self.assertIn("scripts/ci/nightly_next_ring.py", text)
-
-
-class LegacyPublishedTests(unittest.TestCase):
-    """Run 40239403743 published cmux NEXT while every legacy job skipped: a rate-limited
-    requirement read was taken for a refusal, and continue-on-error kept the run quiet."""
-
-    WORKFLOW = nightly_text()
-
-    def job(self, name: str) -> str:
-        match = re.search(rf"\n  {name}:\n(.*?)(?=\n  [a-z0-9-]+:\n|\Z)", self.WORKFLOW, re.S)
-        self.assertIsNotNone(match, name)
-        return match.group(1)
-
-    def gate(self, **env: str) -> subprocess.CompletedProcess:
-        body = self.job("nightly-identity-legacy-published")
-        script = body[body.index("        run: |\n") + len("        run: |\n"):]
-        script = "\n".join(line[10:] for line in script.splitlines())
-        base = {"DECIDED": "true", "ACTION": "new", "BUILD": "4023940374302", "NEXT_BUILD": "4023940374302",
-                "SIGN_SKIP": "false", "SIGN_PENDING": "false", "SIGN_OK": "true", "TESTED": "abc123", "ALREADY": "false",
-                "PUBLISHED": "true", "NEXT_OK": "true", "SOURCE_RUN": ""}
-        return subprocess.run(["bash", "-c", script], env={"PATH": "/usr/bin:/bin", **base, **env},
-                              capture_output=True, text=True)
-
-    def test_the_gate_is_red_unless_the_old_feed_published_or_had_nothing_to(self):
-        self.assertEqual(self.gate().returncode, 0)
-        for env in ({"ACTION": "none", "BUILD": "", "PUBLISHED": ""}, {"SIGN_SKIP": "true", "PUBLISHED": ""},
-                    {"ALREADY": "true", "PUBLISHED": "false"}, {"SIGN_PENDING": "true", "PUBLISHED": ""},
-                    # A continued older build: the publisher runs only for this run's build.
-                    {"ACTION": "continue", "BUILD": "4023540480101", "PUBLISHED": ""},
-                    # This run's own build, which cmux NEXT did not publish: the old feed waits for it.
-                    {"SOURCE_RUN": "41136161064", "NEXT_OK": "false", "PUBLISHED": ""},
-                    {"SOURCE_RUN": "41136161064", "NEXT_BUILD": "4023940374303", "PUBLISHED": ""}):
-            self.assertEqual(self.gate(**env).returncode, 0, env)
-        # A failed target leaves no outputs (continue-on-error reports it as success).
-        for env in ({"DECIDED": "", "ACTION": "", "BUILD": "", "PUBLISHED": ""},
-                    {"PUBLISHED": ""}, {"PUBLISHED": "false"},
-                    # A feed build a rescue's re-run signed (publish-nightly skipped there) that did not publish.
-                    {"NEXT_OK": "false", "NEXT_BUILD": "", "PUBLISHED": "false"},
-                    {"SOURCE_RUN": "41136161064", "PUBLISHED": "false"},
-                    {"ACTION": "continue", "PUBLISHED": "false"},
-                    # Pending, but the sign job failed after Apple took it (no stored bundle).
-                    {"SIGN_PENDING": "true", "SIGN_OK": "false", "PUBLISHED": ""},
-                    # A continued older build whose sign or verify failed.
-                    {"ACTION": "continue", "BUILD": "4023540480101", "SIGN_OK": "false", "PUBLISHED": ""},
-                    {"ACTION": "continue", "BUILD": "4023540480101", "TESTED": "", "PUBLISHED": ""}):
-            result = self.gate(**env)
-            self.assertEqual(result.returncode, 1, env)
-            self.assertIn("::error title=cmux NIGHTLY feed not published::", result.stdout)
-
-    def test_the_gate_reads_outputs_and_runs_in_every_run_the_target_ran_in(self):
-        # Runs 41126559170 and 41136161064 (2026-10-30): the rescue's re-runs skipped publish-nightly, so this gate
-        # skipped too and the old feed sat 27 hours behind with no red. It runs whatever cmux NEXT's publication did.
-        body = self.job("nightly-identity-legacy-published")
-        for need in ("publish-nightly", "legacy-identity-target", "sign-nightly-identity-legacy",
-                     "verify-nightly-identity-legacy", "publish-nightly-identity-legacy"):
-            self.assertIn(need, body.split("\n", 1)[0])
-        condition = re.search(r'\n    if: "(.*)"\n', body).group(1)
-        self.assertIn("always() && !cancelled()", condition)
-        self.assertNotIn("publish-nightly", condition)
-        self.assertIn("NEXT_OK: ${{ needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.refused != 'true' }}", body)
-        # The main job's own decision when it signed the copy (legacy_ran), else the target job's.
-        self.assertIn("SOURCE_RUN: ${{ (needs.build-sign-notarize-nightly.outputs.legacy_ran == 'true' && "
-                      "needs.build-sign-notarize-nightly.outputs.legacy_target_source_run || "
-                      "needs.legacy-identity-target.outputs.source_run) }}", body)
-        self.assertNotIn("\n    continue-on-error:", body)
-        self.assertNotRegex(body, r"needs\.(?:legacy-identity-target|[a-z-]*identity-legacy)\.result")
-        target = self.job("legacy-identity-target")
-        self.assertIn("decided: ${{ steps.target.outputs.decided }}", target)
-        self.assertEqual(target.count('echo "decided=true"'), 2)
-        publish = self.job("publish-nightly-identity-legacy")
-        self.assertIn("published: ${{ steps.publish.outcome == 'success' && 'true' || 'false' }}", publish)
-        self.assertIn("already: ${{ steps.order.outputs.skip }}", publish)
-
-    def test_only_a_refusal_skips_a_build_and_an_error_fails_the_target(self):
-        body = self.job("legacy-identity-target")
-        self.assertIn('nightly-next-legacy-requirement.sh "$GITHUB_REPOSITORY" "$build" $REQUIRED)" || rc=$?', body)
-        self.assertIn('if [ "$rc" != 3 ]; then', body)
-        self.assertNotIn('if check="$(', body)
-        listing = body[body.index('candidates="$(gh api'):]
-        listing = listing[:listing.index("\n          for candidate")]
-        self.assertNotIn("|| true", listing)
-        self.assertIn("exit 1", listing)
 
 
 if __name__ == "__main__":

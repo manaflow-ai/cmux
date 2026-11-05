@@ -38,7 +38,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  NIGHTLY_NEXT_FEED: https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml
+  NIGHTLY_NEXT_FEED: https://files-next.cmux.com/nightly-next/appcast-arm64.xml
   # Bumping it verifies every feed build again.
   CANARY_CACHE_PREFIX: nightly-next-canary-v1-
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
@@ -112,7 +112,7 @@ jobs:
           build, url, length, signature = max(items)
           # The release copy, or the feed's own R2 base (publish-nightly-next-r2.py).
           if not url.startswith(("https://github.com/manaflow-ai/cmux/releases/download/nightly-next/",
-                                 "https://files-next.cmux.com/nightly-next/next/")):
+                                 "https://files-next.cmux.com/nightly-next/")):
               sys.exit(f"{url} is not a nightly-next download")
           print(f"build={build}\nurl={url}\nlength={length}\ned_signature={signature}")
           PY
