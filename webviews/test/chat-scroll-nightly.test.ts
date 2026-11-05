@@ -121,17 +121,9 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
   let pane: Awaited<ReturnType<typeof papercutPane>> | undefined;
   beforeAll(async () => {
     for (const [name, engine] of engines) browsers.set(name, await engine.launch({ headless: true }));
-    // A running last turn: the pane follows its tail, and Jump to latest offers "still replying".
-    pane = await papercutPane(() => current!, {
-      turns: 12,
-      running: true,
-      lead,
-      attachPage: 160,
-    });
   });
   afterAll(async () => {
     for (const browser of browsers.values()) await browser.close();
-    await pane?.close();
   });
 
   type Frame = {
@@ -141,6 +133,7 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
     scrollHeight: number;
     faded: string[];
     animating: string[];
+    live: string[];
   };
   /// Reads every painted frame from now until `stopWatch`: the Jump to latest control, Session Info,
   /// the scrollbar's thumb, and rows on screen drawn faded or running an animation. Session Info's
@@ -179,11 +172,11 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
         const jump = document.querySelector<HTMLElement>(".acpmux-jump-latest");
         const faded: string[] = [];
         const animating: string[] = [];
+        const live: string[] = [];
         for (const row of scroller.querySelectorAll<HTMLElement>(".acpmux-row")) {
           const rect = row.getBoundingClientRect();
           if (rect.height === 0 || rect.bottom <= view.top || rect.top >= view.bottom) continue;
           const id = row.dataset.rowId ?? "?";
-          if (Number(getComputedStyle(row).opacity) < 0.999) faded.push(id);
           const visual = row
             .getAnimations({ subtree: true })
             .filter((animation) => animation.playState === "running")
@@ -193,10 +186,23 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
               if (!effect || effect.getComputedTiming().iterations === Infinity) return false;
               return effect.getKeyframes().some((frame) => "opacity" in frame || "transform" in frame);
             });
-          if (visual.length)
-            animating.push(
-              `${id}:${visual.map((animation) => (animation as CSSAnimation).animationName ?? animation.id).join("+")}`,
-            );
+          // A live row's entrance (the streaming reply arriving at the bottom) is not scroll-up
+          // loading: reported apart, not held here.
+          const LIVE = new Set(["cv-enter", "cv-enter-fade", "cv-message-enter"]);
+          const named = (animation: Animation) => {
+            const css = (animation as CSSAnimation).animationName;
+            if (css) return css;
+            const effect = animation.effect as KeyframeEffect | null;
+            const target = effect?.target;
+            const props = [...new Set((effect?.getKeyframes() ?? []).flatMap((frame) => Object.keys(frame)))]
+              .filter((key) => !["offset", "easing", "composite", "computedOffset"].includes(key))
+              .join("/");
+            return `script(${target ? `${target.tagName.toLowerCase()}.${[...target.classList].join(".")}` : "?"} ${props})`;
+          };
+          const loading = visual.filter((animation) => !LIVE.has((animation as CSSAnimation).animationName));
+          if (loading.length) animating.push(`${id}:${loading.map(named).join("+")}`);
+          if (visual.length > loading.length) live.push(id);
+          else if (Number(getComputedStyle(row).opacity) < 0.999) faded.push(id);
         }
         frames.push({
           jump: jump
@@ -214,6 +220,7 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
           scrollHeight: scroller.scrollHeight,
           faded,
           animating,
+          live,
         });
       });
       holder.__scrollWatch = {
@@ -292,6 +299,7 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
       animatingFrames: frames.filter((frame) => frame.animating.length).length,
       fadedRows: [...new Set(frames.flatMap((frame) => frame.faded))].slice(0, 8),
       animatingRows: [...new Set(frames.flatMap((frame) => frame.animating))].slice(0, 8),
+      liveEntranceRows: [...new Set(frames.flatMap((frame) => frame.live))].slice(0, 8),
     };
   }
 
@@ -299,7 +307,10 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
     "%s: wheeling up through older history while a reply streams, nothing on screen jumps or flickers",
     async (name) => {
       current = browsers.get(name)!;
-      const page = await pane!.open({ width: 1100, height: 760 });
+      // A fresh chat per engine (an earlier run's streamed reply would move its tail). A running
+      // last turn: the pane follows its tail, and Jump to latest offers "still replying".
+      pane = await papercutPane(() => current!, { turns: 12, running: true, lead, attachPage: 160 });
+      const page = await pane.open({ width: 1100, height: 760 });
       await page.emulateMedia({ reducedMotion: "no-preference" });
       // Session Info open beside the chat, as Leo has it (the header state the app sends, then its
       // toggle; session-info-overlay-toggle.test.ts), and done entering before the wheel starts.
@@ -375,6 +386,7 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
       for (const [key, value] of Object.entries(summary))
         console.info(`chat-scroll-nightly ${name} ${key}: ${JSON.stringify(value)}`);
       await page.close();
+      await pane!.close();
 
       // The run went where the repros are: older pages landed while the wheel moved up.
       expect(pages).toBeGreaterThan(0);
