@@ -40,19 +40,22 @@ pub fn record(dir: &str, mut fields: Value) {
     }
 }
 
-fn append(line: &Value) -> std::io::Result<()> {
-    let path = path();
+/// Appended through the home's owner-only state-file open (`config::private_state_append`):
+/// never through a link, refused when another user owns it or may write it, and narrowed to
+/// the owner when an older file is wider.
+fn append(line: &Value) -> anyhow::Result<()> {
+    append_to(&path(), line)
+}
+
+fn append_to(path: &std::path::Path, line: &Value) -> anyhow::Result<()> {
     if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
+        crate::config::private_state_dir(dir)?;
     }
-    let mut options = std::fs::OpenOptions::new();
-    options.create(true).append(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    let mut file = options.open(&path)?;
+    let mut file = crate::config::private_state_append(path)?;
     let mut text = line.to_string();
     text.push('\n');
-    file.write_all(text.as_bytes())
+    file.write_all(text.as_bytes())?;
+    Ok(())
 }
 
 /// The machine a sender name `HOST/NAME` names, when it is another machine than this one:
@@ -108,6 +111,28 @@ mod tests {
             json!({"to": "lane-2/chat", "from": "lane-1/perf", "promptId": "p-1", "bytes": 5})
         );
         assert!(!fields.to_string().contains("hello"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_wider_log_is_narrowed_to_the_owner_and_a_link_is_never_followed() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("amx-xa-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let log = dir.join(FILE);
+        std::fs::write(&log, "").unwrap();
+        std::fs::set_permissions(&log, std::fs::Permissions::from_mode(0o644)).unwrap();
+        append_to(&log, &json!({"dir": "sent"})).unwrap();
+        assert_eq!(std::fs::metadata(&log).unwrap().permissions().mode() & 0o777, 0o600);
+        std::fs::remove_file(&log).unwrap();
+        let elsewhere = dir.join("elsewhere");
+        std::fs::write(&elsewhere, "").unwrap();
+        std::os::unix::fs::symlink(&elsewhere, &log).unwrap();
+        assert!(append_to(&log, &json!({"dir": "sent"})).is_err());
+        assert_eq!(std::fs::read_to_string(&elsewhere).unwrap(), "");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

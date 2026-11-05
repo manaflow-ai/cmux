@@ -222,7 +222,7 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
     // for one page (`--cursor`) or this machine alone.
     let mut merged = 0;
     if !one_page && !rows.local_only() {
-        let far: Vec<Value> = crate::cli::send_relay::relay_rows(json_out)
+        let far: Vec<Value> = crate::cli::send_relay::relay_rows(false)
             .await
             .into_iter()
             .filter(|s| {
