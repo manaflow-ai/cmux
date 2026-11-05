@@ -1,0 +1,27 @@
+{
+  "schema": "cmux.grounding-models/1",
+  "note": "Candidates for the Computer Use grounding fallback (HQ#7146 G3c). Only weights whose licence allows shipping; licences read from each Hugging Face card on 2026-11-05. `family` picks the prompt and the output parser in grounding_eval.py. `serve` is where it can run: mlx (Apple silicon, mlx-vlm), vllm (fleet GPU) or both. `max_pixels` and `min_pixels` are the model card's own image bounds; `factor` is the vision patch size times the merge size.",
+  "models": [
+    {"id": "holo-3.1-0.8b", "hf": "Hcompany/Holo-3.1-0.8B", "license": "apache-2.0", "family": "holo", "params_b": 1.1, "serve": "both", "factor": 32, "min_pixels": 3136, "max_pixels": 16777216},
+    {"id": "holo-3.1-4b", "hf": "Hcompany/Holo-3.1-4B", "license": "apache-2.0", "family": "holo", "params_b": 5.2, "serve": "both", "factor": 32, "min_pixels": 3136, "max_pixels": 16777216},
+    {"id": "holo-3.1-9b", "hf": "Hcompany/Holo-3.1-9B", "license": "apache-2.0", "family": "holo", "params_b": 9.4, "serve": "both", "factor": 32, "min_pixels": 3136, "max_pixels": 16777216},
+    {"id": "holo2-4b", "hf": "Hcompany/Holo2-4B", "license": "apache-2.0", "family": "holo", "params_b": 4.4, "serve": "both", "factor": 32, "min_pixels": 3136, "max_pixels": 16777216},
+    {"id": "holo2-8b", "hf": "Hcompany/Holo2-8B", "license": "apache-2.0", "family": "holo", "params_b": 8.8, "serve": "both", "factor": 32, "min_pixels": 3136, "max_pixels": 16777216},
+    {"id": "holo-3.1-35b-a3b", "hf": "Hcompany/Holo-3.1-35B-A3B", "license": "apache-2.0", "family": "holo", "params_b": 35.1, "serve": "vllm", "factor": 32, "min_pixels": 3136, "max_pixels": 16777216},
+    {"id": "holo4-35b-a3b", "hf": "Hcompany/Holo4-35B-A3B", "license": "apache-2.0", "family": "holo", "params_b": 35.1, "serve": "vllm", "factor": 32, "min_pixels": 3136, "max_pixels": 16777216},
+    {"id": "opencua-7b", "hf": "xlangai/OpenCUA-7B", "license": "mit", "family": "opencua", "params_b": 8.3, "serve": "vllm", "factor": 28, "min_pixels": 3136, "max_pixels": 12845056},
+    {"id": "opencua-32b", "hf": "xlangai/OpenCUA-32B", "license": "mit", "family": "opencua", "params_b": 33.5, "serve": "vllm", "factor": 28, "min_pixels": 3136, "max_pixels": 12845056},
+    {"id": "ui-venus-ground-7b", "hf": "inclusionAI/UI-Venus-Ground-7B", "license": "apache-2.0", "family": "venus", "params_b": 8.3, "serve": "both", "factor": 28, "min_pixels": 2000000, "max_pixels": 4800000},
+    {"id": "gta1-7b", "hf": "HelloKKMe/GTA1-7B", "license": "apache-2.0", "family": "gta1", "params_b": 8.3, "serve": "both", "factor": 28, "min_pixels": 3136, "max_pixels": 8847360}
+  ],
+  "excluded": [
+    {"hf": "Hcompany/Holo2-30B-A3B", "why": "cc-by-nc-4.0 (the card's licence, not Apache-2.0)"},
+    {"hf": "Hcompany/Holo4-27B", "why": "cc-by-nc-4.0"},
+    {"hf": "Hcompany/Holotron4-30B-A3B", "why": "NVIDIA Open Model Agreement, not a plain shipping licence"},
+    {"hf": "HelloKKMe/GTA1-32B", "why": "no licence on the card"},
+    {"hf": "HelloKKMe/GTA1-72B", "why": "no licence on the card"},
+    {"hf": "inclusionAI/UI-Venus-2-9B", "why": "no licence on the card"},
+    {"hf": "inclusionAI/UI-Venus-Ground-72B", "why": "72B: no single fleet GPU serves it at batch 1 in bf16; revisit with FP8"},
+    {"hf": "xlangai/OpenCUA-72B", "why": "72B: same as above"}
+  ]
+}
