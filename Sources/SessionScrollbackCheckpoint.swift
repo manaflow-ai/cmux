@@ -371,6 +371,34 @@ struct SessionScrollbackCheckpointStore: Sendable {
         }
     }
 
+    /// Writes `batch` on `queue` without blocking the caller: removals first, so a
+    /// slow capture never delays deleting stale scrollback. `completion` runs on
+    /// main with the panel IDs whose removal failed.
+    func enqueue(
+        _ batch: SessionScrollbackCheckpointWriteBatch,
+        on queue: DispatchQueue,
+        activity: TerminalScrollbackCheckpointActivity,
+        completion: @escaping @MainActor @Sendable (Set<UUID>) -> Void
+    ) {
+        queue.async {
+            let failedRemovals = batch.removals.isEmpty
+                ? Set<UUID>()
+                : apply(SessionScrollbackCheckpointWriteBatch(
+                    captures: [],
+                    removals: batch.removals,
+                    livePanelIds: nil
+                )).failedRemovalIds
+            applyMarkingFailuresPending(SessionScrollbackCheckpointWriteBatch(
+                captures: batch.captures,
+                removals: [],
+                livePanelIds: batch.livePanelIds
+            ), activity: activity)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { completion(failedRemovals) }
+            }
+        }
+    }
+
     func prune(keeping livePanelIds: Set<UUID>, fileManager: FileManager = .default) {
         guard let names = try? fileManager.contentsOfDirectory(atPath: directoryURL.path) else { return }
         for name in names {
@@ -564,9 +592,12 @@ final class SessionScrollbackCheckpointCoordinator {
         var candidates: () -> [Candidate]
         /// Defers work to a later main-queue turn.
         var scheduleNextCapture: (@escaping @MainActor () -> Void) -> Void
-        /// Confirms removals before returning and queues captures for background I/O.
-        /// Returns the panel IDs whose removal failed.
-        var persist: (SessionScrollbackCheckpointWriteBatch) -> Set<UUID>
+        /// Queues a batch for background I/O and returns without waiting for it.
+        /// `completion` gets the panel IDs whose removal failed once it is written.
+        var persist: (
+            SessionScrollbackCheckpointWriteBatch,
+            @escaping @MainActor @Sendable (Set<UUID>) -> Void
+        ) -> Void
     }
 
     private let environment: Environment
@@ -576,10 +607,13 @@ final class SessionScrollbackCheckpointCoordinator {
     private var deferredUntil: [UUID: TimeInterval] = [:]
     /// Panels that may have a checkpoint file; nil until the store's files are known.
     private(set) var checkpointedPanelIds: Set<UUID>?
-    /// Panels seeded before the startup listing arrived; the listing may not
-    /// include their files yet.
-    private var seededBeforeListing: Set<UUID> = []
-    private(set) var isCheckpointInFlight = false
+    /// Panels given a file before a listing succeeded; a listing may not include them yet.
+    private var writtenBeforeListing: Set<UUID> = []
+    /// Unfinished parts of the running checkpoint: its capture chain and any queued writes.
+    private var unfinishedCheckpointSteps = 0
+    var isCheckpointInFlight: Bool { unfinishedCheckpointSteps > 0 }
+    /// True until a listing succeeds, so its owner can try again.
+    var needsCheckpointListing: Bool { checkpointedPanelIds == nil }
 
     init(
         environment: Environment,
@@ -596,21 +630,17 @@ final class SessionScrollbackCheckpointCoordinator {
     /// eligibility for terminals without a file.
     func noteExistingCheckpoints(_ panelIds: Set<UUID>?) {
         guard let panelIds else { return }
-        checkpointedPanelIds = (checkpointedPanelIds ?? []).union(panelIds).union(seededBeforeListing)
-        seededBeforeListing = []
+        checkpointedPanelIds = (checkpointedPanelIds ?? []).union(panelIds).union(writtenBeforeListing)
+        writtenBeforeListing = []
     }
 
     /// Writes already-known scrollback (a just-restored session) as checkpoints
     /// without a VT export, so a crash before the next checkpoint keeps it.
     func seed(_ seeds: [Seed]) {
         guard !seeds.isEmpty else { return }
-        if checkpointedPanelIds == nil {
-            seededBeforeListing.formUnion(seeds.map(\.panelId))
-        } else {
-            checkpointedPanelIds?.formUnion(seeds.map(\.panelId))
-        }
+        noteHasCheckpoint(seeds.map(\.panelId))
         let capturedAt = environment.wallClock()
-        _ = environment.persist(SessionScrollbackCheckpointWriteBatch(
+        environment.persist(SessionScrollbackCheckpointWriteBatch(
             captures: seeds.map { seed in
                 let scrollback = seed.scrollback
                 return SessionScrollbackCheckpointCapture(
@@ -622,7 +652,19 @@ final class SessionScrollbackCheckpointCoordinator {
             },
             removals: [],
             livePanelIds: nil
-        ))
+        ), { _ in })
+    }
+
+    private func noteHasCheckpoint(_ panelIds: some Sequence<UUID>) {
+        if checkpointedPanelIds == nil {
+            writtenBeforeListing.formUnion(panelIds)
+        } else {
+            checkpointedPanelIds?.formUnion(panelIds)
+        }
+    }
+
+    private func finishCheckpointStep() {
+        unfinishedCheckpointSteps -= 1
     }
 
     /// Cheap unless a checkpoint is due; safe to call from the 8 s autosave timer.
@@ -654,7 +696,10 @@ final class SessionScrollbackCheckpointCoordinator {
             deferredUntil: deferredUntil,
             now: now
         )
-        checkpointedPanelIds = plan.checkpointedPanelIds
+        // A plan made without a listing can't say which files exist; stay unknown.
+        if checkpointedPanelIds != nil {
+            checkpointedPanelIds = plan.checkpointedPanelIds
+        }
         lastCapturedAt = lastCapturedAt.filter { plan.livePanelIds.contains($0.key) }
         deferredUntil = deferredUntil.filter { plan.livePanelIds.contains($0.key) && $0.value > now }
 
@@ -662,7 +707,20 @@ final class SessionScrollbackCheckpointCoordinator {
         for candidate in planned {
             activity.clearRecentOutput(surfaceID: candidate.surfaceId)
         }
-        isCheckpointInFlight = true
+        unfinishedCheckpointSteps = 1
+        // Stale files go first: captures can take several main-queue turns, and
+        // this queue position puts the removals ahead of anything they write.
+        if !plan.removals.isEmpty {
+            unfinishedCheckpointSteps += 1
+            environment.persist(SessionScrollbackCheckpointWriteBatch(
+                captures: [],
+                removals: plan.removals,
+                livePanelIds: nil
+            ), { [weak self] failedRemovals in
+                self?.noteHasCheckpoint(failedRemovals)
+                self?.finishCheckpointStep()
+            })
+        }
         // Start one main-queue turn later so output teed before the settle
         // window opened has a chance to reach Ghostty's parser.
         environment.scheduleNextCapture { [weak self] in
@@ -685,10 +743,7 @@ final class SessionScrollbackCheckpointCoordinator {
                 capture.discard()
                 activity.markPending(surfaceID: capture.surfaceId)
             }
-            // The planned removals were not written: keep those files known
-            // so the next checkpoint removes them.
-            checkpointedPanelIds?.formUnion(plan.removals)
-            isCheckpointInFlight = false
+            finishCheckpointStep()
             return
         }
         guard let candidate = remaining.first,
@@ -697,13 +752,13 @@ final class SessionScrollbackCheckpointCoordinator {
                   secondsSinceTyping: environment.secondsSinceTyping()
               ) else {
             // Unstarted captures keep their pending flag for the next checkpoint.
-            let failedRemovals = environment.persist(SessionScrollbackCheckpointWriteBatch(
+            environment.persist(SessionScrollbackCheckpointWriteBatch(
                 captures: captured,
-                removals: plan.removals,
+                removals: [],
                 livePanelIds: plan.livePanelIds
-            ))
-            checkpointedPanelIds?.formUnion(failedRemovals)
-            isCheckpointInFlight = false
+            ), { [weak self] _ in
+                self?.finishCheckpointStep()
+            })
             return
         }
 
@@ -720,7 +775,7 @@ final class SessionScrollbackCheckpointCoordinator {
                 finish: export.finish,
                 discard: export.discard
             ))
-            checkpointedPanelIds?.insert(candidate.panelId)
+            noteHasCheckpoint([candidate.panelId])
             lastCapturedAt[candidate.panelId] = start
             if outputSincePlan {
                 // Bytes flagged just before the capture may not have been parsed

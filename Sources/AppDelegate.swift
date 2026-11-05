@@ -1368,6 +1368,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return self.saveSessionSnapshotUsingCachedProcessDetectedIndexes(includeScrollback: false)
         },
         onTimerTick: { [weak self] in
+            self?.loadSessionScrollbackCheckpointListingIfNeeded()
             self?.sessionScrollbackCheckpointCoordinator?.tickIfDue()
         }
     )

@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Testing
 
 #if canImport(cmux_DEV)
@@ -229,6 +230,9 @@ struct SessionScrollbackCheckpointCoordinatorTests {
         var captureCost: TimeInterval = 0.001
         var onCapture: ((UUID) -> Void)?
         var persistBatch: ((SessionScrollbackCheckpointWriteBatch) -> Set<UUID>)?
+        /// Holds write completions back, standing in for a busy checkpoint queue.
+        var holdsWriteCompletions = false
+        var heldWriteCompletions: [() -> Void] = []
         /// Runs before each deferred main-queue turn, standing in for the PTY read thread.
         var beforeMainTurn: (() -> Void)?
         let activity = TerminalScrollbackCheckpointActivity()
@@ -276,9 +280,14 @@ struct SessionScrollbackCheckpointCoordinatorTests {
                         self.beforeMainTurn?()
                         work()
                     },
-                    persist: { [unowned self] batch in
+                    persist: { [unowned self] batch, completion in
                         self.batches.append(batch)
-                        return self.persistBatch?(batch) ?? []
+                        let failedRemovals = self.persistBatch?(batch) ?? []
+                        if self.holdsWriteCompletions {
+                            self.heldWriteCompletions.append { completion(failedRemovals) }
+                        } else {
+                            completion(failedRemovals)
+                        }
                     }
                 ),
                 activity: activity
@@ -553,14 +562,16 @@ struct SessionScrollbackCheckpointCoordinatorTests {
 
         harness.advanceToNextCheckpoint()
         #expect(coordinator.tickIfDue())
-        #expect(harness.batches.isEmpty)
+        // The removal was queued before the capture started, so stopping the chain can't lose it.
+        #expect(harness.batches.map(\.removals) == [[running]])
         #expect(harness.captureCounts[active] == 1)
+        #expect(!coordinator.isCheckpointInFlight)
 
         harness.onCapture = nil
         harness.canCheckpoint = true
         harness.advanceToNextCheckpoint()
         #expect(coordinator.tickIfDue())
-        #expect(harness.lastRemovals == [running])
+        #expect(harness.lastRemovals.isEmpty)
     }
 
     /// A capture can run for several main-queue turns. A file that already went
@@ -607,6 +618,32 @@ struct SessionScrollbackCheckpointCoordinatorTests {
         harness.advanceToNextCheckpoint()
         #expect(coordinator.tickIfDue())
         #expect(harness.eligibilityChecks[quiet] == 2)
+    }
+
+    /// Starting another checkpoint while the last one's writes are queued would
+    /// stack exports behind a slow disk.
+    @Test func checkpointStaysInFlightUntilItsWritesComplete() throws {
+        let harness = Harness()
+        _ = harness.addTerminal()
+        let running = harness.addTerminal(eligible: false)
+        _ = harness.activity.beginCapture(surfaceID: running)
+        let coordinator = harness.makeCoordinator()
+        coordinator.noteExistingCheckpoints([running])
+        harness.holdsWriteCompletions = true
+        harness.persistBatch = { $0.removals }
+
+        harness.advanceToNextCheckpoint()
+        #expect(coordinator.tickIfDue())
+        #expect(coordinator.isCheckpointInFlight)
+        harness.advanceToNextCheckpoint()
+        #expect(!coordinator.tickIfDue())
+
+        #expect(harness.heldWriteCompletions.count == 2)
+        harness.heldWriteCompletions.removeFirst()()
+        #expect(coordinator.isCheckpointInFlight)
+        #expect(coordinator.checkpointedPanelIds?.contains(running) == true)
+        harness.heldWriteCompletions.removeFirst()()
+        #expect(!coordinator.isCheckpointInFlight)
     }
 
     @Test func seedBeforeTheStartupListingIsStillTracked() throws {
@@ -712,6 +749,37 @@ struct SessionScrollbackCheckpointStoreTests {
         try Data().write(to: store.directoryURL.appendingPathComponent("notes.txt"))
 
         #expect(store.checkpointedPanelIds() == [written])
+    }
+
+    /// The main thread queues checkpoint writes; a busy queue must not stall it.
+    @Test func enqueueReturnsWhileTheQueueIsBusyAndRemovesBeforeCapturing() async throws {
+        let store = makeStore()
+        defer { cleanUp(store) }
+        let stale = UUID()
+        store.apply(.init(captures: [capture(stale, at: 1, "old\n")], removals: [], livePanelIds: nil))
+        let queue = DispatchQueue(label: "checkpoint-enqueue-test")
+        let release = DispatchSemaphore(value: 0)
+        queue.async { release.wait() }
+        let removedBeforeCapture = OSAllocatedUnfairLock(initialState: false)
+
+        let failed: Set<UUID> = await withCheckedContinuation { continuation in
+            store.enqueue(.init(
+                captures: [.init(panelId: UUID(), surfaceId: UUID(), capturedAt: 2, finish: {
+                    removedBeforeCapture.withLock { $0 = store.checkpointedPanelIds()?.contains(stale) == false }
+                    return "new\n"
+                })],
+                removals: [stale],
+                livePanelIds: nil
+            ), on: queue, activity: TerminalScrollbackCheckpointActivity()) { failed in
+                continuation.resume(returning: failed)
+            }
+            // Reached with the queue still blocked: enqueue did not wait for it.
+            #expect(store.checkpointedPanelIds() == [stale])
+            release.signal()
+        }
+
+        #expect(failed.isEmpty)
+        #expect(removedBeforeCapture.withLock { $0 })
     }
 
     @Test func failedPruneIsReattemptedByTheNextBatch() throws {

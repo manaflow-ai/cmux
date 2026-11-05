@@ -49,38 +49,22 @@ extension AppDelegate {
                         MainActor.assumeIsolated { work() }
                     }
                 },
-                persist: { batch in
-                    // A removal means the panel stopped being eligible (for
-                    // example a command started running). Delete its old file
-                    // before returning, after earlier queued writes, so a crash
-                    // before the async batch runs cannot leave stale scrollback
-                    // for the next unclean restore to merge.
-                    var failedRemovals = Set<UUID>()
-                    if !batch.removals.isEmpty {
-                        let removals = SessionScrollbackCheckpointWriteBatch(
-                            captures: [],
-                            removals: batch.removals,
-                            livePanelIds: nil
-                        )
-                        failedRemovals = queue.sync {
-                            store.apply(removals).failedRemovalIds
-                        }
-                    }
-                    let writes = SessionScrollbackCheckpointWriteBatch(
-                        captures: batch.captures,
-                        removals: [],
-                        livePanelIds: batch.livePanelIds
-                    )
-                    queue.async {
-                        store.applyMarkingFailuresPending(writes, activity: activity)
-                    }
-                    return failedRemovals
+                persist: { batch, completion in
+                    store.enqueue(batch, on: queue, activity: activity, completion: completion)
                 }
             ),
             activity: activity
         )
-        // Until the files on disk are known every live terminal may have one, so
-        // a checkpoint checks every terminal's eligibility. List them off main.
+        loadSessionScrollbackCheckpointListingIfNeeded()
+    }
+
+    /// Until the files on disk are known every live terminal may have one, so a
+    /// checkpoint checks every terminal's eligibility. Lists them off main, and
+    /// the autosave timer calls this again until a listing succeeds.
+    func loadSessionScrollbackCheckpointListingIfNeeded() {
+        guard sessionScrollbackCheckpointLoadTask == nil,
+              sessionScrollbackCheckpointCoordinator?.needsCheckpointListing == true,
+              let store = sessionScrollbackCheckpointStore() else { return }
         let listing = Task.detached(priority: .utility) { store.checkpointedPanelIds() }
         sessionScrollbackCheckpointLoadTask = Task { @MainActor [weak self] in
             let existing = await withTaskCancellationHandler {
