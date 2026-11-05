@@ -149346,7 +149346,139 @@
         }
       }
     },
-    "composer.queuePaused": {
+    "composer.queueStopped": {
+      "comment": "Agent pane: note above the queued prompts after the person pressed Stop; they wait until the person sends them (Resume, or a row's Send now). Keep it short.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم الإيقاف. تنتظر هذه أن ترسلها"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zaustavljeno. Ovo čeka da ih pošaljete"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stoppet. Disse venter på, at du sender dem"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gestoppt. Diese warten, bis du sie sendest"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopped. These wait for you to send them"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Detenido. Esperan a que los envíes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arrêté. Ils attendent que vous les envoyiez"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Interrotto. Attendono che tu li invii"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "停止しました。送信するまで待機します"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានបញ្ឈប់។ ទាំងនេះរង់ចាំអ្នកផ្ញើ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "중지됨. 보낼 때까지 기다립니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stoppet. Disse venter på at du sender dem"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zatrzymano. Czekają, aż je wyślesz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Parado. Eles esperam você enviá-los"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Остановлено. Они ждут, пока вы их отправите"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หยุดแล้ว รายการเหล่านี้รอให้คุณส่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Durduruldu. Bunlar sizin göndermenizi bekliyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Зупинено. Вони чекають, поки ви їх надішлете"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã dừng. Các mục này chờ bạn gửi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已停止。这些会等你发送"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已停止。這些會等你傳送"
+          }
+        }
+      }
+    },
+        "composer.queuePaused": {
       "comment": "Agent pane: note above the queued prompts after a turn failed; they wait until the user resumes the queue (cx-xtg0.5)",
       "extractionState": "manual",
       "localizations": {

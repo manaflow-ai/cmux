@@ -648,6 +648,9 @@ export function ComposerQueue({
     wakeNoteDelayMs,
   );
   if (shown.length === 0 && !(paused && queue.length > 0)) return null;
+  // The person's Stop holds their own queued prompts (acpmux hub/cancel.rs): the note says they wait
+  // for the person to send them, never a failed turn's error.
+  const stopped = paused && shown.some((entry) => entry.heldByStop);
   // Prompts sent now come first: queued prompts count from after them.
   const steering = shown.filter((entry) => entry.next).length;
   // A long queue folds to its next prompts; the rows shown are always the first ones, in order.
@@ -1108,9 +1111,13 @@ export function ComposerQueue({
           <li className="acpmux-queue-paused">
             <span
               // tooltip-allow: a long error is cut to the row; its whole text is the tooltip
-              title={pauseReason}
+              title={stopped ? undefined : pauseReason}
             >
-              {pauseReason ? t("composer.queuePausedWhy", { error: pauseReason }) : t("composer.queuePaused")}
+              {stopped
+                ? t("composer.queueStopped")
+                : pauseReason
+                  ? t("composer.queuePausedWhy", { error: pauseReason })
+                  : t("composer.queuePaused")}
             </span>
             {onChange && (
               <button
