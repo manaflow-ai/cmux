@@ -248,8 +248,9 @@ export function backgroundGroups(input: BackgroundInput, cache: TaskCache = new 
     list.push(agent);
     children.set(agent.parent, list);
   }
-  // A command a subagent (or an agent of a workflow) started is a task of that agent's group, not
-  // the chat's own (Leo, 2026-11-05, on shells a workflow's agents ran listed as the chat's).
+  // A command an agent of a workflow started is a task of the workflow's group, under that agent, not
+  // the chat's own (Leo, 2026-11-05, on shells a workflow's agents ran listed as the chat's). Other
+  // subagents' commands stay the chat's, as Session Info lists them.
   const rootOf = (id: string): string | undefined => {
     let at = agents.get(id);
     const seen = new Set<string>();
@@ -275,7 +276,8 @@ export function backgroundGroups(input: BackgroundInput, cache: TaskCache = new 
   // The workflow agent (Claude's agent id) that started a command, from the registry.
   const startedBy = new Map<string, string>();
   for (const command of commands) {
-    const root = command.subagent !== undefined ? rootOf(command.subagent) : undefined;
+    const workflow = command.subagent !== undefined && agents.get(command.subagent)?.kind === "workflow";
+    const root = workflow ? rootOf(command.subagent!) : undefined;
     if (root === undefined) {
       ownCommands.push(command);
       continue;
@@ -317,17 +319,20 @@ export function backgroundGroups(input: BackgroundInput, cache: TaskCache = new 
     for (const child of descendants) if (child.kind === "workflow") tasks.push(...workflowTasks(child, sessionId));
     // The Bash call that started one of its commands is that command: one row, the process's, with
     // its state and Stop.
-    const started = (agentCommands.get(agent.id) ?? []).map((task) => {
-      // A workflow agent's command nests under that agent's task.
-      const by = startedBy.get(task.id);
-      if (by === undefined) return task;
-      const workflows = [agent, ...descendants].filter((each) => each.kind === "workflow");
-      const parent = workflows
-        .flatMap((each) => workflowOf(each, sessionId ?? "").agents)
-        .find((each) => each.agentId === by)?.id;
-      return parent !== undefined && tasks.some((each) => each.kind === "agent" && each.id === parent)
-        ? { ...task, parent }
-        : task;
+    // A workflow agent's command nests under that agent's task: its tasks by Claude's agent id, read
+    // once for the group.
+    const commandsHere = agentCommands.get(agent.id) ?? [];
+    const taskOfAgent = new Map<string, string>();
+    if (commandsHere.some((task) => startedBy.has(task.id))) {
+      const shown = new Set(tasks.flatMap((each) => (each.kind === "agent" ? [each.id] : [])));
+      for (const each of [agent, ...descendants])
+        if (each.kind === "workflow")
+          for (const run of workflowOf(each, sessionId ?? "").agents)
+            if (run.agentId !== undefined && shown.has(run.id)) taskOfAgent.set(run.agentId, run.id);
+    }
+    const started = commandsHere.map((task) => {
+      const parent = taskOfAgent.get(startedBy.get(task.id) ?? "");
+      return parent !== undefined ? { ...task, parent } : task;
     });
     if (started.length > 0) {
       const calls = new Set(started.flatMap((task) => (task.toolCallId ? [task.toolCallId] : [])));

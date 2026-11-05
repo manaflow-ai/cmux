@@ -24,6 +24,7 @@ import {
   cardLine,
   listedPhases,
   looksLikeCommand,
+  outputLine,
   outputMarkdown,
   phaseCount,
   runningPhases,
@@ -33,6 +34,7 @@ import {
 } from "../src/agent-session/acpmux/summary/workflowView";
 import type { WorkflowAgent } from "../src/agent-session/acpmux/summary/workflow";
 import { backgroundGroups } from "../src/agent-session/acpmux/backgroundTasks/backgroundTasks";
+import { BackgroundTasksPanel } from "../src/agent-session/acpmux/backgroundTasks/BackgroundTasksPanel";
 import { SUBAGENTS, type Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 
@@ -91,6 +93,7 @@ test("an agent says what it does in words, never its last shell command or JSON"
   // Only paired emphasis is folded: identifiers keep their underscores.
   const said = (lastMessage: string) => agentLine({ id: "x", name: "x", state: "running", lastMessage });
   expect(said("Reading workflow_agent_id in **processes.ts**")).toBe("Reading workflow_agent_id in processes.ts");
+  expect(said("Split a_b_ c into parts")).toBe("Split a_b_ c into parts");
   // A message that opens with a link is words, not JSON.
   expect(said("[#33406](https://github.com/x/y/pull/33406) merged")).toBe(
     "[#33406](https://github.com/x/y/pull/33406) merged",
@@ -122,6 +125,17 @@ test("a finished agent's output is its prose, rendered, even from a JSON result 
   expect(outputMarkdown(agent('{"files":3,"ok":true}'))).toBe("- **files**: 3\n- **ok**: true");
   expect(outputMarkdown(agent("Plain **words**"))).toBe("Plain **words**");
   expect(outputMarkdown(agent("[x] Checked the pool\n[x] Measured"))).toBe("[x] Checked the pool\n[x] Measured");
+  expect(outputMarkdown(agent("[[Design notes]] say one owner per task"))).toBe(
+    "[[Design notes]] say one owner per task",
+  );
+  // No raw JSON: an array lists its items; a preview cut before any prose field lists the fields it has.
+  expect(outputMarkdown(agent('[{"summary":"Kept Relay"},{"summary":"Kept Dock"}]'))).toBe("- Kept Relay\n- Kept Dock");
+  expect(outputMarkdown(agent('{"files":3,"pool":"linux","detail":{"a":'))).toBe(
+    "- **files**: 3\n- **pool**: linux\n- …",
+  );
+  // A one-line row never reads a code fence's marker or a lone brace.
+  expect(outputLine(agent('{"nested":{"a":1}}'))).toBeUndefined();
+  expect(outputLine(agent('{"summary":"Kept **Relay**"}'))).toBe("Kept Relay");
   expect(outputMarkdown({ id: "x", name: "x", state: "completed" })).toBeUndefined();
 });
 
@@ -215,7 +229,7 @@ test("the card names every running phase, counts done and running, shows one clo
   expect(cardLine(createWorkflowAdapter()([node!], "s1")[0]!)?.line).not.toMatch(/^(cd|f=|timeout)\b/);
 });
 
-test("the Background tasks panel lists a subagent's commands under that subagent, not the chat", () => {
+test("the Background tasks panel keeps an ordinary subagent's commands the chat's, as Session Info does", () => {
   const agent: Subagent = {
     id: "acp-1/toolu_a",
     parent: null,
@@ -243,8 +257,11 @@ test("the Background tasks panel lists a subagent's commands under that subagent
   );
   const groups = backgroundGroups({ rows, commands, sessions: [], chatName: "Chat" });
   const explore = groups.find((group) => group.id === `agent:${agent.id}`)!;
-  expect(explore.running.map((task) => task.id)).toEqual(["acp-1/bg-1"]);
-  expect(groups.find((group) => group.id === "commands")!.running.map((task) => task.id)).toEqual(["acp-1/bg-2"]);
+  expect(explore.running.map((task) => task.kind)).not.toContain("command");
+  expect(groups.find((group) => group.id === "commands")!.running.map((task) => task.id)).toEqual([
+    "acp-1/bg-1",
+    "acp-1/bg-2",
+  ]);
 });
 
 test("the Background tasks panel nests a workflow agent's command under that agent", () => {
@@ -260,9 +277,28 @@ test("the Background tasks panel nests a workflow agent's command under that age
   expect(parentOf("acp-1/bg-checkout")).toBe("latency:code-path");
   expect(parentOf("acp-1/bg-bench")).toBe("latency:measure");
   expect(groups.find((group) => group.id === "commands")!.running.map((task) => task.id)).toEqual(["acp-1/bg-own"]);
+
+  // Drawn: each command once, nested under its agent's row.
+  const html = renderToStaticMarkup(
+    <BackgroundTasksPanel
+      groups={groups}
+      onStop={async () => undefined}
+      onClearFinished={() => {}}
+      onExpand={() => {}}
+      onClose={() => {}}
+    />,
+  );
+  const panel = new JSDOM(html).window.document;
+  const nested = [...panel.querySelectorAll(".acpmux-bg__nested")].map((each) => text(each.innerHTML));
+  expect(nested.length).toBe(3);
+  expect(nested[0]).toContain("Bench the first reply");
+  expect(nested[1]).toContain("Find freshest cmux checkout");
+  expect(nested[2]).toContain("git fetch origin feat-cmux-next");
+  expect(text(html).match(/Find freshest cmux checkout/g)?.length).toBe(1);
+  expect(panel.querySelectorAll(".acpmux-bg__nested .acpmux-bg__stop").length).toBe(2);
 });
 
-test("a command an agent started stays in sight with its Stop after the agent finishes", () => {
+test("a command an agent started stays in sight with its Stop after the agent finishes", async () => {
   const workflow = parallel();
   const products = workflow.agents.find((agent) => agent.name === "swarm:products")!;
   const command = {
@@ -270,12 +306,35 @@ test("a command an agent started stays in sight with its Stop after the agent fi
     workflowAgent: products.agentId,
   };
   const { workflows } = attributeCommands([command], [workflow]);
-  const html = renderToStaticMarkup(
-    <WorkflowTasks workflows={[workflow]} commands={workflows} onStop={async () => undefined} />,
+  const tasks = (
+    <WorkflowTasks
+      workflows={[workflow]}
+      commands={workflows}
+      onStop={async () => undefined}
+      onStopCommand={async () => undefined}
+    />
   );
-  // Not behind the output disclosure: the finished row shows it, closed.
+  const html = renderToStaticMarkup(tasks);
+  // Not behind the output disclosure: the finished row shows it, closed, with its Stop.
   expect(text(html)).toContain("git fetch origin feat-cmux-next");
   expect(html).not.toContain("acpmux-workflow-agent__output");
+  const page = new JSDOM(html).window.document;
+  const productsRow = [...page.querySelectorAll(".acpmux-workflow-finished .acpmux-workflow-agent")].find((row) =>
+    row.textContent?.includes("swarm:products"),
+  )!;
+  expect(productsRow.querySelector(".acpmux-session-info-stop")).not.toBeNull();
+
+  // Nor behind "2 finished": closing it leaves that agent's row, its command and Stop in sight.
+  dom = new JSDOM("<!doctype html><main id=root></main>", { url: "http://localhost/" });
+  install(dom);
+  const container = dom.window.document.getElementById("root")!;
+  root = createRoot(container);
+  await act(async () => root!.render(tasks));
+  await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-workflow-finished__fold")!.click());
+  const shown = text(container.innerHTML);
+  expect(shown).toContain("swarm:products");
+  expect(shown).not.toContain("swarm:history");
+  expect(container.querySelector(".acpmux-workflow-finished .acpmux-session-info-stop")).not.toBeNull();
 });
 
 let dom: JSDOM | undefined;

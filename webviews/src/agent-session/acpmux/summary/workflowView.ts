@@ -149,7 +149,8 @@ export function looksLikeCommand(text: string): boolean {
 
 /// Whether `text` starts as a JSON object or array, not as Markdown that opens with a bracket (a
 /// `[link](…)` or a `[x]` checklist).
-const looksLikeJson = (text: string): boolean => /^\s*(?:\{\s*(?:"|\}|$)|\[\s*(?:[[{"\]]|$))/.test(text);
+const looksLikeJson = (text: string): boolean =>
+  /^\s*(?:\{\s*(?:"|\}|$)|\[\s*(?:[{"\]]|\[\s*[[{"\]\d-]|-?\d|true|false|null|$))/.test(text);
 
 /// The first line of `text`, Markdown marks and runs of space folded, for a one-line subtitle.
 export const firstLine = (text: string | undefined): string | undefined => {
@@ -161,7 +162,7 @@ export const firstLine = (text: string | undefined): string | undefined => {
   return (
     line
       ?.replace(/^#+\s*/, "")
-      .replace(/(\*\*|__|\*|_)(?=\S)(.+?)(?<=\S)\1(?![\w*])/g, "$2")
+      .replace(/(?<![\w*])(\*\*|__|\*|_)(?=\S)(.+?)(?<=\S)\1(?![\w*])/g, "$2")
       .replace(/`/g, "")
       .replace(/\s+/g, " ") || undefined
   );
@@ -209,18 +210,44 @@ export function outputMarkdown(agent: WorkflowAgent): string | undefined {
       const match = new RegExp(`"${key}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)("|\\\\?$)`).exec(raw);
       if (match) return unquote(match[1]!) + (match[2] === '"' ? "" : "…");
     }
+    // No prose field before the cut: the scalar fields it has, as lines.
+    const fields = [...raw.matchAll(/"([^"\\]+)"\s*:\s*("(?:[^"\\]|\\.)*"|-?\d+(?:\.\d+)?(?![\d.])|true|false)/g)].map(
+      ([, key, field]) => `- **${key}**: ${field!.startsWith('"') ? unquote(field!.slice(1, -1)) : field}`,
+    );
+    if (fields.length > 0) return `${fields.join("\n")}\n- …`;
     return "```json\n" + raw + "\n```";
   }
-  if (typeof value === "string") return value;
-  if (value && typeof value === "object" && !Array.isArray(value)) {
+  return proseOf(value) ?? "```json\n" + JSON.stringify(value, null, 2) + "\n```";
+}
+
+/// A parsed result in words: a string as it is, an object's prose field or its scalar fields as
+/// lines, an array as a list of its items read the same way. None when nothing in it reads as words.
+function proseOf(value: unknown): string | undefined {
+  if (typeof value === "string") return value || undefined;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) {
+    const items = value.flatMap((item) => {
+      const text = proseOf(item);
+      return text ? [`- ${text.replace(/\n/g, " ").replace(/^- /, "")}`] : [];
+    });
+    return items.length > 0 ? items.join("\n") : undefined;
+  }
+  if (value && typeof value === "object") {
     const record = value as Record<string, unknown>;
     for (const key of PROSE) if (typeof record[key] === "string" && record[key]) return record[key] as string;
     const lines = Object.entries(record).flatMap(([key, field]) =>
       field === null || typeof field === "object" ? [] : [`- **${key}**: ${String(field)}`],
     );
-    if (lines.length > 0) return lines.join("\n");
+    return lines.length > 0 ? lines.join("\n") : undefined;
   }
-  return "```json\n" + JSON.stringify(value, null, 2) + "\n```";
+  return undefined;
+}
+
+/// The first line of an agent's output, for a one-line row; none when its output is only a code
+/// block (JSON with nothing in words), which a line would show as a lone brace or fence marker.
+export function outputLine(agent: WorkflowAgent): string | undefined {
+  const markdown = outputMarkdown(agent);
+  return markdown?.startsWith("```") ? undefined : firstLine(markdown);
 }
 
 /// The chat's background commands split by who started them: the ones a workflow's agent started
@@ -279,6 +306,6 @@ export function cardLine(workflow: WorkflowSummary): { agent: string; line: stri
   }
   if (workflow.state === "running") return undefined;
   const last = splitAgents(workflow.agents).finished[0];
-  const line = last && firstLine(outputMarkdown(last)?.replace(/^```\w*$/gm, ""));
+  const line = last && outputLine(last);
   return last && line ? { agent: last.name, line } : undefined;
 }

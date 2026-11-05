@@ -159,7 +159,10 @@ function WorkflowTask({
   const elapsed =
     workflow.elapsedMs ?? (workflow.startedAt !== undefined ? Math.max(0, now - workflow.startedAt) : undefined);
   const tokens = workflow.tokens !== undefined ? [tokensLabel(t, workflow.tokens)] : [];
-  const model = shared.model ? [modelName(shared.model)] : [];
+  // The workflow's model and effort, named once here: an agent row names its own only where it differs.
+  const model = shared.model
+    ? [[modelName(shared.model), shared.effort].filter((value): value is string => Boolean(value)).join(" · ")]
+    : [];
   // Running: what its agents do now. Finished: how it ended and its size.
   const status =
     workflow.state === "completed"
@@ -261,9 +264,11 @@ function WorkflowPhaseRow({
   // Its agents that ended are under the workflow's "N finished"; the phase opens to the rest.
   const live = agents.filter((agent) => !agentEnded(agent));
   // A phase is one row until opened (Claude's: "Nap 1/6"), unless a command one of its agents started
-  // still runs: that one's time and Stop stay in sight.
+  // still runs: that one's time and Stop stay in sight. Opened that way it stays open when the command
+  // ends, so the rows being read never close under the reader.
   const [chosen, setOpen] = useState<boolean>();
   const commandRuns = live.some((agent) => commandsOf(agent).some((command) => command.state === "running"));
+  if (chosen === undefined && commandRuns) setOpen(true);
   const open = chosen ?? commandRuns;
   const { done, total } = phaseCount(workflow, phase);
   const opens = live.length > 0;
@@ -331,6 +336,22 @@ function FinishedAgents({
   const t = useT();
   const [open, setOpen] = useState(true);
   const [shown, setShown] = useState(FINISHED_PAGE);
+  // An agent that ended with a command of its still running stays in sight, its row first and outside
+  // the fold and the paging, so that command's time and Stop never hide.
+  const busy = agents.filter((agent) => commandsOf(agent).some((command) => command.state === "running"));
+  const rest = agents.filter((agent) => !busy.includes(agent));
+  const row = (agent: WorkflowAgent) => (
+    <WorkflowAgentRow
+      key={agent.id}
+      workflow={workflow}
+      agent={agent}
+      now={now}
+      shared={shared}
+      commands={commandsOf(agent)}
+      onStopCommand={onStopCommand}
+      onOpenWorkflowAgent={onOpenWorkflowAgent}
+    />
+  );
   return (
     <div className="acpmux-workflow-finished">
       <button
@@ -342,23 +363,13 @@ function FinishedAgents({
         <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={12} />
         {t("rail.finished", { count: agents.length })}
       </button>
-      {open && (
+      {(open || busy.length > 0) && (
         <ul className="acpmux-session-info-list acpmux-workflow-finished__agents">
-          {agents.slice(0, shown).map((agent) => (
-            <WorkflowAgentRow
-              key={agent.id}
-              workflow={workflow}
-              agent={agent}
-              now={now}
-              shared={shared}
-              commands={commandsOf(agent)}
-              onStopCommand={onStopCommand}
-              onOpenWorkflowAgent={onOpenWorkflowAgent}
-            />
-          ))}
+          {busy.map(row)}
+          {open && rest.slice(0, shown).map(row)}
         </ul>
       )}
-      {open && agents.length > shown && (
+      {open && rest.length > shown && (
         <button
           type="button"
           className="acpmux-session-info-fold acpmux-workflow-finished__more"
