@@ -155,8 +155,8 @@ fn process_runs(pid: i64) -> bool {
     let Ok(pid) = libc::pid_t::try_from(pid) else { return false };
     // Signal 0 checks the process exists; EPERM means it does, as another user's.
     // SAFETY: kill with signal 0 sends nothing; it only checks the pid.
-    unsafe { libc::kill(pid, 0) == 0 }
-    || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+    let sent = unsafe { libc::kill(pid, 0) == 0 };
+    sent || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
 fn now_nanos() -> u128 {

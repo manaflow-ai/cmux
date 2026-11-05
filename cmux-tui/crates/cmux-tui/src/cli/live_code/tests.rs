@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -50,7 +50,7 @@ fn json_after_the_verb_counts() {
 
 #[test]
 fn the_folder_is_the_flag_before_anything_else() {
-    assert_eq!(folder(Some(std::path::Path::new("/x"))), PathBuf::from("/x"));
+    assert_eq!(folder(Some(Path::new("/x"))), PathBuf::from("/x"));
     assert!(folder(None).is_absolute() || std::env::var_os("HOME").is_none());
 }
 
