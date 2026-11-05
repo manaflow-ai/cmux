@@ -21,12 +21,13 @@ extension SidebarStyle {
 
     static var trailingSlotSide: CGFloat { controlSize }
 
-    /// How far inside a row's fill the trailing column centers: a status mark's ink ends the row's leading
-    /// inset short of the fill's end, as an iconless title starts that inset after its start (13 compact, 15
-    /// comfortable). Leo 2026-11-04: "i feel like now we have too much of a gutter on the right in the sidebar
-    /// proportionally at least given the relative small/compact size of it". Replaced the grid's fixed 24 pt line
-    /// from the sidebar edge (18 inside a compact fill, 16 comfortable), which #32647's row gap had kept in place.
-    static var trailingCenterInset: CGFloat { horizontalInset + statusMarkSide / 2 }
+    /// How far inside a row's fill the trailing column centers: a status glyph's ink (`statusGlyphSize`, the
+    /// spinner's and the band's marks' side) ends the row's leading inset short of the fill's end, as a row's first
+    /// ink starts that inset after its start (11 compact, 14 comfortable). Lawrence 2026-11-05: "padding on
+    /// left/right of every workspace needs to be even": half the 14 pt mark box (`statusMarkSide`) left a 10 pt
+    /// glyph's ink 2 pt short of the inset (8 vs 6 compact; the running app's spinner 9 vs 6). Leo 2026-11-04
+    /// replaced the grid's fixed 24 pt line from the sidebar edge with the inset rule.
+    static var trailingCenterInset: CGFloat { horizontalInset + statusGlyphSize / 2 }
 
     /// The trailing column center's distance from the sidebar's edge, past the row's gap; the resize clearance
     /// below still wins if a larger control slot needs more room.
@@ -35,16 +36,15 @@ extension SidebarStyle {
     }
 
     /// Inset from the fill edge to the control slot's end that the column never comes nearer than: the
-    /// larger of the row's own inset and the resize clearance (#27954: Search can be wider than the slot,
-    /// and a trailing click must not grab the resize edge), measured from `trailingClearanceEdge`, where the
-    /// fill ended before rows kept a gap from the sidebar's edge
-    /// (#32647). So this floor sits inside the fill by the old clearance less the gap (3.5 pt comfortable, 2.5
-    /// compact), not by the full row inset. `trailingCenterInset`, not the floor, places the marks: the hover
-    /// close (the row's × at the end of the title's line) ends 5 pt inside a comfortable fill (15 - 10) and 4 pt
-    /// inside a compact one (13 - 9).
+    /// larger of the row's own inset and the resize clearance (#27954: a trailing click must not grab the
+    /// resize edge), measured from `trailingClearanceEdge`, where the fill ended before rows kept a gap from
+    /// the sidebar's edge (#32647). So this floor sits 1.5 pt inside the fill, not the full row inset.
+    /// `trailingCenterInset`, not the floor, places the marks: the hover close ends 4 pt inside a comfortable
+    /// fill (14 - 10) and 2 pt inside a compact one (11 - 9). Footer Search, taller than the slot, no longer
+    /// widens the floor (it held the compact column 0.5 pt short of the even inset, Lawrence 2026-11-05): its frame
+    /// stays out of the resize band on its own (`trailingColumnFrame`, SidebarFooterSearchGeometryTests).
     static var trailingColumnInset: CGFloat {
-        max(0, trailingClearanceEdge - rowEdgeGap + max(horizontalInset, Metrics.space1 + SidebarResizeBand.contentInset +
-            max(0, (searchHeight - trailingSlotSide) / 2)))
+        max(0, trailingClearanceEdge - rowEdgeGap + max(horizontalInset, Metrics.space1 + SidebarResizeBand.contentInset))
     }
 
     /// How far in from the sidebar's edge the trailing clearance above is measured: where a row's fill ended

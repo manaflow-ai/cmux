@@ -1,5 +1,11 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-05: every workspace row's trailing ink ends the row inset before its fill's end, as its first ink starts the
+  row inset after the fill's start. Lawrence, verbatim: "too much padding on right. padding on left/right of every
+  workspace needs to be even." The trailing column centers `horizontalInset + statusGlyphSize / 2` inside the fill
+  (11 compact, 14 comfortable; was half the 14 pt mark box, 13 / 15), and footer Search no longer widens the column's
+  floor. Measured in the running app (compact, 2x): pin 6 pt in, spinner 9 pt short of the end. Guard:
+  SidebarEvenRowInsetsTests (pinned band, Pinned section, grouped, loose, selected, hovered rows; drawn ink).
 - 2026-11-05: a collapsing group's text fades out fast. Leo, verbatim: "when you're collapsing a group, the text needs to
   fade faster. Otherwise, you just get a ton of text like just jumbled up inside ... you still see like overlapping text
   sometimes". The rows a collapse hides faded over the whole `.move` spring, as long as their slot takes to close; they
