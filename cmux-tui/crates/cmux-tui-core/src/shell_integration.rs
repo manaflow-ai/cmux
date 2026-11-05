@@ -679,6 +679,10 @@ mod test_pty;
 #[cfg(all(test, unix))]
 mod prompt_redraw_tests;
 
+// EXPERIMENT, never merge: EMPTY FRESH SCREEN probe.
+#[cfg(all(test, unix))]
+mod empty_screen_probe;
+
 #[cfg(all(test, unix))]
 mod incognito_history_tests;
 
