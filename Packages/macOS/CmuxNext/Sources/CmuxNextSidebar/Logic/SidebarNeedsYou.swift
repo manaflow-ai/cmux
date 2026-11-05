@@ -51,8 +51,12 @@ public nonisolated struct SidebarNeedsYou: Hashable, Sendable {
             }
         }
         return changes.contains { change in
-            trayState(SidebarAgentState.of(change.before, lane: tree.states[change.before.id]))
-                != trayState(SidebarAgentState.of(change.after, lane: tree.states[change.after.id]))
+            let before = trayState(SidebarAgentState.of(change.before, lane: tree.states[change.before.id]))
+            let after = trayState(SidebarAgentState.of(change.after, lane: tree.states[change.after.id]))
+            guard before == after else { return true }
+            guard after != nil else { return false }
+            return change.before.title != change.after.title
+                || change.before.activity.blockedKind != change.after.activity.blockedKind
         }
     }
 
