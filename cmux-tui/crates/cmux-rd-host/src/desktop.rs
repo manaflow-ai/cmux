@@ -33,6 +33,11 @@ pub trait Desktop {
     fn inject(&mut self, event: &InputEvent) -> Res<()>;
     /// Releases every key and button the viewer holds.
     fn release_all(&mut self) -> Res<()>;
+    /// Injects viewer input that waited (Linux: a press behind the agent's held button).
+    /// Returns true while input still waits, so the session loop wakes soon.
+    fn pump(&mut self) -> Res<bool> {
+        Ok(false)
+    }
 }
 
 /// The desktop of this OS.
