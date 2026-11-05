@@ -53,10 +53,6 @@
   text-align: left;
 }
 
-.cv-waterfall__span.is-link {
-  cursor: pointer;
-}
-
 .cv-waterfall__span.is-link:hover,
 .cv-waterfall__span.is-link:focus-visible {
   background: color-mix(in srgb, var(--cv-fg) 6%, transparent);
@@ -91,7 +87,8 @@
 
 .cv-waterfall__track {
   position: relative;
-  height: 8px;
+  /* An 8px bar: the track is its padding, on the spacing scale. */
+  padding-block: 4px;
   border-radius: 4px;
   background: color-mix(in srgb, var(--cv-fg) 5%, transparent);
 }
@@ -156,7 +153,6 @@
   background: none;
   color: var(--agent-accent);
   font: inherit;
-  cursor: pointer;
 }
 
 .cv-waterfall-toggle.is-open {
