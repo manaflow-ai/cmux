@@ -893,7 +893,19 @@ export const mockSessions: MockSession[] = [
           ].join("\n"),
         ),
       },
-      { ago: at, mux: "turn_result", msg: { status: "completed" } },
+      { ago: at + 5_000, mux: "turn_result", msg: { status: "completed" } },
+      // Two lanes' messages sent from a shell (`from: "cli"`), which name their sender only (Leo,
+      // 2026-11-05: "i can't click to go to these for some reason"): the daemon resolves the first
+      // (its chip opens that chat) and has no chat for the second (its click says so).
+      ...[SESSION_LINK_REFS.name, "fleet-mesh-3"].map((fromName, index) => ({
+        ago: at + 2_000 - index * 1_000,
+        mux: "user_message",
+        msg: {
+          text: index === 0 ? "the hq#7125 lane is up; Session Info panel next" : "mesh relay reconnected",
+          promptId: `mock-links-msg-${index}`,
+          _meta: { provenance: { kind: "agent_message", from: "cli", fromName, msgId: `mock-links-m-${index}` } },
+        },
+      })),
     ],
   },
   {
