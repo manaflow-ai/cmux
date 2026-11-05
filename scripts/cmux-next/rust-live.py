@@ -658,7 +658,11 @@ def command_measure(args) -> int:
             # A marker per run, written just before the save: the swap must keep the screen it is on
             # (the first run's marker scrolls off the visible screen after a few runs).
             for t_ in terms:
-                t_["marker"] = f"before-{token}-{t_['surface']}"
+                # A swap gives each adopted terminal a new surface id: resolve it again.
+                t_["surface"] = wait_until("terminal", time.monotonic() + 30, lambda t_=t_: (
+                    x := request(sock, {"cmd": "resolve-terminal", "terminal_id": t_["terminal_id"]}))
+                    and x.get("lifecycle") == "running" and x.get("surface"))
+                t_["marker"] = f"before-{token}-{t_['terminal_id']}"
                 request(sock, {"cmd": "send", "surface": t_["surface"], "text": f"clear; echo {t_['marker']}\n"})
             for t_ in terms:
                 wait_until("marker", time.monotonic() + 15, lambda t_=t_: t_["marker"] in (
