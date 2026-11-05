@@ -225,6 +225,14 @@ describe("reproducibility diff and helpers", () => {
     expect(result.diffs).toEqual(["/usr/local/bin/x: F bbb vs F ddd"]);
   });
 
+  test("the repro diff allows the npm download cache by directory, and only under it", () => {
+    const a = new Map([["/home/cmux/.npm/_cacache/index-v5/aa/bb", "F 1"], ["/home/cmux/.npm/_cacache/content-v2/sha512/x", "F 2"], ["/home/cmux/.npm/_logs/1.log", "F 3"], ["/home/cmux/.npmrc", "F 4"]]);
+    const b = new Map([["/home/cmux/.npm/_cacache/index-v5/aa/bb", "F 9"], ["/home/cmux/.npm/_cacache/content-v2/sha512/y", "F 2"], ["/home/cmux/.npm/_logs/1.log", "F 8"], ["/home/cmux/.npmrc", "F 7"]]);
+    const result = diffFileManifests(a, b);
+    expect(result.allowed).toHaveLength(3);
+    expect(result.diffs.map((l) => l.split(":")[0])).toEqual(["/home/cmux/.npm/_logs/1.log", "/home/cmux/.npmrc"]);
+  });
+
   test("names: branch resources carry cmuxnp-dev-", () => {
     expect(imageResourceName({ promotion: false, tag: "ci-123", date: "20261003", sha: "abcdef1234567890" })).toBe("cmuxnp-dev-vmimg-ci-123");
     expect(imageResourceName({ promotion: true, tag: "x", date: "20261003", sha: "abcdef1234567890" })).toBe("cmux-vm-20261003-abcdef1234");
