@@ -114,8 +114,9 @@ public final class SettingsHarnesses {
     }
 
     /// Reads the daemon's harnesses again, and their health (`recheck`: the daemon checks again
-    /// instead of answering its last check). Only the newest read writes the rows.
-    func refresh(recheck: Bool = false) async {
+    /// instead of answering its last check). Only the newest read writes the rows. `plans`: each
+    /// Claude login's plan from `claude auth status`; false for a health-only read (onboarding).
+    func refresh(recheck: Bool = false, plans: Bool = true) async {
         await refreshUpdates?()
         guard let environment = environment() else {
             rows = []
@@ -153,7 +154,7 @@ public final class SettingsHarnesses {
         health = read
         healthAnswered = true
         // The health check names the `claude` it found; each Claude login's plan comes from it.
-        await readClaudePlans(generation: mine)
+        if plans { await readClaudePlans(generation: mine) }
     }
 
     /// Types `line` into a new terminal tab; refuses a line that could not be typed safely, and

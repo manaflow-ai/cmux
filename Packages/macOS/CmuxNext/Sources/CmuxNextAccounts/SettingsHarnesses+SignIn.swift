@@ -25,9 +25,9 @@ extension SettingsHarnesses: AgentSignInSource {
     }
 
     /// Reads the harnesses and their health again (`recheck`: the daemon checks again instead of
-    /// answering its last check), then answers ``signInRows``.
+    /// answering its last check), then answers ``signInRows``. Health only: no `claude auth status`.
     public func agentSignIns(recheck: Bool) async -> [OnboardingAgent] {
-        await refresh(recheck: recheck)
+        await refresh(recheck: recheck, plans: false)
         return signInRows
     }
 

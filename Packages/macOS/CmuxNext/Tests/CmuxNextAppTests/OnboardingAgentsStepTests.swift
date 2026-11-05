@@ -2,6 +2,7 @@
 @testable import CmuxNextAgentPane
 @testable import CmuxNextOnboarding
 import Foundation
+import os
 import Testing
 
 /// The first-run Agents step: it comes before import and computer use, lists only installed
@@ -127,6 +128,31 @@ import Testing
         terminal.opens = false
         #expect(!(await harnesses.signInAgent("codex")), "no terminal tab: the step must not say to finish signing in")
         #expect(terminal.lines.isEmpty)
+    }
+
+    /// The step reads health only: a signed-in Claude login's plan (`claude auth status`, which
+    /// may read the login keychain) is Settings' to ask, never first-run onboarding's.
+    @Test func theStepNeverAsksClaudeForItsPlan() async {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "cn-onboarding-plan-\(UUID().uuidString)")
+        let environment = AcpmuxEnvironment(executable: directory.appending(path: "acpmux"), home: directory,
+                                            socketPath: directory.appending(path: "a.sock").path, daemonArguments: [], childEnvironment: [:])
+        let asked = OSAllocatedUnfairLock(initialState: 0)
+        let accounts = Data("""
+        {"accounts":[{"id":"claude-login","family":"claude","name":"Claude Code login","home":null,"shadowOf":null,
+          "signedIn":true,"plan":null,"email":null,"enabled":true,"builtin":true}]}
+        """.utf8)
+        let harnesses = SettingsHarnesses(environment: { environment },
+            fetch: { _ in [.init(id: "claude", kind: "claude-stdio", source: "path")] },
+            fetchHealth: { _, _ in Data(#"{"harnesses":[{"id":"claude","path":"/opt/homebrew/bin/claude","auth":"signedIn"}]}"#.utf8) },
+            openTerminal: { _ in true },
+            accountsCall: { _, method, _ in method == .accounts ? accounts : Data("{}".utf8) },
+            claudeStatus: { _, _ in
+                asked.withLock { $0 += 1 }
+                return Data(#"{"loggedIn":true,"subscriptionType":"max"}"#.utf8)
+            })
+        let rows = await harnesses.agentSignIns(recheck: true)
+        #expect(rows.map(\.auth) == [.signedIn])
+        #expect(asked.withLock { $0 } == 0, "onboarding ran claude auth status")
     }
 
     @Test func signInTypesTheHarnessLoginAndRefusesATerminalProfile() async {
