@@ -170,9 +170,14 @@ import Testing
     @Test func ocrOfTheDeliveredScreenshot() throws {
         let visible = Self.code.prefix(Int(Double(Self.height - 40) / Self.lineHeight))
         let truth = visible.flatMap { $0.split(separator: " ").map(String.init) }
-        for (label, image) in [("delivered", Self.editor()), ("2x", Self.editor(scale: 2 / Self.pixelsPerPoint))] {
+        let delivered = Self.editor()
+        let native = Self.editor(scale: 2 / Self.pixelsPerPoint)
+        // "delivered as is" is what Vision reads without this layer's 2x (PerceptionOCR.upscaleBelow).
+        let runs: [(String, CGImage, Int)] = [("delivered as is", delivered, 1), ("delivered (read at 2x)", delivered, 2000),
+                                              ("native 2x capture", native, 2000)]
+        for (label, image, upscaleBelow) in runs {
             let started = ContinuousClock.now
-            let lines = try PerceptionOCR().lines(in: image)
+            let lines = try PerceptionOCR(upscaleBelow: upscaleBelow).lines(in: image)
             let ms = Perception.milliseconds(ContinuousClock.now - started)
             var read: [String: Int] = [:]
             for word in lines.flatMap(\.words) { read[word.text, default: 0] += 1 }
@@ -184,7 +189,7 @@ import Testing
             let recall = Double(found) / Double(truth.count)
             print("perception-bench | som OCR \(label) \(image.width)x\(image.height) | word recall \(found)/\(truth.count) " +
                   "= \(recall) | \(lines.count) lines | \(ms) ms | \(PerceptionOCR.render(lines).utf8.count) bytes of OCR text")
-            if label == "delivered" { #expect(recall > 0.5) }
+            if upscaleBelow > 1 { #expect(recall > 0.5) }
         }
     }
 }

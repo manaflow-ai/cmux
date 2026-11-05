@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import CoreGraphics
+import Darwin
 import Foundation
 
 /// A colour copy of a delivered screenshot at half size, compared tile by tile
@@ -95,6 +96,12 @@ struct ScreenSignature: Equatable, Sendable {
         let columnEnd = min(columns, (tileColumn + 1) * tile)
         for row in (tileRow * tile)..<rowEnd {
             let base = row * columns
+            let start = (base + tileColumn * tile) * 4, end = (base + columnEnd) * 4
+            // Most rows of most tiles are byte-equal: one compare of the run.
+            let equal = pixels.withUnsafeBytes { a in
+                previous.pixels.withUnsafeBytes { b in memcmp(a.baseAddress! + start, b.baseAddress! + start, end - start) == 0 }
+            }
+            if equal { continue }
             for column in (tileColumn * tile)..<columnEnd {
                 let cell = (base + column) * 4
                 for channel in cell..<(cell + 3) {

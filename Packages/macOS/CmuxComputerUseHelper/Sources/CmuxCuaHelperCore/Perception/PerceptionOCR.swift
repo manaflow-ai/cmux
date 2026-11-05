@@ -23,8 +23,14 @@ struct OCRLine: Equatable, Sendable {
 struct PerceptionOCR: Sendable {
     /// Vision's accurate recogniser; the fast one misreads small UI text.
     var accurate = true
+    /// A screenshot with a long edge under this is read at twice its size:
+    /// Vision misses most 12 px UI text of a delivered window screenshot
+    /// (none at all on some macOS releases) and reads it at 2x.
+    var upscaleBelow = 2000
 
     func lines(in image: CGImage) throws -> [OCRLine] {
+        // Boxes come back normalised, so they map onto `image` whatever was read.
+        let source = max(image.width, image.height) < upscaleBelow ? Self.scaled(image, by: 2) ?? image : image
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = accurate ? .accurate : .fast
         // UI labels, paths and code are not prose: language correction
@@ -33,7 +39,7 @@ struct PerceptionOCR: Sendable {
         // Vision's default skips text under about 1/32 of the image's height:
         // every 12 px label of a full window. Read down to 7 px.
         request.minimumTextHeight = Float(min(1, 7 / Double(max(1, image.height))))
-        try VNImageRequestHandler(cgImage: image, options: [:]).perform([request])
+        try VNImageRequestHandler(cgImage: source, options: [:]).perform([request])
         let width = Double(image.width), height = Double(image.height)
         return (request.results ?? []).compactMap { observation in
             guard let candidate = observation.topCandidates(1).first else { return nil }
@@ -46,6 +52,16 @@ struct PerceptionOCR: Sendable {
             }
             return OCRLine(text: candidate.string, rect: line, words: words)
         }
+    }
+
+    static func scaled(_ image: CGImage, by factor: Int) -> CGImage? {
+        let width = image.width * factor, height = image.height * factor
+        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
+        context.interpolationQuality = .high
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return context.makeImage()
     }
 
     /// The whitespace-separated words of `text`.
