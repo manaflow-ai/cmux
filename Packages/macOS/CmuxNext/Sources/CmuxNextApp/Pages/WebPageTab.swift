@@ -113,7 +113,12 @@ extension WebPageTab {
             let keys = services.pages.tabIDs(in: pane.paneKey) + pane.pane.tabs.compactMap { services.pages.storeKey(of: $0.id) }
             guard let key = keys.first(where: { LocalPageTab.page(of: $0) == .github }) else { continue }
             tab.navigate(key, to: link.route)
-            if let id = services.pages.stripID(showing: key, in: pane) { pane.select(id) }
+            guard let id = services.pages.stripID(showing: key, in: pane) else { continue }
+            pane.select(id)
+            // As the web tab's open: in another pane, its close, emptying that pane, gives the focus back to the chat.
+            if pane !== source, let content = source.workspace, let shown = pane.pane.tabs.first(where: { $0.id == id.rawValue }) {
+                services.linkOpener.returnFocus(of: shown.surface, to: source.layoutPaneID, in: content)
+            }
             pane.focusContent()
             return true
         }
@@ -123,7 +128,13 @@ extension WebPageTab {
             tab.restore(link.route, for: key)
             // In the chat's own pane the chat is its opener, as for its web tab: right after it, and its close selects the chat.
             let adopt = opener.flatMap { o in NewTabSlot.placing(after: o, services: services) { [weak services] in services?.cache.pageRequests.openers.adopt($0, opener: o.surface) } }
-            return services.pages.openStoreTab(.github, in: pane, window: window, focus: placed == nil, key: key, created: placed ?? adopt,
+            let made = placed ?? adopt ?? HomeDockOpens.placing(pane.pane, services: services, focus: true, then: nil)
+            // In another pane, as the web tab's open: its close, emptying that pane, gives the focus back to the chat.
+            let created: (@MainActor (SurfaceID) -> Void)? = pane === source && placed == nil ? made : { [weak source] surface in
+                if let source, let content = source.workspace { services.linkOpener.returnFocus(of: surface, to: source.layoutPaneID, in: content) }
+                made?(surface)
+            }
+            return services.pages.openStoreTab(.github, in: pane, window: window, focus: placed == nil, key: key, created: created,
                                                requiresSurface: placed != nil) != nil
         }
     }
