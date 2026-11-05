@@ -65,6 +65,31 @@ public final class PaneContentAreaView: NSView {
     public override func setFrameSize(_ newSize: NSSize) { // perf-hot: 4ms motion-frame
         super.setFrameSize(newSize)
         showHeld(handing: false)
+        // A resize outside a motion (one frame, Reduce Motion, a zoom): the parked subviews take their size at idle.
+        if ParkedViewSizing.isOn, !isInParkedSizingMotion { parkedSizing.motionDidEnd(subviews) }
+    }
+
+    /// The parked subviews' sizing (FRAME OWNER REFACTOR S7b, ``ParkedViewSizing``): a hidden ``ParkedFrameKeeping`` subview
+    /// keeps its frame through a live resize, a spring, a hold or a person's drag, and after it takes the frame its owner
+    /// (``ParkedFrameSource``) shows it at.
+    public private(set) lazy var parkedSizing = ParkedViewSizing(showFrame: { [weak self] view in
+        guard let self, view.superview === self, view.isHidden, !self.isHolding,
+              (view as? any ParkedFrameKeeping)?.keepsFrameWhileParked == true else { return nil }
+        return (self.superview as? any ParkedFrameSource)?.parkedFrame(of: view) ?? self.contentBounds(for: view)
+    }, inMotion: { [weak self] in self?.isInParkedSizingMotion ?? false })
+
+    /// A person's resize drag of the pane is under way (``PaneResizeGestureFollowing``): its frames are no spring.
+    private var followsResizeGesture = false
+
+    /// The motions the parked subviews wait out: a live resize or a full screen transition, a spring, a hold, a drag.
+    private var isInParkedSizingMotion: Bool {
+        followsResizeGesture || isHolding || Motion.isLiveResizing(window) || isInPaneMotion
+    }
+
+    /// The window's live resize ended.
+    public override func viewDidEndLiveResize() {
+        super.viewDidEndLiveResize()
+        parkedSizing.motionDidEnd(subviews)
     }
 
     /// Held subviews keep their frames: no autoresizing while the area holds.
@@ -157,6 +182,7 @@ public final class PaneContentAreaView: NSView {
             }
         }
         endedHold = true
+        parkedSizing.motionDidEnd(subviews)
         superview?.needsLayout = true
     }
 
@@ -177,5 +203,16 @@ public extension NSView {
     var paneGroundColor: CGColor? {
         if let area = self as? PaneContentAreaView ?? subviews.lazy.compactMap({ $0 as? PaneContentAreaView }).first { return area.groundColor }
         return layer?.backgroundColor
+    }
+}
+
+/// A spring of the pane landed, or a person's drag of it ended: the parked subviews take their size at idle
+/// (``ParkedViewSizing``).
+extension PaneContentAreaView: PaneMotionSettling, PaneResizeGestureFollowing {
+    public func paneMotionDidSettle() { parkedSizing.motionDidEnd(subviews) }
+
+    public func paneResizeGestureDidChange(active: Bool) {
+        followsResizeGesture = active
+        if !active { parkedSizing.motionDidEnd(subviews) }
     }
 }
