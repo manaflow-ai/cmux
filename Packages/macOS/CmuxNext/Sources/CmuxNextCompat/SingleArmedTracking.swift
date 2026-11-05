@@ -27,11 +27,14 @@ public final class SingleArmedTracking {
         armed.store(true, ordering: .releasing)
         self.shape = shape
         armings += 1
-        let instance = ObjectIdentifier(self)
-        return withObservationTracking(apply) { [weak self] in
-            ObservationWakes.record(site: ObservationSite(fileID: fileID, line: line), instance: instance)
-            self?.armed.store(false, ordering: .releasing)
-            onChange()
+        let instance = ObjectIdentifier(self), site = ObservationSite(fileID: fileID, line: line)
+        return site.tracking {
+            withObservationTracking(apply) { [weak self] in
+                site.woke()
+                ObservationWakes.record(site: site, instance: instance)
+                self?.armed.store(false, ordering: .releasing)
+                onChange()
+            }
         }
     }
 }

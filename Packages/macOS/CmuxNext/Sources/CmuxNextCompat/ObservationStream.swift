@@ -309,11 +309,14 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
         /// there, as with the system type).
         @MainActor
         static func track(_ emit: @MainActor @Sendable () -> Element, state: ChangeState) -> Element {
-            withObservationTracking {
-                emit()
-            } onChange: { [state] in
-                ObservationWakes.record(site: state.site, instance: ObjectIdentifier(state))
-                state.changed()
+            state.site.tracking {
+                withObservationTracking {
+                    emit()
+                } onChange: { [state] in
+                    state.site.woke()
+                    ObservationWakes.record(site: state.site, instance: ObjectIdentifier(state))
+                    state.changed()
+                }
             }
         }
     }
