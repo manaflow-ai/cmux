@@ -265,7 +265,11 @@ class Fragments:
                 self.headers[fragment.name] = header
                 self.blocks[fragment.name] = {}
                 for block in blocks:
-                    self.blocks[fragment.name].setdefault(block_path(block), block)
+                    path = block_path(block)
+                    if path in self.blocks[fragment.name] or self.where(path) is not None:
+                        # Rewriting would keep one of them and drop the other's fields.
+                        raise ValueError(f"{path}: registered more than once; delete one entry first")
+                    self.blocks[fragment.name][path] = block
 
     def areas(self) -> set[str]:
         return {name.removesuffix(".toml") for name in self.blocks}

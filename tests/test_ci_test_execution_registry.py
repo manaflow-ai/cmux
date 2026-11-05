@@ -802,6 +802,16 @@ class RegistrySplitTests(unittest.TestCase):
         self.assertEqual(registry.layout_findings(root), [])
         self.assertEqual(by_path(registry.load_tree(root)), by_path(before))
 
+    def test_fix_refuses_a_duplicate_instead_of_dropping_one(self) -> None:
+        root = self.make_legacy_root()
+        registry.split_legacy(root, minimum=2)
+        with (root / registry.FRAGMENTS / "other.toml").open("a", encoding="utf-8") as other:
+            other.write('\n[[test]]\npath = "tests/test_ci_alpha.py"\nlane = "linux-guard"\n')
+        before = {path.name: path.read_text(encoding="utf-8") for path in (root / registry.FRAGMENTS).iterdir()}
+        self.assertEqual(registry.main(["--repo-root", str(root), "fix"]), 1)
+        self.assertEqual({path.name: path.read_text(encoding="utf-8")
+                          for path in (root / registry.FRAGMENTS).iterdir()}, before)
+
     def test_a_fragment_may_not_carry_a_version_or_be_empty(self) -> None:
         with self.assertRaisesRegex(ValueError, "only \\[\\[test\\]\\] entries"):
             registry.parse_registry("version = 1\n", "x.toml", fragment=True)

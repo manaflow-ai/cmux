@@ -1402,6 +1402,10 @@ def test_linux_registry_changes_skip_native_but_preserve_native_changes() -> Non
     assert module.test_registry_change_is_linux_only(base, base + guard)
     assert module.test_registry_change_is_linux_only(base + guard, base)
     assert module.test_registry_change_is_linux_only(base, base + '\n# comment\n')
+    # The split into area fragments re-ordered the entries; order alone is no native change.
+    two = base + '\n[[test]]\npath = "tests/native2.py"\nlane = "macos-shell"\n'
+    swapped = 'version = 1\n[[test]]\npath = "tests/native2.py"\nlane = "macos-shell"\n' + base.removeprefix('version = 1\n')
+    assert module.test_registry_change_is_linux_only(two, swapped)
     for candidate in (
         base.replace('macos-shell', 'linux-guard'),
         base.replace('native.py', 'other.py'),

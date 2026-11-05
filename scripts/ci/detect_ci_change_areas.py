@@ -1681,7 +1681,11 @@ def test_registry_change_is_linux_only(base: str, head: str) -> bool:
                     raise ValueError("guard entry with runtime requirements")
             return native
 
-        return native_entries(base) == native_entries(head)
+        # By path, not position: the split re-ordered the entries (by area, then path).
+        def by_path(entries: list[dict]) -> list[dict]:
+            return sorted(entries, key=lambda entry: entry["path"])
+
+        return by_path(native_entries(base)) == by_path(native_entries(head))
     except (ImportError, ValueError, TypeError, KeyError):
         return False
 
