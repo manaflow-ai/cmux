@@ -107,6 +107,17 @@ extension WebPageTab {
         guard GitHubViewerTunables.nativePullRequests.value, let link = GitHubLink(url),
               LinkRouter.shared.target(for: url) == .cmuxBrowser, LinkRouter.shared.routing().browserEnabled,
               source.daemon.supports(DaemonCapability.pageTabs.rawValue), case .connected = source.daemon.store.connectionState else { return nil }
+        if link.files {
+            // A pull request's Files tab (Session Info's View diff): its diff beside the chat, else that web page.
+            GitHubPageProvider.openFiles(link, openDiff: { [weak source, weak services] text in
+                guard let source, let services else { return }
+                services.viewers.diffPages.open(chatPatch: DiffChatPatch(text: text, folder: "/" + link.reference), in: source, focus: true)
+            }, openWeb: { [weak source, weak services] url in
+                guard let source, let services else { return }
+                _ = services.linkOpener.openWeb(url, from: source, background: false, reusesTab: true)
+            })
+            return true
+        }
         let tab = registerGitHub(services)
         // The workspace's GitHub tab, wherever it is: selected and moved to this link, no new page.
         for pane in source.workspace?.panes.values.map({ $0 }) ?? [source] {

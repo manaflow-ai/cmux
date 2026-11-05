@@ -36,8 +36,7 @@ enum DebugAddDevice {
         let devices = DeviceListing(network: .init(kind: up ? "tailscale" : "none", up: up, this: up ? "this-mac" : nil,
                                                detail: up ? nil : "Tailscale is not installed on this computer."),
                                 available: available)
-        // Only while labs.machineJoin is on (AddDeviceServices.app reads the switch first); a call
-        // with no `join` clears it.
+        // A call with no `join` clears it.
         let join = params["join"]?.stringValue
         services.debugFixtures.addDevice = Listing(devices: devices, join: join.map(Self.joinFixture))
         let way = params["way"]?.stringValue.map { AddDeviceWay(rawValue: $0) } ?? AddDeviceWay.network
@@ -103,11 +102,6 @@ extension DebugAddDevice {
     /// include the menu's own window). `check: true` opens Check on it with the fixture's doctor
     /// lines. The fixture stays for the rest of the app's run, which a capture starts fresh.
     static func showJoined(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
-        // Only while labs.machineJoin is on, as the section itself.
-        guard services.settings?.snapshot.machineJoin == true else {
-            services.debugFixtures.joinedMachines = nil
-            return .object(["machines": .number(0), "reason": .string("labs.machineJoin is off")])
-        }
         let rows = joinedRows
         services.debugFixtures.joinedMachines = MachineJoinService(mint: { _ in .failure(.unavailable) }, list: { rows })
         let store = services.joinedMachines

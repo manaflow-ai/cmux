@@ -1494,7 +1494,7 @@ export default agentPaneEntry({
   },
   covers: [
     "page:cmux.agent",
-    "agent-session/acpmux/App.tsx#VirtualTranscript",
+    "agent-session/acpmux/VirtualTranscript.tsx#VirtualTranscript",
     "agent-session/acpmux/App.tsx#AcpmuxApp",
     "agent-session/acpmux/rows/ActivityLineRow.tsx",
     "agent-session/acpmux/rows/AgentPairRow.tsx",

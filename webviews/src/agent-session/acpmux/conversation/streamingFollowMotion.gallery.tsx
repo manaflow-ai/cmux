@@ -123,7 +123,7 @@ export default componentEntry<{ variant: MotionVariant }>({
     anchorMovePx: { value: 0, reason: "Streaming content must not move the fixed stream control." },
     settleMaxMs: { value: 4_000, reason: "The deterministic stream has a fixed 1.3 second duration." },
   },
-  covers: ["agent-session/acpmux/App.tsx#VirtualTranscript"],
+  covers: ["agent-session/acpmux/VirtualTranscript.tsx#VirtualTranscript"],
   load: async () => StreamingFollowMotionGallery,
   pane: true,
   styles: () =>

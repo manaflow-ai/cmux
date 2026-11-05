@@ -90,8 +90,8 @@ export const CloudPlan = Schema.Struct({
 
 /**
  * The caller's kind on one machine, the classic attach answer's `vmKind` (web vmKindForCaller):
- * `owner` only for the machine's creator on the creator's personal team, never an agent token;
- * every shared-team machine is `team`, its creator included. Computed per request, never stored.
+ * `owner` for the machine's creator on any team (personal or shared, any size), never an agent token;
+ * every other member is `team`. Computed per request, never stored.
  * A client grants owner privileges only on the exact value `owner`.
  */
 export const CloudVmKind = Schema.Literals(["owner", "team"])
@@ -228,7 +228,7 @@ export const CloudMachineConnectInfo = cloudRead(
   Schema.Struct({ machine: Schema.optionalKey(MachineId), host: Schema.optionalKey(HostId) }),
   CloudConnectInfo,
   ["cloud.machine.not_bound", "cloud.machine.not_found"],
-  "How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. A read never mints a credential: the dial token comes from cloud.machine.link_token. vm_kind is the caller's kind on this machine (owner only for its creator on the creator's personal team; every shared-team machine is team).",
+  "How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. A read never mints a credential: the dial token comes from cloud.machine.link_token. vm_kind is the caller's kind on this machine (owner for its creator on any team, never an agent token; every other member is team).",
   "cloud machine connect-info"
 )
 
