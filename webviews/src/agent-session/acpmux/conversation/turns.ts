@@ -1513,7 +1513,11 @@ export function earlierTurnPlan(rows: readonly AcpmuxRow[]): AcpmuxRow | undefin
   let prompted = false;
   for (let at = rows.length - 1; at >= 0; at -= 1) {
     const row = rows[at]!;
-    if (row.kind === "user" && !row.incoming) prompted = true;
+    if (row.kind === "user") {
+      // The running turn is another session's message's, not the person's: nothing carries over.
+      if (row.incoming && !prompted) return undefined;
+      prompted = true;
+    }
     if (row.kind !== "plan") continue;
     if (!row.turnEnded || !prompted || !row.plan?.length || row.planCleared) return undefined;
     return row.plan.some((entry) => entry.status !== "completed") ? row : undefined;

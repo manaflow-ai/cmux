@@ -45,6 +45,13 @@ test("a list a later turn cleared does not carry over", () => {
   expect(earlierTurnPlan([row("user"), { ...stopped(), planCleared: true }, row("user")])).toBeUndefined();
 });
 
+test("another session's turn after the person's gets no carry-over", () => {
+  const incoming = row("user", { incoming: { kind: "message" } as AcpmuxRow["incoming"] });
+  expect(
+    earlierTurnPlan([row("user"), stopped(), row("user"), row("assistant"), incoming, row("assistant")]),
+  ).toBeUndefined();
+});
+
 test("another session's message is not the person's", () => {
   const incoming = row("user", { incoming: { kind: "message" } as AcpmuxRow["incoming"] });
   expect(earlierTurnPlan([row("user"), stopped(), incoming])).toBeUndefined();
