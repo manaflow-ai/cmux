@@ -111,6 +111,8 @@ public struct Metrics {
     /// `sidebar.borderWidth`); 0 when off or under `appearance.borders` none.
     public static var sidebarBorderWidth: CGFloat {
         let border = DesignSettings.shared.sidebarBorder
+        // Hard-edge chrome parts the sidebar by the shaded gap, not a straight line.
+        if HardEdge.current.isOn { return 0 }
         return border.shows ? lineWidth(border.width.map(scale) ?? dividerThickness) : 0
     }
     public static var dividerHitWidth: CGFloat { MetricTunables.dividerHitWidth.value }

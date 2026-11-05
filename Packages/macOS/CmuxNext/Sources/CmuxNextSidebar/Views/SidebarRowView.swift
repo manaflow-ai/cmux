@@ -129,6 +129,48 @@ class SidebarRowView: NSView {
     /// clear in place (the row's `layout()` clears it).
     var fadesNextHover = false
 
+    override func layout() {
+        super.layout()
+        layoutHardEdge()
+    }
+
+    /// Hard-edge chrome (`chrome.hardEdge`): the row's fill takes the window's one shape, cut at 45°
+    /// on its top-leading and bottom-trailing corners like the content card and the selected tab,
+    /// and the selected row carries the value's marks. Off: the rounded fill.
+    func layoutHardEdge() {
+        guard let layer else { return }
+        let style = HardEdge.current
+        let size = targetSize ?? bounds.size
+        guard let path = style.fillMask(CGRect(origin: .zero, size: size)) else {
+            if layer.mask != nil { layer.cornerRadius = SidebarStyle.rowCornerRadius }
+            layer.mask = nil
+            hardEdgeMarks?.removeFromSuperlayer()
+            hardEdgeMarks = nil
+            return
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        layer.cornerRadius = 0 // square where not cut: no curve anywhere
+        let mask = layer.mask as? CAShapeLayer ?? CAShapeLayer()
+        mask.frame = CGRect(origin: .zero, size: size)
+        mask.path = path
+        if layer.mask !== mask { layer.mask = mask }
+        // The marks sit inside the cut outline, so the mask never clips them; a sublayer, so they move with the row.
+        guard let marks = style.selectedMarks(CGRect(origin: .zero, size: size)) else {
+            hardEdgeMarks?.removeFromSuperlayer()
+            hardEdgeMarks = nil
+            return
+        }
+        let shape = hardEdgeMarks ?? CAShapeLayer()
+        if shape.superlayer !== layer { layer.addSublayer(shape) }
+        hardEdgeMarks = shape
+        shape.frame = CGRect(origin: .zero, size: size)
+        shape.path = marks
+        shape.isHidden = !showsSelection
+        performWithTheme { shape.fillColor = HardEdge.accent.cgColor }
+    }
+
     /// Paints `color` on the row's backing layer, fading when hover changed
     /// it. Call from `updateLayer()` inside the theme scope.
     func paintFill(_ color: NSColor?) {
@@ -136,7 +178,11 @@ class SidebarRowView: NSView {
         guard let layer else { return }
         ChromeHover.paint(layer, color, animated: fadesNextFill, clearing: .hoverOut)
         fadesNextFill = false
+        if HardEdge.current.isOn || layer.mask != nil { layoutHardEdge() }
     }
+
+    /// The selected row's hard-edge marks (`layoutHardEdge`).
+    var hardEdgeMarks: CAShapeLayer?
 
     /// The row paints a fill now (`paintFill`); debug.sidebar_rows `fill`.
     private(set) var paintsFill = false

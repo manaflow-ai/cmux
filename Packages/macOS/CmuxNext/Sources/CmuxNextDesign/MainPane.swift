@@ -47,7 +47,9 @@ extension Metrics {
     /// Settings override, else `appearance.chromeStyle`, else the default.
     public static var mainPaneCurved: Bool {
         let tunable = ChromeTunables.mainPaneCurved
-        return tunable.override ?? DesignSettings.shared.chromeStyle.curvedMainPane ?? tunable.defaultValue
+        // Hard-edge chrome (`chrome.hardEdge`) draws the card under any chrome style; a Debug override still wins.
+        let hardEdge: Bool? = HardEdge.current.isOn ? true : nil
+        return tunable.override ?? hardEdge ?? DesignSettings.shared.chromeStyle.curvedMainPane ?? tunable.defaultValue
     }
     /// Floating panes (`appearance.chromeStyle` floating): every pane is its
     /// own card, tab strip included, left unshaded on the shaded chrome
@@ -68,6 +70,7 @@ extension Metrics {
     public static var mainPaneGutter: CGFloat {
         guard mainPaneCurved else { return 0 }
         if floatingPanes, ChromeTunables.mainPaneGutter.override == nil { return panePadding }
+        if HardEdge.current.isOn, ChromeTunables.mainPaneGutter.override == nil { return HardEdge.gap }
         return scale(ChromeTunables.mainPaneGutter.value)
     }
     /// Corner radius of the main pane; 0 when it is edge to edge or its
@@ -88,6 +91,8 @@ extension Metrics {
     /// `mainPaneCornerRadius`.
     public static func mainPaneCornerRadius(windowCornerRadius: CGFloat) -> CGFloat {
         guard mainPaneCurved, !floatingPanes, ChromeTunables.mainPaneCornerRadius.override == nil else { return mainPaneCornerRadius }
+        // Hard-edge chrome: a small clip under the cuts the shade draws over the card's corners.
+        if HardEdge.current.isOn { return HardEdge.cardMinorCut }
         let gutter = mainPaneGutter
         if gutter == 0 { return DesignSettings.shared.titlebar == .standard ? 0 : windowCornerRadius }
         return windowCornerRadius > 0 ? max(0, windowCornerRadius - gutter) : mainPaneCornerRadius
@@ -98,6 +103,10 @@ extension Metrics {
     /// is edge to edge.
     public static func mainPaneChromeShade(isDark: Bool) -> CGFloat {
         guard mainPaneCurved else { return 0 }
+        // Hard-edge chrome shades its frame so the card reads on the one surface.
+        if HardEdge.current.isOn {
+            return CGFloat((isDark ? ChromeTunables.mainPaneShadeDark : ChromeTunables.mainPaneShadeLight).value)
+        }
         let style = DesignSettings.shared.chromeStyle
         let tunable = isDark ? ChromeTunables.mainPaneShadeDark : ChromeTunables.mainPaneShadeLight
         let separate = tunable.override.map { CGFloat($0) } ?? style.separateShade(isDark: isDark) ?? CGFloat(tunable.defaultValue)

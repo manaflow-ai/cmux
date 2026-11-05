@@ -320,6 +320,7 @@ final class TabCell {
             statusGlyphLayer?.colors = indicatorColors
             iconLayer.contents = iconImage(tint: item.tint?.markColor ?? text)
             applySeparatorColor()
+            applyHardEdgeColors()
         }
         applyCloseColors()
         applyBadgeColor()
@@ -392,6 +393,7 @@ final class TabCell {
         backgroundLayer.frame = bounds
         layoutSeparator(slot: slot, pill: bounds)
         backgroundLayer.cornerRadius = m.cornerRadius
+        layoutHardEdge()
 
         let midY = bounds.height / 2
         let iconSide = m.iconSize

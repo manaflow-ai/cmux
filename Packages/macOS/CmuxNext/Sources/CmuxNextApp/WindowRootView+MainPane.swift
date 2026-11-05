@@ -128,7 +128,7 @@ extension WindowRootView {
     func observeMainPane() -> Task<Void, Never> {
         Task { [weak self] in
             for await _ in ObservationStream({ () -> [CGFloat] in [Metrics.mainPaneGutter, Metrics.mainPaneCornerRadius,
-                                                Metrics.mainPaneChromeShade(isDark: false), Metrics.mainPaneChromeShade(isDark: true), Metrics.floatingPanes ? 1 : 0] }) {
+                                                Metrics.mainPaneChromeShade(isDark: false), Metrics.mainPaneChromeShade(isDark: true), Metrics.chromeShapeKey] }) {
                 self?.applyMainPane()
             }
         }
@@ -186,8 +186,8 @@ extension WindowRootView {
         if contentHost.setCornerRadius(radius), let window {
             NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window)
         }
-        let alpha = Metrics.mainPaneChromeShade(isDark: themeTokens.isDark)
-        mainPaneShade.update(card: contentHost.frame, radius: radius, alpha: alpha)
+        mainPaneShade.update(card: contentHost.frame, radius: radius, alpha: Metrics.mainPaneChromeShade(isDark: themeTokens.isDark),
+                             hardEdge: presentsPage ? .off : .current, sidebarLeading: sidebarSide == .left, content: contentHost)
     }
 }
 

@@ -58,6 +58,8 @@ public struct TabStripMetrics: Equatable, Sendable {
     public var tearOffDistance: CGFloat
 
     public var cornerRadius: CGFloat
+    /// Hard-edge chrome (`chrome.hardEdge`): the pills' 45° cuts and the selected tab's marks.
+    public var hardEdge: HardEdge = .off
     /// Corner of the close button's hover and pressed fill: Helium's rounded
     /// rect (`TabCloseButton` `kCornerRadius`, 4), not Chrome's circle.
     public var closeCornerRadius: CGFloat
@@ -161,6 +163,7 @@ public struct TabStripMetrics: Equatable, Sendable {
         tabBackgroundInset = Metrics.tabBackgroundInset
         tearOffDistance = TabTunables.tearOffDistance.value
         cornerRadius = Metrics.itemCornerRadius
+        hardEdge = HardEdge.current
         closeCornerRadius = Metrics.space2
         groupChipOuterInset = Metrics.space1
         groupChipPadding = TabTunables.groupChipPadding.value

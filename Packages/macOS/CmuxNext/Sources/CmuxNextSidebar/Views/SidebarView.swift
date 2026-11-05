@@ -61,6 +61,8 @@ public final class SidebarView: NSView {
     /// footer has none (SIDEBAR-FOOTER-MINIMAL).
     let aboveLine = CALayer()
     let newButton = SidebarIconButton(icon: .actionAdd, label: Strings.newWorkspace)
+    /// The +'s plate under hard-edge chrome (SidebarView+HardEdge).
+    let newButtonPlate = CAShapeLayer()
     /// The footer's Search button, after the profile avatar (plans/cmux-next/sidebar-search.md):
     /// a press runs ``onSearch`` (the centered Search palette). `sidebar.showSearchButton` hides it.
     let searchButton = SidebarIconButton(icon: .search, pointSize: { Metrics.iconSize }, label: Strings.searchButton)
@@ -289,6 +291,7 @@ public final class SidebarView: NSView {
         let button = SidebarStyle.toolbarButtonSize
         let rowMidY = window.flatMap(WindowTitlebar.trafficLightsFrame(in:)).map { convert($0, from: nil).midY } ?? titlebarHeight / 2
         newButton.frame = NSRect(x: b.width - Metrics.space3 - button, y: (rowMidY - button / 2).rounded(), width: button, height: button)
+        layoutNewButtonPlate()
         let x = headerHasWindowControls ? max(Metrics.trafficLightInset, titlebarLeadingReserve) : titlebarLeadingReserve
         let titlebarButtonsMinX = layoutPriorityButton(before: newButton.frame)
         if let accessory = titlebarAccessory {

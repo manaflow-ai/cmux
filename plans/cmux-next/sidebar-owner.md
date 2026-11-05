@@ -1,5 +1,12 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-05: Debug `chrome.hardEdge` (off by default; Thunderdome round 2 D, "hard-edge tech"). Leo, round 2: round
+  1 "barely even tried"; kill the shape that is "a tangent line and then two other things that go to points"; keep the
+  inner-card padding as "a glass frame, another glass frame". Every value but `off` draws one shaded frame across the
+  sidebar, the titlebar row and the top tab strip, with the content as a card under the strip, and nothing curves:
+  the card, the selected tab, the sidebar rows' fills and the +'s new plate each cut their top-leading and
+  bottom-trailing corners at 45° (`HardEdge`). `blade` adds lit lines on the cuts, `hud` a second hairline frame with
+  diamond rivets. The sidebar hairline steps aside while on. Compact density keeps today's chrome.
 Owner: the sidebar-owner agent (Chief subagent, Oct 23 2026, "one new agent that owns everything about
 sidebar from now on"). Scope: workspace and group rows, nested groups, the group rail, the hover card,
 the row close (X), unread dots, densities, drag and reorder, the Home/pinned band, and sidebar

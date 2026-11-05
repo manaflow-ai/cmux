@@ -51,6 +51,8 @@ extension SidebarViewComponents {
         /// Whether a joined line runs out of its header's bar (`SidebarGroupLine.joinsBar`, the band header style)
         /// or starts after the cut: its frame moves, so the list lays out again.
         var groupLineJoinsBar: Bool
+        /// Hard-edge chrome (`chrome.hardEdge`): the rows recut their fills.
+        var hardEdge: HardEdge
         init(_ model: SidebarModel, _ design: DesignSettings) {
             sectionsRevision = model.observedStructureRevision
             selection = model.selection
@@ -80,6 +82,7 @@ extension SidebarViewComponents {
             rowLimit = SidebarTunables.rowLimit
             groupLineLayout = SidebarGroupLineLayout.tunable.value
             groupLineJoinsBar = SidebarGroupLine.joinsBar
+            hardEdge = HardEdge.current
         }
     }
     func observe() {
@@ -101,6 +104,10 @@ extension SidebarViewComponents {
     }
     func render(_ state: RenderState) {
         guard state != lastState else { return }
+        if let lastState, lastState.hardEdge != state.hardEdge {
+            for case let row as SidebarRowView in list.subviews { row.layoutHardEdge() }
+            needsLayout = true // the +'s plate
+        }
         let chromeChanged = lastState?.metrics != state.metrics || lastState?.fontSize != state.fontSize
             || lastState?.titlebarHeight != state.titlebarHeight
         let profileChanged = lastState?.activeProfile != state.activeProfile

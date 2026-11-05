@@ -14,6 +14,11 @@ public final class MainPaneChromeShadeView: NSView {
     private var card: CGRect = .zero
     private var radius: CGFloat = 0
     private var alpha: CGFloat = 0
+    /// Hard-edge chrome (`chrome.hardEdge`): the card's hole is chamfered, and its cut corners
+    /// and marks are drawn above the content too (``hardEdgeFrame``).
+    private var hardEdge: HardEdge = .off
+    private var sidebarLeading = true
+    private let hardEdgeFrame = HardEdgeFrameView(frame: .zero)
     private var cardsObservation: AnyObject?
     /// The shown workspace's pane cards; a sync of theirs reshapes the shade.
     public weak var paneCards: (any PaneCardSource)? {
@@ -48,11 +53,23 @@ public final class MainPaneChromeShadeView: NSView {
 
     /// Shades everything but `card` (this view's coordinates); no shade when
     /// `alpha` is 0.
-    public func update(card: CGRect, radius: CGFloat, alpha: CGFloat) {
-        guard card != self.card || radius != self.radius || alpha != self.alpha || shade.frame != bounds || Metrics.floatingPanes else { return }
+    /// `hardEdge` on: the card is the part of `content` below its top tab strip (the strip sits on
+    /// the frame with the sidebar), its hole is chamfered (cut toward the sidebar,
+    /// `sidebarLeading`), and the cut corners and marks are drawn above `content` (``HardEdgeFrameView``).
+    public func update(card content: CGRect, radius: CGFloat, alpha: CGFloat, hardEdge: HardEdge = .off, sidebarLeading: Bool = true,
+                       content contentView: NSView? = nil) {
+        var card = content
+        if hardEdge.isOn, DesignSettings.shared.tabBarPosition != .bottom {
+            card.size.height = max(0, card.height - (Metrics.stripTopOutset + Metrics.tabStripHeight)) // the top is maxY
+        }
+        hardEdgeFrame.update(card: card, alpha: alpha, style: hardEdge, sidebarLeading: sidebarLeading, above: contentView, in: superview)
+        guard card != self.card || radius != self.radius || alpha != self.alpha || hardEdge != self.hardEdge
+            || sidebarLeading != self.sidebarLeading || shade.frame != bounds || Metrics.floatingPanes else { return }
         self.card = card
         self.radius = radius
         self.alpha = alpha
+        self.hardEdge = hardEdge
+        self.sidebarLeading = sidebarLeading
         rebuild()
     }
 
@@ -79,6 +96,11 @@ public final class MainPaneChromeShadeView: NSView {
             let corner = min(radius, card.width / 2, card.height / 2)
             let visible = cut.intersection(CGPath(roundedRect: card, cornerWidth: corner, cornerHeight: corner, transform: nil))
             shade.path = CGPath(rect: bounds, transform: nil).subtracting(visible)
+        } else if hardEdge.isOn {
+            let path = CGMutablePath()
+            path.addRect(bounds)
+            path.addPath(HardEdge.path(card, cuts: HardEdgeFrameView.cardCuts(sidebarLeading: sidebarLeading), flipped: false))
+            shade.path = path
         } else {
             let path = CGMutablePath()
             path.addRect(bounds)
