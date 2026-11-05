@@ -45,6 +45,9 @@ const ROW = 38;
 const underTabRow: Play = async (ctx) => {
   const { setTabRow } = await import("../header/tabRow");
   setTabRow({ height: ROW, trailingInset: 0, soloTab: true });
+  // The row's layout settles before the click, so the click's step measures only the viewer opening.
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-stage[data-solo-tab] > .acpmux-scroll .acpmux-row"));
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   await ctx.click({ role: "button", name: screenshotName });
   await ctx.waitFor(() => ctx.find({ role: "dialog", name: screenshotName }));
   const doc = ctx.document;

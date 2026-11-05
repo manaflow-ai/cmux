@@ -46,16 +46,20 @@ await requireBrowserLane("image-viewer-tab-row-browser.test.ts", async () => {
         await page.waitForFunction(() => ["1", "error"].includes(document.documentElement.dataset.galleryReady ?? ""));
         const report = await page.evaluate(() => ({
           ready: document.documentElement.dataset.galleryReady,
-          play: (window as { cmuxGalleryPlayReport?: { status: string; error?: string } }).cmuxGalleryPlayReport,
+          play: (
+            window as {
+              cmuxGalleryPlayReport?: { status: string; error?: string; steps: { problems: string[] }[] };
+            }
+          ).cmuxGalleryPlayReport,
         }));
-        const captures = process.env.CMUX_IMAGE_VIEWER_CAPTURE_DIR;
+        const captures = process.env.CMUX_IMAGE_VIEWER_CAPTURE_DIR || process.env.FAST_CHECKS_OUT;
         if (captures) {
           await mkdir(captures, { recursive: true });
           await page.screenshot({ path: path.join(captures, `image-viewer-tab-row-${colorScheme}.png`) });
         }
         expect(report.ready).toBe("1");
         expect(report.play?.error ?? "").toBe("");
-        expect(report.play?.status).not.toBe("fail");
+        expect(report.play?.steps.flatMap((step) => step.problems) ?? []).toEqual([]);
       } finally {
         await page.close();
       }
