@@ -12,6 +12,8 @@ export type UnderHeaderLines = {
   unavailable: boolean;
   watching: boolean;
   handoffError: boolean;
+  /// A result-first subagent header is also an in-flow line under the header.
+  resultHead: boolean;
 };
 
 /// Whether any line sits under the header.

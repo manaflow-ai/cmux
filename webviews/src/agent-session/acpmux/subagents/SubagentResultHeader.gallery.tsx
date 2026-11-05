@@ -13,7 +13,8 @@ import "./subagents.css";
 
 const LONG_RESULT = Array.from(
   { length: 14 },
-  (_, index) => `**${index + 1}.** Checked the worker output and kept the useful detail in this report.`,
+  (_, index) =>
+    `**${index + 1}.** Checked the worker output and kept the useful detail in this report.`,
 ).join("\n\n");
 const SHORT_RESULT = "The result is ready. The transcript below keeps the tool calls available.";
 
@@ -38,17 +39,68 @@ function rows(count: number): AcpmuxRow[] {
   }));
 }
 
-type Props = { report: "long" | "short"; viewport: "split" | "dock"; stream: boolean };
+type Props = { report: "long" | "short"; viewport: "split" | "dock" | "one-tab"; stream: boolean };
 
 function ResultHeadScene({ report, viewport, stream }: Props) {
   const [extra, setExtra] = useState("");
-  const agent: Subagent = { ...baseAgent, result: `${report === "long" ? LONG_RESULT : SHORT_RESULT}${extra}` };
+  const agent: Subagent = {
+    ...baseAgent,
+    result: `${report === "long" ? LONG_RESULT : SHORT_RESULT}${extra}`,
+  };
+  const oneTab = viewport === "one-tab";
   const style: CSSProperties = {
     display: "flex",
     flexDirection: "column",
     width: viewport === "split" ? 760 : 420,
-    height: viewport === "split" ? 620 : 240,
+    height: viewport === "split" ? 620 : oneTab ? 300 : 240,
   };
+  const transcript = (
+    <div className={oneTab ? "acpmux-scroll" : "acpmux-bg__transcript"} data-result-transcript>
+      {rows(viewport === "split" ? 18 : 8).map((row) => (
+        <p key={row.id} className="acpmux-bg__reply" data-row-id={row.id}>
+          {row.text}
+        </p>
+      ))}
+    </div>
+  );
+  const streamButton = stream && (
+    <button
+      type="button"
+      data-stream-result
+      style={{ position: "absolute", opacity: 0, pointerEvents: "none" }}
+      onClick={() =>
+        setExtra(
+          `\n\n${LONG_RESULT}\n\nA final streamed sentence settles without changing the transcript's box.`,
+        )
+      }
+    >
+      stream
+    </button>
+  );
+  if (oneTab) {
+    return (
+      <div
+        className="acpmux-shell"
+        data-tab-row
+        data-solo-tab
+        style={style}
+        data-result-scene="one-tab"
+      >
+        <div className="acpmux-main" style={{ display: "flex", flex: 1, minHeight: 0 }}>
+          <div
+            className="acpmux-stage"
+            data-solo-tab
+            style={{ display: "flex", flex: 1, minHeight: 0, flexDirection: "column" }}
+          >
+            <header className="acpmux-header" data-tab-row style={{ flex: "0 0 28px" }} />
+            <SubagentResultHeader agent={agent} />
+            {transcript}
+            {streamButton}
+          </div>
+        </div>
+      </div>
+    );
+  }
   return (
     <div
       className={viewport === "dock" ? "acpmux-bg" : "acpmux-result-scene"}
@@ -56,25 +108,8 @@ function ResultHeadScene({ report, viewport, stream }: Props) {
       data-result-scene={viewport}
     >
       <SubagentResultHeader agent={agent} />
-      <div className="acpmux-bg__transcript" data-result-transcript>
-        {rows(viewport === "split" ? 18 : 8).map((row) => (
-          <p key={row.id} className="acpmux-bg__reply" data-row-id={row.id}>
-            {row.text}
-          </p>
-        ))}
-      </div>
-      {stream && (
-        <button
-          type="button"
-          data-stream-result
-          style={{ position: "absolute", opacity: 0, pointerEvents: "none" }}
-          onClick={() =>
-            setExtra(`\n\n${LONG_RESULT}\n\nA final streamed sentence settles without changing the transcript's box.`)
-          }
-        >
-          stream
-        </button>
-      )}
+      {transcript}
+      {streamButton}
     </div>
   );
 }
@@ -96,14 +131,18 @@ async function play(ctx: PlayContext) {
     stream.click();
     await ctx.waitFor(
       () =>
-        ctx.document.querySelector<HTMLElement>(".cv-subagent-result__report")?.textContent?.includes("final streamed"),
+        ctx.document
+          .querySelector<HTMLElement>(".cv-subagent-result__report")
+          ?.textContent?.includes("final streamed"),
       {
         capMs: 2_000,
       },
     );
     const after = transcript.getBoundingClientRect().top;
-    if (Math.abs(after - before) > 0.5) throw new Error(`streaming moved transcript by ${after - before}px`);
-    if (report.scrollHeight <= report.clientHeight) throw new Error("streaming did not exercise report overflow");
+    if (Math.abs(after - before) > 0.5)
+      throw new Error(`streaming moved transcript by ${after - before}px`);
+    if (report.scrollHeight <= report.clientHeight)
+      throw new Error("streaming did not exercise report overflow");
   }
 }
 
@@ -139,6 +178,11 @@ export default componentEntry<Props>({
     "stream-stable": {
       note: "A report settling with one more streamed sentence keeps the transcript's top edge fixed.",
       props: { report: "short", viewport: "split", stream: true },
+      play,
+    },
+    "one-tab": {
+      note: "A one-tab stage keeps the result head and the last report lines clickable below the native tab row.",
+      props: { report: "long", viewport: "one-tab", stream: false },
       play,
     },
   },
