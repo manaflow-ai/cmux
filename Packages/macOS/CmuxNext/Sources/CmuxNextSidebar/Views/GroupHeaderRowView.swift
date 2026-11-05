@@ -83,6 +83,8 @@ final class GroupHeaderRowView: SidebarRowView {
     private var archived = false
     private var hasIcon = false
     private var tint: GroupTint = .palette(.grey)
+    /// How the background draws (`sidebar.groupHeader.background`); it always shows (``GroupBackground``).
+    private var backgroundStyle: SidebarGroupBackgroundStyle = .auto
     private var collapsed = false
     private var chevronFrame: CGRect = .zero
     private var chevronIcon: IconName = .disclosureExpanded
@@ -184,6 +186,7 @@ final class GroupHeaderRowView: SidebarRowView {
                               look: group.hostLook)
         guard needsConfigure(content) else { return }
         tint = group.tint
+        backgroundStyle = details.background
         name.stringValue = group.name
         pinned = group.isPinned
         archived = group.isArchived
@@ -310,16 +313,13 @@ final class GroupHeaderRowView: SidebarRowView {
             // and a drop take tonal steps over it (the open editor lights its more button only).
             let tokens = themeTokens
             let look = look
-            // A group nobody colored draws as a plain row: no bar, only the row's own hover and drop fills.
-            if look.style != .band || tint.isNone { return paintQuiet(tokens, look) }
-            let chip = tint.headerChip(themed: look.themed)
-            var fill = chip.fill
-            if isHovered { fill = tokens.hoverFill.composited(over: fill) }
-            if isDropTarget { fill = tokens.pressedFill.composited(over: fill) }
+            // Every group draws a visible bar (Lawrence 2026-11-05), a group nobody colored too: its neutral fill.
+            if look.style != .band { return paintQuiet(tokens, look) }
+            let background = groupBackground(.band, tokens, look)
             // One ink for every glyph on the bar (cx-qno.22): name, icon, pin,
             // chevron, + and more, chosen once on the bar's color; it holds
             // text contrast on every state above and the buttons' fills.
-            let ink = chip.ink.nsColor.withAlphaComponent(archived ? SidebarStyle.archivedAlpha : 1)
+            let ink = background.ink.nsColor.withAlphaComponent(archived ? SidebarStyle.archivedAlpha : 1)
             name.textColor = ink
             count.textColor = ink.withAlphaComponent(SidebarStyle.groupHeaderCountInkAlpha)
             glyph.symbolInk = ink
@@ -331,8 +331,7 @@ final class GroupHeaderRowView: SidebarRowView {
             paintMachine(ink: ink)
             // The bar carries the group's color: no dot over it (cx-rcby).
             dot.isHidden = true
-            ChromeHover.paint(pill, fill.nsColor, animated: fadesNextFill)
-            pill.borderWidth = 0
+            paintBackground(background, tokens)
             paintFill(nil)
             CATransaction.begin()
             CATransaction.setDisableActions(true)
@@ -349,9 +348,12 @@ final class GroupHeaderRowView: SidebarRowView {
     /// Hover and a drop take the row's own fill; the open editor lights its more button only.
     private func paintQuiet(_ tokens: ThemeTokens, _ look: (style: SidebarGroupHeaderStyle, themed: Bool)) {
         let line = tint.lineRGB(themed: look.themed)
+        // Every look keeps a visible background (Lawrence 2026-11-05): a faint wash of the group's color, neutral
+        // for a group with no color; the name reads on it.
+        let background = groupBackground(.wash, tokens, look)
         let ink = (look.style == .tinted
-            ? ThemeTokens.readable(line, over: tokens.sidebarBackground, minimum: ThemeTokens.minimumTextContrast).nsColor
-            : tokens.textPrimary.nsColor).withAlphaComponent(archived ? SidebarStyle.archivedAlpha : 1)
+            ? ThemeTokens.readable(line.withAlpha(1), over: background.shown, minimum: ThemeTokens.minimumTextContrast)
+            : background.ink).nsColor.withAlphaComponent(archived ? SidebarStyle.archivedAlpha : 1)
         name.textColor = ink
         count.textColor = ink.withAlphaComponent(SidebarStyle.groupHeaderCountInkAlpha)
         glyph.symbolInk = ink
@@ -364,25 +366,38 @@ final class GroupHeaderRowView: SidebarRowView {
         paintMachine(ink: quiet)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        dot.isHidden = false
+        dot.isHidden = tint.isNone
         dot.backgroundColor = line.nsColor.cgColor
         pill.opacity = archived ? Float(SidebarStyle.archivedAlpha) : 1
         dot.opacity = pill.opacity
-        pill.borderWidth = 0
         layer?.borderColor = tokens.focusRing.nsColor.cgColor
         layer?.borderWidth = isKeyboardFocused ? Metrics.dividerThickness * 1.5 : 0
         layer?.cornerRadius = SidebarStyle.rowCornerRadius
         CATransaction.commit()
-        guard look.style == .wash, !tint.isNone else {
-            pill.backgroundColor = nil
-            return paintFill(isDropTarget ? tokens.pressedFill.nsColor : isHovered ? tokens.hoverFill.nsColor : nil)
-        }
         // The wash covers the row, so its states step over the wash, as the band's do.
-        var fill = tint.headerWash(themed: look.themed)
-        if isHovered { fill = tokens.hoverFill.composited(over: fill) }
-        if isDropTarget { fill = tokens.pressedFill.composited(over: fill) }
-        ChromeHover.paint(pill, fill.nsColor, animated: fadesNextFill)
+        paintBackground(background, tokens)
         paintFill(nil)
+    }
+
+    /// The header's background in `look`, glass or solid as `sidebar.groupHeader.background` asks for this sidebar
+    /// (glass where it is see-through, by default).
+    private func groupBackground(_ strength: GroupBackground.Strength, _ tokens: ThemeTokens,
+                            _ look: (style: SidebarGroupHeaderStyle, themed: Bool)) -> GroupBackground {
+        GroupBackground(tint: tint, strength: strength, glass: backgroundStyle.drawsGlass(seeThrough: tokens.backgroundOpacity < 1),
+                        themed: look.themed, tokens: tokens)
+    }
+
+    /// Paints `background` on the bar, with its hover and drop steps over it and glass's rim.
+    private func paintBackground(_ background: GroupBackground, _ tokens: ThemeTokens) {
+        var steps: [ThemeRGB] = []
+        if isHovered { steps.append(tokens.hoverFill) }
+        if isDropTarget { steps.append(tokens.pressedFill) }
+        ChromeHover.paint(pill, background.painted(over: steps).nsColor, animated: fadesNextFill)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        pill.borderColor = background.rim?.nsColor.cgColor
+        pill.borderWidth = background.rim == nil ? 0 : Metrics.dividerThickness
+        CATransaction.commit()
     }
 
     override func layout() {
@@ -501,8 +516,8 @@ final class GroupHeaderRowView: SidebarRowView {
         }
         let nameWidth = min(titleIntrinsicWidth, max(0, trailing - nx))
         name.frame = NSRect(x: nx, y: SidebarStyle.textY(name, centerY: b.midY), width: nameWidth, height: nh)
-        // The name and the color line only: no bar (cx-7yywz).
-        pill.isHidden = look.style == .line || look.style == .tinted
+        // Every look draws its background (Lawrence 2026-11-05: groups always have a visible background).
+        pill.isHidden = false
         // The cx-rcby chip: one full-width rounded bar, the row's full height like a workspace row's fill.
         pill.frame = b
         pill.cornerRadius = SidebarStyle.rowCornerRadius // one radius with the pinned and workspace rows

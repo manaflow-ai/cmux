@@ -226,7 +226,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 "workspaces.newPlacement", "workspaces.autoName", "sidebar.groupByComputer", "sidebar.sessionTree",
                 "sidebar.showProjects", "sidebar.groupBy", "sidebar.detailedStatusIcons", "sidebar.showTimestamps",
                 "sidebar.showColors", "sidebar.showLocalMachine", "sidebar.groupHeader.memberCount",
-                "sidebar.groupHeader.unreadCount", "sidebar.priorityView.enabled", "sidebar.priorityView.shown",
+                "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background", "sidebar.priorityView.enabled", "sidebar.priorityView.shown",
             ]),
             // The three list shapes (#31140) get their own card so Sidebar Workspaces stays under
             // `maxRowsPerCard`.

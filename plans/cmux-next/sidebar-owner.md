@@ -1,5 +1,14 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-05: every sidebar group draws a visible background, glass or solid. Lawrence, verbatim: "invariant: groups
+  must always have a visible bg color, groups should support both glassy and solid bgs too". A group with no color
+  (every new group since 2026-10-31) drew no bar at all, so it was invisible. `GroupBackground` (CmuxNextDesign) now
+  resolves every header's background: the color as seen over the sidebar keeps at least 1.2:1 against it; no color is
+  a neutral step of the theme's text into the sidebar (never the theme's own background color, Leo 2026-11-02, and no
+  color dot). New setting `sidebar.groupHeader.background`: Automatic (default: glass where the sidebar is see-through,
+  else solid), Glass (translucent fill at 0.6 that composites to the same color, hairline rim), Solid. The band, wash,
+  line and tinted looks all draw it; the members' line under a no-color band takes the neutral fill. Gallery: Sidebar
+  States Playground > Group backgrounds. Regression: `GroupHeaderAlwaysVisibleTests`, `GroupBackgroundEveryThemeTests`.
 - 2026-11-05: Update in One Click (`updates.oneClickInstall`, off by default; #35951). Leo, verbatim, on the Codex app's
   Update available pill: "codex having this update available and then me clicking it enabling it to auto install and
   restart is... interesting". On, the footer's Update Available button (tooltip "…: Click to Update and Restart") and

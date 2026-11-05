@@ -573,7 +573,8 @@ public final class SidebarModel {
         (showsColors, colorIndicator) = (preferences.showColors, preferences.workspaceColorIndicator)
         showsLocalMachine = preferences.showLocalMachine
         groupHeaderDetails = GroupHeaderDetails(memberCount: preferences.groupHeaderMemberCount,
-                                                unreadCount: preferences.groupHeaderUnreadCount)
+                                                unreadCount: preferences.groupHeaderUnreadCount,
+                                                background: preferences.groupHeaderBackground)
         hidesWorkspaces = !preferences.showProjects
         grouping.by = preferences.groupBy
         groupsByComputer = preferences.groupsByComputer

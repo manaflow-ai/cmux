@@ -128,6 +128,9 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// `sidebar.groupHeader.unreadCount`: a collapsed group's header shows its members' unread
     /// total on the right. Off by default, as ``groupHeaderMemberCount``.
     public var groupHeaderUnreadCount = false
+    /// `sidebar.groupHeader.background`: a group header's background is glass, solid, or (the default, `auto`)
+    /// glass where the sidebar is see-through and solid where it is opaque. It always shows (Lawrence 2026-11-05).
+    public var groupHeaderBackground: SidebarGroupBackgroundStyle = .auto
     /// Compact (the default), comfortable or expanded workspace rows
     /// (`sidebar.density`); minimal mode wins over expanded content.
     public var density: SidebarDensity = .compact
