@@ -290,14 +290,28 @@ On each saved `.rs`, `Cargo.toml` or `Cargo.lock` under `cmux-tui/`, the loop
 2. brings the binaries back (rsync, compressed) into a new folder per build, so the running daemon's
    file is never written over;
 3. swaps the daemon the way `scripts/cmux-next/daemon-swap-check.py` measures it: the old owner
-   stops and leaves its terminal hosts running, the new one adopts them (`server restart` when the
-   build has it, else `server stop` and `server ensure`; `daemon restart` for acpmux).
+   stops and leaves its terminal hosts running, the new one adopts them. How depends on who runs the
+   daemon:
+   - **A cmux app's daemon** (it runs from the app's `Contents/Resources/bin/cmux`) swaps the way the
+     app hands off its own. The build is renamed over that file (the `cmux-tui` link next to it
+     stays, so both names are one build), and the owner gets SIGTERM. The app's reconnect then runs
+     its own `server ensure` from the file, with its own install key, so the app keeps its launch
+     identity and pid. A new owner that doesn't answer in 35 s puts the file back.
+     `cmux live stop --rust` puts the app's own build back and hands the daemon back to it.
+   - **Any other daemon:** `server restart` when the build has it, else `server stop` and
+     `server ensure`. acpmux uses `daemon restart`.
 
 The build host builds for the daemon's platform: a Mac build box for the app's daemon on a Mac, any
 Linux box for a daemon on Linux. Pass `--session NAME` for a daemon other than the default session
-(`cmux-app-<tag>` for a tagged build). A build error is logged (`cmux live status` shows it) and the
-running daemon stays as it was. The next app launch hands the session back to the daemon bundled in
-the app.
+(`cmux-app-<tag>` for a tagged build), or `--socket PATH` when the app's daemon socket isn't the
+session's default (an app sets its daemon's `TMPDIR`). A build error is logged (`cmux live status`
+shows it), and the running daemon stays as it was.
+
+On a side copy of a DEV app (cmux#36389, base 1773603b, PR eddb05df, cmux-tui built on the fleet), the
+app handoff took 1.38 s to the PR's daemon, 1.34 s back and 1.16 s forward again. The app's pid and
+three shells stayed the same and kept echoing. The PR's new `conductor_import.record` answered, and
+its replay held across the rollback. These are swap times only, on a loaded Mac, after builds that
+already existed. They are not save-to-swap times.
 
 Measured with `scripts/measure/rust-live-swap.sh OUT` (a scratch daemon with three shells, then
 one-line edits to `identify` in cmux-tui-core, each timed from the save to the swapped daemon
