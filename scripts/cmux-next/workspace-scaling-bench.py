@@ -191,6 +191,21 @@ def run_app(opts):
                           "sidebar": json.loads((sidebar / "results.json").read_text()) if (sidebar / "results.json").exists() else {},
                           "typing": json.loads((typing / "report.json").read_text()) if (typing / "report.json").exists() else {},
                           "sidebar_count": sidebar_count}
+        # A successful probe can still contain missed display samples. Do not let a partial
+        # percentile set become a valid scaling baseline; the instant probe is requested for six
+        # warm samples per interaction at each topology.
+        instant_summary = reports[count]["instant"].get("summary") or {}
+        for command in ("new_workspace", "split_right"):
+            entry = instant_summary.get(f"idle@{count}ws/{command}") or instant_summary.get(f"idle/{command}")
+            if not isinstance(entry, dict):
+                failures.append({"workspaces": count, "probe": "instant", "command": command,
+                                 "incomplete": "missing_summary"})
+            else:
+                missed = entry.get("missed") or 0
+                samples = entry.get("n") or 0
+                if missed or samples < 6:
+                    failures.append({"workspaces": count, "probe": "instant", "command": command,
+                                     "incomplete": "missed_samples", "samples": samples, "missed": missed})
         probes = (instant_rows(reports[count]["instant"], count),
                   sidebar_rows(reports[count]["sidebar"], sidebar_count),
                   typing_rows(reports[count]["typing"], count))
