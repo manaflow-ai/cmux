@@ -657,6 +657,21 @@ mod tests {
     }
 
     #[test]
+    fn an_update_from_a_build_before_runtime_selection_stays_signed_in() {
+        // Shipped NEXT Nightly is `com.cmuxterm.app.nightly`; its session was in
+        // `<bundle>.auth` before #35284 and must still be read there (2026-11-05).
+        for bundle in
+            ["com.cmuxterm.app", "com.cmuxterm.app.rc", "com.cmuxterm.app.nightly", NIGHTLY_BUNDLE]
+        {
+            let home = Home::new();
+            let selected = Resolver::new(bundle, &home.0).unwrap().resolve(None).unwrap();
+            assert_eq!(selected.configuration.name, "prod", "{bundle}");
+            assert!(selected.legacy_storage, "{bundle}");
+            assert_eq!(selected.auth_storage_namespace, None, "{bundle}");
+        }
+    }
+
+    #[test]
     fn safe_untouched_defaults_preserve_historical_storage_only() {
         let home = Home::new();
         for bundle in
