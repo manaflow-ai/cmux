@@ -15,14 +15,16 @@ final class AgentIncomingCaptureUITests: XCTestCase {
             let name = appearance == .dark ? "dark" : "light"
             let app = XCUIApplication()
             app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
-            app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-demo", "disclosure-chat"]
+            // The app's own Appearance setting (system by default) draws the mode asked for.
+            app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmuxMobile.settings.appearance", name,
+                                    "-cmux-mobile-demo", "disclosure-chat"]
             app.launch()
 
             let more = app.navigationBars.buttons["More"].firstMatch
             XCTAssertTrue(more.waitForExistence(timeout: 30), "the pushed agent chat opens\n\(app.debugDescription)")
 
             // The digest's card sits above the subagent turn: scroll up to it.
-            let digest = app.staticTexts["3 messages from other agents"].firstMatch
+            let digest = app.staticTexts["3 messages"].firstMatch
             for _ in 0..<12 where !digest.isHittable {
                 app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
                     .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7)))

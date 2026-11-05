@@ -41,7 +41,7 @@ struct AgentIncomingCard: View {
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
-            Text(incoming.messages.count == 1 ? incoming.senders : "\(incoming.messages.count) messages from other agents")
+            Text(incoming.messages.count == 1 ? incoming.senders : "\(incoming.messages.count) messages")
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(1)
                 .truncationMode(.middle)
