@@ -74,6 +74,7 @@ WEB_CAP = int(os.environ.get("FOCUSED_WEB_CAP", "60"))
 SWIFT_CAP = int(os.environ.get("FOCUSED_SWIFT_CAP", "8"))
 REGISTRY = "tests/test-execution.toml"  # the single file before the split, read while present
 REGISTRY_FRAGMENTS = "tests/test-execution.d"
+REGISTRY_FRAGMENT = re.compile(r"tests/test-execution\.d/[^/]+\.toml")
 IMPORT = re.compile(r"^\s*(?:@testable\s+)?import\s+(?:(?:struct|class|enum|func|protocol)\s+)?([A-Za-z_][A-Za-z0-9_]*)", re.M)
 # A basename this common names many unrelated files; only its full path selects tests.
 COMMON = {"README.md", "Package.swift", "Package.resolved", "Cargo.toml", "Cargo.lock", "index.ts",
@@ -349,6 +350,12 @@ def plan(root: Path, files: list[str]) -> dict:
             if test != path and (path in text or (name and name in text)):
                 python.setdefault(test, f"names {path if path in text else name}")
                 hit = True
+        if REGISTRY_FRAGMENT.fullmatch(path):
+            # A registry fragment selects what the single file did: the tests that read the registry.
+            for test, text in corpus.items():
+                if REGISTRY in text or REGISTRY_FRAGMENTS in text:
+                    python.setdefault(test, f"reads the test registry ({path})")
+                    hit = True
         for rule in extra:
             if path.startswith(rule["prefix"]):
                 for test in rule.get("python", []):
