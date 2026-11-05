@@ -38,18 +38,27 @@ pub struct MeshRelayConfig {
     /// Read the joined machine credential from the owner-only store.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub credential: Option<String>,
-    /// Daemons whose authenticated mesh messages may run lifecycle controls here. An empty
-    /// list is fail-closed; the machine owner must opt each sender in explicitly.
+    /// Senders whose authenticated mesh messages may run lifecycle controls here. An empty
+    /// list is fail-closed. `host join` writes one [`MeshControlFrom::same_user`] entry; any
+    /// other sender the machine owner opts in by its daemon id.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub control_from: Vec<MeshControlFrom>,
 }
 
-/// An owner-configured control sender. The hub's `from.user` and claimed session fields are
-/// deliberately ignored: only its stamped daemon id is authority, and only for listed ops.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// An owner-configured control sender: one daemon by its hub-stamped id (`daemonId`), or every
+/// daemon the hub stamps with this machine's own person (`sameUser`, the person recorded at
+/// `host join`). Claimed session, name and host fields are never authority, and only listed ops
+/// are granted.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MeshControlFrom {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub daemon_id: String,
+    /// Any daemon whose hub-stamped `from.user` is this machine's own person (Tailscale's
+    /// `autogroup:self`): "allow access for any user that is authenticated as the same user as
+    /// the source". A machine with no recorded person grants nothing through it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub same_user: bool,
     /// Omitted means all three lifecycle operations; an explicit empty list grants nothing.
     #[serde(default = "lifecycle_ops")]
     pub ops: Vec<String>,
@@ -80,11 +89,36 @@ fn lifecycle_ops() -> Vec<String> {
 }
 
 impl MeshControlFrom {
-    pub fn allows(&self, daemon_id: &str, op: &str) -> bool {
-        !self.daemon_id.is_empty()
-            && self.daemon_id == daemon_id
-            && matches!(op, "start" | "resume" | "stop")
-            && self.ops.iter().any(|allowed| allowed == op)
+    /// The entry `host join` writes: the person's own other machines, for every lifecycle op.
+    pub fn same_user() -> Self {
+        Self { daemon_id: String::new(), same_user: true, ops: lifecycle_ops() }
+    }
+
+    /// Whether this entry lets `from` run `op` here. `from` is the hub-stamped sender (its
+    /// `daemonId` and `user` come from the sender's verified credential); `own_user` is the
+    /// person this machine recorded at join, if any. A `read` (one page of a session, nothing
+    /// changed) is granted to a sender this entry trusts with any lifecycle op, or one that lists
+    /// `read`; an explicit empty list grants nothing.
+    pub fn allows(&self, from: &crate::mesh::Sender, own_user: Option<&str>, op: &str) -> bool {
+        let granted = match op {
+            "start" | "resume" | "stop" => self.ops.iter().any(|allowed| allowed == op),
+            "read" => self
+                .ops
+                .iter()
+                .any(|allowed| matches!(allowed.as_str(), "start" | "resume" | "stop" | "read")),
+            _ => false,
+        };
+        if !granted {
+            return false;
+        }
+        fn present(value: Option<&str>) -> Option<&str> {
+            value.filter(|value| !value.is_empty())
+        }
+        let by_daemon = present(Some(&self.daemon_id))
+            .is_some_and(|id| present(from.daemon_id.as_deref()) == Some(id));
+        let by_user = self.same_user
+            && present(own_user).is_some_and(|own| present(from.user.as_deref()) == Some(own));
+        by_daemon || by_user
     }
 }
 
@@ -482,6 +516,21 @@ impl MeshHub for HttpHub {
             )
         })
     }
+
+    fn answer<'a>(
+        &'a self,
+        id: &'a str,
+        wait: Duration,
+    ) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        Box::pin(async move {
+            if !crate::mesh::is_message_id(id) {
+                return Err(HubError::refused("the message id is not valid"));
+            }
+            let wait = wait.min(Duration::from_secs(25));
+            let path = format!("/v1/mesh/messages/{id}?waitSeconds={}", wait.as_secs());
+            decode(self.call(reqwest::Method::GET, &path, None, wait + CALL_WAIT).await?)
+        })
+    }
 }
 
 fn query_component(value: &str) -> String {
@@ -622,23 +671,83 @@ mod tests {
         assert!(HubError::refused("no token command").ends_relay());
     }
 
+    fn from(daemon: Option<&str>, user: Option<&str>) -> crate::mesh::Sender {
+        crate::mesh::Sender {
+            daemon_id: daemon.map(str::to_owned),
+            user: user.map(str::to_owned),
+            // Claims a sender makes about itself, never authority.
+            name: Some("u1".into()),
+            host: Some("u1".into()),
+            ..Default::default()
+        }
+    }
+
     #[test]
     fn control_sender_allowlist_uses_only_the_stamped_daemon_and_selected_ops() {
+        let d1 = from(Some("d1"), None);
         let default: MeshControlFrom = serde_json::from_value(json!({"daemonId":"d1"})).unwrap();
         for op in ["start", "resume", "stop"] {
-            assert!(default.allows("d1", op));
+            assert!(default.allows(&d1, None, op));
         }
         let all: MeshControlFrom =
             serde_json::from_value(json!({"daemonId":"d1", "ops":[]})).unwrap();
         let round_trip: MeshControlFrom =
             serde_json::from_value(serde_json::to_value(&all).unwrap()).unwrap();
-        assert!(!round_trip.allows("d1", "start"));
-        assert!(!all.allows("d1", "start"));
-        assert!(!all.allows("d2", "start"));
-        let resume = MeshControlFrom { daemon_id: "d1".into(), ops: vec!["resume".into()] };
-        assert!(resume.allows("d1", "resume"));
-        assert!(!resume.allows("d1", "stop"));
-        assert!(!MeshControlFrom { daemon_id: String::new(), ops: vec![] }.allows("d1", "start"));
+        assert!(!round_trip.allows(&d1, None, "start"));
+        assert!(!all.allows(&d1, None, "start"));
+        assert!(!all.allows(&from(Some("d2"), None), None, "start"));
+        let resume = MeshControlFrom {
+            daemon_id: "d1".into(),
+            ops: vec!["resume".into()],
+            ..Default::default()
+        };
+        assert!(resume.allows(&d1, None, "resume"));
+        assert!(!resume.allows(&d1, None, "stop"));
+        assert!(!MeshControlFrom::default().allows(&d1, None, "start"));
+        assert!(!MeshControlFrom { ops: vec![], ..Default::default() }.allows(
+            &from(Some(""), None),
+            None,
+            "start"
+        ));
+        // A daemonId entry never matches on the person alone.
+        assert!(!default.allows(&from(Some("d2"), Some("u1")), Some("u1"), "start"));
+    }
+
+    #[test]
+    fn same_user_allows_only_the_hub_stamped_person_this_machine_recorded() {
+        let entry: MeshControlFrom = serde_json::from_value(json!({"sameUser": true})).unwrap();
+        assert_eq!(entry, MeshControlFrom::same_user());
+        // Same person, any of its daemons: allowed for every lifecycle op.
+        for op in ["start", "resume", "stop"] {
+            assert!(entry.allows(&from(Some("d9"), Some("u1")), Some("u1"), op), "{op}");
+        }
+        assert!(!entry.allows(&from(Some("d9"), Some("u1")), Some("u1"), "delete"));
+        // A read of one session goes to the same person's other machine, never to another's.
+        assert!(entry.allows(&from(Some("d9"), Some("u1")), Some("u1"), "read"));
+        assert!(!entry.allows(&from(Some("d9"), Some("u2")), Some("u1"), "read"));
+        assert!(!entry.allows(&from(Some("d9"), Some("u1")), None, "read"));
+        // Another person is refused.
+        assert!(!entry.allows(&from(Some("d9"), Some("u2")), Some("u1"), "start"));
+        // No recorded person here (an old join, or the hub sent no userId) grants nothing.
+        assert!(!entry.allows(&from(Some("d9"), Some("u1")), None, "start"));
+        assert!(!entry.allows(&from(Some("d9"), Some("")), Some(""), "start"));
+        // A sender the hub stamped with no person is refused.
+        assert!(!entry.allows(&from(Some("d9"), None), Some("u1"), "start"));
+        // An explicit empty ops list grants nothing.
+        let none: MeshControlFrom =
+            serde_json::from_value(json!({"sameUser": true, "ops": []})).unwrap();
+        assert!(!none.allows(&from(Some("d9"), Some("u1")), Some("u1"), "start"));
+        assert!(!none.allows(&from(Some("d9"), Some("u1")), Some("u1"), "read"));
+        let round_trip: MeshControlFrom =
+            serde_json::from_value(serde_json::to_value(&none).unwrap()).unwrap();
+        assert_eq!(round_trip, none);
+        // Without `sameUser` the person is no authority.
+        let off: MeshControlFrom = serde_json::from_value(json!({"sameUser": false})).unwrap();
+        assert!(!off.allows(&from(Some("d9"), Some("u1")), Some("u1"), "start"));
+        assert_eq!(
+            serde_json::to_value(MeshControlFrom::same_user()).unwrap(),
+            json!({"sameUser": true, "ops": ["start", "resume", "stop"]})
+        );
     }
 
     #[test]

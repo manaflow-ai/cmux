@@ -78,14 +78,18 @@ struct PaneHeldContentLandingTests {
         host.isOnLayoutSpring = true
         host.announceRest()
         let atStart = await grids()
-        // Its near edge moves, its far edge stays: the content keeps its start size, pinned to that edge.
+        // Its near edge moves, its far edge stays: the content holds its rest size from the first frame (Leo
+        // 2026-11-05: "the main pane waits for the right pane to shift before it shifts. Like, why are you waiting?"),
+        // pinned to that edge.
         for x in [20.0, 50, 80] as [CGFloat] {
             Self.present(host, at: CGRect(x: x, y: 0, width: 600 - x, height: 800), rest: rest)
+            try #require(host.content.frame.size.width <= rest.width,
+                         "the content waits at its start size on a spring frame (\(host.content.frame.size), rest \(rest.size))")
         }
         // Its size comes to rest a frame before its origin does...
         Self.present(host, at: rest.offsetBy(dx: -1, dy: 0), rest: rest)
-        try #require(host.content.frame.size != host.contentRect.size,
-                     "the content is not held before the landing (\(host.content.frame.size) in \(host.contentRect.size))")
+        try #require(host.content.frame.size == host.contentRect.size,
+                     "the content is not at its rest size before the landing (\(host.content.frame.size) in \(host.contentRect.size))")
         // ...and the frame it lands at only moves it.
         Self.present(host, at: rest, rest: rest)
         host.isOnLayoutSpring = false

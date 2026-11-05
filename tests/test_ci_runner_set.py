@@ -28,7 +28,7 @@ TARGETS = {
     "gallery-health.yml": {"health"},
     "web-validation.yml": {"changes", "build", "tests", "database", "web-validation"},
     "pr-checks.yml": {"base-only", "size", "ui-review", "split"},
-    "pr-cloud-backend-check.yml": {"cloud-backend"},
+    "pr-body-checks.yml": {"body"},
 }
 
 
@@ -107,6 +107,8 @@ class RunnerSetTests(unittest.TestCase):
         # landing.md: a leo-named-fix PR lands with no wait.
         self.assertIn("!contains(github.event.pull_request.labels.*.name, 'leo-named-fix')", gate["if"])
         self.assertIn("github.run_attempt == 1 && 'ubuntu-24.04'", gate["runs-on"])
+        # A fork's sleep takes hosted Ubuntu too; no Blacksmith label is written down (review F1 of #36353).
+        self.assertNotIn("'blacksmith-", gate["runs-on"])
         self.assertTrue(gate["runs-on"].rstrip().endswith(
             "|| vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}"))
         self.assertEqual(gate["permissions"], {})

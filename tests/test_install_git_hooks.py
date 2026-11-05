@@ -315,6 +315,33 @@ class InstallGitHooksTests(unittest.TestCase):
         self.assertIn('path = "tests/test_mine.py"', text)
         self.assertNotIn("tests/test_base.py", text)
 
+    def test_pre_commit_registers_a_new_test_in_its_area_fragment(self):
+        """The registry is tests/test-execution.d/<area>.toml: a new test goes into its area's file,
+        and the hook stages that file, including a fragment the registration creates."""
+        self.assertEqual(self.install().returncode, 0)
+        workflow = self.repo / ".github/workflows/ci-guards.yml"
+        workflow.parent.mkdir(parents=True, exist_ok=True)
+        workflow.write_text(
+            "name: CI guards\njobs:\n  workflow-guard-tests:\n    steps:\n"
+            "      - run: python3 tests/test_ci_kept.py\n      - run: python3 tests/test_ci_mine.py\n",
+            encoding="utf-8",
+        )
+        fragments = self.repo / "tests/test-execution.d"
+        fragments.mkdir(parents=True)
+        (fragments / "ci.toml").write_text('# ci\n\n[[test]]\npath = "tests/test_ci_kept.py"\nlane = "linux-guard"\n',
+                                           encoding="utf-8")
+        (self.repo / "tests/test_ci_kept.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+        self.git("add", "-A")
+        self.git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "--quiet", "--no-verify", "-m", "base")
+
+        (self.repo / "tests/test_ci_mine.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+        self.git("add", "tests/test_ci_mine.py")
+        result = self.run_pre_commit(self.env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('path = "tests/test_ci_mine.py"', (fragments / "ci.toml").read_text(encoding="utf-8"))
+        self.assertFalse((self.repo / "tests/test-execution.toml").exists())
+        self.assertIn("tests/test-execution.d/ci.toml", self.git("diff", "--cached", "--name-only").stdout)
+
     def test_pre_commit_registers_a_test_its_workflow_change_names(self):
         """A commit that only adds a workflow line for an existing test registers that test, and
         still not the base's other unregistered one (#21946)."""

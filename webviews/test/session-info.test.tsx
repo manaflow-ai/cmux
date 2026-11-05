@@ -261,13 +261,16 @@ test("Session Info Sources navigate mixed targets and preserve expansion during 
   const list = () => container.querySelectorAll("[data-section=sources] li");
   const fold = () => container.querySelector<HTMLButtonElement>(".acpmux-session-info-sources-fold")!;
   expect(list()).toHaveLength(5);
-  for (const target of container.querySelectorAll<HTMLElement>("ul[data-section=sources] :is(a,button)"))
-    await click(target);
+  const links = container.querySelectorAll<HTMLElement>("ul[data-section=sources] .acpmux-session-info-source__link");
+  for (const target of links) await click(target);
   expect(urls).toEqual(sources.slice(0, 3).map((source) => source.url!));
+  // Only the pull request has a ⋯ (View diff), which opens its Files tab.
+  expect(container.querySelectorAll("ul[data-section=sources] .acpmux-session-info-source__more")).toHaveLength(1);
   expect(files).toEqual(["/project/.claude/worktrees/a/app.ts", "/project/.claude/worktrees/a/README.md"]);
   await click(fold());
   expect(list()).toHaveLength(8);
-  expect(container.querySelectorAll("ul[data-section=sources] button")).toHaveLength(2);
+  const fileButtons = "ul[data-section=sources] button.acpmux-session-info-source__link";
+  expect(container.querySelectorAll(fileButtons)).toHaveLength(2);
   expect(fold().textContent).toContain("Show fewer");
   await draw([{ ...assistant("stream", 1), streaming: true }]);
   expect(list()).toHaveLength(8);

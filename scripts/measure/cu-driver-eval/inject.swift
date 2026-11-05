@@ -5,6 +5,7 @@
 //   cu-eval-inject find-window PID              {"wid","frame":[x,y,w,h]} of PID's largest window
 //   cu-eval-inject tap-click X Y                a real click through the session tap (setup only)
 //   cu-eval-inject warp X Y                     park the pointer
+//   cu-eval-inject display-mode W H             switch the main display to W x H points, 1x if offered
 //   cu-eval-inject post ROUTE GESTURE PID WID WX WY WW WH LX LY
 //
 // post sends one GESTURE (click: down and up; key: "a" down and up; scroll: 5 wheel lines) to
@@ -19,6 +20,9 @@
 //                1, 3, 7, 40, 51, 58, 91, 92 and CGEventSetWindowLocation, posted through
 //                SLEventPostToPid and then CGEventPostToPid (ported from trycua/cua, MIT:
 //                libs/cua-driver/rust/crates/platform-macos/src/input/mouse.rs post_mouse_event)
+//   stamped-sl   the same stamped events, posted through SLEventPostToPid only
+//   stamped-cg   the same stamped events, posted through CGEventPostToPid only (which of the two
+//                delivers each gesture, so a driver can post once instead of twice)
 // nsevent-pid has no scroll (NSEvent has no public wheel constructor): it prints "unsupported".
 // Every route is fire-and-forget; what arrived is read from the target's own log, never from here.
 import AppKit
@@ -76,6 +80,16 @@ case "observe":
         "cursor": [cursor.x, cursor.y], "screen": [screen.width, screen.height],
         "order": windows().compactMap { $0[kCGWindowNumber as String] as? Int }])
 
+case "windows":
+  // Every on-screen window, front to back, at any layer: what was in front when a driver said so.
+  let all = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+  emit(["windows": all.map { info -> [String: Any] in
+    let bounds = (info[kCGWindowBounds as String] as? NSDictionary).flatMap { CGRect(dictionaryRepresentation: $0) } ?? .zero
+    return ["number": info[kCGWindowNumber as String] as? Int ?? -1, "owner": info[kCGWindowOwnerName as String] as? String ?? "",
+            "name": info[kCGWindowName as String] as? String ?? "", "layer": info[kCGWindowLayer as String] as? Int ?? 0,
+            "alpha": info[kCGWindowAlpha as String] as? Double ?? 1, "frame": [bounds.minX, bounds.minY, bounds.width, bounds.height]]
+  }])
+
 case "find-window":
   guard args.count == 2, let pid = Int(args[1]) else { fail("find-window PID") }
   let mine = windows().filter { ($0[kCGWindowOwnerPID as String] as? Int) == pid }
@@ -101,6 +115,35 @@ case "tap-click", "warp":
     }
   }
 
+case "display-mode":
+  // A VM image keeps the mode it was saved with, whatever framebuffer the host gives it.
+  guard args.count == 3, let width = Int(args[1]), let height = Int(args[2]) else { fail("display-mode W H") }
+  let display = CGMainDisplayID()
+  let options = [kCGDisplayShowDuplicateLowResolutionModes as String: true] as CFDictionary
+  let modes = CGDisplayCopyAllDisplayModes(display, options) as? [CGDisplayMode] ?? []
+  func describe(_ mode: CGDisplayMode?) -> String {
+    guard let mode else { return "" }
+    return "\(mode.width)x\(mode.height) (\(mode.pixelWidth)x\(mode.pixelHeight) px)"
+  }
+  let before = CGDisplayCopyDisplayMode(display)
+  let matches = modes.filter { $0.width == width && $0.height == height }
+  guard let mode = matches.first(where: { $0.pixelWidth == width }) ?? matches.first else {
+    emit(["set": false, "from": describe(before), "modes": modes.map { describe($0) }])
+    exit(1)
+  }
+  var config: CGDisplayConfigRef?
+  var error = CGBeginDisplayConfiguration(&config)
+  if error == .success { error = CGConfigureDisplayWithDisplayMode(config, display, mode, nil) }
+  if error == .success {
+    error = CGCompleteDisplayConfiguration(config, .permanently)
+  } else {
+    _ = CGCancelDisplayConfiguration(config)
+  }
+  pause(1000)
+  emit(["set": error == .success, "error": Int(error.rawValue), "from": describe(before),
+        "to": describe(CGDisplayCopyDisplayMode(display))])
+  if error != .success { exit(1) }
+
 case "post":
   guard args.count == 11, let pidValue = Int32(args[3]), let wid = Int(args[4]) else {
     fail("post ROUTE GESTURE PID WID WX WY WW WH LX LY")
@@ -121,6 +164,9 @@ case "post":
     for (field, value) in fields { setIntegerField?(event, field, value) }
   }
 
+  // The three stamped routes build the same events and differ only in how they post them.
+  let stamped = route.hasPrefix("stamped-")
+
   func send(_ event: CGEvent) {
     switch route {
     case "cg-pid", "nsevent-pid": event.postToPid(pid)
@@ -131,6 +177,10 @@ case "post":
     case "stamped-pid":
       slPostToPid?(pid, event)
       event.postToPid(pid)
+    case "stamped-sl":
+      guard let post = slPostToPid else { fail("SLEventPostToPid is missing", code: 3) }
+      post(pid, event)
+    case "stamped-cg": event.postToPid(pid)
     default: fail("unknown route \(route)")
     }
   }
@@ -143,7 +193,7 @@ case "post":
                                 eventNumber: 0, clickCount: type == .mouseMoved ? 0 : 1, pressure: type == .leftMouseDown ? 1 : 0)?.cgEvent
     }
     guard let event = CGEvent(mouseEventSource: source, mouseType: type, mouseCursorPosition: screen, mouseButton: .left) else { return nil }
-    if route == "stamped-pid" { stamp(event, clickState: type == .mouseMoved ? 0 : 1, subtype: type == .mouseMoved ? 0 : 3) }
+    if stamped { stamp(event, clickState: type == .mouseMoved ? 0 : 1, subtype: type == .mouseMoved ? 0 : 3) }
     return event
   }
 
@@ -156,7 +206,7 @@ case "post":
     guard let event = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: down) else { return nil }
     var chars: [UniChar] = [0x61]
     event.keyboardSetUnicodeString(stringLength: 1, unicodeString: &chars)
-    if route == "stamped-pid" {
+    if stamped {
       setIntegerField?(event, 51, Int64(wid))
       setIntegerField?(event, 40, Int64(pid))
     }
@@ -166,7 +216,7 @@ case "post":
   var events: [CGEvent?] = []
   switch gesture {
   case "click":
-    if route == "stamped-pid" { events.append(mouse(.mouseMoved)) }
+    if stamped { events.append(mouse(.mouseMoved)) }
     events += [mouse(.leftMouseDown), mouse(.leftMouseUp)]
   case "key":
     events += [key(true), key(false)]
@@ -178,7 +228,7 @@ case "post":
     for _ in 0..<5 {
       let wheel = CGEvent(scrollWheelEvent2Source: source, units: .line, wheelCount: 1, wheel1: -1, wheel2: 0, wheel3: 0)
       wheel?.location = screen
-      if let wheel, route == "stamped-pid" { stamp(wheel, clickState: 0, subtype: 0) }
+      if let wheel, stamped { stamp(wheel, clickState: 0, subtype: 0) }
       events.append(wheel)
     }
   default: fail("unknown gesture \(gesture)")

@@ -59,6 +59,10 @@ pub struct EngineConfig {
     /// one keeps the latency lowest on a short path; a path whose round trip spans
     /// several frame intervals needs more (`frames_in_flight_for`).
     pub frames_in_flight: u32,
+    /// After injected input, frames skip the frame-rate cap for a short window
+    /// (`cmux_rd_core::flow::INPUT_FRAME_WINDOW_US`), so the input's effect goes out as soon
+    /// as the capture delivers it instead of on the next interval.
+    pub input_frame_now: bool,
 }
 
 impl Default for EngineConfig {
@@ -75,6 +79,7 @@ impl Default for EngineConfig {
             input_gap_timeout_us: 200_000,
             stream: 0,
             frames_in_flight: 1,
+            input_frame_now: false,
         }
     }
 }
@@ -549,6 +554,7 @@ impl MediaEngine {
                 if may_inject {
                     out.inject = self.applier.accept(&packet, now_us);
                     out.release_all = self.applier.take_skipped_gap();
+                    self.note_input(&out, now_us);
                 } else {
                     // Discard and acknowledge: a view-only viewer stops
                     // repeating, and a late repeat never applies after
@@ -629,8 +635,19 @@ impl MediaEngine {
         if may_inject {
             out.inject = events;
             out.release_all = self.applier.take_skipped_gap();
+            self.note_input(&out, now_us);
         }
         out
+    }
+
+    /// Input goes to the source now: with `input_frame_now`, every stream's gate opens its
+    /// input window.
+    fn note_input(&mut self, out: &Output, now_us: u64) {
+        if self.cfg.input_frame_now && !out.inject.is_empty() {
+            for state in self.streams.values_mut() {
+                state.gate.input(now_us);
+            }
+        }
     }
 
     /// Forgets held input (control ended or the session stopped); the source

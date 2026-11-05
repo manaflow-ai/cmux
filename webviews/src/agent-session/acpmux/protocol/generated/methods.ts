@@ -87,6 +87,9 @@ export interface AcpmuxRequests {
   "_acpmux/bg/list": { params: unknown; result: unknown };
   "_acpmux/bg/output": { params: unknown; result: unknown };
   "_acpmux/bg/stop": { params: unknown; result: unknown };
+  "_acpmux/goal/set": { params: unknown; result: unknown };
+  "_acpmux/goal/update": { params: unknown; result: unknown };
+  "_acpmux/goal/get": { params: unknown; result: unknown };
   "_acpmux/process/background": { params: ProcessBackgroundParams; result: ProcessBackgroundResult };
   "_acpmux/worktree/report": { params: unknown; result: unknown };
   "_acpmux/worktree/clean": { params: unknown; result: unknown };
@@ -149,6 +152,7 @@ export interface AcpmuxRequests {
   "_acpmux/task_new": { params: unknown; result: unknown };
   "_acpmux/tasks": { params: unknown; result: unknown };
   "_acpmux/resolve": { params: unknown; result: unknown };
+  "_acpmux/who_else": { params: unknown; result: unknown };
   "_acpmux/media_open": { params: unknown; result: unknown };
   "_acpmux/media_range": { params: unknown; result: unknown };
   "_acpmux/permission_respond": { params: PermissionRespondParams; result: PermissionRespondResult };
@@ -401,6 +405,9 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/bg/list", kind: "request", acp: false, typed: false },
   { name: "_acpmux/bg/output", kind: "request", acp: false, typed: false },
   { name: "_acpmux/bg/stop", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/goal/set", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/goal/update", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/goal/get", kind: "request", acp: false, typed: false },
   { name: "_acpmux/process/background", kind: "request", acp: false, typed: true },
   { name: "_acpmux/worktree/report", kind: "request", acp: false, typed: false },
   { name: "_acpmux/worktree/clean", kind: "request", acp: false, typed: false },
@@ -464,6 +471,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/task_new", kind: "request", acp: false, typed: false },
   { name: "_acpmux/tasks", kind: "request", acp: false, typed: false },
   { name: "_acpmux/resolve", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/who_else", kind: "request", acp: false, typed: false },
   { name: "_acpmux/media_open", kind: "request", acp: false, typed: false },
   { name: "_acpmux/media_range", kind: "request", acp: false, typed: false },
   { name: "_acpmux/permission_respond", kind: "request", acp: false, typed: true },
