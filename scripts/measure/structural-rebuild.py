@@ -62,11 +62,10 @@ def build_facts(reload_log):
     return facts
 
 
-def launch(app, out):
-    """Launches the tagged app; returns (launcher, seconds to a window on the socket)."""
-    launcher = BenchApp(app, out=out, log_name=f"app-{TAG}.log", window=None, screen=None, teardown=False)
-    launcher.launch(timeout=180)
-    return launcher, launcher.ready_seconds
+def launcher_for(app, out):
+    """The tagged app's launcher. Its stop() quits the app and ends the tag's daemons (TagTeardown), so the next
+    launch's fresh start never moves a state folder a live daemon still writes."""
+    return BenchApp(app, out=out, log_name=f"app-{TAG}.log", window=None, screen=None)
 
 
 def add_property(index):
@@ -94,15 +93,21 @@ def main():
 
     try:
         seconds, app, log = reload(opts.config, opts.out, 0)
-        launcher, ready = launch(app, opts.out)
-        record({"build": 0, "edit": None, "reload_s": seconds, "launch_to_usable_s": ready, **build_facts(log)})
+        # Assigned before launch(), so a launch that spawns the app and then fails is still stopped below.
+        launcher = launcher_for(app, opts.out)
+        launcher.launch(timeout=180)
+        record({"build": 0, "edit": None, "reload_s": seconds, "launch_to_usable_s": launcher.ready_seconds,
+                **build_facts(log)})
         for i in range(1, opts.edits + 1):
             add_property(i)
             stop_start = time.monotonic()
             launcher.stop()
+            launcher = None
             stop_s = round(time.monotonic() - stop_start, 1)
             seconds, app, log = reload(opts.config, opts.out, i)
-            launcher, ready = launch(app, opts.out)
+            launcher = launcher_for(app, opts.out)
+            launcher.launch(timeout=180)
+            ready = launcher.ready_seconds
             record({"build": i, "edit": f"stored property {i} on HomeHostView", "stop_s": stop_s,
                     "reload_s": seconds, "launch_to_usable_s": ready,
                     "edit_to_usable_s": round(stop_s + seconds + (ready or 0), 1), **build_facts(log)})
