@@ -1,0 +1,131 @@
+#!/usr/bin/env python3
+"""rust-live.py swaps a cmux app's daemon the way the app hands off its own: the new build renamed over
+the app's bin/cmux (its cmux-tui link kept), SIGTERM to the owner, and the app's own `server ensure`
+brings up the next owner. A no-show puts the file back; `stop` restores the app's own build.
+
+The owner is a real process (sleep); a thread plays the app, starting the next owner from the file
+once the old one exits. No cmux build or app is needed."""
+import importlib.util
+import os
+import signal
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+spec = importlib.util.spec_from_file_location("rust_live", ROOT / "scripts/cmux-next/rust-live.py")
+rust_live = importlib.util.module_from_spec(spec)
+sys.modules["rust_live"] = rust_live  # dataclasses look their module up here
+spec.loader.exec_module(rust_live)
+
+
+class FakeApp:
+    """An app bundle whose daemon is a sleep process; `respawn` is the app's reconnect."""
+
+    def __init__(self, root: Path, respawn: bool = True):
+        self.bin = root / "cmux DEV.app" / "Contents" / "Resources" / "bin"
+        self.bin.mkdir(parents=True)
+        self.file = self.bin / "cmux"
+        self.file.write_text("base build\n")
+        (self.bin / "cmux-tui").symlink_to("cmux")
+        self.respawn = respawn
+        self.builds_run: list[str] = []
+        self.owner = self.start()
+        self.stopped = threading.Event()
+        threading.Thread(target=self.supervise, daemon=True).start()
+
+    def start(self) -> subprocess.Popen:
+        self.builds_run.append(self.file.read_text())
+        return subprocess.Popen(["sleep", "600"])
+
+    def supervise(self) -> None:
+        while not self.stopped.is_set():
+            if self.owner.poll() is not None and self.respawn:
+                time.sleep(0.05)  # the app's first reconnect backoff
+                self.owner = self.start()
+            time.sleep(0.01)
+
+    def status(self):
+        return (self.owner.pid, self.file) if self.owner.poll() is None else None
+
+    def close(self) -> None:
+        self.stopped.set()
+        if self.owner.poll() is None:
+            self.owner.send_signal(signal.SIGKILL)
+            self.owner.wait()
+
+
+class AppHandoffTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.new = self.tmp / "build" / "cmux-tui"
+        self.new.parent.mkdir()
+        self.new.write_text("pr build\n")
+        self.state = self.tmp / "state"
+        self.state.mkdir()
+
+    def swapper(self, app: FakeApp):
+        swapper = rust_live.Swapper(None, "/fake.sock", state=self.state)
+        swapper.owner = lambda _cli: app.status()
+        swapper.cli = lambda *_a, **_k: self.fail("an app's daemon must not go through server restart/stop/ensure")
+        return swapper
+
+    def test_the_new_build_runs_from_the_apps_file_with_the_link_kept(self):
+        app = FakeApp(self.tmp)
+        self.addCleanup(app.close)
+        first = app.owner.pid
+        steps = self.swapper(app).swap({"cmux-tui": self.new})
+        self.assertEqual(steps["cmux-tui"], "app handoff")
+        self.assertNotEqual(app.owner.pid, first)
+        self.assertEqual(app.builds_run, ["base build\n", "pr build\n"])
+        self.assertTrue((app.bin / "cmux-tui").is_symlink())
+        self.assertEqual((app.bin / "cmux-tui").read_text(), "pr build\n")
+        self.assertEqual(sorted(p.name for p in app.bin.iterdir()), ["cmux", "cmux-tui"])
+
+    def test_stop_puts_the_apps_own_build_back_and_hands_off_to_it(self):
+        app = FakeApp(self.tmp)
+        self.addCleanup(app.close)
+        swapper = self.swapper(app)
+        swapper.swap({"cmux-tui": self.new})
+        second = self.new.with_name("cmux-tui-2")
+        second.write_text("pr build 2\n")
+        swapper.swap({"cmux-tui": second})
+        self.assertTrue((self.state / "app-original.json").is_file())
+        # A new watcher (the old one died) still knows the app's own build.
+        later = rust_live.Swapper(None, "/fake.sock", state=self.state)
+        later.owner = lambda _cli: app.status()
+        self.assertEqual(later.restore_app(), str(app.file))
+        self.assertEqual(app.file.read_text(), "base build\n")
+        self.assertEqual(app.builds_run[-1], "base build\n")
+        self.assertFalse((self.state / "app-original.json").exists())
+
+    def test_no_new_owner_puts_the_file_back(self):
+        app = FakeApp(self.tmp, respawn=False)
+        self.addCleanup(app.close)
+        swapper = self.swapper(app)
+        old = rust_live.APP_OWNER_SECS
+        rust_live.APP_OWNER_SECS = 0.5
+        self.addCleanup(setattr, rust_live, "APP_OWNER_SECS", old)
+        with self.assertRaisesRegex(RuntimeError, "back as it was"):
+            swapper.swap({"cmux-tui": self.new})
+        self.assertEqual(app.file.read_text(), "base build\n")
+        self.assertEqual(sorted(p.name for p in app.bin.iterdir()), ["cmux", "cmux-tui"])
+
+    def test_a_daemon_outside_an_app_still_restarts_through_the_cli(self):
+        swapper = rust_live.Swapper("s", None, state=self.state)
+        loose = self.tmp / "target" / "cmux-tui"
+        loose.parent.mkdir()
+        loose.write_text("x")
+        calls = []
+        swapper.owner = lambda _cli: (os.getpid(), loose)
+        swapper.cli = lambda _bin, *words, **_k: calls.append(words) or subprocess.CompletedProcess(words, 0, "", "")
+        self.assertEqual(swapper.swap({"cmux-tui": self.new})["cmux-tui"], "server restart")
+        self.assertEqual(calls, [("server", "restart")])
+
+
+if __name__ == "__main__":
+    unittest.main()
