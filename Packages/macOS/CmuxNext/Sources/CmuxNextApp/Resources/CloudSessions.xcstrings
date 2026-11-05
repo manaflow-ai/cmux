@@ -1054,6 +1054,33 @@
         "vi": {"stringUnit": {"state": "needs_review", "value": "%2$@ trên %1$@ vẫn đang nhận đăng nhập của bạn, nên lời nhắc chưa được gửi qua relay. Chạy `%3$@`, lệnh này sẽ chờ nó."}}
       }
     },
+    "cloud.relayChat.loginDeclined": {
+      "comment": "Relay chat refusal: the person declined copying their login (the confirm or the one-time consent). %1$@ machine, %2$@ agent, %3$@ the cmux command (keep in English; keep the Sign in to Claude button name as the app shows it).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "You chose not to give %2$@ on %1$@ your login, so the prompt wasn't sent. Run `%3$@` and sign in there with Sign in to Claude, or allow the copy when cmux asks."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "%1$@ の %2$@ にログインを渡さないことを選んだため、プロンプトは送信されませんでした。`%3$@` を実行して「Claude にサインイン」でサインインするか、cmux に聞かれたらコピーを許可してください。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Du hast entschieden, %2$@ auf %1$@ deine Anmeldung nicht zu geben, daher wurde der Prompt nicht gesendet. Führe `%3$@` aus und melde dich dort mit „Bei Claude anmelden“ an, oder erlaube die Kopie, wenn cmux fragt."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Vous avez choisi de ne pas donner votre connexion à %2$@ sur %1$@, donc le prompt n'a pas été envoyé. Exécutez `%3$@` et connectez-vous avec Se connecter à Claude, ou autorisez la copie quand cmux le demande."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Elegiste no dar tu inicio de sesión a %2$@ en %1$@, así que el prompt no se envió. Ejecuta `%3$@` e inicia sesión allí con Iniciar sesión en Claude, o permite la copia cuando cmux pregunte."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "اخترت ألا تعطي %2$@ على %1$@ تسجيل دخولك، لذلك لم تُرسل المطالبة. شغّل `%3$@` وسجّل الدخول هناك عبر تسجيل الدخول إلى Claude، أو اسمح بالنسخ عندما يسأل cmux."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "%1$@의 %2$@에 내 로그인을 주지 않기로 해서 프롬프트를 보내지 않았습니다. `%3$@`을(를) 실행해 Claude에 로그인으로 로그인하거나, cmux가 물을 때 복사를 허용하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "你选择了不把登录给 %1$@ 上的 %2$@，所以提示没有发送。运行 `%3$@` 并在那里用“登录 Claude”登录，或在 cmux 询问时允许复制。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "你選擇了不把登入給 %1$@ 上的 %2$@，所以提示沒有送出。執行 `%3$@` 並在那裡用「登入 Claude」登入，或在 cmux 詢問時允許複製。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Odlučio si da ne daš svoju prijavu za %2$@ na %1$@, pa prompt nije poslan. Pokreni `%3$@` i prijavi se tamo s Prijava na Claude, ili dozvoli kopiranje kad cmux pita."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Du valgte ikke at give %2$@ på %1$@ dit login, så prompten blev ikke sendt. Kør `%3$@` og log ind der med Log ind på Claude, eller tillad kopien, når cmux spørger."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Hai scelto di non dare il tuo accesso a %2$@ su %1$@, quindi il prompt non è stato inviato. Esegui `%3$@` e accedi lì con Accedi a Claude, oppure consenti la copia quando cmux lo chiede."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "អ្នកបានជ្រើសរើសមិនផ្តល់ការចូលរបស់អ្នកឱ្យ %2$@ នៅលើ %1$@ ដូច្នេះប្រអប់បញ្ចូលមិនត្រូវបានផ្ញើទេ។ ដំណើរការ `%3$@` ហើយចូលនៅទីនោះដោយ ចូល Claude ឬអនុញ្ញាតការចម្លងនៅពេល cmux សួរ។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Du valgte å ikke gi %2$@ på %1$@ påloggingen din, så ledeteksten ble ikke sendt. Kjør `%3$@` og logg på der med Logg på Claude, eller tillat kopien når cmux spør."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Wybrałeś, by nie przekazywać swojego logowania do %2$@ na %1$@, więc prompt nie został wysłany. Uruchom `%3$@` i zaloguj się tam przez Zaloguj się do Claude albo zezwól na kopię, gdy cmux zapyta."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Você escolheu não dar seu login a %2$@ em %1$@, então o prompt não foi enviado. Execute `%3$@` e entre lá com Entrar no Claude, ou permita a cópia quando o cmux perguntar."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Вы решили не передавать свой вход %2$@ на %1$@, поэтому запрос не отправлен. Запустите `%3$@` и войдите там через «Войти в Claude» или разрешите копирование, когда cmux спросит."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "คุณเลือกที่จะไม่ให้การลงชื่อเข้าใช้ของคุณแก่ %2$@ บน %1$@ จึงไม่ได้ส่งพรอมต์ เรียกใช้ `%3$@` แล้วลงชื่อเข้าใช้ที่นั่นด้วย ลงชื่อเข้าใช้ Claude หรืออนุญาตการคัดลอกเมื่อ cmux ถาม"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "%1$@ üzerindeki %2$@ için oturumunuzu vermemeyi seçtiniz, bu yüzden istem gönderilmedi. `%3$@` komutunu çalıştırıp orada Claude'da Oturum Aç ile oturum açın ya da cmux sorduğunda kopyalamaya izin verin."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Ви вирішили не передавати свій вхід %2$@ на %1$@, тому запит не надіслано. Запустіть `%3$@` і увійдіть там через «Увійти в Claude» або дозвольте копіювання, коли cmux запитає."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Bạn đã chọn không đưa đăng nhập của mình cho %2$@ trên %1$@, nên lời nhắc chưa được gửi. Chạy `%3$@` và đăng nhập ở đó bằng Đăng nhập Claude, hoặc cho phép sao chép khi cmux hỏi."}}
+      }
+    },
     "cloud.relayChat.replyTitle": {
       "comment": "Title of the sheet that shows a relay chat's reply to the person who ran it.",
       "extractionState": "manual",

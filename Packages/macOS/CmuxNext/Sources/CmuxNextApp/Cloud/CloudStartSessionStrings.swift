@@ -23,6 +23,9 @@ enum CloudStartSessionStrings {
     static func relayLoginPending(_ asked: Asked) -> String {
         String(format: String(localized: "cloud.relayChat.loginPending", defaultValue: "%2$@ on %1$@ is still getting your login, so the prompt wasn't sent over the relay. Run `%3$@`, which waits for it.", table: "CloudSessions", bundle: .module), asked.machine, asked.agent, asked.command)
     }
+    static func relayLoginDeclined(_ asked: Asked) -> String {
+        String(format: String(localized: "cloud.relayChat.loginDeclined", defaultValue: "You chose not to give %2$@ on %1$@ your login, so the prompt wasn't sent. Run `%3$@` and sign in there with Sign in to Claude, or allow the copy when cmux asks.", table: "CloudSessions", bundle: .module), asked.machine, asked.agent, asked.command)
+    }
     static func relayLoginFailed(_ asked: Asked, reason: String) -> String {
         String(format: String(localized: "cloud.relayChat.loginFailed", defaultValue: "Couldn't give %2$@ on %1$@ your login (%4$@), so the prompt wasn't sent. Run `%3$@` to try again.", table: "CloudSessions", bundle: .module), asked.machine, asked.agent, asked.command, reason)
     }

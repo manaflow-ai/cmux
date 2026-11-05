@@ -154,7 +154,7 @@ struct CloudRelayChatLoginTests {
         #expect(fields["error_code"] == .string("cloud.relay.login_refused"))
         #expect(fields["login_reason"] == .string("needs-login-choice"))
         guard case .string(let message) = fields["error_message"] else { Issue.record("no message"); return }
-        #expect(message.contains("--login machine") && message.contains("`cmux cloud start-session --target machine:"), "\(message)")
+        #expect(message.contains("--login machine") && message.contains("claude on Icon VM"), "\(message)")
     }
 
     /// The person said no to the copy, on a machine with no login: nothing is sent.
@@ -162,7 +162,9 @@ struct CloudRelayChatLoginTests {
         let run = try await Self.relayChat(Self.decision(outcome: CloudStartChat.loginDeclined))
         #expect(run.steps == ["login"])
         let fields = try Self.fields(run.result)
-        #expect(fields["delivered"] == .bool(false) && fields["error_code"] == .string("cloud.relay.login_missing"))
+        #expect(fields["delivered"] == .bool(false) && fields["error_code"] == .string("cloud.relay.login_declined"))
+        guard case .string(let message) = fields["error_message"] else { Issue.record("no message"); return }
+        #expect(!message.contains("holds no login"), "a decline is not a missing login: \(message)")
     }
 
     /// A login step that outlasts its share of the result deadline sends nothing and answers at once, typed, so the

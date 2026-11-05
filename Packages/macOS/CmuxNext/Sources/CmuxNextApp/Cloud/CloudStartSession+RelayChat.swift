@@ -110,8 +110,10 @@ extension CloudStartSession {
         guard let decision else { return nil }
         let asked = started.asked(machine: machine)
         if let reason = decision.refusal { return ("cloud.relay.login_refused", CloudStartSessionStrings.loginRefused(reason, asked)) }
-        // No login copied to a machine that needs one: none cached on this Mac, or the person said no to the copy.
-        if decision.outcome == CloudStartChat.signInInChat || decision.outcome == CloudStartChat.loginDeclined { return ("cloud.relay.login_missing", CloudStartSessionStrings.relayLoginMissing(asked)) }
+        // No login copied to a machine that needs one: none cached on this Mac, or the person said no to the copy of the
+        // one it holds (the confirm, or Release's one-time consent: both come only after the cache check).
+        if decision.outcome == CloudStartChat.loginDeclined { return ("cloud.relay.login_declined", CloudStartSessionStrings.relayLoginDeclined(asked)) }
+        if decision.outcome == CloudStartChat.signInInChat { return ("cloud.relay.login_missing", CloudStartSessionStrings.relayLoginMissing(asked)) }
         if let outcome = decision.outcome, outcome.hasPrefix(CloudStartChat.loginFailed) {
             return ("cloud.relay.login_failed", CloudStartSessionStrings.relayLoginFailed(asked, reason: Self.reason(String(outcome.dropFirst(CloudStartChat.loginFailed.count)))))
         }
