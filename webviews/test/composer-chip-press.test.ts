@@ -291,6 +291,10 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
             '[role^="menuitem"], [role="option"], .acpmux-cols-tune [role="radio"], .acpmux-cols-tune [role="switch"]';
           const rows = page.locator(selector);
           expect(await rows.count()).toBeGreaterThan(0);
+          // Keep the menu open while probing real pointer targets at every row edge.
+          await page.evaluate(() =>
+            document.addEventListener("click", (event) => event.stopImmediatePropagation(), true),
+          );
           for (const target of await rows.all()) {
             // The columns scroll independently; bring each row into its own viewport before
             // probing its edges, including legacy models below the initial visible rows.
@@ -311,17 +315,21 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
               [row.x + row.w / 2, row.y + 1],
               [row.x + row.w / 2, row.y + row.h - 1],
             ];
-            const hits = await target.evaluate(
-              (row, points) => points.map(([x, y]) => row.contains(document.elementFromPoint(x!, y!))),
-              probes,
-            );
-            if (hits.includes(false)) {
-              const targets = await target.evaluate(
-                (_, points) => points.map(([x, y]) => document.elementFromPoint(x!, y!)?.outerHTML.slice(0, 200)),
-                probes,
-              );
-              misses.push(`${name} "${row.text}": ${hits.join(",")} ${JSON.stringify({ row, targets })}`);
+            await target.evaluate((row) => {
+              document.onpointerdown = (event) => {
+                row.setAttribute("data-press-hit", String(row.contains(event.target as Node)));
+                row.setAttribute("data-press-target", (event.target as Element).outerHTML.slice(0, 200));
+              };
+            });
+            const hits: boolean[] = [];
+            const targets: (string | null)[] = [];
+            for (const [x, y] of probes) {
+              await page.mouse.click(x!, y!);
+              hits.push((await target.getAttribute("data-press-hit")) === "true");
+              targets.push(await target.getAttribute("data-press-target"));
             }
+            if (hits.includes(false))
+              misses.push(`${name} "${row.text}": ${hits.join(",")} ${JSON.stringify({ row, targets })}`);
           }
           await page.close();
         }
