@@ -30,6 +30,9 @@ mod private_state;
 
 const ZSH: &str = "/bin/zsh";
 const PROMPT: &str = "J> ";
+/// The prompt as the screen read shows it: each row loses its trailing blanks, so the space after `J>` is
+/// not in the text.
+const SHOWN: &str = "J>";
 const SESSION: &str = "fresh-prompt";
 const ROWS: u16 = 20;
 
@@ -225,7 +228,7 @@ fn wait_for_prompt(path: &Path, surface: u64, within: Duration) -> Result<String
     let mut last = String::new();
     while Instant::now() < deadline {
         last = screen(path, surface);
-        if last.contains(PROMPT) {
+        if last.contains(SHOWN) {
             return Ok(last);
         }
         std::thread::sleep(Duration::from_millis(50));
