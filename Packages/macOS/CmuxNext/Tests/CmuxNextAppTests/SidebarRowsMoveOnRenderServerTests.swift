@@ -394,6 +394,36 @@ struct SidebarRowsMoveOnRenderServerTests {
         }
     }
 
+    /// Leo 2026-11-05: "when you're collapsing a group, the text needs to fade faster. Otherwise, you just get a ton of
+    /// text like just jumbled up inside." A folded member's fade is the short `.fadeOut`, never the slot's `.move`
+    /// spring, so its words are gone before the rows below rise into them; the slot itself still closes on `.move`.
+    @Test(.enabled("needs an awake display and animations on, or every fold snaps anyway") {
+        await SidebarInsertWhileDisplayAsleepTests.animatesHere()
+    })
+    func collapsingAGroupFadesItsMembersOutFasterThanItsSlotCloses() throws {
+        let (model, list, _, restore) = try Self.sidebar(Self.workThenBelow())
+        defer { restore() }
+        let members = try ["docs", "web", "api"].map { member in
+            (member, try #require(list.rowViews[.workspace(CmuxNextSidebar.WorkspaceID(member))], "\(member) has no view"))
+        }
+        model.noteUserIntent()
+        model.setGroupCollapsed(GroupID("g-work"), true)
+        let start = CACurrentMediaTime()
+        let moveDuration = Motion.sidebar.springAnimation(.move, "position", from: 0, to: 0).duration
+        let fadeOut = Motion.sidebar.duration(.fadeOut)
+        // Look a little after the fade-out token ends, while the slot's spring is still closing.
+        let look = fadeOut + 0.04
+        #expect(look < moveDuration, "the fade-out token (\(fadeOut) s) is not shorter than the slot's spring (\(moveDuration) s)")
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: max(0, start + look - CACurrentMediaTime())))
+        for (name, view) in members {
+            // Still drawn (its slot is closing; it is recycled when the move ends), but its words are already gone.
+            #expect(view.superview != nil, "\(name) was recycled before its slot closed")
+            // What is on screen: the presentation layer when the fade runs on the render server, else the view's alpha.
+            let shown = Double(view.layer?.presentation()?.opacity ?? Float(view.alphaValue))
+            #expect(shown < 0.02, "\(name) still shows at opacity \(shown) after \(look) s, past .fadeOut (\(fadeOut) s)")
+        }
+    }
+
     /// The reverse: an opened group's members show at their own frames under a slot that opens down with the rows below.
     @Test(.enabled("needs an awake display and animations on, or every fold snaps anyway") {
         await SidebarInsertWhileDisplayAsleepTests.animatesHere()
