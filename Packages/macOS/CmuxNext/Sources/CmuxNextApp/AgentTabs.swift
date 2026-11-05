@@ -581,7 +581,7 @@ final class AgentTabStore {
                 if let scopedFolders = remoteMachineFoldersScoped {
                     machine = await scopedFolders(resolvedKey(tabKey))
                 } else {
-                    machine = remoteMachineFolders?(resolveRemote(key)) ?? []
+                    machine = await remoteMachineFolders?(resolveRemote(key)) ?? []
                 }
                 let folders = AgentTabRemoteStart.folders(listed: listed, machine: machine)
                 guard let query = query?.lowercased(), !query.isEmpty else { return folders }

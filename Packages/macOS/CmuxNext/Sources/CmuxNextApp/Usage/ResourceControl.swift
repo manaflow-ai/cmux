@@ -1,7 +1,7 @@
 import CmuxNextBrowser
 import CmuxNextTabs
 import CmuxNextControl
-import CmuxNextDaemon
+import struct CmuxNextDaemon.WorkspaceModel
 import CmuxNextSettings
 import CmuxNextResources
 import CmuxNextWakeups
