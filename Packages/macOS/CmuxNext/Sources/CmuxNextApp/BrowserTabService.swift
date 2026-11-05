@@ -315,7 +315,7 @@ final class BrowserTabService {
     private func open(_ choice: BrowserEngineChoice, in pane: PaneID, on daemon: DaemonService, url: String, offTheRecord: Bool,
                       profile: String?, notice: String?, activate: Bool, after: SurfaceID?, split: ConversationTabSplit?) async throws -> SurfaceID {
         guard BrowserAvailability(enabled: browserEnabled()).allows(url) else { throw ActionFailure(message: MiscHandlerStrings.browserOff) }
-        let ended = split.map { openingSplits.begin($0, on: daemon) }
+        let ended = offTheRecord ? nil : split.map { openingSplits.begin($0, on: daemon) } // incognito keeps about:blank until the reply
         defer { ended?() }
         let surface = try await create(daemon, pane, offTheRecord ? Self.incognitoPlaceholderURL : url, choice.engine, profile, activate, after, split)
         let key = key(daemon, surface)
