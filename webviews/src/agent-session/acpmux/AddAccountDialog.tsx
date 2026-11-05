@@ -16,8 +16,14 @@ const BRANDS: Record<string, { brand: StringKey; cli: StringKey; folder: string 
   codex: { brand: "picker.addBrand.codex", cli: "picker.addCli.codex", folder: "~/.codex" },
 };
 
-/** A route id from a name: lowercase letters, digits and `-` (routes.rs), unique among `taken`. */
-export function accountIdFor(name: string, fallback: string, taken: readonly string[]): string {
+/** The daemon's built-in routes (routes.rs `builtin_routes`, accounts.rs): `route/list` leaves them
+ * out, and a route file of their id replaces them, so a new account never takes one. */
+const BUILT_IN_IDS = ["cmux", "codex-login", "claude-login"];
+
+/** A route id from a name: lowercase letters, digits and `-` (routes.rs), unique among `taken` and
+ * the built-in routes. */
+export function accountIdFor(name: string, fallback: string, existing: readonly string[]): string {
+  const taken = [...existing, ...BUILT_IN_IDS];
   const slug = (text: string) =>
     text
       .normalize("NFKD")
@@ -63,7 +69,9 @@ export function AddAccountDialog({
   const sending = useRef(false);
   const [error, setError] = useState<string>();
   const brand = known ? t(known.brand) : family;
-  const cli = known ? t(known.cli) : t("picker.harnessLogin");
+  // The family's own name for a CLI cmux has no product name for ("gemini login"), never the
+  // generic "CLI login", which the sentences around it would double ("the CLI login login").
+  const cli = known ? t(known.cli) : family;
   // A second login is "ChatGPT 2", then 3, ...: the first number no route has taken.
   const nextName = () => {
     for (let n = 2; ; n++) {
@@ -96,6 +104,8 @@ export function AddAccountDialog({
       name: name.trim() || defaultName,
     };
     if (way === "new") account.accountHome = folder;
+    // A second ChatGPT login shares the CLI's conversations, so routing can move a chat onto it.
+    if (way === "new" && family === "codex") account.shadow = true;
     if (way === "key") account.secret = secret.trim();
     sending.current = true;
     setPending(true);
@@ -214,9 +224,10 @@ export function AddAccountDialog({
         <footer>
           <DialogButton
             dialogKey="escape"
-            className="ui-btn"
+            className="ui-button ui-btn"
             data-variant="subtle"
             data-size="md"
+            data-disabled={pending ? "" : undefined}
             disabled={pending}
             onClick={onClose}
           >
@@ -225,9 +236,10 @@ export function AddAccountDialog({
           <DialogButton
             dialogKey="return"
             type="submit"
-            className="ui-btn"
+            className="ui-button ui-btn"
             data-variant="solid"
             data-size="md"
+            data-disabled={pending || !ready ? "" : undefined}
             disabled={pending || !ready}
           >
             {t("picker.addAccount")}

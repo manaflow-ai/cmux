@@ -15,6 +15,8 @@
 //! - [`ApiError`] reads every refusal the same way (the HTTP status and the
 //!   `{_tag, code, message}` body cmux-platform's errors carry).
 //! - [`backend`] names each environment's platform origin and owner API.
+//! - [`machine`] makes a machine a handle that carries its backend origin and
+//!   team ([`machine::Scope`]), so no caller re-resolves which backend owns it.
 //! - [`client_key`] makes the idempotency key a create or a retried mutation
 //!   carries, so a retry after a lost answer never makes a second machine.
 
@@ -39,6 +41,7 @@ mod generated {
 
 pub mod backend;
 mod error;
+pub mod machine;
 pub mod ops;
 
 pub use error::ApiError;
@@ -156,15 +159,8 @@ pub fn http(
 /// source). Make one per intent and send the same one on every retry of it.
 pub fn client_key() -> String {
     let mut bytes = [0u8; 16];
-    // The OS random source does not fail on the platforms cmux runs on; a
-    // failure would leave zeros, which a later key would collide with, so
-    // fall back to the clock and the process id as well.
     if getrandom::fill(&mut bytes).is_err() {
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_nanos());
-        bytes[..8].copy_from_slice(&(nanos as u64).to_le_bytes());
-        bytes[8..12].copy_from_slice(&std::process::id().to_le_bytes());
+        bytes = fallback_key_bytes();
     }
     let mut key = String::with_capacity(35);
     key.push_str("ck_");
@@ -172,6 +168,27 @@ pub fn client_key() -> String {
         key.push_str(&format!("{byte:02x}"));
     }
     key
+}
+
+/// The key bytes when the OS random source fails (it does not on the
+/// platforms cmux runs on): the clock, the process id and a per-process
+/// counter, so two keys of one process never repeat, even in one clock tick.
+fn fallback_key_bytes() -> [u8; 16] {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static NEXT: AtomicU32 = AtomicU32::new(0);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_nanos() & u128::from(u64::MAX)).unwrap_or(0));
+    let mut bytes = [0u8; 16];
+    let parts = nanos
+        .to_le_bytes()
+        .into_iter()
+        .chain(std::process::id().to_le_bytes())
+        .chain(NEXT.fetch_add(1, Ordering::Relaxed).to_le_bytes());
+    for (slot, byte) in bytes.iter_mut().zip(parts) {
+        *slot = byte;
+    }
+    bytes
 }
 
 /// Installs ring as the process's rustls provider, for tests.
@@ -183,6 +200,42 @@ pub(crate) fn test_tls() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fallback_keys_of_one_process_never_repeat() {
+        let keys: std::collections::BTreeSet<_> = (0..1000).map(|_| fallback_key_bytes()).collect();
+        assert_eq!(keys.len(), 1000);
+    }
+
+    /// `openapi.json` is the selection `tags.txt` names (scripts/update-spec.sh):
+    /// a tag added or dropped there without taking the spec again fails here.
+    #[test]
+    fn the_vendored_spec_is_the_selection_tags_txt_names() {
+        let tags: std::collections::BTreeSet<String> = include_str!("../tags.txt")
+            .lines()
+            .map(|line| line.split('#').next().unwrap_or_default().trim().to_owned())
+            .filter(|line| !line.is_empty())
+            .collect();
+        let spec: serde_json::Value =
+            serde_json::from_str(include_str!("../openapi.json")).expect("openapi.json");
+        let mut seen = std::collections::BTreeSet::new();
+        for item in spec["paths"].as_object().expect("paths").values() {
+            for op in item.as_object().expect("path item").values() {
+                if let Some(tag) = op.pointer("/tags/0").and_then(serde_json::Value::as_str) {
+                    assert!(
+                        tags.contains(tag),
+                        "openapi.json has {tag}, which tags.txt does not name"
+                    );
+                    seen.insert(tag.to_owned());
+                }
+            }
+        }
+        let missing: Vec<_> = tags.difference(&seen).collect();
+        assert!(
+            missing.is_empty(),
+            "tags.txt names {missing:?}, which openapi.json lacks: run scripts/update-spec.sh"
+        );
+    }
 
     #[test]
     fn client_keys_are_distinct_and_shaped() {

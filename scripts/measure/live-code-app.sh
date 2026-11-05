@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
 # Live code in the app, end to end on a fleet Mac (Packages/macOS/CmuxNext/Sources/CmuxNextLiveCode):
-# builds the bench configuration with CMUX_LIVE_CODE_BUILD=1, launches it with a live folder (it
-# opens on Home), then edits HomeHostView.updateLayer twice (Home's background red, then blue),
-# compiles each edit into a patch (scripts/live-code/patch.py) and times the edit to the redraw. The window's snapshots before and after each patch are counted for red and blue pixels.
-#   scripts/measure/live-code-app.sh OUT     (OUT: the log, the snapshots and result.json)
+# builds the bench configuration as a live code build (scripts/live-code/build.sh), launches it with
+# a live folder (it opens on Home), then edits HomeHostView.updateLayer: Home's background red,
+# then blue, then red again as a bad patch, which a dropped `*.rollback` file undoes (blue again).
+# Each edit is compiled into a patch (scripts/live-code/patch.py) and timed from the edit to the
+# redraw, the rollback from the drop to the redraw; each generation's window snapshot is counted
+# for red and blue pixels (cmuxterm-hq#7149 L3 and L4).
+# --compare also builds the same commit's normal bench app and launches it the same way: the live
+# code build's cost (binary size, launch to a socket answer) lands in OUT/compare.json.
+#   scripts/measure/live-code-app.sh OUT [--compare]   (OUT: the logs, the snapshots and result.json)
 set -euo pipefail
 out="$(mkdir -p "${1:?usage: live-code-app.sh OUT}" && cd "$1" && pwd)"
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
@@ -19,16 +24,30 @@ if [ ! -f GhosttyKit.xcframework/Info.plist ]; then
   ./scripts/download-prebuilt-ghosttykit.sh
 fi
 build_start=$SECONDS
-# A failed build is reported below, from its log, so the pipeline's status is not the step's.
-CMUX_LIVE_CODE_BUILD=1 CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" --config bench 2>&1 | tee "$out/reload.log" || true
-app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
-log="$(sed -n 's/^==> log: //p' "$out/reload.log" | tail -n 1)"
-if [[ -z "$app" || ! -d "$app" ]]; then
-  echo "live-code-app: the reload printed no app path" >&2
-  [[ -n "$log" && -f "$log" ]] && grep -E "\.swift:[0-9]+:[0-9]+: error|error: " "$log" | head -n 40 >&2
-  exit 1
+app="$(scripts/live-code/build.sh "$out" "$tag" bench CMUX_DEV_BACKEND_MODE=local | tail -n 1)"
+log="$out/xcodebuild.log"
+status=0
+python3 scripts/measure/live-code-app.py --app "$app" --log "$log" --out "$out" --build-seconds "$((SECONDS - build_start))" || status=$?
+if [[ "${2:-}" == "--compare" ]]; then
+  ./scripts/reload.sh --tag live-code-base --config bench > "$out/reload-base.log" 2>&1 || true
+  base="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload-base.log" | tail -n 1)"
+  python3 - "$app" "$base" "$out" <<'PY'
+import json, os, sys
+sys.path.insert(0, "scripts/cmux-next")
+from bench_launch import BenchApp
+live, base, out = sys.argv[1], sys.argv[2], sys.argv[3]
+def measure(app, tag):
+    exe = os.path.join(app, "Contents/MacOS/cmux")
+    os.makedirs(os.path.join(out, tag), exist_ok=True)
+    bench = BenchApp(app, out=os.path.join(out, tag))
+    try:
+        bench.launch()
+        return {"binary_bytes": os.path.getsize(exe), "ready_s": bench.ready_seconds}
+    finally:
+        bench.stop()
+compare = {"live_code": measure(live, "compare-live"), "normal": measure(base, "compare-normal") if base else None}
+json.dump(compare, open(os.path.join(out, "compare.json"), "w"), indent=2)
+print("live-code-app: compare " + json.dumps(compare))
+PY
 fi
-echo "live-code-app: built in $((SECONDS - build_start)) s"
-# The patch compiles from this log; keep CmuxNextApp's lines with the results.
-grep -E -- "-module-name CmuxNextApp " "$log" > "$out/cmuxnextapp-commands.log" || true
-python3 scripts/measure/live-code-app.py --app "$app" --log "$log" --out "$out" --build-seconds "$((SECONDS - build_start))"
+exit "$status"

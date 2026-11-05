@@ -22,7 +22,8 @@ When set, `@` names your own session (`acpmux last @`, `acpmux history @`).
 Sessions you start are siblings, not children: they outlive you.
 
 Inside cmux your `cmux-subsessions` MCP server starts children instead:
-`start_session` (with `worktree: true` for a worktree of its own),
+`start_session` (with `worktree: true` for a worktree of its own, or `fork: true` for a
+fork of your own chat that keeps its history),
 `list_sessions`, `get_session`, `wait_for_sessions`, `send_message`,
 `stop_session` and `retry_session` (a child's failed turn or subagent, again now). Prefer
 them when you have them; this CLI is the fallback (`acpmux retry NAME`).

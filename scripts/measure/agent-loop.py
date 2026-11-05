@@ -7,7 +7,11 @@ What an agent does with `scripts/cmux-next/live-apply.py`, with no full build an
 
   1. The published app launches from a fresh home (scripts/ci/fresh_home_launch_smoke.py: its own
      HOME, socket and defaults set aside), with its web overlay, settings file and Debug Settings
-     (`webDev.override` on) in this run's folder. Settings opens (`settings.open`).
+     (`webDev.override` on) in this run's folder. A base overlay (TREE's bundles, unchanged) is
+     installed before the launch, as on a person's app that already follows the overlay: a page
+     picks its engine once, WebKit while an override is in force, and the overlay watcher reads
+     web-dev.json asynchronously, so an overlay installed after launch can lose the race to the
+     first page (PageEnginePolicy, WebDevOverrideWatcher). Then Settings opens (`settings.open`).
   2. Base: the marker is not in the app (the probe must discriminate).
   3. Edit: the "agent" appends a few lines to the Settings page's entry (webviews/src/pages/
      settings/main.tsx in TREE, a checkout at the app's CMUXCommit): a banner with a nonce, and a
@@ -123,6 +127,7 @@ class Loop:
         self.opts = opts
         self.tree = Path(opts.tree).resolve()
         self.result = {"schema": "cmux.agent-loop/1", "pass": False, "failures": [], "steps": []}
+        self.base_overlay = {"exit": None, "seconds": None}
         self.work = None
 
     # The fresh home: this run's overlay, settings file and Debug Settings with the overlay toggle on.
@@ -137,6 +142,14 @@ class Loop:
         env.update(CMUX_NEXT_CONFIG_FILE=str(config), CMUX_WEB_OVERLAY_DIR=str(overlay),
                    CMUX_NEXT_DEBUG_TUNABLES_FILE=str(tunables))
         self.overlay_env = {k: env[k] for k in ("CMUX_NEXT_CONFIG_FILE", "CMUX_WEB_OVERLAY_DIR")}
+        # Setup, not the loop's time: the base overlay, in force before the first page opens.
+        out = Path(self.opts.out)
+        t = time.monotonic()
+        with (out / "base-overlay.log").open("w") as log:
+            built = subprocess.run([str(self.tree / "scripts/cmux-next/web-overlay.sh"), "build"],
+                                   env=dict(os.environ, **self.overlay_env), stdout=log, stderr=log, timeout=900)
+        self.base_overlay = {"exit": built.returncode, "seconds": round(time.monotonic() - t, 2)}
+        smoke.log(f"agent-loop base overlay: exit {built.returncode} in {self.base_overlay['seconds']}s")
 
     def step(self, name: str, ok: bool, **detail) -> bool:
         self.result["steps"].append(dict(step=name, ok=ok, **detail))
@@ -161,10 +174,17 @@ class Loop:
         probe = shlex.join([sys.executable, str(Path(__file__).resolve()), "probe", "--socket", str(self.sock),
                             "--word", expect])
         env = dict(os.environ, **self.overlay_env)
-        done = subprocess.run([sys.executable, str(ROOT / "scripts/cmux-next/live-apply.py"), "--repo", str(self.tree),
-                               "--base", self.commit, "--probe", probe, "--probe-seconds", str(probe_seconds)],
-                              env=env, capture_output=True, text=True)
-        (self.out / f"live-apply-{word}.log").write_text(done.stderr)  # agent-loop.sh clears live-apply-*.log
+        log = self.out / f"live-apply-{word}.log"  # agent-loop.sh clears live-apply-*.log
+        try:
+            # stderr to the log as it runs, so a hung bundle build still leaves its output.
+            with log.open("w") as stderr:
+                done = subprocess.run([sys.executable, str(ROOT / "scripts/cmux-next/live-apply.py"), "--repo",
+                                       str(self.tree), "--base", self.commit, "--probe", probe,
+                                       "--probe-seconds", str(probe_seconds)],
+                                      env=env, stdout=subprocess.PIPE, stderr=stderr, text=True, timeout=900)
+        except subprocess.TimeoutExpired:
+            return {"error": "live-apply.py ran past 900 s", "stderr": log.read_text(errors="replace")[-2000:]}
+        done.stderr = log.read_text(errors="replace")
         try:
             return json.loads(done.stdout.strip().splitlines()[-1])
         except (ValueError, IndexError):
@@ -185,9 +205,15 @@ class Loop:
         self.result["app"] = {"bundle_id": info.get("CFBundleIdentifier"), "version": info.get("CFBundleShortVersionString"),
                               "build": info.get("CFBundleVersion"), "commit": self.commit, "pid": process.pid}
         tree_head = subprocess.run(["git", "-C", str(self.tree), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
-        if not self.step("tree", bool(self.commit) and tree_head == self.commit, tree=tree_head, app_commit=self.commit):
+        # A nightly stamps the commit's first 7 hex; the tree holds the full one, which live-apply.py gets.
+        if not self.step("tree", len(self.commit) >= 7 and tree_head.startswith(self.commit), tree=tree_head,
+                         app_commit=self.commit):
             return self.result["failures"]
+        self.commit = tree_head
         before = self.identity()
+        self.result["base_overlay_s"] = self.base_overlay["seconds"]
+        if not self.step("base-overlay", self.base_overlay["exit"] == 0, **self.base_overlay):
+            return self.result["failures"]
         opened = rpc(self.sock, "settings.open", {}, timeout=30)
         time.sleep(3)  # harness: the Settings page loads
         self.step("settings", isinstance(opened, dict) and "error" not in opened, reply=opened)

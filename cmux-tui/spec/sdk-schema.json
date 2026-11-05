@@ -8864,6 +8864,36 @@
    },
    "additional_properties": false
   },
+  "RemoteHostAppResult": {
+   "kind": "object",
+   "fields": {
+    "socket": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "secret": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "host_pid": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
   "TabGroupRecord": {
    "kind": "object",
    "fields": {
@@ -16687,6 +16717,16 @@
       "default": null,
       "capability": "attach-identity-v1"
      },
+     "replay_history_rows": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint32"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "attach-replay-history-rows-v1"
+     },
      "snapshot": {
       "type": {
        "kind": "scalar",
@@ -16797,7 +16837,9 @@
     "ordering": "Initial state precedes the command response. Later surface events preserve order. A resized replay replaces the previous byte mirror; overflow ends that surface stream.",
     "terminal_event": "detached"
    },
-   "constraints": []
+   "constraints": [
+    "replay_history_rows (bytes mode, no snapshot) limits the vt-state replay to the active area and that many of the newest history rows; the vt-state then carries history_rows_omitted."
+   ]
   },
   "register-browser-provider": {
    "authority": "local-admin",
@@ -24367,6 +24409,124 @@
     "The secret is never journaled, logged or put in an event."
    ]
   },
+  "remote-host-status": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "remote-host-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
+    "Never starts the host. The device list under host.screen.devices is the verified app's only."
+   ]
+  },
+  "remote-host-call": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "remote-host-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "method": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "params": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "optional",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
+    "Any local Unix connection may read, refresh, request a grant, restart a worker and lower access; turning sharing on or raising a device's access is the verified app's only (origin.forbidden otherwise)."
+   ]
+  },
+  "remote-host-config": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "remote-host-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "computer_use": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": true
+     },
+     "screen_sharing": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": true
+     },
+     "headless": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
+    "The verified app connection only; the daemon saves the switches and starts or stops the host."
+   ]
+  },
+  "remote-host-app": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "remote-host-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "RemoteHostAppResult"
+   },
+   "stream": null,
+   "constraints": [
+    "cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
+    "The verified app connection only; the secret admits only that app process and is never logged or journaled."
+   ]
+  },
   "subscribe-activity": {
    "authority": "local-admin",
    "since": 12,
@@ -29250,6 +29410,15 @@
       "presence": "optional",
       "nullable": false,
       "since": 6
+     },
+     "history_rows_omitted": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "capability": "attach-replay-history-rows-v1"
      }
     },
     "additional_properties": false

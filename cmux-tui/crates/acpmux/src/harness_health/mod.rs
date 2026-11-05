@@ -9,6 +9,7 @@
 //! since). Without either it is `unknown`, never a guess from missing
 //! credential files.
 
+mod agent_files;
 pub mod auto;
 pub mod channel;
 mod codex_provider;
@@ -283,7 +284,11 @@ fn builtin_auth(s: &Subject, cwd: Option<&Path>) -> Option<(Auth, Option<String>
                 Err(why) => (Auth::SignedOut, Some(why)),
             })
         }
-        _ => None,
+        // Gemini, OpenCode, Pi, Cursor, Copilot, Grok and Muse: their login files and keys.
+        family => {
+            let env = crate::login_env::effective_for(Some(family), &s.env);
+            agent_files::file_auth(family, &program, &env)
+        }
     }
 }
 

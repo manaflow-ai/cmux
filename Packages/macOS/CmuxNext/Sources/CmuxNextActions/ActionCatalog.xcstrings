@@ -1,6 +1,9 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "action.liveWeb.start": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Edit cmux Live…"}}, "ja": {"stringUnit": {"state": "needs_review", "value": "cmux をライブで編集…"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "تحرير cmux مباشرة…"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Uređuj cmux uživo…"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Rediger cmux live…"}}, "de": {"stringUnit": {"state": "needs_review", "value": "cmux live bearbeiten…"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Editar cmux en vivo…"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Modifier cmux en direct…"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Modifica cmux dal vivo…"}}, "km": {"stringUnit": {"state": "needs_review", "value": "កែ cmux ផ្ទាល់…"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "cmux 실시간 편집…"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Rediger cmux live…"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Edytuj cmux na żywo…"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Editar o cmux ao vivo…"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Редактировать cmux вживую…"}}, "th": {"stringUnit": {"state": "needs_review", "value": "แก้ไข cmux แบบสด…"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "cmux'u canlı düzenle…"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Редагувати cmux наживо…"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Chỉnh sửa cmux trực tiếp…"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "实时编辑 cmux…"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "即時編輯 cmux…"}}}},
+    "action.liveWeb.stop": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Stop Editing cmux Live"}}, "ja": {"stringUnit": {"state": "needs_review", "value": "cmux のライブ編集を停止"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "إيقاف تحرير cmux مباشرة"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Zaustavi uređivanje cmuxa uživo"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Stop live-redigering af cmux"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Live-Bearbeitung von cmux beenden"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Dejar de editar cmux en vivo"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Arrêter la modification en direct de cmux"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Interrompi la modifica dal vivo di cmux"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ឈប់កែ cmux ផ្ទាល់"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "cmux 실시간 편집 중지"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Stopp live-redigering av cmux"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Zakończ edycję cmux na żywo"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Parar de editar o cmux ao vivo"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Остановить редактирование cmux вживую"}}, "th": {"stringUnit": {"state": "needs_review", "value": "หยุดแก้ไข cmux แบบสด"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "cmux'u canlı düzenlemeyi durdur"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Зупинити редагування cmux наживо"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Dừng chỉnh sửa cmux trực tiếp"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "停止实时编辑 cmux"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "停止即時編輯 cmux"}}}},
+    "argument.projection.page": {"comment": "Argument of Open Projection Window: the internal page (settings, history, ...) it opens", "extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Page"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "الصفحة"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Stranica"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Side"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Seite"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Página"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Page"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Pagina"}}, "ja": {"stringUnit": {"state": "needs_review", "value": "ページ"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ទំព័រ"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "페이지"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Side"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Strona"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Página"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Страница"}}, "th": {"stringUnit": {"state": "needs_review", "value": "หน้า"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Sayfa"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Сторінка"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Trang"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "页面"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "頁面"}}}},
     "action.debug.projection": {"comment": "Debug menu and command palette: opens a projection window, a window of this app whose pages load from a worktree's dev server (NIGHTLY and DEV builds)", "extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Open Projection Window"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "فتح نافذة الإسقاط"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Otvori prozor projekcije"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Åbn projektionsvindue"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Projektionsfenster öffnen"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Abrir ventana de proyección"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Ouvrir une fenêtre de projection"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Apri finestra di proiezione"}}, "ja": {"stringUnit": {"state": "needs_review", "value": "投影ウインドウを開く"}}, "km": {"stringUnit": {"state": "needs_review", "value": "បើកបង្អួចការបញ្ចាំង"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "프로젝션 창 열기"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Åpne projeksjonsvindu"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Otwórz okno projekcji"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Abrir janela de projeção"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Открыть окно проекции"}}, "th": {"stringUnit": {"state": "needs_review", "value": "เปิดหน้าต่างการฉายภาพ"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Projeksiyon penceresini aç"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Відкрити вікно проєкції"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Mở cửa sổ chiếu"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "打开投影窗口"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "打開投影視窗"}}}},
     "action.debug.projection.runTest": {"comment": "Debug menu and command palette: runs the projection window's test command in its worktree", "extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Run Projection Test"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "تشغيل اختبار الإسقاط"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Pokreni test projekcije"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Kør projektionstest"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Projektionstest ausführen"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Ejecutar prueba de proyección"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Lancer le test de la projection"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Esegui test della proiezione"}}, "ja": {"stringUnit": {"state": "needs_review", "value": "投影のテストを実行"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ដំណើរការការសាកល្បងការបញ្ចាំង"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "프로젝션 테스트 실행"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Kjør projeksjonstest"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Uruchom test projekcji"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Executar teste da projeção"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Запустить тест проекции"}}, "th": {"stringUnit": {"state": "needs_review", "value": "เรียกใช้การทดสอบการฉายภาพ"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Projeksiyon testini çalıştır"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Запустити тест проєкції"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Chạy kiểm thử chiếu"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "运行投影测试"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "執行投影測試"}}}},
     "argument.projection.server": {"comment": "Argument of Open Projection Window: the local dev server URL its pages load from", "extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Server"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "الخادم"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Server"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Server"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Server"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Servidor"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Serveur"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Server"}}, "ja": {"stringUnit": {"state": "needs_review", "value": "サーバ"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ម៉ាស៊ីនមេ"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "서버"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Server"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Serwer"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Servidor"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Сервер"}}, "th": {"stringUnit": {"state": "needs_review", "value": "เซิร์ฟเวอร์"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Sunucu"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Сервер"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Máy chủ"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "服务器"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "伺服器"}}}},
@@ -104353,6 +104356,1185 @@
           "stringUnit": {
             "state": "translated",
             "value": "隱藏主機負載警告"
+          }
+        }
+      }
+    },
+    "action.macScreen.shareThisMac": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مشاركة جهاز Mac هذا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dijeli ovaj Mac računar"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Del denne Mac"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diesen Mac teilen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share This Mac"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartir este Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Partager ce Mac"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Condividi questo Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacを共有"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចែករំលែក Mac នេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac 공유"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Del denne Macen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udostępnij tego Maca"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartilhar Este Mac"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть общий доступ к этому Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชร์ Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac’i Paylaş"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Надати спільний доступ до цього Mac"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chia sẻ máy Mac này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共享这台 Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共享這台 Mac"
+          }
+        }
+      }
+    },
+    "action.macScreen.stopSharingThisMac": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إيقاف تشغيل مشاركة جهاز Mac هذا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Isključi dijeljenje ovog Mac računara"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slå deling af denne Mac fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teilen dieses Mac deaktivieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn Off Sharing This Mac"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desactivar compartir este Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactiver le partage de ce Mac"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disattiva condivisione di questo Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacの共有をオフにする"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បិទការចែករំលែក Mac នេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac 공유 끄기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slå av deling av denne Macen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyłącz udostępnianie tego Maca"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desativar Compartilhamento Deste Mac"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отключить общий доступ к этому Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิดการแชร์ Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac’i Paylaşmayı Kapat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вимкнути спільний доступ до цього Mac"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tắt chia sẻ máy Mac này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭这台 Mac 的共享"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉這台 Mac 的共享"
+          }
+        }
+      }
+    },
+    "action.remote.allowAccessibility": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: السماح بتسهيلات الاستخدام"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Dozvoli Pristupačnost"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Tillad Tilgængelighed"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Bedienungshilfen erlauben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Allow Accessibility"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Permitir Accesibilidad"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote : autoriser Accessibilité"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Consenti Accessibilità"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: アクセシビリティを許可"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: អនុញ្ញាតភាពងាយស្រួល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: 손쉬운 사용 허용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Tillat Tilgjengelighet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Zezwól na Dostępność"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Permitir Acessibilidade"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Разрешить Универсальный доступ"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: อนุญาตการช่วยการเข้าถึง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Erişilebilirliğe İzin Ver"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Дозволити Доступність"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Cho phép Trợ năng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote：允许辅助功能"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote：允許輔助使用"
+          }
+        }
+      }
+    },
+    "action.remote.allowScreenRecording": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: السماح بتسجيل الشاشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Dozvoli Snimanje ekrana"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Tillad Skærmoptagelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Bildschirmaufnahme erlauben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Allow Screen Recording"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Permitir Grabación de pantalla"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote : autoriser Enregistrement de l’écran"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Consenti Registrazione schermo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: 画面収録を許可"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: អនុញ្ញាតការថតអេក្រង់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: 화면 기록 허용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Tillat Skjermopptak"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Zezwól na Nagrywanie ekranu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Permitir Gravação de Tela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Разрешить Запись экрана"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: อนุญาตการบันทึกหน้าจอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Ekran Kaydına İzin Ver"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Дозволити Запис екрана"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Cho phép Ghi màn hình"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote：允许屏幕录制"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote：允許螢幕錄製"
+          }
+        }
+      }
+    },
+    "action.remote.refreshPermissions": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: تحديث الأذونات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Osvježi dozvole"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Opdater tilladelser"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Berechtigungen aktualisieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Refresh Permissions"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Actualizar permisos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote : actualiser les autorisations"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Aggiorna autorizzazioni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: 権限を更新"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: ផ្ទុកការអនុញ្ញាតឡើងវិញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: 권한 새로 고침"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Oppdater tillatelser"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Odśwież uprawnienia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Atualizar Permissões"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Обновить разрешения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: รีเฟรชสิทธิ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: İzinleri Yenile"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Оновити дозволи"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Làm mới quyền"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote：刷新权限"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote：重新整理權限"
+          }
+        }
+      }
+    },
+    "action.remote.restartComputerUse": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: إعادة تشغيل Computer Use"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Ponovo pokreni Computer Use"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Genstart Computer Use"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Computer Use neu starten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Restart Computer Use"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Reiniciar Computer Use"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote : redémarrer Computer Use"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Riavvia Computer Use"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Computer Use を再起動"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: ចាប់ផ្ដើម Computer Use ឡើងវិញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Computer Use 재시작"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Start Computer Use på nytt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Uruchom ponownie Computer Use"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Reiniciar Computer Use"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Перезапустить Computer Use"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: เริ่ม Computer Use ใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Computer Use’u Yeniden Başlat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Перезапустити Computer Use"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Khởi động lại Computer Use"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote：重启 Computer Use"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote：重新啟動 Computer Use"
+          }
+        }
+      }
+    },
+    "action.remote.restartScreenSharing": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: إعادة تشغيل مشاركة الشاشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Ponovo pokreni Dijeljenje ekrana"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Genstart Skærmdeling"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Bildschirmfreigabe neu starten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Restart Screen Sharing"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Reiniciar Compartir pantalla"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote : redémarrer Partage d’écran"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Riavvia Condivisione schermo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: 画面共有を再起動"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: ចាប់ផ្ដើមការចែករំលែកអេក្រង់ឡើងវិញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: 화면 공유 재시작"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Start Skjermdeling på nytt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Uruchom ponownie Udostępnianie ekranu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Reiniciar Compartilhamento de Tela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Перезапустить Общий экран"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: เริ่มการแชร์หน้าจอใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Ekran Paylaşmayı Yeniden Başlat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Перезапустити Спільний екран"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Khởi động lại Chia sẻ màn hình"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote：重启屏幕共享"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote：重新啟動螢幕共享"
+          }
+        }
+      }
+    },
+    "action.remote.showStatus": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: عرض الحالة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Prikaži status"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Vis status"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Status anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Show Status"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Mostrar estado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote : afficher l’état"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Mostra stato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: 状態を表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: បង្ហាញស្ថានភាព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: 상태 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Vis status"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Pokaż stan"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Mostrar Status"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Показать статус"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: แสดงสถานะ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Durumu Göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Показати стан"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote: Hiển thị trạng thái"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote：显示状态"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote：顯示狀態"
+          }
+        }
+      }
+    },
+    "action.macScreen.deviceAccess": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعيين وصول الأجهزة إلى جهاز Mac هذا…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Postavi pristup uređaja ovom Mac računaru…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indstil enhedsadgang til denne Mac…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gerätezugriff auf diesen Mac festlegen…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set Device Access to This Mac…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configurar el acceso de dispositivos a este Mac…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Définir l’accès des appareils à ce Mac…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imposta l’accesso dei dispositivi a questo Mac…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacへのデバイスのアクセスを設定…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំណត់សិទ្ធិចូលប្រើរបស់ឧបករណ៍ទៅ Mac នេះ…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에 대한 기기 접근 설정…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angi enhetstilgang til denne Macen…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ustaw dostęp urządzeń do tego Maca…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Definir Acesso de Dispositivos a Este Mac…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Настроить доступ устройств к этому Mac…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตั้งค่าการเข้าถึง Mac เครื่องนี้ของอุปกรณ์…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac’e Cihaz Erişimini Ayarla…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Налаштувати доступ пристроїв до цього Mac…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đặt quyền truy cập của thiết bị vào máy Mac này…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置设备对这台 Mac 的访问权限…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定裝置對這台 Mac 的取用權限…"
           }
         }
       }

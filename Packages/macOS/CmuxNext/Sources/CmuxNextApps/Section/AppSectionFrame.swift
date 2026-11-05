@@ -48,7 +48,7 @@ public struct AppSectionFrame<Content: View>: View {
                 content
             }
             .padding(.vertical, Metrics.space2)
-            .background(RoundedRectangle(cornerRadius: Metrics.itemCornerRadius + Metrics.space1, style: .continuous).fill(colors.hover))
+            .background(RoundedRectangle(cornerRadius: Metrics.surfaceCornerRadius, style: .continuous).fill(colors.hover))
             .padding(.horizontal, Metrics.space2)
         }
     }

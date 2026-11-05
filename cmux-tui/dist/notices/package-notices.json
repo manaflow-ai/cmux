@@ -4,12 +4,12 @@
     "version": "1.2.5",
     "file": "texts/musl-1.2.5/COPYRIGHT",
     "sha256": "f9bc4423732350eb0b3f7ed7e91d530298476f8fec0c6c427a1c04ade22655af",
-    "source": "musl-1.2.5/COPYRIGHT in https://musl.libc.org/releases/musl-1.2.5.tar.gz (sha256 a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4). Rust 1.95.0 builds its self-contained musl from musl 1.2.5 (src/ci/docker/scripts/musl.sh); Zig 0.16.0's lib/libc/musl/COPYRIGHT is byte-identical."
+    "source": "musl-1.2.5/COPYRIGHT in https://musl.libc.org/releases/musl-1.2.5.tar.gz (sha256 a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4). Rust 1.95.0 builds its self-contained musl from musl 1.2.5 (src/ci/docker/scripts/musl.sh); the lib/libc/musl/COPYRIGHT of Zig 0.16.0 and of Zig 0.17.0 is byte-identical."
   },
   "libghostty_vt": {
     "source": "ghostty-next",
-    "commit": "12ec155e1e67f8f33a1cee5fd2e129f59277465c",
-    "license_tree": "collect-ghostty-licenses.py tree of the cmux-next source archive dry run 37315600598 (3320bd06e; 2199dc93e changes only src/renderer/Thread.zig 3339f2ada only src/terminal (OSC 7501), CI files and NEXT.md, and 673a6369c only src/build (libSystem override), src/terminal and src/terminfo (Pst), c41410256 only src/, include/ghostty.h and CI files (link filter), 89dc50175 only src/config/c_get.zig (TerminalColor getter), 03ddb2869 only src/renderer and NEXT.md (glass minimum contrast), 4792f0307 only src/renderer and NEXT.md (minimum contrast at opacity 0), 48d353b8c only src/renderer, src/apprt/embedded.zig, include/ghostty.h and NEXT.md (host-sized target), c5926d664 only src/renderer, src/Surface.zig, src/apprt/embedded.zig, include/ghostty.h and NEXT.md (reflow preview), e4831af81 only src/renderer, src/termio/Termio.zig, src/Surface.zig, src/apprt/embedded.zig, include/ghostty.h and NEXT.md (GPU theme color blend), e6a27a1fb the same paths (no cell rebuild for a color-only change), a19c884fa only pkg/macos/iosurface/iosurface.zig (deinit keeps pixels other owners hold; no license file or dependency change), and 36ce68b13 and ced99dcde only src/renderer, src/termio/Termio.zig, src/apprt/embedded.zig, include/ghostty.h and NEXT.md (one rebuild per font change), and e923d79f1 only src/Surface.zig, src/termio and NEXT.md (CSI 996 runtime color scheme), and 839e702fe through a04c57e81 only src/terminal/formatter.zig, src/termio/Termio.zig, src/Surface.zig and NEXT.md (DECSC in VT output, viewport across snapshot restores), and 43ffe4171 only src/terminal and the CI workflow (narrowed multi-line prompt redraw), and 493a8871b and 5555f4220 only src/terminal/c, include/ghostty/vt, src/shell-integration, the CI workflow and NEXT.md (prompt redraw option and marks), and 72578da21 only src/shell-integration/bash (no bash forks) and a85741ad3 through 7d5fa1573 only src/renderer, src/termio/Termio.zig, src/apprt/embedded.zig, include/ghostty.h, the CI workflow and NEXT.md (host-sized resize frames, mirror pixel-only resize, idle wakes), and dadbd13db through 1f98b11be only src/renderer, src/termio/Termio.zig, src/Surface.zig, src/apprt/embedded.zig, include/ghostty.h, the CI workflow and NEXT.md (host-size present API, review fixes, reveal present), and 856edfe through 723c4ab only src/renderer, src/termio, src/terminal (kitty), src/Surface.zig, src/apprt, include/ghostty.h, include/ghostty/vt and NEXT.md (wheel scroll off the main-thread lock, fit grid, kitty ports), and 0cb7e1e04 through 9ce9b7d08 only src/renderer, src/apprt/embedded.zig, include/ghostty.h, src/shell-integration/bash and NEXT.md (host-size frame present, bash history without a fork, iOS display link), and 19ab1cbcb through 34e73ba8b only src/terminal (Screen.zig, Terminal.zig, formatter.zig), the CI workflow and next/release_plan.py (scroll region wrap edges, formatter blank carry, release/* publish), and 5410e5d44 and dfd07de4a only src/Surface.zig, src/renderer/link.zig, the new src/input/link_regex.zig and NEXT.md (one compiled link regex per pattern), and 30b8490a1 through 635c6c12a only src/renderer, src/renderer.zig, src/apprt, include/ghostty.h and NEXT.md (embedder host present), and b0c7e291a through 7d43bb68b only src/renderer/metal/IOSurfaceLayer.zig, include/ghostty.h and NEXT.md (off-main commit outside the Core Animation lock), and db8627d95 through 6cc749a8a only src/renderer, src/termio/Thread.zig, src/apprt/embedded.zig, include/ghostty.h and NEXT.md (host-frame lock-span docs, thread wake counters, no main-queue present for a kept embedder frame), and ae7c1f741 through 12ec155e1 only src/renderer/metal/IOSurfaceLayer.zig and src/renderer/Metal.zig (one drop rule; an off-main present commits only a frame it shows), so LICENSE, build.zig.zon and vendor/ are identical and pkg/ has no license change)",
+    "commit": "383b27d73717a538af3c8b1e21a39995517cb3bd",
+    "license_tree": "collect-ghostty-licenses.py tree of the cmux-next source archive dry run 42004729138 (SOURCE-MANIFEST.json ghostty_revision 383b27d73, no unresolved packages). The texts are byte-identical to the 7d43bb68b ones: Ghostty LICENSE, highway (N-V-__8AAGmZhABb...) LICENSE, LICENSE-BSD3, debian/copyright, wuffs (N-V-__8AAP5JWgCG...) LICENSE, LICENSE-APACHE, LICENSE-MIT and uucode LICENSE.md have the same sha256 in that tree. The upstream sync moves uucode to a new Zig package hash (deps.files.ghostty.org tarball of uucode ea6214973) with the same LICENSE.md, so only its owner key and source change.",
     "owners": {
       "ghostty-next": {
         "name": "Ghostty",
@@ -17,7 +17,7 @@
           {
             "file": "texts/ghostty-next/LICENSE",
             "sha256": "386211873e5b7a02f663ae4d7adf96285999f91608f8f9f31fecfd0f4095e6f1",
-            "source": "https://github.com/manaflow-ai/ghostty-next/blob/673a6369c4ba43cddcc94ff67361872824ffa528/LICENSE"
+            "source": "https://github.com/manaflow-ai/ghostty-next/blob/383b27d73717a538af3c8b1e21a39995517cb3bd/LICENSE"
           }
         ]
       },
@@ -61,13 +61,13 @@
           }
         ]
       },
-      "uucode-0.2.0-ZZjBPuuFVgC8YZ8eld4fOKsZANLIhTFMzULQxhkLi1C7": {
+      "uucode-0.2.0-ZZjBPoGFVgCiflJNFc6Io8xzC67B6PA5bUkk4LT0kCxg": {
         "name": "uucode",
         "files": [
           {
             "file": "texts/ghostty-next/uucode/LICENSE.md",
             "sha256": "312e901e142be2477b4ca859e9311f9e3f80d33372991759b7921c1893605f33",
-            "source": "LICENSE.md in https://github.com/jacobsandlund/uucode/archive/9d55524551411b493cca41ca06363625d90aff1e.tar.gz (Zig package uucode-0.2.0-ZZjBPuuFVgC8YZ8eld4fOKsZANLIhTFMzULQxhkLi1C7)"
+            "source": "LICENSE.md in https://deps.files.ghostty.org/uucode-ea62149739404a73c202b48a33bf6dd2af4bd9b0.tar.gz (Zig package uucode-0.2.0-ZZjBPoGFVgCiflJNFc6Io8xzC67B6PA5bUkk4LT0kCxg)"
           }
         ]
       }
@@ -112,16 +112,16 @@
         "Not linked: winpthreads (no pthread_* or winpthread symbol, no DLL import; its COPYING is not needed), libstdc++ (__cxa_pure_virtual and __glibcxx_assert_fail resolve to simdutf's own weak stubs in ghostty-next pkg/simdutf), LLVM compiler-rt and libunwind (this is the GNU target, not gnullvm).",
         "Zig compiler_rt (in libghostty-vt): memcpy/memset/strlen, __divti3/__udivti3, __chkstk and the math functions ceil/floor/exp/expf/log/logf/log2/fmod/round/roundf/trunc/truncf resolve to compiler_rt.* at the same addresses. Zig's LICENSE covers compiler_rt; its math files say 'Ported from musl' (MIT), so the Windows notice also carries musl's COPYRIGHT.",
         "libghostty-vt for x86_64-windows-gnu: vt-link-graph.json target x86_64-windows-gnu, regenerated on Testbox tbx_01m45qv05kdd7cpx1g9qk973fn (the four other targets came out byte-identical). Zig emits CodeView for Windows, and its file checksums name only files with line records: highway, wuffs, pkg/highway, pkg/simdutf, pkg/wuffs, Zig std, compiler_rt, libcxx headers; uucode (inlined lookups and comptime tables) is missing, so package_notices.py names every package that any target links for Windows. Zig lib/libcxx header code is Apache-2.0 WITH LLVM-exception, whose exception needs no notice for code embedded in object form.",
-        "Rust crates: the x86_64-pc-windows-gnu closure adds winapi-x86_64-pc-windows-gnu 0.4.0 (MinGW import libraries, MIT/Apache-2.0), which ships no license file; reviewed.json now stores winapi-rs's root LICENSE-MIT and LICENSE-APACHE at its publishing commit 9497609ef44c."
+        "Rust crates: the x86_64-pc-windows-gnu closure adds winapi-x86_64-pc-windows-gnu 0.4.0 (MinGW import libraries, MIT/Apache-2.0), which ships no license file; reviewed.json now stores winapi-rs's root LICENSE-MIT and LICENSE-APACHE at its publishing commit 9497609ef44c.",
+        "Zig 0.17.0 (ghostty-next a6b9048e9, 2026-11-04): run 41861545663 artifact cmux-tui-x86_64-pc-windows-gnu passes check-windows-binary (no GCC ident but the reviewed one) and still links musl-ported compiler_rt math (compiler_rt.exp, exp2, floor_ceil, fmod, log, log2, round, trunc); the Windows notice keeps musl's COPYRIGHT. The other runtime evidence above is from the Zig 0.16.0 build of run 37288140319."
       ],
       "limits": "The runner image pins MinGW 15.* by toolset, not one build. check-windows-toolchain (build-windows job, before linking) fails another GCC build, mingw-w64 version or msvcrt, and check-windows-binary (package job) fails a binary that names another GCC build, so a new toolchain needs a new review. The review covers x86_64-pc-windows-gnu only (no aarch64 Windows target is built)."
     }
   },
   "darwin": {
-    "zig": "0.16.0",
+    "zig": "0.17.0",
     "compiler_rt_modules": [
-      "floattidf",
-      "floatuntidf",
+      "float_from_int",
       "powiXf2",
       "ssp",
       "udivmod"
@@ -135,15 +135,15 @@
       "^_Io\\.Threaded\\.(writeResolutionQuery|lookupDns)"
     ],
     "review": {
-      "date": "2026-10-05",
-      "decision": "NO MUSL TEXT: the Darwin packages link no musl-derived code",
-      "reviewer": "license lead v7 (worker session 5c, cmuxterm-hq-69); engineering review, not attorney review",
-      "artifact": "GitHub Actions run 37295065948 (cmux-tui.yml full, 5ef800440ec): artifacts cmux-tui-aarch64-apple-darwin (cmux-tui de85303c47fb77b1..., cmux-tui-hook bffea504ce770ee2...), cmux-tui-x86_64-apple-darwin (cmux-tui 59a60fe0a8e9e386..., cmux-tui-hook a6fdb4c3a9af1551...), npm-packages and pypi-wheels (the darwin npm packages, cmux-relay-darwin-* included, and the macosx wheels carry these same files; chatmux-relay has no Zig code)",
+      "date": "2026-11-04",
+      "decision": "NO MUSL TEXT: the Darwin packages link no musl-derived code (Zig 0.17.0, ghostty-next a6b9048e9)",
+      "reviewer": "license review agent for the ghostty-next upstream sync (PR manaflow-ai/cmux#35478); engineering review, not attorney review",
+      "artifact": "GitHub Actions run 41861545663 (cmux-tui.yml workflow_dispatch, 72b34da97, ghostty-next a6b9048e9, Zig 0.17.0): artifacts cmux-tui-aarch64-apple-darwin (cmux-tui ccfb3bb32927f62e..., cmux-tui-hook 0770eed04cf35285...), cmux-tui-x86_64-apple-darwin (cmux-tui 4e2af72ab80d4030..., cmux-tui-hook 9b4e4cafbb2f9d5e...), cmux-relay-aarch64-apple-darwin (3cf2a56ed6830...) and cmux-relay-x86_64-apple-darwin (65b0c3d78fc02...). Its package job failed only on compiler_rt.float_from_int, which this review adds. Previous review: 2026-10-05, Zig 0.16.0, run 37295065948.",
       "evidence": [
-        "Zig 0.16.0 sources that say they are ported from musl: compiler_rt cos, exp, exp2, fma, floor_ceil, fmod, log, log10, log2, rem_pio2*, round, sin, sqrt, tan, trig, trunc; std/math acos, acosh, asin, asinh, atan, atan2, atanh, cbrt, cosh, expm1, expo2, gamma, ilogb, log, log1p, sinh, tanh, complex/*; std/Io/Threaded.zig writeResolutionQuery (DNS).",
-        "The binaries keep their symbol tables. compiler_rt modules present: floatuntidf (arm64) or floattidf (x86_64), powiXf2 (ported from LLVM compiler-rt), ssp, udivmod. None is a musl port. No std.math symbol.",
-        "Math functions are imported from libSystem: _cosf, _fmod, _log, _log2, _pow (arm64) and also _ceil, _fma, _round (x86_64). compiler_rt's musl-ported math is not in the link.",
-        "Inlined code: libghostty-vt reaches a musl-ported std.math function only through std.math.cbrt in terminal.color.LAB.fromRgb, called by generate256Color, which libghostty-vt reaches only from the exported ghostty_color_palette_generate (src/terminal/c/color.zig; Termio is not in libghostty-vt). cmux-tui does not link that export (92 other ghostty_ exports are linked). A scan for musl cbrtf's constants (movz/movk 0x19f2 with 0x2a51 or 0x2651) finds 0 in every Darwin package binary and 6 in the GhosttyNextKit member and the app binary that have the code.",
+        "Zig 0.17.0 source (zig-0.17.0.tar.xz from ziglang.org, sha256 b6c7f1728f043700d6529bac980800792f824256a9d2f1839b3d62beed0b8abd). Sources that say they are ported from musl: compiler_rt cos, exp, exp2, fma, floor_ceil, fmod ('heavily inspired by MUSL fmodl'), log, log10, log2, rem_pio2*, round, sin, sqrt, tan, trig, trunc; std/math acos, acosh, asin, asinh, atan, atan2, atanh, cbrt, cosh, expm1, expo2, gamma, ilogb, log, log1p, sinh, tanh, complex/*; std/Io/Threaded.zig writeResolutionQuery (DNS); std/Thread.zig LinuxThreadImpl freeAndExit (Linux only). Every 'ported from / inspired by / copied from musl' line is the same in Zig 0.16.0 (zig-0.16.0.tar.xz, sha256 43186959edc87d5c7a1be7b7d2a25efffd22ce5807c7af99067f86f99641bfdf).",
+        "compiler_rt modules in the binaries: float_from_int (__floatuntidf on arm64, __floattidf on x86_64), powiXf2 (ported from LLVM compiler-rt powisf2.c), ssp, udivmod. Zig 0.17.0 merged 0.16.0's floattidf.zig and floatuntidf.zig wrappers into compiler_rt/float_from_int.zig; its floatFromInt is 0.16.0's bit-manipulation code (only Int -> @Int changed), uses no std.math function and names no musl origin. None of the four modules is a musl port. No std.math symbol.",
+        "Math functions are imported from libSystem: _cbrt, _cos, _cosf, _exp, _exp2, _fmod, _log, _log10, _log2, _pow, _sin, _tan (arm64) and also _ceil, _fma, _round (x86_64). compiler_rt's musl-ported math is not in the link.",
+        "Inlined code: ghostty-next a6b9048e9 still reaches std.math.cbrt only through terminal.color.LAB.fromRgb from the export ghostty_color_palette_generate, which no Darwin package binary links (cmux-tui has 96 other _ghostty_ symbols). A scan for musl cbrtf's constants (movz 0x19f2 then movk 0x2a51 or 0x2651, lsl 16; or the 32-bit immediates) finds 0 in every Darwin package binary and 10 in the iOS app binary of cmux-ci job 88f465baffd86abba2529c18, which has the code.",
         "Zig Io in the binaries uses Io.failingNetLookup; no Io.Threaded DNS symbol.",
         "Rust std's compiler_builtins carries libm (musl-derived); rustc's COPYRIGHT-library.html, which the notices include, covers it."
       ],

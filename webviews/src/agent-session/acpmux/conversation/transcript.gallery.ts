@@ -10,7 +10,6 @@ import type { PlayContext } from "../../../gallery/play";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { workedTurnRows } from "../workedTurn";
 import { checkRunningLineLoops, hasCompleteRunningLineShimmer } from "./runningLineMotion";
-import { THINKING_VERBS } from "./thinkingVerbs";
 import { GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
 import {
   BUILD_REPORT_PDF_PAGE_PNG,
@@ -831,8 +830,9 @@ const footerActionsPlacement = (placement: "left" | "right") => async (ctx: Play
 };
 
 /// The live line at the bottom of a running turn never overlaps the row over it. Under a run of
-/// one-line rows it keeps the scaled run gap (Leo, 2026-11-04: "the gap between tool calls and
-/// thinking needs to be bigger"); under prose it keeps the footer slot's gap (Leo, 2026-10-21: "THE
+/// one-line rows it is one more line of the run, flush, 22 apart top to top (#31497,
+/// design/chat-transcript.md "One-line row pitch", transcriptGrid.ts `transcriptGap`), never a gap
+/// apart; under prose it keeps the footer slot's gap (`TRANSCRIPT_FOOTER_GAP`; Leo, 2026-10-21: "THE
 /// RUNNING A COMMAND IS WAY TOO CLOSE"). Its words shimmer, and its "⌃B to run in background" waits
 /// for the pointer.
 const liveLineClear = async (ctx: PlayContext) => {
@@ -926,9 +926,6 @@ const messageSurfaceComputedStyle = async (ctx: PlayContext) => {
   if (assistantStyle.backgroundColor !== "rgba(0, 0, 0, 0)" || assistantStyle.boxShadow !== "none")
     throw new Error("assistant prose picked up a message container surface");
 };
-
-/// The live line's word before a step: "Thinking", or the turn's verb in English (thinkingVerbs.ts).
-const THINKING_WORD = new RegExp(`^(?:Thinking|${THINKING_VERBS.join("|")})`);
 
 /// The running line ("Thinking", "Working for") holds still: no mark blinks before its words and
 /// nothing on it loops (Leo, 2026-10-20, "the blinking ascii").
@@ -1499,6 +1496,45 @@ export default agentPaneEntry({
     "page:cmux.agent",
     "agent-session/acpmux/App.tsx#VirtualTranscript",
     "agent-session/acpmux/App.tsx#AcpmuxApp",
+    "agent-session/acpmux/rows/ActivityLineRow.tsx",
+    "agent-session/acpmux/rows/AgentPairRow.tsx",
+    "agent-session/acpmux/rows/BackgroundTaskRow.tsx",
+    "agent-session/acpmux/rows/BackgroundTurnRow.tsx",
+    "agent-session/acpmux/rows/CompactionRow.tsx",
+    "agent-session/acpmux/rows/DateRow.tsx",
+    "agent-session/acpmux/rows/EditedFilesRow.tsx",
+    "agent-session/acpmux/rows/FailoverRow.tsx",
+    "agent-session/acpmux/rows/LaneNoticeBatchRow.tsx",
+    "agent-session/acpmux/rows/MessageRow.tsx",
+    "agent-session/acpmux/rows/MessageRunRow.tsx",
+    "agent-session/acpmux/rows/NextStepRow.tsx",
+    "agent-session/acpmux/rows/NoticeRow.tsx",
+    "agent-session/acpmux/rows/OfferResultRow.tsx",
+    "agent-session/acpmux/rows/PendingMessagesRow.tsx",
+    "agent-session/acpmux/rows/PermissionAsk.tsx",
+    "agent-session/acpmux/rows/PermissionRecordRow.tsx",
+    "agent-session/acpmux/rows/PermissionRow.tsx",
+    "agent-session/acpmux/rows/PlanRow.tsx",
+    "agent-session/acpmux/rows/PolicyUnenforcedRow.tsx",
+    "agent-session/acpmux/rows/PreviewRow.tsx",
+    "agent-session/acpmux/rows/QuestionRecordRow.tsx",
+    "agent-session/acpmux/rows/QueuedMessageRow.tsx",
+    "agent-session/acpmux/rows/RecapRow.tsx",
+    "agent-session/acpmux/rows/RenderRow.tsx",
+    "agent-session/acpmux/rows/SessionOfferRow.tsx",
+    "agent-session/acpmux/rows/SessionStartRow.tsx",
+    "agent-session/acpmux/rows/StartedSessionsRow.tsx",
+    "agent-session/acpmux/rows/SubagentDoneRow.tsx",
+    "agent-session/acpmux/rows/SubagentGroupRow.tsx",
+    "agent-session/acpmux/rows/SubagentOfPillRow.tsx",
+    "agent-session/acpmux/rows/SubagentRow.tsx",
+    "agent-session/acpmux/rows/SummaryRow.tsx",
+    "agent-session/acpmux/rows/TaskLineRow.tsx",
+    "agent-session/acpmux/rows/ThinkingRow.tsx",
+    "agent-session/acpmux/rows/ToolActivityRow.tsx",
+    "agent-session/acpmux/rows/WorkedRow.tsx",
+    "agent-session/acpmux/rows/WorkflowCardRow.tsx",
+    "agent-session/acpmux/rows/WorkingRow.tsx",
     "agent-session/acpmux/SecretCard.tsx#SecretCard",
     "agent-session/acpmux/conversation/ChatFindScope.tsx#ChatFindScope",
     "agent-session/acpmux/conversation/MessageCard.tsx",
@@ -1676,7 +1712,7 @@ export default agentPaneEntry({
     thinking: {
       note: "A turn that started and has no output yet: Thinking alone, with no blinking dots before it; the word itself shimmers in the theme accent, as in the Codex app (still under Reduce Motion). Play: the shimmer is the line's only loop.",
       snapshot: chat([user(prompt, 0.2)], { isWorking: true }),
-      play: runningLineStill(THINKING_WORD, true),
+      play: runningLineStill(/^Thinking/, true),
     },
     streaming: {
       note: "A reply still streaming (its last block still open).",
@@ -1951,13 +1987,13 @@ export default agentPaneEntry({
       },
     },
     "long-thought-streaming": {
-      note: "A long thought still streaming holds a seven-line viewport with its newest line in view (Debug toggle agentPane.debug.liveThoughtViewport) and folds once done; with agentPane.debug.foldLongThoughts off, it shows in full.",
+      note: "A long thought still streaming holds a seven-line viewport with its newest line in view and folds once done.",
       snapshot: chat([user(prompt, 2), activity([thought(LONG_THOUGHT)], 1.5)], {
         isWorking: true,
       }),
     },
     "long-thought-done": {
-      note: 'A long thought followed by a step folds to "Thought for 12s" (with Debug Settings agentPane.debug.thoughtHeader preview, "Thought" and its first line); with agentPane.debug.foldLongThoughts off (data-fold-long-thoughts="off" on <html>), it shows in full as before.',
+      note: 'A long thought followed by a step folds to "Thought for 12s" (with Debug Settings agentPane.debug.thoughtHeader preview, "Thought" and its first line).',
       snapshot: chat(
         [
           user(prompt, 2),
@@ -2169,7 +2205,7 @@ export default agentPaneEntry({
           turnTokenSplit: { output: 12_400, input: 18_000, cacheRead: 2_080_000, cacheWrite: 42_000 },
         },
       ),
-      play: runningLineStill(THINKING_WORD, true),
+      play: runningLineStill(/^Thinking/, true),
     },
     "working-tokens-total": {
       note: "A live turn whose calls named their output but not what they read: the line says the output alone, Thinking 5m 54s · 2.1M out, in the same quieter color.",
@@ -2181,7 +2217,7 @@ export default agentPaneEntry({
         ],
         { isWorking: true, turnTokens: 2_140_000 },
       ),
-      play: runningLineStill(THINKING_WORD, true),
+      play: runningLineStill(/^Thinking/, true),
     },
     "worked-tokens": {
       note: "A finished Claude turn: its Worked for line says the turn's tokens from its result, output first (↓ 9.8K out ↑ 1.4M in), with its time and tokens in the line's quieter color.",
@@ -2524,7 +2560,7 @@ export default agentPaneEntry({
       },
     },
     "codex-turn-raw-commands": {
-      note: "Leo's turn-toolcalls-now.png: commands that all start with export PATH=… and send no description. Each reads as its meaningful command (acpmux ls, gh pr view 22363); the two runs and the short note between them are one folded line; the call in flight is the one live line at the bottom (Running acpmux send 13s), shimmering, no dots, with the scaled run gap under the activity; ⌃B to run in background shows on hover. Play: hover the line.",
+      note: "Leo's turn-toolcalls-now.png: commands that all start with export PATH=… and send no description. Each reads as its meaningful command (acpmux ls, gh pr view 22363); the two runs and the short note between them are one folded line; the call in flight is the one live line at the bottom (Running acpmux send 13s), shimmering, no dots, flush under the run over it as one more 22px line of it (#31497); ⌃B to run in background shows on hover. Play: hover the line.",
       snapshot: chat(
         [
           user("What did the lanes decide? Relay it and answer.", 2),

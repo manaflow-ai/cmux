@@ -43,10 +43,17 @@ enum Interposer {
         return Int(bitPattern: handle)
     }
 
+    /// One applied patch: each function it replaced, with its new code and the code it replaced
+    /// (the executable's, or an earlier patch's). Rollback repoints `after` back to `before`.
+    struct Applied {
+        var after: [String: UnsafeRawPointer]
+        var before: [String: UnsafeRawPointer]
+    }
+
     @MainActor
     /// `current` holds each replaced function's newest code: dyld repoints the bindings that hold the
     /// replacee, which after the first patch is that patch's copy, not the executable's.
-    static func apply(handle bits: Int, dylib path: String, current: inout [String: UnsafeRawPointer]) throws -> Int {
+    static func apply(handle bits: Int, dylib path: String, current: inout [String: UnsafeRawPointer]) throws -> Applied {
         guard let handle = UnsafeMutableRawPointer(bitPattern: bits) else { throw LiveCodeError.open("no handle") }
         guard let index = (0..<_dyld_image_count()).last(where: { String(cString: _dyld_get_image_name($0)) == path
             || URL(fileURLWithPath: String(cString: _dyld_get_image_name($0))).resolvingSymlinksInPath().path == URL(fileURLWithPath: path).resolvingSymlinksInPath().path
@@ -62,6 +69,7 @@ enum Interposer {
         guard changed.isEmpty else { throw LiveCodeError.layoutChanged(changed) }
         var tuples: [Tuple] = []
         var replaced: [String: UnsafeRawPointer] = [:]
+        var before: [String: UnsafeRawPointer] = [:]
         for (name, address) in codeSymbols(header: header, slide: slide) {
             // Swift functions only, that the executable also defines.
             guard name.hasPrefix("_$s"), let old = dlsym(mainOnly, String(name.dropFirst())), UnsafeRawPointer(old) != address else { continue }
@@ -72,20 +80,42 @@ enum Interposer {
                 tuples.append(Tuple(replacement: address, replacee: previous))
             }
             replaced[name] = address
+            before[name] = current[name] ?? original
         }
-        guard !tuples.isEmpty, let main = _dyld_get_image_header(0) else { throw LiveCodeError.nothingToReplace }
+        guard !tuples.isEmpty else { throw LiveCodeError.nothingToReplace }
+        try repoint(tuples, to: replaced, interpose: interpose)
+        current.merge(replaced) { $1 }
+        return Applied(after: replaced, before: before)
+    }
+
+    /// Undoes `patch`, the newest applied: every function it replaced runs the code it replaced
+    /// again. The patch's image stays loaded (no dlclose); nothing points at it.
+    @MainActor
+    static func revert(_ patch: Applied, current: inout [String: UnsafeRawPointer]) throws -> Int {
+        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "dyld_dynamic_interpose") else {
+            throw LiveCodeError.noInterposer
+        }
+        let tuples = patch.after.compactMap { name, now in patch.before[name].map { Tuple(replacement: $0, replacee: now) } }
+        guard !tuples.isEmpty else { throw LiveCodeError.nothingToReplace }
+        try repoint(tuples, to: patch.before, interpose: unsafeBitCast(symbol, to: DynamicInterpose.self))
+        current.merge(patch.before) { $1 }
+        return tuples.count
+    }
+
+    /// Hands `tuples` to dyld, then repoints the executable's already bound pointers to `targets`.
+    @MainActor
+    private static func repoint(_ tuples: [Tuple], to targets: [String: UnsafeRawPointer], interpose: DynamicInterpose) throws {
+        guard let main = _dyld_get_image_header(0) else { throw LiveCodeError.noImage }
         tuples.withUnsafeBytes { bytes in
             if let base = bytes.baseAddress { interpose(main, base, tuples.count) }
         }
         // dyld_dynamic_interpose leaves a pointer that is already bound on the old code: a `body`
         // SwiftUI called before this patch kept drawing the build's view. Repoint those too.
-        let rebound = rebind(header: main, slide: _dyld_get_image_vmaddr_slide(0), to: replaced)
+        let rebound = rebind(header: main, slide: _dyld_get_image_vmaddr_slide(0), to: targets)
         if rebound.failed > 0 {
             // Those calls still reach the old code: say so rather than report a clean patch.
             FileHandle.standardError.write(Data("cmux live code: \(rebound.failed) symbol pointers stayed on the old code (mprotect failed)\n".utf8))
         }
-        current.merge(replaced) { $1 }
-        return replaced.count
     }
 
     /// Repoints the image's symbol pointers (`__la_symbol_ptr`, `__got`; the executable is linked

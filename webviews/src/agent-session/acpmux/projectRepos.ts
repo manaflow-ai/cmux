@@ -132,20 +132,31 @@ export function groupByRepo<T extends RepoFolder>(folders: readonly T[], current
     byName.set(name, seen === undefined || (seen && repoKey(seen) === repoKey(repo)) ? repo : null);
   }
   // The checkouts the host named: a worktree's own top with its branch, and its main checkout.
-  const checkouts = known.flatMap((repo): [string, ProjectRepo][] => {
+  // By folder, the first named wins as before; a folder's holder is its nearest such ancestor, found
+  // by walking up its path (a lookup per level, not a scan of every checkout: thousands of projects
+  // made opening the picker lag).
+  const checkouts = new Map<string, ProjectRepo>();
+  for (const repo of known) {
     const { branch: _branch, ...main } = repo;
-    return [
-      [trim(repo.top ?? repo.root), repo],
-      [trim(repo.root), { ...main, top: repo.root }],
-    ];
-  });
+    const top = trim(repo.top ?? repo.root);
+    if (!checkouts.has(top)) checkouts.set(top, repo);
+    const root = trim(repo.root);
+    if (!checkouts.has(root)) checkouts.set(root, { ...main, top: repo.root });
+  }
+  const holderOf = (id: string): ProjectRepo | undefined => {
+    for (let path = id; path;) {
+      const repo = checkouts.get(path);
+      if (repo) return repo;
+      const cut = path.lastIndexOf("/");
+      if (cut <= 0) return undefined;
+      path = path.slice(0, cut);
+    }
+    return undefined;
+  };
   const resolve = (folder: T): ProjectRepo | undefined => {
     if (folder.repo) return folder.repo;
-    const id = trim(folder.id);
-    const holder = checkouts
-      .filter(([top]) => id === top || id.startsWith(top + "/"))
-      .sort(([a], [b]) => b.length - a.length)[0];
-    if (holder) return holder[1];
+    const holder = holderOf(trim(folder.id));
+    if (holder) return holder;
     const guess = guessProjectRepo(folder.id);
     const named = guess && byName.get(guess.name.toLowerCase());
     if (!guess || !named) return guess;
@@ -170,7 +181,9 @@ export function groupByRepo<T extends RepoFolder>(folders: readonly T[], current
   const groups = new Map<string, T[]>();
   for (const folder of resolved) {
     const key = keyOf(folder);
-    groups.set(key, [...(groups.get(key) ?? []), folder]);
+    const members = groups.get(key);
+    if (members) members.push(folder);
+    else groups.set(key, [folder]);
   }
   return [...groups].map(([key, members]) => {
     const repo = members.map((member) => member.repo).find(Boolean);
@@ -312,9 +325,20 @@ export function shownRepoRows<T extends RepoFolder>(
 /// A worktree's own words: its name, branch and the part of its path below what it shares with
 /// the repository's other folders.
 function worktreeText(member: RepoFolder, group: RepoGroup<RepoFolder>): string {
+  const common = commonFolder(group);
+  const below = trim(member.id).slice(common.length);
+  return `${member.label} ${worktreeName(member)} ${below}`.toLowerCase();
+}
+
+/// The folder every member of the group is in, kept per group: a search reads it for each member,
+/// and a repository with hundreds of worktrees made each typed letter walk them all again per member.
+const commonFolders = new WeakMap<RepoGroup<RepoFolder>, string>();
+function commonFolder(group: RepoGroup<RepoFolder>): string {
+  const kept = commonFolders.get(group);
+  if (kept !== undefined) return kept;
   const ids = group.members.map((other) => trim(other.id));
   let common = ids[0] ?? "";
   for (const id of ids) while (common && !(id + "/").startsWith(common + "/")) common = common.replace(/\/?[^/]*$/, "");
-  const below = trim(member.id).slice(common.length);
-  return `${member.label} ${worktreeName(member)} ${below}`.toLowerCase();
+  commonFolders.set(group, common);
+  return common;
 }

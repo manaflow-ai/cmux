@@ -562,6 +562,8 @@ public final class AddressBarView: NSView {
     /// The I-beam over the text area, the arrow beside the chip and the
     /// badges (`OmnibarPointer`); the rects follow the text area.
     public override func resetCursorRects() {
+        // In a layout screen the toolbar row's rule gives the same cursors from the screen's one area (`ArrowCursorView`).
+        guard !isServedByPanePointerArea else { return }
         let text = textArea
         cursorTextArea = text
         addCursorRect(text, cursor: OmnibarPointer.cursor(.bar).cursor)
@@ -572,7 +574,7 @@ public final class AddressBarView: NSView {
 
     public override func layout() {
         super.layout()
-        if textArea != cursorTextArea { window?.invalidateCursorRects(for: self) }
+        if textArea != cursorTextArea, !isServedByPanePointerArea { window?.invalidateCursorRects(for: self) }
     }
 
     // MARK: Appearance
@@ -583,7 +585,7 @@ public final class AddressBarView: NSView {
         if state.hasFocus != cursorRectsEditing {
             // The field's cursor follows editing (`AddressField.resetCursorRects`).
             cursorRectsEditing = state.hasFocus
-            window?.invalidateCursorRects(for: field)
+            if !isServedByPanePointerArea { window?.invalidateCursorRects(for: field) }
         }
         pill.state = state.isPopupOpen ? .card : (state.hasFocus ? .editing : .idle)
         backdrop.isHidden = !state.isPopupOpen

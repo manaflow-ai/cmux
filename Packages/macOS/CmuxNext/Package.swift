@@ -176,8 +176,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-728ed6cc8d33189189e9e129f5356958ddce5a16/CCmuxAppFFI.xcframework.zip",
-    checksum: "7e9a47f9ddaed5c291eceac157a6718b37f1133dcd9990c6be1d35e97c652081"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-657eaccb9000deb250b05c18987b3449c4a856e3/CCmuxAppFFI.xcframework.zip",
+    checksum: "a9c614b98ec3734dcf3b695aa6cc3e4a20fd25b48e001b4d08220b3e152b26ad"
 )
 
 // Debug-only product consumed by Prototypes/UiLayerHost. Keeping this leaf
@@ -333,6 +333,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextLiveCode",
                 "CmuxNextAgentLanes",
                 "CmuxNextChiefViews",
+                "CmuxNextGitHubViewer",
                 "CmuxNextAgentCursor",
                 .product(name: "CmuxAgentCursor", package: "CmuxAgentCursor"),
                 "CmuxNextAgentCursorVisibility",
@@ -1006,6 +1007,27 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: ["CmuxNextChiefMemory"],
             swiftSettings: uiSwiftSettings
         ),
+        // The GitHub page (webviews/src/pages/github): a pull request link clicked in a chat shows
+        // natively from the app's pull request cache, with its diff in the diff viewer. The App
+        // places its tab and opens what it asks to (GitHubPageTab).
+        .target(
+            name: "CmuxNextGitHubViewer",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextAgentPane",
+                "CmuxNextDesign",
+                "CmuxNextPages",
+                "CmuxNextSettings",
+            ],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextGitHubViewerTests",
+            dependencies: ["CmuxNextAgentPane", "CmuxNextGitHubViewer", "CmuxNextPages", "CmuxNextSettings"],
+            swiftSettings: uiSwiftSettings
+        ),
         // The Chief view gallery (webviews/src/pages/chief-views): the page's provider over the
         // agent lanes, terminal hook agents, the CI fleet dashboard and GitHub search, its Debug
         // Settings toggle and strings. The App passes its machines and navigation (ChiefViewsHost).
@@ -1134,7 +1156,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // Share This Mac. Input capture comes from CmuxNextRemoteView.
         .target(
             name: "CmuxNextMacScreen",
-            dependencies: ["CmuxNextCompat", "CmuxNextSettings", "CmuxNextWakeups", "CmuxNextActions", "CmuxNextControl", "CmuxNextDesign", "CmuxNextRemoteView", "CmuxNextDevices", .product(name: "CmuxScreenKit", package: "CmuxScreenKit")],
+            dependencies: ["CmuxNextCompat", "CmuxNextSettings", "CmuxNextWakeups", "CmuxNextActions", "CmuxNextControl", "CmuxNextDesign", "CmuxNextRemoteView", "CmuxNextDevices", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextComputerUse", .product(name: "CmuxScreenKit", package: "CmuxScreenKit")],
             resources: [
                 .process("Resources"),
             ],

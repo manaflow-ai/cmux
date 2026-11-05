@@ -1794,8 +1794,8 @@ body[data-loading="true"] #status::before {
   background: var(--cmux-diff-hover-bg);
 }
 .file-review-eye svg {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   fill: none;
   stroke: currentcolor;
   stroke-width: 1.3;
