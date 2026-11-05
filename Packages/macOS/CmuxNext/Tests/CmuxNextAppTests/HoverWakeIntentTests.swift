@@ -39,7 +39,7 @@ import Testing
     static func row(_ index: Int) -> HoverWakeTarget { .workspace("w\(index)", window: "window") }
 
     /// (a) A sweep over 200 rows at 120 Hz (a new row every frame) then off the sidebar: no intent, and
-    /// the timer fired at most once per dwell (off the main thread), not once per row.
+    /// the timer fired about once per dwell (off the main thread), not once per row.
     @Test func aSweepOverTwoHundredRowsStartsNoWake() {
         var pointer = Pointer()
         let frame = 1000.0 / 120
@@ -47,7 +47,9 @@ import Testing
         pointer.move(to: nil, atMs: 200 * frame)
         pointer.rest(untilMs: 200 * frame + 1000)
         #expect(pointer.intents.isEmpty)
-        #expect(pointer.timerFires <= Int(200 * frame / 100) + 2)
+        // One fire per dwell while the sweep lasts (each re-arms for the time left), one when it rounds up,
+        // and the last one after the pointer left (it finds nothing resting).
+        #expect(pointer.timerFires <= Int((200 * frame / 100).rounded(.up)) + 2)
     }
 
     /// A sweep that slows to 2 rows per dwell still starts nothing; resting on the last row starts it, once.
