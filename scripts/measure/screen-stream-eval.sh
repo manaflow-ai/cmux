@@ -31,6 +31,11 @@ done
 ipv4='^([0-9]{1,3}\.){3}[0-9]{1,3}$'
 for value in "$lan" "$viewer_of"; do
   [[ -z "$value" || "$value" =~ $ipv4 ]] || { echo "screen-stream-eval.sh: lan= and viewer-of= are IPv4 addresses" >&2; exit 2; }
+  # Each octet at most 255, so a typo fails here, not as a peer server that never binds.
+  IFS=. read -r -a octets <<<"$value"
+  for octet in ${octets[@]+"${octets[@]}"}; do
+    (( 10#$octet <= 255 )) || { echo "screen-stream-eval.sh: $value is not an IPv4 address" >&2; exit 2; }
+  done
 done
 if [[ -n "$lan$viewer_of" ]]; then
   [[ "$peer_token" =~ ^[0-9a-f]{64}$ ]] || { echo "screen-stream-eval.sh: two Macs need peer-token= (64 hex)" >&2; exit 2; }
@@ -196,7 +201,14 @@ view() {
       CMUX_VNC_STREAM_LINK="$(grep -m1 -o 'cmux-vnc://pair[^ ]*' "$EVAL_STATE/host.log" 2>/dev/null)" \
       python3 -I "$here/peer.py" call "$work/peer" "$name" "$@"
   else
-    bash "$script" "$@"
+    # RAW.span, the view's start and end on this Mac's wall clock, as peer.py writes it for a LAN
+    # view: the reports cut the host's shared logs (WebRTC's encode samples) to this view's.
+    local raw="${*: -1}" start rc=0
+    start=$(python3 -I -c 'import time; print(time.time_ns() // 1_000_000)')
+    bash "$script" "$@" || rc=$?
+    python3 -I -c 'import json, sys, time
+json.dump({"start_unix_ms": int(sys.argv[2]), "end_unix_ms": time.time_ns() // 1_000_000}, open(sys.argv[1], "w"))' "$raw.span" "$start"
+    return "$rc"
   fi
 }
 # with_offsets RAW CMD...: CMD with the clock offsets peer.py measured for RAW's view (none on one Mac).
