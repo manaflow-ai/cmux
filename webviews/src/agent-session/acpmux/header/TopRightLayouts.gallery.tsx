@@ -127,7 +127,7 @@ export default componentEntry<Props>({
       play: at("morph"),
     },
     "morph-open": {
-      note: "Morph expanded: the set slides out of the control to its left, over the header, so the title never moves.",
+      note: "Morph expanded: the control grows leftward into the set, every quick action in reach, the control still at the trailing edge.",
       props: base,
       play: morphOpen,
     },
