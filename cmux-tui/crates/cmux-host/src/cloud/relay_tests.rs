@@ -159,8 +159,11 @@ fn the_backoff_wait_runs_from_the_relay_thread_outside_any_runtime() {
     // ends the relay thread, so the machine never dials the relay again after its first socket drops.
     let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
     let (_tx, mut rx) = watch::channel(false);
+    let (_resume, mut resumes) = watch::channel(0);
     let started = std::time::Instant::now();
-    let waited = std::thread::spawn(move || pause(&rt, &mut rx, Duration::from_millis(20))).join();
+    let waited =
+        std::thread::spawn(move || pause(&rt, &mut rx, &mut resumes, 0, Duration::from_millis(20)))
+            .join();
     assert!(waited.is_ok(), "the wait panicked the relay thread");
     assert!(started.elapsed() >= Duration::from_millis(20), "it waited out the backoff");
 }
