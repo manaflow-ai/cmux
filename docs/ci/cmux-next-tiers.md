@@ -232,22 +232,25 @@ No runner waits for the tree. `cmux-next path routing` probes it once
 `scripts/ci/build_class.py [--base REF | --changed-files FILE]` says, from the
 changed files alone, which build a change needs:
 
-- `no-compile`: only docs and images in `docs/` or `design/`, or top-level Markdown.
-- `blaze`: only files inside cmux-tui crates that no Swift compile and no app
-  build phase reads. The cmux-tui workspace build (blaze, or cargo) is the
-  whole build: skip the Xcode build, the Swift compiles and the app build. The
-  only cmux-tui files those read are the CCmuxAppFFI crates and their Cargo path
-  dependencies, and the files the app scheme's build phases name (the workspace
-  `Cargo.toml` and `Cargo.lock` among them). The router derives both lists from
-  the Cargo manifests and `cmux.xcodeproj`, and already drops the Swift compile
-  tiers for these files.
-- `app`: anything else, including any file it cannot place.
+- `blaze`: only files inside cmux-tui crates that only Cargo builds read. The
+  blaze (or cargo) builds of the Rust workspaces it names are the whole build:
+  the crate's own workspace and every workspace outside cmux-tui with a path
+  dependency on it (optchat-chief on cmux-chief). Skip the Xcode build, the
+  Swift compiles and the app build.
+- `app`: anything else, including any file it cannot place and every file
+  outside cmux-tui crates (docs too: a crate can `include_str!` one).
 
-A change takes its heaviest file's class. The class covers builds only: a
+A crate is `app` when it is in the Cargo dependency closure of a crate another
+language links (any `staticlib`, `cdylib` or `*-ffi` crate in the repo, or a
+crate a `Package.swift` names, such as the cmux-terminal-client xcframework),
+or in the router's CCmuxAppFFI and app scheme build-phase lists (read from
+`cmux.xcodeproj`; the cmux-tui `Cargo.toml` and `Cargo.lock` are among them).
+A change takes its heavier file's class. The class covers builds only: a
 daemon change still runs the daemon tier's live-daemon suites.
 `tests/test_ci_build_class.py` checks it on the real tree; run it yourself.
-In the last 500 `feat-cmux-next` commits (2026-11-05), 70 were `blaze`: 64% of
-the 109 that touched cmux-tui.
+On 2026-11-05, 17 of the 93 cmux-tui workspace crates were `blaze` (acpmux and
+cmux-tui among them). In the last 500 `feat-cmux-next` commits, 43 were
+`blaze`: 39% of the 109 that touched cmux-tui.
 
 ## Generated files fix themselves
 

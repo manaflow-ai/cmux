@@ -1,26 +1,29 @@
 #!/usr/bin/env python3
-"""Which build a change needs: none, a blaze (Rust) build of cmux-tui, or the app build.
+"""Which build a change needs: only Rust (blaze) builds, or the app build too.
 
 Leo, 2026-11-05: "Can't we deterministically say 'these types of changes only need a blaze
-compile/build'". Every changed file gets one class, and the change takes the heaviest:
+compile/build'". Every changed file gets one class, and the change takes the heavier:
 
-  no-compile  a doc or image in docs/ or design/, or a top-level Markdown file: no compiler
-              reads it. A doc anywhere else (an app resource image, a crate README) is placed
-              like any other file.
-  blaze       a file inside a cmux-tui crate that no Swift compile and no app build phase reads:
-              the cmux-tui workspace build (blaze, or cargo) is the whole build. No Xcode build,
-              Swift compile or app build can change, because the only cmux-tui files they read
-              are the CCmuxAppFFI crates and what they reach through Cargo path dependencies
-              (cmux_next_route.app_ffi_inputs, read from the Cargo manifests) and the files the
-              app scheme's build phases name (scheme_phase_rust_inputs, read from
-              cmux.xcodeproj; the workspace Cargo.toml and Cargo.lock are among them).
-  app         anything else: the Swift compiles and the app build can change. A file this script
-              cannot place is `app`, so an unknown input never skips a build.
+  blaze  a file inside a cmux-tui crate that only Cargo builds read. The blaze (or cargo) builds
+         of the Rust workspaces it reaches are the whole build, and the output names them: the
+         crate's own workspace (cmux-tui, or its own when cmux-tui excludes it) and every
+         workspace outside cmux-tui with a path dependency on it. No Xcode build, Swift compile or
+         app build can change.
+  app    anything else: a Swift compile, the app build or another language's build can read it.
+         A file this script cannot place is `app`, so an unknown input never skips a build.
 
-The rules are the CI router's (scripts/ci/cmux_next_route.py), which already drops the Swift
-compile tiers for the same files ("Rust the daemon tier builds"). The class is about compiles
-and builds only: a daemon change still runs the daemon tier's live-daemon suites, which test
-what the new binary does.
+A crate is `app` when another language links it or the app build reads it:
+  - every crate in the Cargo dependency closure of a staticlib, cdylib or *-ffi crate (in any
+    workspace of the repo: CCmuxAppFFI, the iOS link FFI, cmux-rd-ffi, wasm), or of a crate a
+    Package.swift names (a prebuilt xcframework such as cmux-terminal-client);
+  - the router's lists (scripts/ci/cmux_next_route.py): the CCmuxAppFFI sources (app_ffi_inputs)
+    and the files the app scheme's build phases name (scheme_phase_rust_inputs, read from
+    cmux.xcodeproj; the cmux-tui Cargo.toml and Cargo.lock are among them).
+A file in cmux-tui but in no crate, and every file outside cmux-tui, docs included (a crate can
+include_str! a doc, a generator can read an image), is `app`.
+
+The class is about compiles and builds only: a daemon change still runs the daemon tier's
+live-daemon suites, which test what the new binary does.
 
 Usage: build_class.py [--base REF] [--changed-files FILE] [--json]
 Prints the class, then one line per file with its class and reason. Exit 0.
@@ -29,8 +32,9 @@ Prints the class, then one line per file with its class and reason. Exit 0.
 from __future__ import annotations
 
 import argparse
-import fnmatch
+import functools
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -39,8 +43,92 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import cmux_next_route as route_mod  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
-CLASSES = ("no-compile", "blaze", "app")
-DOC_DIRS = ("docs/", "design/")
+# "none" only for an empty change.
+CLASSES = ("none", "blaze", "app")
+FOREIGN_LINK = re.compile(r'crate-type\s*=\s*\[[^\]]*"(?:staticlib|cdylib)"')
+SWIFT_NAMED_CRATE = re.compile(r"cmux-tui/((?:crates|bindings)/[A-Za-z0-9_-]+)")
+WORKSPACE_PATH_DEP = re.compile(r'^\s*([A-Za-z0-9_-]+)\s*=\s*\{[^}\n]*\bpath\s*=\s*"([^"]+)"', re.M)
+
+
+def tracked(root: Path, pattern: str) -> list[str]:
+    out = subprocess.run(["git", "-C", str(root), "ls-files", pattern], check=True, capture_output=True, text=True).stdout
+    return [p for p in out.splitlines() if (root / p).is_file()]
+
+
+def workspace_root(root: Path, crate: str) -> str:
+    """The nearest directory at or above crate whose Cargo.toml has a [workspace] that takes it in
+    (cmux-tui excludes some crates: they are their own workspace)."""
+    parent = Path(crate)
+    while parent.as_posix() not in ("", "."):
+        manifest = root / parent / "Cargo.toml"
+        if manifest.is_file() and "[workspace]" in manifest.read_text(encoding="utf-8"):
+            relative = Path(crate).relative_to(parent).as_posix()
+            if parent.as_posix() == crate or not excluded(manifest.read_text(encoding="utf-8"), relative):
+                return parent.as_posix()
+        parent = parent.parent
+    return crate
+
+
+def excluded(manifest: str, member: str) -> bool:
+    found = re.search(r"^\s*exclude\s*=\s*\[([^\]]*)\]", manifest, re.M)
+    return bool(found) and member in re.findall(r'"([^"]+)"', found.group(1))
+
+
+@functools.lru_cache(maxsize=None)
+def cargo_graph(root: Path) -> tuple[dict[str, set[str]], set[str]]:
+    """Every tracked crate's path dependencies (its own and its workspace's), and the crates another
+    language links: staticlib, cdylib or *-ffi crates, and the cmux-tui crates a Package.swift names."""
+    crates = {Path(p).parent.as_posix() for p in tracked(root, "*Cargo.toml")}
+    deps: dict[str, set[str]] = {}
+    foreign: set[str] = set()
+    for crate in crates:
+        text = (root / crate / "Cargo.toml").read_text(encoding="utf-8")
+        found = [(Path(crate) / d).as_posix() for d in route_mod.CARGO_PATH.findall(text)]
+        names = set(route_mod.CARGO_WORKSPACE_DEP.findall(text))
+        workspace = workspace_root(root, crate)
+        if names and workspace != crate:
+            shared = (root / workspace / "Cargo.toml").read_text(encoding="utf-8")
+            found += [(Path(workspace) / d).as_posix() for n, d in WORKSPACE_PATH_DEP.findall(shared) if n in names]
+        deps[crate] = set()
+        for dep in found:
+            resolved = (root / dep).resolve()
+            if resolved.is_relative_to(root.resolve()) and (resolved / "Cargo.toml").is_file():
+                deps[crate].add(resolved.relative_to(root.resolve()).as_posix())
+        if FOREIGN_LINK.search(text) or crate.endswith("-ffi"):
+            foreign.add(crate)
+    for package in tracked(root, "*Package.swift"):
+        text = (root / package).read_text(encoding="utf-8")
+        foreign |= {"cmux-tui/" + c for c in SWIFT_NAMED_CRATE.findall(text) if "cmux-tui/" + c in crates}
+    return deps, foreign
+
+
+def closure(deps: dict[str, set[str]], start: set[str]) -> set[str]:
+    seen: set[str] = set()
+    pending = list(start)
+    while pending:
+        crate = pending.pop()
+        if crate not in seen:
+            seen.add(crate)
+            pending += deps.get(crate, ())
+    return seen
+
+
+@functools.lru_cache(maxsize=None)
+def foreign_closure(root: Path) -> dict[str, str]:
+    """Each crate another language's build reads, with the linked crate that reaches it."""
+    deps, foreign = cargo_graph(root)
+    reached: dict[str, str] = {}
+    for crate in sorted(foreign):
+        for dep in closure(deps, {crate}):
+            reached.setdefault(dep, crate)
+    return reached
+
+
+def rust_workspaces(root: Path, crate: str) -> list[str]:
+    """The Cargo workspaces whose builds compile crate: its own, and every one with a crate that reaches it."""
+    deps, _ = cargo_graph(root)
+    users = {c for c in deps if crate in closure(deps, {c})}
+    return sorted({workspace_root(root, c) for c in users})
 
 
 def crate_dir(root: Path, path: str) -> str | None:
@@ -53,29 +141,7 @@ def crate_dir(root: Path, path: str) -> str | None:
     return None
 
 
-def graph_reads(root: Path, path: str) -> bool:
-    """A CmuxNext test target reads path: by name, by a glob, or through a directory read."""
-    return any(read == path or ("*" in read and route_mod.matches(path, read))
-               or (read.endswith("/") and path.startswith(read))
-               for target in route_mod.load_graph(root)["targets"].values() for read in target.get("reads", []))
-
-
-def unread_doc(root: Path, path: str) -> bool:
-    """A doc or image in docs/ or design/, or a top-level Markdown file, that nothing reads: not the
-    cmux-tui tree key (docs/remote-agents-and-cloud.md is a Rust include_str!), a generated-file
-    check, a CI job script or a test target (route_mod.consumed). Anywhere else a doc can be a build
-    input: an app resource (a Packages/ Resources image), a bundled file, or a crate's
-    include_str!("../README.md")."""
-    if not path.endswith(route_mod.DOC_SUFFIXES):
-        return False
-    if not (path.startswith(DOC_DIRS) or ("/" not in path and path.endswith((".md", ".mdx")))):
-        return False
-    return not route_mod.consumed(path, route_mod.tree_input_paths(root), lambda p: graph_reads(root, p))
-
-
 def classify_path(root: Path, path: str) -> tuple[str, str]:
-    if unread_doc(root, path):
-        return "no-compile", "a doc no compiler reads"
     if not path.startswith(route_mod.CMUX_TUI):
         return "app", "outside cmux-tui: the app build's rules (cmux_next_route.py) place it"
     if any(route_mod.matches(path, prefix) for prefix in route_mod.app_ffi_inputs(root)):
@@ -85,13 +151,15 @@ def classify_path(root: Path, path: str) -> tuple[str, str]:
     crate = crate_dir(root, path)
     if crate is None:
         return "app", "in cmux-tui but in no crate: no rule proves the app build skips it"
-    return "blaze", f"crate {crate}: only the cmux-tui workspace build reads it"
+    linked = foreign_closure(root).get(crate)
+    if linked:
+        return "app", f"crate {crate} is in the dependency closure of {linked}, which another language links"
+    return "blaze", f"crate {crate}: only Cargo builds read it (blaze build {', '.join(rust_workspaces(root, crate))})"
 
 
 def classify(root: Path, changed: list[str]) -> dict:
     files = [{"path": p, "class": c, "reason": r} for p in changed for c, r in [classify_path(root, p)]]
-    # No file is no-compile too: an empty change needs no build.
-    cls = max((f["class"] for f in files), key=CLASSES.index, default="no-compile")
+    cls = max((f["class"] for f in files), key=CLASSES.index, default="none")
     return {"class": cls, "files": files}
 
 
