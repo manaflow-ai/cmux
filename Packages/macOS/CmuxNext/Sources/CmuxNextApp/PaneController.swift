@@ -123,9 +123,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
         DebugLayoutCounters.note("pane mount", #fileID, #line)
         #endif
         // Cmd-N's stand-in this pane takes over (another layout id): its selected tab, or a select waiting there, selects here now.
-        if let standIn = workspace?.panes.values.first(where: { daemon.store.daemonPane(takingOver: $0.pane.handle) == pane.handle }) {
+        if !ProvisionalPane.isStandIn(pane.handle), let standIn = workspace?.panes.values.first(where: { daemon.store.daemonPane(takingOver: $0.pane.handle) == pane.handle }) {
             let selected = standIn.stripModel.selectedID.map { daemon.store.creations.replacement(ofStandIn: $0.rawValue, in: pane)?.id ?? $0.rawValue }
-            (pendingSelectSurface, pendingSelectTab) = (standIn.pendingSelectSurface, standIn.pendingSelectTab ?? selected)
+            if let surface = standIn.pendingSelectSurface { pendingSelectSurface = surface } else { pendingSelectTab = standIn.pendingSelectTab ?? selected }
         }
         observe()
     }
