@@ -88,5 +88,16 @@ class ProfileRowsTests(unittest.TestCase):
         self.assertEqual(rows[2][2], ["apply"])
 
 
+class CallTreeTests(unittest.TestCase):
+    def test_tree_under_a_root_adds_each_sample_once_per_path(self):
+        main = [(5_000_000, ["leafA", "mid", "stepTransactionFlush", "run"]),
+                (5_000_000, ["leafB", "mid", "stepTransactionFlush", "run"]),
+                (9_000_000, ["other", "run"])]
+        tree = film.call_tree(main, "stepTransactionFlush")
+        self.assertEqual(tree["stepTransactionFlush"][0], 10.0)
+        self.assertEqual(tree["stepTransactionFlush"][1]["mid"][0], 10.0)
+        self.assertEqual(set(tree["stepTransactionFlush"][1]["mid"][1]), {"leafA", "leafB"})
+
+
 if __name__ == "__main__":
     unittest.main()

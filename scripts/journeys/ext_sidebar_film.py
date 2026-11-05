@@ -145,8 +145,37 @@ def row_list(j):
     return out
 
 
+COUNTERS = (("sidebar", "debug.sidebar_perf"), ("layout", "debug.layout_counters"))
+
+
+def counters_reset(j):
+    for _, method in COUNTERS:
+        try:
+            j.app.rpc(method, {"reset": True})
+        except (D.StepError, OSError, ValueError):
+            pass
+
+
+def counters_read(j):
+    """The app's own work counters since the last reset: the sidebar's (list reloads, row configures, row views
+    made, main_ns of its timed applies) and the window's (layout root passes, pane snapshots, workspace applies,
+    terminal window updates). An app without one gives {"error": ...} for it."""
+    out = {}
+    for name, method in COUNTERS:
+        try:
+            value = j.app.rpc(method, {})
+            if isinstance(value, dict):
+                value = {k: v for k, v in value.items() if k != "sources" and not isinstance(v, list)}
+            out[name] = value
+        except (D.StepError, OSError, ValueError) as error:
+            out[name] = {"error": str(error)[:200]}
+    return out
+
+
 def film_one(j, key, modifiers, record):
-    """One press under a film: motion start, 0.15 s of still frames, the key, RECORD seconds, motion stop."""
+    """One press under a film: counters reset, motion start, 0.15 s of still frames, the key, RECORD seconds,
+    motion stop, counters read (the press's own work, outside the film)."""
+    counters_reset(j)
     j.app.rpc("debug.sidebar_rows", {"motion": "start"})
     time.sleep(0.15)  # still frames before the press
     sent = now()
@@ -154,7 +183,8 @@ def film_one(j, key, modifiers, record):
     returned = now()
     time.sleep(record)
     stopped = j.app.rpc("debug.sidebar_rows", {"motion": "stop"}, timeout=60) or {}
-    return {"key": key, "modifiers": modifiers, "sent": sent, "returned": returned,
+    work = counters_read(j)
+    return {"key": key, "modifiers": modifiers, "sent": sent, "returned": returned, "counters": work,
             "reply": reply if isinstance(reply, dict) else {"value": reply}, "scale": stopped.get("scale"),
             "frames": stopped.get("frames") or []}
 
@@ -325,6 +355,33 @@ def _profile_rows(xml_path):
     return out
 
 
+# The main-thread work under these frames, as a call tree (root first), so the display cycle's flush splits into
+# its layout, display and commit parts and the display-link clients into their owners.
+TREE_ROOTS = ("stepTransactionFlush", "FrameScheduler.tick(_:)", "__CFMachPortPerform", "MainActorWorkQueue.drainFrame()")
+TREE_DEPTH = 14
+TREE_MIN_MS = 4.0
+
+
+def call_tree(main, root):
+    """{name: [ms, children]} of the samples whose stack holds `root`, from the root's first frame down to TREE_DEPTH
+    frames, the branches under TREE_MIN_MS dropped. `main`: (ns, frames leaf first)."""
+    tree = {}
+    for ns, frames in main:
+        path = list(reversed(frames))
+        at = next((i for i, name in enumerate(path) if name == root), None)
+        if at is None:
+            continue
+        node = tree
+        for name in path[at:at + TREE_DEPTH]:
+            entry = node.setdefault(name, [0.0, {}])
+            entry[0] += ns / 1e6
+            node = entry[1]
+
+    def prune(node):
+        return {k: [round(v[0], 1), prune(v[1])] for k, v in sorted(node.items(), key=lambda kv: -kv[1][0]) if v[0] >= TREE_MIN_MS}
+    return prune(tree)
+
+
 def step_film_profile(j, step):
     import subprocess
     scenario, kind = step["scenario"], step.get("kind", "insert")
@@ -342,13 +399,16 @@ def step_film_profile(j, step):
     for _ in range(presses):
         # The per-frame probe (cheap, one presentation read per frame) runs beside the profiler, so each press has
         # its frame intervals; its start and stop requests fall outside the motion.
+        counters_reset(j)
         j.app.rpc("debug.sidebar_rows", {"motion": "start"})
         time.sleep(0.15)  # still frames before the press
         sent.append(now())
         j.key(press[0], press[1])
         time.sleep(gap)  # the press's motion ends; the main thread idles (no samples) until the next
         stopped = j.app.rpc("debug.sidebar_rows", {"motion": "stop"}, timeout=60) or {}
-        measures.append(measure(stopped.get("frames") or []))
+        measured = measure(stopped.get("frames") or [])
+        measured["counters"] = counters_read(j)
+        measures.append(measured)
     try:
         log = proc.communicate(timeout=seconds + 60)[0].decode(errors="replace")[-600:]
     except subprocess.TimeoutExpired:
@@ -373,11 +433,12 @@ def step_film_profile(j, step):
             key = " < ".join(frames[:12])
             stacks[key] = stacks.get(key, 0.0) + ms
     total = sum(ns for ns, _ in main) / 1e6
+    trees = {root: call_tree(main, root) for root in TREE_ROOTS}
     top = lambda d, n: [[k, round(v, 2)] for k, v in sorted(d.items(), key=lambda kv: -kv[1])[:n]]
     profile = {"scenario": scenario, "kind": kind, "presses": presses, "rows": len(workspace_ids(j)),
                "main_ms": round(total, 2), "main_ms_per_press": round(total / max(1, presses), 2),
                "samples": len(main), "all_samples": len(rows), "inclusive": top(inclusive, 150), "self": top(own, 80),
-               "stacks": top(stacks, 60), "frames": measures, "export_head": head,
+               "stacks": top(stacks, 60), "frames": measures, "export_head": head, "trees": trees,
                "motion_frames": sum(m.get("motion_frames", 0) for m in measures),
                "main_ms_per_motion_frame": round(total / max(1, sum(m.get("motion_frames", 0) for m in measures)), 2)}
     (j.out / f"profile-{scenario}.json").write_text(json.dumps(profile) + "\n")
