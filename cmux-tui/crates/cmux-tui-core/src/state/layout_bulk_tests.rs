@@ -314,8 +314,8 @@ fn a_workspace_selection_closes_empty_and_gone_workspaces_in_one_group() {
         json!({"verb": "close", "level": "workspace", "selector": "selection", "ids": ids, "end_terminals": true}),
         "selection",
     );
-    let mut expected = empties.clone();
-    expected.push(full.clone());
+    let mut expected = empties;
+    expected.push(full);
     assert_eq!(closed["workspace_ids"], json!(expected), "every live chosen workspace closed");
     assert_eq!(closed["gone_ids"], json!([gone]), "an already-closed id is reported, not refused");
     let live = mux.with_state(|state| {
