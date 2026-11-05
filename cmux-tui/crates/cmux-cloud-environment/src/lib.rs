@@ -24,6 +24,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const STATE_FILE: &str = "cloud-environment.json";
 const DEV_BUNDLE: &str = "com.cmuxterm.app.debug";
 const NIGHTLY_BUNDLE: &str = "com.cmuxterm.app.nightly.cmux-next";
+/// The bundle id shipped NEXT Nightly builds carry (`nightly-next`).
+const SHIPPED_NIGHTLY_BUNDLE: &str = "com.cmuxterm.app.nightly";
 
 /// A supported NEXT Cloud deployment.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -412,9 +414,12 @@ impl Resolver {
         let legacy_storage = legacy_hint.unwrap_or(revision == 0)
             && match self.bundle_id.as_str() {
                 "com.cmuxterm.app.debug.next" => environment == Environment::Dev,
-                "com.cmuxterm.app" | "com.cmuxterm.app.rc" | NIGHTLY_BUNDLE => {
-                    environment == Environment::Prod
-                }
+                // Shipped NEXT Nightly is `com.cmuxterm.app.nightly`; its session
+                // was in `<bundle>.auth` before runtime selection (2026-11-05).
+                "com.cmuxterm.app"
+                | "com.cmuxterm.app.rc"
+                | SHIPPED_NIGHTLY_BUNDLE
+                | NIGHTLY_BUNDLE => environment == Environment::Prod,
                 bundle if bundle.starts_with("com.cmuxterm.app.rc.") => {
                     environment == Environment::Prod
                 }
