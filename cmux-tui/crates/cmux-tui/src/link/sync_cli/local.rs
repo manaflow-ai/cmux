@@ -517,7 +517,9 @@ fn walk_plain(set: &mut LocalSet, rules: Rules, top: &Path, dir: &Path) -> anyho
             } else {
                 walk_plain(set, rules, top, &path)?;
             }
-        } else if let Some(why) = skips::secret_at(top, relative).filter(|_| rules == Rules::Copy) {
+        } else if rules == Rules::Copy
+            && let Some(why) = skips::secret_at(top, relative)
+        {
             set.skips.note(relative, why);
         } else {
             add(set, relative.to_string(), &path)?;
@@ -781,7 +783,7 @@ mod tests {
         ];
         let goes = [
             ("README.md", "hi\n"),
-            ("keys/id_ed25519.pub.txt", "x\n"),
+            ("keys/id_ed25519.pub", "ssh-ed25519 AAAA x\n"),
             ("web/.npmrc", "save-exact=true\n"),
         ];
         for in_git in [true, false] {
