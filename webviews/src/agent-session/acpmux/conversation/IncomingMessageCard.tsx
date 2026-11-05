@@ -124,7 +124,8 @@ export function SenderMark({ message }: { message: IncomingMessage }) {
       harness={harness}
       tone={agentTone(sender.sessionId ?? message.sessionId ?? message.name)}
       size={SENDER_LOGO_SIZE}
-      glyphSize={16}
+      // The sparkle fills more of its grid than the bot: at 14px its ink is the logos' (about 12px).
+      glyphSize={14}
       fallbackNode={<Bot size={16} />}
     />
   );
