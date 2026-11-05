@@ -2063,3 +2063,25 @@ fn reservation_bind_preserves_the_environment_authorization_input() {
     assert_eq!(call.bind_payload()["environment"], "env_project");
     assert_eq!(call.bind_payload()["sendKey"], json!(call.send_key));
 }
+
+#[test]
+fn a_refused_seed_answers_its_fallback_code_and_what_a_copy_would_send() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let copy = copy_of("/Users/me/src/paint", "");
+    let refused = json!({
+        "ok": false,
+        "error": "The machine can't clone this folder: it is not a git working copy",
+        "error_code": "seed_refused",
+        "fallback_code": "not_git",
+        "copy_files": 2,
+        "copy_bytes": 5,
+    });
+    let answer = copy.run(&path, &|_: &Path, _: &Path, _: &str| Err(refused.clone()));
+    assert_eq!(answer["ok"], json!(false), "{answer}");
+    assert_eq!(answer["error_code"], json!("seed_refused"), "{answer}");
+    assert_eq!(answer["fallback_code"], json!("not_git"), "the log names why: {answer}");
+    assert_eq!(answer["copy_files"], json!(2), "{answer}");
+    assert_eq!(answer["copy_bytes"], json!(5), "{answer}");
+    assert_eq!(answer["seed_state"], json!("failed"), "{answer}");
+}
