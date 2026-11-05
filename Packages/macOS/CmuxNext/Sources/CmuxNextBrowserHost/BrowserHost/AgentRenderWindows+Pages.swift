@@ -14,11 +14,15 @@ extension AgentRenderWindows {
     /// not move. A Chromium tab whose pane shows another tab of the same Chromium window stays
     /// (``CEFAgentRelay/needsRenderWindow``).
     ///
+    /// - Parameter needsAScreen: The call is a wheel: a page in a covered window on a screen stays
+    ///   there (WebKit runs a trusted native wheel only in a window on a screen).
     /// - Returns: the WebKit page's web view when it moved (the caller waits for WebKit's activity
     ///   state before input), else nil.
     @discardableResult
-    package func keepRendering(tabID: String, entry: BrowserEntry) -> WKWebView? {
+    package func keepRendering(tabID: String, entry: BrowserEntry, needsAScreen: Bool = false) -> WKWebView? {
         let view = entry.chrome ?? entry.tab.contentView
+        // A wheel stays in a shown window on a screen (`BrowserPageOperation.needsAScreen`).
+        if needsAScreen, view.window?.screen != nil, !view.isHiddenOrHasHiddenAncestor { return nil }
         switch entry.tab {
         case let page as WebKitTab:
             return keepRendering(tabID: tabID, chrome: view, webView: page.webView) ? page.webView : nil
@@ -32,8 +36,9 @@ extension AgentRenderWindows {
 
     /// ``keepRendering(tabID:entry:)``, then, for a WebKit page that moved, the wait until WebKit
     /// sent the page its window, visibility and focus state.
-    package func render(tabID: String, entry: BrowserEntry) async {
-        guard let webView = keepRendering(tabID: tabID, entry: entry) else { return }
+    /// - Parameter needsAScreen: The call is a wheel: a page in a covered window on a screen stays there.
+    package func render(tabID: String, entry: BrowserEntry, needsAScreen: Bool = false) async {
+        guard let webView = keepRendering(tabID: tabID, entry: entry, needsAScreen: needsAScreen) else { return }
         await privateCalls.afterActivityStateUpdate(webView)
     }
 }

@@ -58,7 +58,7 @@ enum AppBrowserPage {
         }
         if let refusal = agentURLRefusal(operation, target: target, page: page) { throw refusal }
         if needsLiveBrowser(operation) { try await ensureBrowser(page) }
-        if operation.actsOnDocument { await services.browserHost?.tabs.keepRendering(tabID: tabID) }
+        if operation.actsOnDocument { await services.browserHost?.tabs.keepRendering(tabID: tabID, needsAScreen: operation.needsAScreen) }
         // No extension rule here: every agent may drive every tab, in any
         // profile (#24413). Saved passwords never fill in an agent-driven tab
         // (`markAgentDriven` above), and the per-tab lease coordinates agents.

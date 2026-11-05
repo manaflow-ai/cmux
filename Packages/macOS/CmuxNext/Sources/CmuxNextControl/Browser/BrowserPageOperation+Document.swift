@@ -8,4 +8,11 @@ extension BrowserPageOperation {
         case .navigate, .back, .forward, .reload, .evaluate, .evaluateAsync, .screenshot, .input, .upload: true
         }
     }
+
+    /// Whether the operation keeps a page in a covered window that is still on a screen, instead
+    /// of moving it into its off-screen render window: a wheel. WebKit runs a trusted native wheel
+    /// only in a window on a screen, and the render window lies outside every screen.
+    public var needsAScreen: Bool {
+        if case .input(.wheel) = self { true } else { false }
+    }
 }

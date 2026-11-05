@@ -229,7 +229,7 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
         return renderWindows.keepRendering(tabID: tab.id.rawValue, chrome: entry.chrome ?? tab.contentView, webView: tab.webView)
     }
     func windowDidChangeOcclusion(_ window: NSWindow) { renderWindows.windowDidChangeOcclusion(window) }
-    func keepRendering(tabID: String) async { if let entry = services?.cache.existingBrowser(tabID) { await renderWindows.render(tabID: tabID, entry: entry) } }
+    func keepRendering(tabID: String, needsAScreen: Bool = false) async { if let entry = services?.cache.existingBrowser(tabID) { await renderWindows.render(tabID: tabID, entry: entry, needsAScreen: needsAScreen) } }
 
     /// A persistent WebKit profile's cookie store (`cookies.restore`): the
     /// built-in profile, one the profile book still holds, or the store of
