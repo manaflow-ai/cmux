@@ -5584,10 +5584,15 @@ jobs:
 
       - *wipe-owned-credentials
 
-  # cmux NEXT's GitHub release copy, after the feed went live from R2 (publish-nightly), in two
-  # jobs nothing waits on. This one uploads the build's immutable assets: no concurrency group,
-  # so no run's uploads are ever replaced, and they may wait out GitHub's rate limits as long as
-  # they need. publish-nightly-next-github-names then writes the mutable state.
+  # cmux NEXT's GitHub release copy, after the feed went live from R2 (publish-nightly), in one job
+  # nothing waits on. It uploads the build's immutable assets first: no concurrency group, so no run's
+  # uploads are ever replaced, and they may wait out GitHub's rate limits as long as they need. Then,
+  # only while this build is the live feed's newest, it writes the release's mutable state: the rolling
+  # DMG name, the feed copy, the body with the cmux-published-sha marker and the nightly-next tag. Each
+  # of those writes runs still-newest just before it writes, and a nightly-next push run starts only
+  # after the one before it ended (the push group), so no older build moves them back. They were a job
+  # of their own until run 42018687632: its second whole-Mac claim, set-up and variant download let the
+  # deltas job take cmux15 first, and the names moved 40 min after the feed.
   publish-nightly-next-github:
     needs: [decide, resolve-nightly-cmux-tui-client, publish-nightly, pick-nightly-sign-runner]
     if: "always() && !cancelled() && needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.tag_status == 'updated'"
@@ -5598,7 +5603,8 @@ jobs:
     # An upload holds the release App key but signs nothing. As an exclusive publisher on the one signer's mini it
     # holds the whole Mac while the next signs wait (run 41900945757); it still has nowhere safer to run.
     runs-on: &pub-next-runner ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || 'glaeda-trusted-next-signing' }}
-    timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 270 || 150 }}
+    # The two former jobs' limits added up: the uploads and the names each may wait out an hour of rate limits.
+    timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 480 || 240 }}
     outputs:
       release_id: ${{ steps.publish_assets.outputs.release_id }}
       asset_names: ${{ steps.publish_assets.outputs.asset_names }}
@@ -5615,7 +5621,10 @@ jobs:
       - *hold-the-whole-mac
       - *clean-owned-workdir
 
+      # Only the source archive reads the build's tree; every other step runs .publish-tooling. The full
+      # checkout took 2 min of the whole Mac on run 42018687632, whose archive step was off.
       - name: Checkout publish ref
+        if: needs.publish-nightly.outputs.source_archive == 'true'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -5712,60 +5721,42 @@ jobs:
         id: order
         run: bash .publish-tooling/scripts/ci/nightly-steps/github-publish-still-newest.sh
 
-      - *wipe-owned-credentials
-
-  # The release's mutable state for cmux NEXT: the rolling DMG name, the feed copy, the body
-  # with the cmux-published-sha marker, and the nightly-next tag. One writer at a time (the
-  # group), and each write only while no newer build is on the live feed, so no run moves them
-  # back: a newer run's writer waits behind this one and writes after it. The group can replace
-  # only a waiting writer with a newer run's, which writes the newer state; uploads never wait
-  # here (publish-nightly-next-github has no group).
-  publish-nightly-next-github-names:
-    needs: [decide, publish-nightly, publish-nightly-next-github, pick-nightly-sign-runner]
-    if: "always() && !cancelled() && needs.publish-nightly-next-github.result == 'success' && needs.publish-nightly-next-github.outputs.newest == 'true'"
-    environment: ${{ needs.decide.outputs.environment }}
-    concurrency:
-      group: nightly-next-github-names
-      cancel-in-progress: false
-    permissions:
-      contents: write
-    runs-on: *pub-next-runner
-    timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 210 || 90 }}
-    env:
-      NIGHTLY_FEEDS: *pub-feeds
-      CHANNEL: *pub-channel
-      CHANNEL_DMG_PREFIX: *pub-dmg
-      CHANNEL_RELEASE_TAG: *pub-tag
-      NIGHTLY_BUILD: ${{ needs.publish-nightly.outputs.build }}
-      PUBLISH_TOOLING: *pub-tooling
-    steps:
-      # First, before any checkout or secret: the whole mini (glaeda's exclusive class), as the signing jobs.
-      - *hold-the-whole-mac
-      - *clean-owned-workdir
-
-      - *checkout-publication-tooling-a
-
-      # Before any release App secret: the claim again, and a keychain a killed job left is removed.
-      - *claim-publication-mac
-
-      - *gh-app-token-write
-
-      - *gh-app-install-tooling
-
-      - *wait-through-github-api-rate-l-3
-
-      - *download-nightly-variant-artif
-
-      - *download-the-published-feed
+      # The mutable state, only for the live feed's newest build. A failed write here leaves the immutable
+      # assets above published and the job green (continue-on-error); the next build's run writes them.
+      # One names writer at a time across runs, push or dispatch (the names job's group did this): its own
+      # R2 lease (publish-lease.sh), which never cancels a waiter. Each write runs still-newest inside it.
+      - name: Take the release names lease
+        id: names_lease
+        if: steps.order.outputs.newest == 'true'
+        continue-on-error: true
+        env: &github-names-lease
+          AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          LEASE_KEY: nightly-next/locks/github-names.json
+          LEASE_OWNER: ${{ github.run_id }}-${{ github.run_attempt }}
+          LEASE_TTL: 900
+          LEASE_RENEW: 60
+          # The names writes may wait out an hour of rate limits, as the job's timeout allows.
+          LEASE_MAX_HOLD: 10800
+          LEASE_WAIT: 3600
+        run: bash .publish-tooling/scripts/ci/nightly-steps/publish-lease.sh lock
 
       - name: Take the published feed
+        if: steps.names_lease.outcome == 'success'
+        continue-on-error: true
         run: bash .publish-tooling/scripts/ci/nightly-steps/github-names-take-feed.sh
 
       - name: Install the feed order check
+        if: steps.names_lease.outcome == 'success'
+        continue-on-error: true
         run: bash .publish-tooling/scripts/ci/nightly-steps/github-names-install-still-newest.sh
 
       - name: Publish the rolling DMG name and the feed copy
         id: publish_names
+        if: steps.names_lease.outcome == 'success'
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           GH_APP_TOKEN: ${{ steps.gh-app-token.outputs.token }} # App first, GH_TOKEN as fallback
@@ -5788,10 +5779,11 @@ jobs:
 
       - name: Record the published build in the release body
         if: steps.publish_names.outputs.newest == 'true'
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ steps.release-tag-token.outputs.token }}
-          RELEASE_ID: ${{ needs.publish-nightly-next-github.outputs.release_id }}
-          UPLOADED_ASSETS: ${{ needs.publish-nightly-next-github.outputs.asset_names }}
+          RELEASE_ID: ${{ steps.publish_assets.outputs.release_id }}
+          UPLOADED_ASSETS: ${{ steps.publish_assets.outputs.asset_names }}
           RELEASE_NAME: ${{ needs.decide.outputs.release_name }}
           BUILD_SHA: ${{ needs.publish-nightly.outputs.build_sha }}
           REF_NAME: ${{ github.ref_name }}
@@ -5803,11 +5795,18 @@ jobs:
 
       - name: Move the nightly-next tag to the published build
         if: steps.publish_names.outputs.newest == 'true'
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ steps.release-tag-token.outputs.token }}
           GITHUB_TOKEN: ''
           BUILD_SHA: ${{ needs.publish-nightly.outputs.build_sha }}
         run: bash .publish-tooling/scripts/ci/nightly-steps/github-names-move-tag.sh
+
+      - name: Release the release names lease
+        if: always() && steps.names_lease.outcome != 'skipped'
+        continue-on-error: true
+        env: *github-names-lease
+        run: bash .publish-tooling/scripts/ci/nightly-steps/publish-lease.sh unlock
 
       - *wipe-owned-credentials
 
@@ -6194,7 +6193,7 @@ jobs:
   # while the whole-Mac publish jobs on the same mini waited for them. This job asks for that run once
   # the push run's own publishing on the mini is done, so the push run ends with it.
   dispatch-published-in:
-    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly, publish-nightly-next-github, publish-nightly-next-github-names, generate-nightly-deltas, republish-nightly-deltas]
+    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly, publish-nightly-next-github, generate-nightly-deltas, republish-nightly-deltas]
     if: "!cancelled() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.no_publish != 'true' && needs.decide.outputs.published_sha != '' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.source != 'recovered'"
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     timeout-minutes: 10
