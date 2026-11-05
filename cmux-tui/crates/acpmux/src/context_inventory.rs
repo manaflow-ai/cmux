@@ -270,7 +270,7 @@ pub fn override_block(text: &str, scope: &str) -> Value {
 pub fn snapshot_session(meta: &SessionMeta, cfg: &Config) -> Vec<ContextPart> {
     let mut parts = snapshot(cfg, &meta.cwd);
     // A folder set up for another harness: its instructions, which this one does not read itself.
-    let family = cfg.family(&meta.harness).unwrap_or_else(|| meta.harness.clone());
+    let family = family_for_folder(cfg, &meta.harness);
     parts.extend(crate::folder_instructions::part(&family, &meta.cwd));
     if let Some(default) = verified_prompt_text(meta, cfg) {
         let text = meta.cmux_preset_prompt.clone().unwrap_or(default);
@@ -347,6 +347,15 @@ pub fn record_tool_sources(meta: &mut SessionMeta, parts: Vec<ContextPart>) {
     let snapshot = meta.cmux_context.get_or_insert_with(Vec::new);
     snapshot.retain(|part| !part.id.starts_with("cmux-source-"));
     snapshot.extend(parts);
+}
+
+/// The family whose own instruction files a profile reads: a Claude Code
+/// profile under its own family name (`claude-sr2`) still reads `CLAUDE.md`.
+pub fn family_for_folder(cfg: &Config, harness: &str) -> String {
+    cfg.harnesses
+        .get(harness)
+        .map(|p| crate::config::store_family(harness, p))
+        .unwrap_or_else(|| harness.to_string())
 }
 
 /// Capture settings once when the session is created. Project text replaces user text.

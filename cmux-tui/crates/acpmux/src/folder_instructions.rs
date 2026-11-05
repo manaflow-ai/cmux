@@ -44,14 +44,30 @@ fn native(family: &str) -> &'static [&'static str] {
     }
 }
 
-fn readable(path: &Path) -> Option<String> {
+/// The start of a regular file (at most the cap and a few bytes) and its full size.
+fn readable(path: &Path) -> Option<(String, u64)> {
     let meta = std::fs::symlink_metadata(path).ok()?;
     // A regular file only: never a link out of the folder, a fifo or a device.
     if !meta.file_type().is_file() {
         return None;
     }
-    let text = std::fs::read_to_string(path).ok()?;
-    (!text.trim().is_empty()).then_some(text)
+    // Never more than the cap and a little: a huge file must not fill memory.
+    let mut bytes = Vec::new();
+    std::io::Read::read_to_end(
+        &mut std::io::Read::take(std::fs::File::open(path).ok()?, MAX_BYTES as u64 + 4),
+        &mut bytes,
+    )
+    .ok()?;
+    let text = String::from_utf8_lossy(&bytes).into_owned();
+    (!text.trim().is_empty()).then_some((text, meta.len()))
+}
+
+/// `parts` with the folder part for `cwd` in place of any earlier one: a fork
+/// into another folder carries that folder's instructions, not its parent's.
+pub fn retarget(mut parts: Vec<ContextPart>, family: &str, cwd: &Path) -> Vec<ContextPart> {
+    parts.retain(|p| p.source != SOURCE);
+    parts.extend(part(family, cwd));
+    parts
 }
 
 /// The fallback part for a session of `family` in `cwd`, or `None` when the
@@ -61,11 +77,10 @@ pub fn part(family: &str, cwd: &Path) -> Option<ContextPart> {
     if own.iter().any(|name| readable(&cwd.join(name)).is_some()) {
         return None;
     }
-    let (name, text) = CANDIDATES
+    let (name, text, bytes) = CANDIDATES
         .iter()
         .filter(|name| !own.contains(name))
-        .find_map(|name| readable(&cwd.join(name)).map(|text| (*name, text)))?;
-    let bytes = text.len() as u64;
+        .find_map(|name| readable(&cwd.join(name)).map(|(text, bytes)| (*name, text, bytes)))?;
     let body = if text.len() > MAX_BYTES {
         let mut end = MAX_BYTES;
         while !text.is_char_boundary(end) {
@@ -171,6 +186,45 @@ mod tests {
         let folder = text.iter().find(|t| t.starts_with("<cmux-folder-context>")).unwrap();
         assert!(folder.contains("codeword KESTREL"));
         assert!(!folder.contains("later"));
+    }
+
+    #[test]
+    fn a_huge_file_is_read_only_up_to_the_cap() {
+        let dir = folder(&[]);
+        let file = std::fs::File::create(dir.path().join("AGENTS.md")).unwrap();
+        file.set_len(1 << 30).unwrap();
+        // A sparse 1 GiB file of zeros: read whole, the test would take a gigabyte.
+        let got = part("claude", dir.path()).unwrap();
+        assert_eq!(got.source_bytes, Some(1 << 30));
+        assert!(got.text.unwrap().len() < 2 * MAX_BYTES);
+    }
+
+    #[test]
+    fn a_claude_code_profile_of_its_own_family_reads_claude_md() {
+        let mut cfg = crate::config::Config::default();
+        cfg.harnesses.insert(
+            "claude-sr2".into(),
+            serde_json::from_value(serde_json::json!({
+                "kind": "claude-stdio", "argv": ["sr2"], "family": "claude-sr2",
+            }))
+            .unwrap(),
+        );
+        let family = crate::context_inventory::family_for_folder(&cfg, "claude-sr2");
+        assert_eq!(family, "claude");
+        let dir = folder(&[("CLAUDE.md", "c"), ("AGENTS.md", "a")]);
+        assert!(part(&family, dir.path()).is_none());
+    }
+
+    #[test]
+    fn a_fork_into_another_folder_carries_that_folders_instructions() {
+        let parent = folder(&[("AGENTS.md", "parent words")]);
+        let child = folder(&[("GEMINI.md", "child words")]);
+        let parts =
+            retarget(part("claude", parent.path()).into_iter().collect(), "claude", child.path());
+        assert_eq!(parts.len(), 1);
+        assert!(parts[0].text.as_deref().unwrap().contains("child words"));
+        let none = retarget(parts, "claude", folder(&[]).path());
+        assert!(none.is_empty());
     }
 
     #[test]

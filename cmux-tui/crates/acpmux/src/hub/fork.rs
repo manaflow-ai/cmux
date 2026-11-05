@@ -311,7 +311,19 @@ impl Hub {
             && (empty || (matches!(made, Made::Fresh) && parent_meta.cmux_context.is_none()))
         {
             let cfg = self.config.read().await;
-            Some(crate::context_inventory::snapshot(&cfg, &cwd))
+            let family = crate::context_inventory::family_for_folder(&cfg, &parent_meta.harness);
+            Some(crate::folder_instructions::retarget(
+                crate::context_inventory::snapshot(&cfg, &cwd),
+                &family,
+                &cwd,
+            ))
+        } else if cwd != parent_meta.cwd && !parent_meta.remote_origin {
+            let cfg = self.config.read().await;
+            let family = crate::context_inventory::family_for_folder(&cfg, &parent_meta.harness);
+            parent_meta
+                .cmux_context
+                .clone()
+                .map(|parts| crate::folder_instructions::retarget(parts, &family, &cwd))
         } else {
             parent_meta.cmux_context.clone()
         };
