@@ -14,7 +14,7 @@ extension SidebarView {
         // Keep the list's row patch handler first: it updates the realized row in place. The tray gets
         // the old/new values separately and refreshes only when the row crosses a needs-you state.
         let listPatch = model.onRowsPatched
-        model.onRowsPatched = { [weak self] rows in
+        model.onRowsPatched = { rows in
             listPatch?(rows)
         }
         let previousPatch = model.onRowsPatchedWithPrevious
