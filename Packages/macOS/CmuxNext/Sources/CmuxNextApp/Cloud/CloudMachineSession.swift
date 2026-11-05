@@ -415,7 +415,9 @@ final class CloudMachineSession {
     /// A machine made for this send has no daemon until it runs: reads its record (forced) at `pause`'s
     /// pace until it runs or stops being live, so the connect after it dials a machine that is up.
     func untilRunning(pause: @MainActor (_ attempt: Int) async throws -> Void) async {
-        guard appLink != nil, machine.status != .running, let refresher else { return }
+        // A paused machine is not on its way up by itself: the attach after this resumes it (about a
+        // second at the provider), so it never waits out a pause first.
+        guard appLink != nil, machine.status != .running, machine.status != .paused, let refresher else { return }
         for attempt in 1...80 {
             do { try await pause(attempt) } catch { return }
             // A read elsewhere (the change tracker's, the list's) may have seen it run during the pause.
