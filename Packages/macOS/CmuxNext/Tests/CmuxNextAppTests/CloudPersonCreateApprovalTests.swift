@@ -7,8 +7,7 @@ import Testing
 
 /// A create the person started (the composer's Cloud send, a menu, the palette) is their
 /// confirmation: when the backend holds it for the G8 approval, the flow answers that request
-/// as the person with no second "Create a Cloud machine?" prompt. A create nobody started goes
-/// through the same way while agents may use Cloud without asking (the default); with asking on it
+/// as the person with no second "Create a Cloud machine?" prompt. A create nobody started still
 /// asks first, and a no sends nothing.
 @MainActor @Suite(.serialized) struct CloudPersonCreateApprovalTests {
     @MainActor final class Calls {
@@ -54,16 +53,21 @@ import Testing
         #expect(calls.ops == ["cloud.machine.create", "cloud.machine.create"])
     }
 
-    /// While the person lets agents use Cloud without asking (the default), an agent's, the CLI's or a script's
-    /// create goes straight through with no "Create a Cloud machine?" card, the same as their own Send, and the
-    /// backend's hold is answered with no prompt either (Leo, 2026-11-04: "just auto/bypass permissions by default").
-    @Test func aCreateNobodyStartedNeverWaitsOnACardWhileAgentsMayCreate() async throws {
+    @Test func aBackendCapabilityRefusalSendsNoCreateOrApproval() async throws {
         let calls = Calls()
-        let made = try await flow(calls).create(name: nil, startedByPerson: false, asksFirst: false, askedBy: "agent-1")
-        #expect(made == Self.machine)
-        #expect(calls.prompts.isEmpty, "a create nobody started waited on a card: \(calls.prompts)")
-        #expect(calls.approved == ["apr_1"])
-        #expect(calls.ops == ["cloud.machine.create", "cloud.machine.create"])
+        var create = flow(calls)
+        create.validateOptions = { _ in
+            throw CloudAppOpFailure(code: "validation.invalid", message: "create option unavailable: create.bootstrap")
+        }
+        do {
+            _ = try await create.create(name: "requested", startedByPerson: true)
+            Issue.record("a refused create must not succeed")
+        } catch let error as CloudAppOpFailure {
+            #expect(error.code == "validation.invalid")
+            #expect(error.message == "create option unavailable: create.bootstrap")
+        }
+        #expect(calls.ops.isEmpty)
+        #expect(calls.approved.isEmpty)
     }
 
     @Test func aCreateNobodyStartedAsksOnceThenAnswersTheHold() async throws {
@@ -71,6 +75,13 @@ import Testing
         _ = try await flow(calls).create(name: nil, startedByPerson: false, askedBy: "agent-1")
         #expect(calls.prompts.count == 1)
         if case .agentRequest = calls.prompts.first {} else { Issue.record("expected the agent request prompt, got \(calls.prompts)") }
+        #expect(calls.approved == ["apr_1"])
+    }
+
+    @Test func aCreateNobodyStartedMayBypassTheCardWhenPolicyAllows() async throws {
+        let calls = Calls()
+        _ = try await flow(calls).create(name: nil, startedByPerson: false, asksFirst: false)
+        #expect(calls.prompts.isEmpty)
         #expect(calls.approved == ["apr_1"])
     }
 

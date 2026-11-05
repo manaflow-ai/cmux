@@ -33,6 +33,19 @@ struct CloudAppLinkRedialTests {
         #expect(await resolver.opens == 2)
     }
 
+    /// An agent chat's attach dials the carrier again (``CloudLinkSession/streamEndpoint(_:)``): the link
+    /// stays up, and only the daemon connection's own second ask is its drop.
+    @Test func anotherStreamOnTheCarrierKeepsTheLinkUp() async throws {
+        let link = CloudLinkSession(key: CloudLinkKey(machine: "vm-streams"), resolver: CountingResolver())
+        let ticket = try await link.connect(origin: .script)
+        let first = try await link.endpoint(ticket)
+        #expect(try await link.streamEndpoint(ticket) == first)
+        #expect(try await link.streamEndpoint(ticket) == first)
+        #expect(await link.currentSocket != nil, "a second stream ended the link")
+        await #expect(throws: CloudLinkError.self) { try await link.endpoint(ticket) }
+        await #expect(throws: CloudLinkError.self) { try await link.streamEndpoint(ticket) }
+    }
+
     @Test func aLinkThatKeepsDroppingStopsAfterItsTries() async throws {
         let clock = ManualClock()
         let redial = CloudAppLinkRedial(backoff: Self.fast, tries: 3, clock: clock)

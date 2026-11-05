@@ -164,6 +164,7 @@ extension SettingsSchema {
         "appearance.colorTransition.reduceMotion",
         "layout.panePadding",
         "layout.paneCornerRadius",
+        "layout.cornerPadding",
         "layout.paneBorder",
         "layout.paneSeparation",
         "sidebar.border",
@@ -436,12 +437,14 @@ extension SettingsSchema {
         "mobile.terminalSizing": .userOnly,
         "mobile.terminalSizingOrder": .userOnly,
         // On, a session event tap takes system chords from macOS for the other Mac; only the person turns it on.
-        "macScreen.systemShortcuts": .userOnly,
+        "macScreen.systemShortcuts": .userOnly, "remote.enabled": .userOnly, "remote.endSharingOnQuit": .userOnly, // cmux Remote: the person's call
         // Changes how this Mac's Mac Screen streams leave the network; only the person sets it.
         "macScreen.debug.relayOnly": .userOnly,
         // Chooses the server this Mac registers its device keys with; only the person sets it.
         "deviceHub.url": .userOnly,
         "updates.installOnQuit": .destructive,
+        // On, one click restarts cmux into an update: the person's call.
+        "updates.oneClickInstall": .userOnly,
         "updates.keepPreviousVersions": .destructive,
     ]
 

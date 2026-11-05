@@ -12,6 +12,8 @@ public nonisolated struct UpdatesSettings: Sendable, Equatable {
     /// Seconds between automatic checks.
     public var checkIntervalSeconds = UpdatesSettings.checkIntervalDefault
     public var downloadAutomatically = UpdatesSettings.downloadAutomaticallyDefault
+    /// One click on a found update's Update downloads, installs and restarts (off: the Update Ready card asks first).
+    public var oneClickInstall = UpdatesSettings.oneClickInstallDefault
     public var installOnQuit = UpdatesSettings.installOnQuitDefault
     public var notify = UpdatesSettings.notifyDefault
     /// Previous builds kept for rollback (`cmux update rollback`).
@@ -36,6 +38,7 @@ public nonisolated struct UpdatesSettings: Sendable, Equatable {
         if let value = reader.bool("checkAutomatically") { settings.checkAutomatically = value }
         if let value = reader.number("checkIntervalSeconds", range: checkIntervalRange) { settings.checkIntervalSeconds = value }
         if let value = reader.bool("downloadAutomatically") { settings.downloadAutomatically = value }
+        if let value = reader.bool("oneClickInstall") { settings.oneClickInstall = value }
         if let value = reader.bool("installOnQuit") { settings.installOnQuit = value }
         if let legacy = root.value(at: notifyPath)?.stringValue.flatMap({ UpdatesNotifySetting.legacyValues[$0] }) {
             settings.notify = legacy

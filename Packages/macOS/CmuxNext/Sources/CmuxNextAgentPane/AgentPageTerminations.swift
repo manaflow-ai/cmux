@@ -88,6 +88,10 @@ public final class AgentPageTerminations {
         // An event none of whose pages still shows the notice is done (the pages closed or reloaded).
         events.removeAll { $0 !== event && $0.waiting.isEmpty }
         let page = event.pages.last
+        AgentPageFlickerLog.shared?.record("web-content-ended", [
+            "reason": termination.reason.rawValue, "pid": Int(termination.pid), "page": page?.page ?? "-",
+            "engine": page?.engine ?? "-", "ended_with_it": event.pages.count, "retries": retries,
+        ])
         terminationLogger.error("agent page web content ended reason=\(termination.reason.rawValue, privacy: .public) pid=\(termination.pid) page=\(page?.page ?? "-", privacy: .public) session=\(page?.session ?? "none", privacy: .public) engine=\(page?.engine ?? "-", privacy: .public) ended_with_it=\(event.pages.count) event=\(event.serial); \(retries ? "loads again by itself" : "kept ending: the crash notice offers Reload", privacy: .public)")
         if !turn.contains(where: { $0 === event }) {
             if turn.isEmpty { afterTurn { [weak self] in self?.endTurn() } }

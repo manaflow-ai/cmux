@@ -5,7 +5,11 @@
 // own cursor window, 2026-10-28: the dart and its rim span 17 points; the wings sit at about (17, 6.7)
 // and (6.7, 17) from the tip. The card draws it at the window's scale, so the preview shows the cursor
 // as the app does, never smaller than CURSOR_MIN_PX.
-import type { ComputerUsePreviewPointer } from "./computerUsePreview";
+// The person's pointer is a second telepointer: a plain small arrow in a neutral tone with a "You"
+// label, at a fixed size so it never competes with the agent's cursor. Its arrow is Petal's
+// telepointer arrow (kiruna-labs/petal @ 7ac436a, web-harness/src/telepointerDisplay.ts,
+// Apache-2.0).
+import type { ComputerUsePreviewPointer, ComputerUsePreviewTelepointer } from "./computerUsePreview";
 
 /// The cursor's box in points, rim included (the viewBox below: -1...18 on each axis).
 export const CURSOR_POINTS = 19;
@@ -38,5 +42,29 @@ export function AgentCursorArt() {
         fill="url(#acpmux-cu-cursor-fill)"
       />
     </svg>
+  );
+}
+
+/// The frame's custom properties for the person's pointer: its position (fractions of the frame).
+export function personPointerStyle(pointer: ComputerUsePreviewTelepointer): Record<string, number> {
+  return { "--cu-person-x": pointer.x, "--cu-person-y": pointer.y };
+}
+
+/// The person's pointer: Petal's arrow (tip at 5,3 of its 24-point box), filled in the card's
+/// neutral tone, with `label` beside it on a small-radius rect. Outside the window it hides; idle,
+/// it dims (computerUsePreview.css).
+export function PersonPointerArt({ pointer, label }: { pointer: ComputerUsePreviewTelepointer; label: string }) {
+  return (
+    <span
+      className="acpmux-cu-preview__person"
+      data-outside={pointer.visible ? undefined : ""}
+      data-idle={pointer.idle ? "" : undefined}
+      aria-hidden="true"
+    >
+      <svg className="acpmux-cu-preview__person-arrow" viewBox="0 0 24 24">
+        <path d="M5 3l5 16 2.5-6.5L19 10z" />
+      </svg>
+      <span className="acpmux-cu-preview__person-label">{label}</span>
+    </span>
   );
 }

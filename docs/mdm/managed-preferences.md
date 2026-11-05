@@ -59,6 +59,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `updates.checkAutomatically` | boolean | `true` |  | Check for Updates Automatically |
 | `updates.checkIntervalSeconds` | real | `3600` | 900 to 604800 | Check Every |
 | `updates.downloadAutomatically` | boolean | `false` |  | Download Updates Automatically. Off: cmux checks for updates and asks before it downloads one. On: updates download by themselves. Either way, cmux asks before it restarts into an update. |
+| `updates.oneClickInstall` | boolean | `false` |  | Update in One Click. Off: Update downloads the update, then cmux asks before it restarts into it. On: one click on Update downloads it, shows its progress, then installs it and restarts cmux. Terminals and agents keep running across the restart. |
 | `updates.meteredNetwork` | string | `"defer-low-data"` | `defer-low-data`, `defer-expensive`, `download` | On Metered Networks. While downloads wait, a found update shows on Settings and one click downloads it. |
 | `updates.web` | string | `"every-merge"` | `every-merge`, `nightly`, `off` | Web UI Updates. Every Merge: changes to the web UI arrive minutes after they land, without waiting for the next app update. Off: the web UI this app shipped with. |
 | `updates.installOnQuit` | boolean | `false` |  | Install Updates When Quitting. A downloaded update installs as cmux quits. Terminals keep running. |
@@ -187,7 +188,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `ui.animations.bounce` | string | `"none"` | `none`, `subtle` | Animation Bounce. None stops tabs, rows and panes exactly at their place. Subtle lets them settle with a small bounce. |
 | `layout.paneSeparation` | string |  | `none`, `dividers`, `borders`, `cards` | Separation. How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them. Default: dividers inside the curved main pane, borders otherwise. |
 | `layout.panePadding` | real |  | 0 to 16 | Padding |
-| `layout.paneCornerRadius` | real |  | 0 to 20 | Corner Radius |
+| `layout.paneCornerRadius` | real |  | 0 to 20 | Corner Radius. One radius for panes and tabs. Shapes inside a pane use this radius minus the corner padding. |
+| `layout.cornerPadding` | real |  | 0 to 12 | Corner Padding. Space between a pane's edge and its tabs. Inner corners use the corner radius minus this. |
 | `layout.paneBorder` | string | `"subtle"` | `subtle`, `none` | Border |
 | `layout.paneBorderColor` | string |  |  | Border Color |
 | `layout.paneBorderWidth` | real |  | 0.5 to 4 | Border Width |

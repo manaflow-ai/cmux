@@ -34,7 +34,7 @@ await requireBrowserLane("composer-plus-menu-polish.browser.test.ts", async () =
     picker: {
       entry: "agent-pane.composer",
       variant: "add-menu",
-      popup: ".acpmux-composer-plus .acpmux-menu",
+      popup: ".acpmux-composer-plus.acpmux-menu",
       width: 400,
     },
   } as const;

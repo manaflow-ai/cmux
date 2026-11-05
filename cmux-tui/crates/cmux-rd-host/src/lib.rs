@@ -2,7 +2,7 @@
 //! and, on macOS, `cmux rd ...` in the cmux binary run [`run_cli`]. The host engine (Linux: a virtual X display; macOS: the Mac's
 //! own display) and its measurement tools. Subcommands:
 //!   host     [--browser URL (Linux) [--browser-bin google-chrome] [--browser-cdp-port N]] --owner USER --token-fd N [--bind 127.0.0.1] [--single-tenant-overlay 1] [--display :99 | --display main|N on macOS] [--port 4103] [--max-fps 60] [--max-width PX (macOS)] [--codec openh264|x264|videotoolbox] [--openh264-lib PATH] [--profile high|baseline] [--upstream-record DIR]
-//!   bench    --addr HOST:4103 --token-fd N [--carrier udp|stream] [--input key|click|scroll] [--samples 300] [--user USER] [--upstream mic|camera|screen] [--at X,Y] [--marker-origin X,Y] [--decoder videotoolbox|openh264 (macOS)] [--snapshot FILE.ppm] [--record FILE.h264]
+//!   bench    --addr HOST:4103 --token-fd N [--carrier udp|stream] [--input key|click|scroll|none] [--samples 300] [--duration-s 30 (none)] [--user USER] [--upstream mic|camera|screen] [--at X,Y] [--marker-origin X,Y] [--decoder videotoolbox|openh264 (macOS)] [--snapshot FILE.ppm] [--record FILE.h264]
 //!   testapp  --display :99 --workload marker|text|motion|idle
 //!   serve    one device hub session over the secure link, driven by the app in JSON lines on
 //!            stdin and stdout (src/serve.rs); macOS and Linux

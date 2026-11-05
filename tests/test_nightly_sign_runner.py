@@ -14,6 +14,7 @@ import contextlib
 import datetime as dt
 import io
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -74,6 +75,14 @@ def snapshot(waits: dict[str, int], age_minutes: int = 2) -> dict:
 def linux_snapshot(waits: dict[str, int], age_minutes: int = 2) -> dict:
     return snapshot({**{label: 0 for label in picker.LINUX_LABELS}, **waits}, age_minutes)
 
+
+
+def job_limit(job: dict) -> int:
+    """The job's timeout-minutes with one-mini mode off: the smaller limit, the one that must hold.
+
+    One-mini mode adds room for glaeda's capacity wait on cmux15 (tests/test_nightly_mini_gate_timeouts.py)."""
+    value = job["timeout-minutes"]
+    return min(int(n) for n in re.findall(r"\b\d+\b", value)) if isinstance(value, str) else int(value)
 
 class Pick(unittest.TestCase):
     def test_the_variable_comes_first_while_it_moves(self) -> None:
@@ -631,7 +640,7 @@ class OwnedVerify(unittest.TestCase):
         # The job outlives its step budgets, so a slow App API never cancels it before its outputs are written.
         budget = sum(int(s.get("timeout-minutes", 0)) for s in job["steps"])
         self.assertTrue(all("timeout-minutes" in s for s in job["steps"] if s.get("id")))
-        self.assertGreaterEqual(int(job["timeout-minutes"]), budget + 2)
+        self.assertGreaterEqual(job_limit(job), budget + 2)
 
 
 class SnapshotReadToken(unittest.TestCase):
@@ -692,7 +701,7 @@ class SnapshotReadToken(unittest.TestCase):
                 self.assertEqual(job["permissions"], {"actions": "read", "contents": "read"})
                 self.assertEqual(job["environment"], "ci-routing-agent")
                 budget = sum(int(step.get("timeout-minutes", 0)) for step in job["steps"])
-                self.assertGreaterEqual(int(job["timeout-minutes"]), budget)
+                self.assertGreaterEqual(job_limit(job), budget)
 
     def test_no_other_job_gains_the_routing_app_key(self) -> None:
         keyed = {name for name, job in WORKFLOW["jobs"].items() if self.KEY in yaml.safe_dump(job)}
