@@ -39,21 +39,67 @@ func observations(_ image: CGImage) throws -> [VNRecognizedTextObservation] {
 /// none), so five dogfood builds had no judgment of that journey. In 4 bands
 /// each of those 30 stored frames read 16 to 26 lines, but in 10 of them one
 /// band still read nothing although it shows text (the bottom quarter, with a
-/// card). So the band read is partial where a band claims no line: stderr
-/// names those bands ("...; no text in band 4"), and the journeys' negative
-/// frame checks do not trust such a read (scripts/journeys/driver.py
-/// `unread_bands`). An image whose whole read finds text is never read in
-/// bands, so its lines do not change.
-func recognize(_ image: CGImage) throws -> [String] {
-    let whole = try observations(image).compactMap { $0.topCandidates(1).first?.string }
-    if !whole.isEmpty { return whole }
+/// card). So the band read is partial where a band that shows ink claims no
+/// line: stderr names those bands ("...; no text in band 4"), and the
+/// journeys' negative frame checks do not trust such a read
+/// (scripts/journeys/driver.py `unread_bands`). A band that claims no line and
+/// shows no ink at all (`hasInk`: empty terminal rows) holds no text: stderr
+/// names it blank ("blank band 3"), and it does not make the read partial (in
+/// the 53-frame corpus of review 2 of #35282, 36 of the 46 silent bands showed
+/// no ink, and every band that read text showed ink). An image whose whole read
+/// finds text is never read in bands, so its lines do not change.
+/// `bandsOnly` skips the whole read (the tests' --bands-only).
+func recognize(_ image: CGImage, bandsOnly: Bool = false) throws -> [String] {
+    if !bandsOnly {
+        let whole = try observations(image).compactMap { $0.topCandidates(1).first?.string }
+        if !whole.isEmpty { return whole }
+    }
     let (banded, silent) = try bandedLines(image, bands: 4)
+    let blank = silent.filter { !hasInk(image, band: $0, of: 4) }, unread = silent.filter { !blank.contains($0) }
     var note = "pr-media-ocr: no text in the whole image; \(banded.count) lines in 4 bands"
-    if !silent.isEmpty {
-        note += "; no text in band\(silent.count == 1 ? "" : "s") " + silent.map(String.init).joined(separator: ", ")
+    if !blank.isEmpty {
+        note += "; blank band\(blank.count == 1 ? "" : "s") " + blank.map(String.init).joined(separator: ", ")
+    }
+    if !unread.isEmpty {
+        note += "; no text in band\(unread.count == 1 ? "" : "s") " + unread.map(String.init).joined(separator: ", ")
     }
     FileHandle.standardError.write(Data((note + "\n").utf8))
     return banded
+}
+
+/// Whether band `band` (1 is the top) of `bands` equal parts of `image`'s height shows ink: a row in which at least 3
+/// pairs of horizontally adjacent pixels differ by more than 48 in a channel, not counting the columns where such a
+/// difference is in at least 90 percent of the part's rows (the vertical edges of panes and the sidebar). Measured on
+/// the 53 stored window frames of review 2 of #35282: every band that read text has 14 or more such rows, every silent
+/// band of empty terminal rows has none.
+func hasInk(_ image: CGImage, band: Int, of bands: Int) -> Bool {
+    let width = image.width, height = image.height
+    let part = (height + bands - 1) / bands
+    let top = (band - 1) * part, bottom = min(height, band * part)
+    guard top < bottom, width > 1,
+          let context = CGContext(data: nil, width: width, height: bottom - top, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                  space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+          let crop = image.cropping(to: CGRect(x: 0, y: top, width: width, height: bottom - top)) else { return true }
+    context.draw(crop, in: CGRect(x: 0, y: 0, width: width, height: bottom - top))
+    guard let data = context.data else { return true }
+    let px = data.bindMemory(to: UInt8.self, capacity: width * (bottom - top) * 4)
+    let rows = bottom - top
+    var edges = [Bool](repeating: false, count: rows * (width - 1)), perColumn = [Int](repeating: 0, count: width - 1)
+    for y in 0..<rows {
+        for x in 0..<(width - 1) {
+            let a = (y * width + x) * 4, b = a + 4
+            let differs = (0..<3).contains { abs(Int(px[a + $0]) - Int(px[b + $0])) > 48 }
+            if differs { edges[y * (width - 1) + x] = true; perColumn[x] += 1 }
+        }
+    }
+    let structural = perColumn.map { $0 * 10 >= rows * 9 }
+    for y in 0..<rows {
+        var count = 0
+        for x in 0..<(width - 1) where edges[y * (width - 1) + x] && !structural[x] { count += 1 }
+        if count >= 3 { return true }
+    }
+    return false
 }
 
 /// The lines of `image` read as `bands` horizontal bands, top band first,
@@ -75,7 +121,9 @@ func recognize(_ image: CGImage) throws -> [String] {
 func bandedLines(_ image: CGImage, bands: Int) throws -> (lines: [String], silent: [Int]) {
     let width = CGFloat(image.width), height = image.height
     let part = (height + bands - 1) / bands
-    guard part >= 16 else { return ([], []) }
+    // Too short for bands of 16 rows: no band read, and every band is silent (an inked one is unread, never read as
+    // empty; review 2 of #35282, note 4).
+    guard part >= 16 else { return ([], Array(1...bands)) }
     let reach = max(32, part / 4), slack = reach / 3
     var claims: [(band: Int, line: String, box: CGRect, margin: CGFloat)] = []
     var silent: [Int] = []
@@ -169,8 +217,12 @@ func printVideo(_ url: URL) async throws {
     if read == 0 { fail("no readable frames in \(url.lastPathComponent)") }
 }
 
-guard CommandLine.arguments.count == 2 else { fail("usage: pr-media-ocr <file>") }
-let url = URL(fileURLWithPath: CommandLine.arguments[1])
+let arguments = Array(CommandLine.arguments.dropFirst())
+let bandsOnly = arguments.first == "--bands-only"
+guard arguments.count == (bandsOnly ? 2 : 1), let path = arguments.last else {
+    fail("usage: pr-media-ocr [--bands-only] <file>")
+}
+let url = URL(fileURLWithPath: path)
 switch url.pathExtension.lowercased() {
 case "mp4", "mov":
     try await printVideo(url)
@@ -180,7 +232,7 @@ default:
     let count = CGImageSourceGetCount(source)
     if count == 1 {
         guard let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { fail("unreadable image \(url.path)") }
-        for line in try recognize(image) { print(line) }
+        for line in try recognize(image, bandsOnly: bandsOnly) { print(line) }
     } else {
         // GIF and animated WebP: decode one frame at a time.
         var printer = FramePrinter()
