@@ -12,6 +12,8 @@ use std::time::Duration;
 const ANSWER_WITHIN: Duration = Duration::from_secs(10);
 /// How long a refused rename waits for a turn to end before it asks again anyway.
 const TURN_WAIT: Duration = Duration::from_secs(600);
+/// How long a rename refused behind an unanswered one waits before it asks again.
+const IN_FLIGHT_WAIT: Duration = Duration::from_secs(2);
 /// Asks at most this often for one rename: a chat that never goes idle keeps its old name until
 /// its next start.
 const MAX_ASKS: usize = 50;
@@ -45,6 +47,10 @@ impl Hub {
                     // Renamed again meanwhile: that name too.
                     Some(Ok(_)) if session.meta().name == name => return,
                     Some(Ok(_)) => continue,
+                    // The last `/rename` is unanswered, or given up on after a while: soon again.
+                    Some(Err(e)) if e.message == crate::claude_stdio::RENAME_IN_FLIGHT => {
+                        tokio::time::sleep(IN_FLIGHT_WAIT).await;
+                    }
                     Some(Err(e)) if e.message == crate::claude_stdio::RENAME_BUSY => {
                         let ended = async {
                             loop {

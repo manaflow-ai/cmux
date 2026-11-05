@@ -97,7 +97,7 @@ async fn one_rename_at_a_time_and_only_a_one_line_name() {
     let Outbound::Reply(reply) = t.outbound(&rename(5, "other")).await else {
         panic!("wrote a second rename before the first was answered")
     };
-    assert_eq!(result_of(&[reply], 5).unwrap().unwrap_err(), RENAME_BUSY);
+    assert_eq!(result_of(&[reply], 5).unwrap().unwrap_err(), RENAME_IN_FLIGHT);
 }
 
 /// The hub's prompt went out before Claude Code answered the rename: Claude Code reads its
@@ -155,7 +155,63 @@ async fn a_rename_with_no_result_does_not_block_the_next_one() {
     let _ = written(&t, &rename(4, "reviewer")).await;
     let long_ago =
         std::time::Instant::now().checked_sub(std::time::Duration::from_secs(31)).unwrap();
-    t.renaming.lock().await.as_mut().unwrap().2 = long_ago;
+    t.renaming.lock().await.front_mut().unwrap().at = long_ago;
     let lines = written(&t, &rename(5, "lead")).await;
     assert_eq!(lines[0]["message"]["content"], "/rename lead");
+}
+
+/// Gives up on the `/rename` ahead (`STALE`), then writes the next: the lines each produced.
+async fn given_up_then_next(t: &Translator) -> (Value, Value) {
+    let first = written(t, &rename(4, "reviewer")).await.remove(0);
+    let long_ago =
+        std::time::Instant::now().checked_sub(std::time::Duration::from_secs(31)).unwrap();
+    t.renaming.lock().await.front_mut().unwrap().at = long_ago;
+    let next = written(t, &rename(5, "lead")).await.remove(0);
+    (first, next)
+}
+
+/// A given-up rename's late lines answer nothing and never the newer rename, which gets its own
+/// result; none of it reaches the chat.
+#[tokio::test]
+async fn a_given_up_renames_late_lines_answer_nothing() {
+    let t = translator().await;
+    let (first, next) = given_up_then_next(&t).await;
+    let mut out = Vec::new();
+    for line in renamed_lines(&first, "reviewer") {
+        out.extend(t.inbound(&line).await);
+    }
+    assert!(out.is_empty(), "the late rename answered or reached the chat: {out:?}");
+    for line in renamed_lines(&next, "lead") {
+        out.extend(t.inbound(&line).await);
+    }
+    assert_eq!(out.len(), 1, "{out:?}");
+    assert!(result_of(&out, 5).unwrap().is_ok());
+}
+
+/// A rename Claude Code never echoed does not hide the next one's lines.
+#[tokio::test]
+async fn a_rename_claude_code_never_read_does_not_hide_the_next() {
+    let t = translator().await;
+    let (_, next) = given_up_then_next(&t).await;
+    let mut out = Vec::new();
+    for line in renamed_lines(&next, "lead") {
+        out.extend(t.inbound(&line).await);
+    }
+    assert_eq!(out.len(), 1, "{out:?}");
+    assert!(result_of(&out, 5).unwrap().is_ok());
+}
+
+/// A `/rename` the person typed while acpmux's is unanswered is still their turn: its lines follow
+/// their echo, not acpmux's, and answer their prompt.
+#[tokio::test]
+async fn a_rename_the_person_typed_behind_an_unanswered_one_is_theirs() {
+    let t = translator().await;
+    let _ = written(&t, &rename(4, "reviewer")).await;
+    let asked = written(&t, &prompt(6, "/rename mine")).await;
+    let mut out = Vec::new();
+    for line in renamed_lines(&asked[0], "mine") {
+        out.extend(t.inbound(&line).await);
+    }
+    assert!(result_of(&out, 6).is_some_and(|r| r.is_ok()), "{out:?}");
+    assert!(result_of(&out, 4).is_none(), "their result answered acpmux's rename: {out:?}");
 }
