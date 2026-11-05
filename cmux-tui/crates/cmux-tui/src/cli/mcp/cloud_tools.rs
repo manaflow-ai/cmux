@@ -525,7 +525,7 @@ impl<B: Backend> Calls<'_, B> {
             Some(state) => Ok(success(state, action != "status")),
             None => Err(refused(
                 "computer.control_unavailable",
-                "this cmux app has no computer take-over; update cmux",
+                "this cmux app answers no cloud.computerControl, so nobody can take over: use cloud_computer directly",
                 json!({"machine": format!("machine:{machine}")}),
                 "not_run",
             )),
