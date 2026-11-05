@@ -21,9 +21,13 @@ public struct MobileHostPairRequest: Sendable, Equatable, Hashable {
     /// The pre-approval the phone presented from this Mac's pairing code (``MobileHostPairTokens``),
     /// nil without one. A secret: never logged, never kept with a waiting request.
     public var pairToken: String?
+    /// What asks: `phone`, or another of the person's machines (`mac`, `linux`), which gets
+    /// grants instead of a phone's lanes and has no approval key (docs/multi-machine-sessions.md).
+    public var kind: String
 
     public init(phoneDeviceID: String, name: String, identityKey: String, approvalKey: String, registeredAt: Date? = nil,
-                pairToken: String? = nil, transport: MobileHostPairedDevice.Transport = .hostd) {
+                pairToken: String? = nil, transport: MobileHostPairedDevice.Transport = .hostd, kind: String = "phone") {
+        self.kind = kind
         self.phoneDeviceID = phoneDeviceID
         self.name = name
         self.identityKey = identityKey
@@ -36,12 +40,15 @@ public struct MobileHostPairRequest: Sendable, Equatable, Hashable {
     /// The first 4 bytes of the key ``MobileHostPairedDevice/fingerprint`` hashes, as hex: shown beside
     /// the phone's name in the Allow prompt so a look-alike name with another key stands out.
     public var shortFingerprint: String {
-        String(MobileHostPairedDevices.fingerprint(transport == .hostd ? approvalKey : identityKey).prefix(8))
+        String(MobileHostPairedDevices.fingerprint(transport == .hostd && !isMachine ? approvalKey : identityKey).prefix(8))
     }
+
+    /// Another of the person's computers rather than a phone.
+    public var isMachine: Bool { kind != "phone" }
 
     /// The same device asking with the same keys (a retry, whatever its registration date).
     public func sameKeys(as other: MobileHostPairRequest) -> Bool {
-        transport == other.transport && phoneDeviceID == other.phoneDeviceID && identityKey == other.identityKey && approvalKey == other.approvalKey
+        transport == other.transport && kind == other.kind && phoneDeviceID == other.phoneDeviceID && identityKey == other.identityKey && approvalKey == other.approvalKey
     }
 }
 
@@ -54,10 +61,18 @@ public struct MobileHostPairedDevice: Sendable, Equatable, Codable, Identifiable
     public var identityKey: String
     public var approvalKey: String
     public var pairedAt: Date
+    /// `phone`, or a machine (`mac`, `linux`) with ``grants``.
+    public var kind: String
+    /// What a machine may do here (`view`, `control`, `run`, `install`, `move`); hostd re-reads
+    /// it at every channel open. Empty at pairing (a paired machine may only ask what it may
+    /// do), and always empty for phones, which keep their own lanes.
+    public var grants: [String]
 
     public init(id: String, name: String, identityKey: String, approvalKey: String, pairedAt: Date,
-                transport: Transport = .hostd) {
+                transport: Transport = .hostd, kind: String = "phone", grants: [String] = []) {
         self.transport = transport
+        self.kind = kind
+        self.grants = grants
         self.id = id
         self.name = name
         self.identityKey = identityKey
@@ -65,7 +80,7 @@ public struct MobileHostPairedDevice: Sendable, Equatable, Codable, Identifiable
         self.pairedAt = pairedAt
     }
 
-    private enum CodingKeys: String, CodingKey { case id, name, identityKey, approvalKey, pairedAt, transport }
+    private enum CodingKeys: String, CodingKey { case id, name, identityKey, approvalKey, pairedAt, transport, kind, grants }
     public init(from decoder: any Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         id = try values.decode(String.self, forKey: .id)
@@ -74,10 +89,14 @@ public struct MobileHostPairedDevice: Sendable, Equatable, Codable, Identifiable
         approvalKey = try values.decode(String.self, forKey: .approvalKey)
         pairedAt = try values.decode(Date.self, forKey: .pairedAt)
         transport = try values.decodeIfPresent(Transport.self, forKey: .transport) ?? .hostd
+        kind = try values.decodeIfPresent(String.self, forKey: .kind) ?? "phone"
+        grants = try values.decodeIfPresent([String].self, forKey: .grants) ?? []
     }
 
     /// The first 8 bytes of the approval key's SHA-256 as hex, as acpmux lists it.
-    public var fingerprint: String { MobileHostPairedDevices.fingerprint(transport == .hostd ? approvalKey : identityKey) }
+    public var fingerprint: String {
+        MobileHostPairedDevices.fingerprint(transport == .hostd && kind == "phone" ? approvalKey : identityKey)
+    }
 }
 
 /// The phones this Mac trusts for one signed-in user, and the requests the
@@ -111,7 +130,7 @@ public struct MobileHostPairedDevices: Sendable, Equatable, Codable {
 
     public func decision(for request: MobileHostPairRequest) -> Decision {
         if devices.contains(where: {
-            $0.transport == request.transport && $0.id == request.phoneDeviceID && $0.identityKey == request.identityKey && $0.approvalKey == request.approvalKey
+            $0.transport == request.transport && $0.kind == request.kind && $0.id == request.phoneDeviceID && $0.identityKey == request.identityKey && $0.approvalKey == request.approvalKey
         }) { return .trusted }
         if request.transport == .hostd, denied.contains(where: { $0.id == request.phoneDeviceID && $0.identityKey == request.identityKey }) { return .denied }
         return .ask
@@ -122,7 +141,20 @@ public struct MobileHostPairedDevices: Sendable, Equatable, Codable {
         devices.removeAll { $0.id == request.phoneDeviceID && $0.transport == request.transport }
         if request.transport == .hostd { denied.removeAll { $0.id == request.phoneDeviceID } }
         devices.append(MobileHostPairedDevice(id: request.phoneDeviceID, name: request.name, identityKey: request.identityKey,
-                                       approvalKey: request.approvalKey, pairedAt: date, transport: request.transport))
+                                       approvalKey: request.approvalKey, pairedAt: date, transport: request.transport,
+                                       kind: request.kind, grants: []))
+    }
+
+    /// What machine `id` may do here; the person widens or narrows it in Settings > Devices.
+    /// Unknown words are dropped, so hostd only ever sees grants it knows.
+    public mutating func setGrants(_ grants: [String], for id: String) {
+        let known = ["view", "control", "run", "install", "move"]
+        devices = devices.map { device in
+            guard device.id == id, device.kind != "phone" else { return device }
+            var changed = device
+            changed.grants = known.filter(grants.contains)
+            return changed
+        }
     }
 
     /// The user refused the request.

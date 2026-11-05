@@ -42,6 +42,7 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use serde_json::{Value, json};
 
 use super::cloud_client_session::{mint_session, redact, secure_origin, valid_machine};
+use cmux_cloud_client::machine::Scope;
 use direct::{Direct, Grant};
 use session::{Cache, Entry, Use};
 
@@ -391,15 +392,13 @@ async fn mint(
     cache: &Cache,
     now: &impl Fn() -> u64,
 ) -> Option<Grant> {
-    let minted = mint_session(
-        client,
-        &request.api,
-        &request.credential,
-        request.team.as_deref(),
-        &request.machine,
-        Some(session::TTL_SECONDS),
-    )
-    .await;
+    // `direct_ready` checked the origin and the machine id, so the handle is made; a request
+    // that still has neither goes to the proxy like any refused mint.
+    let scope = Scope::new(&request.api, request.team.as_deref()).ok()?;
+    let machine = scope.machine(&request.machine).ok()?;
+    let minted =
+        mint_session(client, &scope, &request.credential, &machine, Some(session::TTL_SECONDS))
+            .await;
     match minted {
         Ok(s) => {
             let grant = Grant {

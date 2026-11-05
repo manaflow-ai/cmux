@@ -109,12 +109,26 @@ final class SidebarUpdatedCardHost: NSView {
     /// the glass. A report taller than it still grows the card. 0: nothing held (no remembered height,
     /// or the sidebar's width changed).
     private(set) var heldHeight: CGFloat = 0
+    /// The hold was armed for this showing of the card (once: a resize releases it, never re-arms it).
+    private var holdArmed = false
+    /// A height the page reported before the card's width was known: remembered at that width once the
+    /// slot gives it (``holdFirstFrame()``), after the hold has read the height remembered before it.
+    private var pendingRememberedHeight: CGFloat?
 
     /// Holds the first frame's height: the slot calls it once it has set ``slotWidth``, before it reads
-    /// ``height``.
+    /// ``height``. Armed at the card's first layout whether or not the page has reported yet: a report
+    /// can land before the sidebar has laid out once (review F1 of #36248, #36267), and the first frame
+    /// is still the one this layout draws.
     func holdFirstFrame() {
-        guard card != nil, island != nil, !pageReported, heldHeight == 0 else { return }
-        heldHeight = Self.rememberedHeight(width: slotWidth > 0 ? slotWidth : bounds.width)
+        guard card != nil, island != nil, slotWidth > 0 else { return }
+        if !holdArmed {
+            holdArmed = true
+            heldHeight = Self.rememberedHeight(width: slotWidth)
+        }
+        if let pending = pendingRememberedHeight {
+            pendingRememberedHeight = nil
+            Self.remember(height: pending, width: slotWidth)
+        }
     }
 
     /// The card's next height lands at once: its first layout (at the remembered height) and the
@@ -130,7 +144,9 @@ final class SidebarUpdatedCardHost: NSView {
     private func pageDidReportHeight() {
         if !pageReported { (pageReported, landsAtOnce) = (true, true) }
         if let height = island?.contentHeight, height > 0 {
-            Self.remember(height: height, width: slotWidth > 0 ? slotWidth : bounds.width)
+            // Before the first layout the width is unknown, and writing now would replace the height the
+            // hold is about to read: the slot remembers it once it has armed the hold.
+            if slotWidth > 0, holdArmed { Self.remember(height: height, width: slotWidth) } else { pendingRememberedHeight = height }
         }
         onHeightChange?()
     }
@@ -175,7 +191,7 @@ final class SidebarUpdatedCardHost: NSView {
     func configure(_ card: SidebarUpdatedCard?) {
         guard card != self.card else { return }
         // A card that shows (at launch, after the update) takes its room at once.
-        if card != nil, self.card == nil { (landsAtOnce, pageReported, heldHeight) = (true, false, 0) }
+        if card != nil, self.card == nil { (landsAtOnce, pageReported, heldHeight, holdArmed, pendingRememberedHeight) = (true, false, 0, false, nil) }
         self.card = card
         closeButton.label = card?.dismissLabel ?? ""
         if card != nil, island == nil { island = surfaces?.island(.updated) }
@@ -185,7 +201,7 @@ final class SidebarUpdatedCardHost: NSView {
                 island.close()
                 self.island = nil
             }
-            heldHeight = 0
+            (heldHeight, holdArmed, pendingRememberedHeight) = (0, false, nil)
             // A card that comes back starts without its x until the pointer moves onto it.
             isHovered = false
             setHoverShown(closeButton, false, fades: false)

@@ -72,6 +72,7 @@ on:
       - skills/cmux-browser/**
       - skills/cmux-cua/**
       - skills/cmux-customization/**
+      - skills/cmux-live/**
       - skills/cmux/SKILL.md
       - .xcode-version
       - schemas/**
@@ -362,6 +363,7 @@ on:
       - skills/cmux-browser/**
       - skills/cmux-cua/**
       - skills/cmux-customization/**
+      - skills/cmux-live/**
       - skills/cmux/SKILL.md
       - .xcode-version
       - schemas/**
@@ -686,6 +688,49 @@ concurrency:
 # and re-admits it through the same fast-checks/owned-Mac/Blacksmith order; a
 # person's re-run stays on the side label.
 jobs:
+  # A pull request's run waits until the PR has had no push for about 5 minutes before any
+  # check, placement or Mac job starts. The run's group cancels in progress on a newer push, so
+  # a second push inside the window cancels a run that has spent only this sleeping job. In the
+  # 82 minutes to 2026-11-05T08:36Z, 17 of 100 PR runs were cancelled by the PR's next push (4 of
+  # them under 5 minutes after the first, the rest after 5 to 36 minutes of checks and compiles).
+  # It runs before portable-placement, so the placement it would read is not made yet, and an idle
+  # runner that placement finds is still idle when the job it placed starts. Like that bootstrap it
+  # takes hosted Ubuntu (.github/runners.json hosted_light_jobs): it sleeps, so it holds no fleet
+  # runner or mini. A re-run (attempt 2 and later), a `leo-named-fix` PR (landing.md: those land
+  # with no wait) and vars.CI_PR_QUIET_PERIOD_SECONDS = '0' skip it; pushes and dispatches never
+  # run it. Leo, 2026-11-05: "i meant can you do all of htem".
+  pr-quiet-period:
+    if: ${{ github.event_name == 'pull_request' && github.run_attempt == 1 && !contains(github.event.pull_request.labels.*.name, 'leo-named-fix') && format('{0}', vars.CI_PR_QUIET_PERIOD_SECONDS) != '0' }}
+    name: cmux-next PR quiet period
+    # A fork's run takes hosted Ubuntu too: the job checks nothing out and holds no token, so the sleep never
+    # holds Blacksmith.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    timeout-minutes: 12
+    permissions: {}
+    steps:
+      - name: Wait until the pull request has had no push for the quiet period
+        # A failed or timed-out wait never holds the checks: every job after it runs on !cancelled().
+        continue-on-error: true
+        timeout-minutes: 11
+        env:
+          PUSHED_AT: ${{ github.event.pull_request.updated_at }}
+          QUIET_SECONDS: ${{ vars.CI_PR_QUIET_PERIOD_SECONDS || '300' }}
+        run: |
+          set -euo pipefail
+          # At most 10 minutes, whatever the variable says.
+          [[ "$QUIET_SECONDS" =~ ^[0-9]+$ ]] || QUIET_SECONDS=300
+          (( QUIET_SECONDS <= 600 )) || QUIET_SECONDS=600
+          now="$(date -u +%s)"
+          pushed="$(date -u -d "$PUSHED_AT" +%s 2>/dev/null)" || pushed="$now"
+          wait=$(( pushed + QUIET_SECONDS - now ))
+          (( wait <= QUIET_SECONDS )) || wait=$QUIET_SECONDS
+          if (( wait <= 0 )); then
+            echo "The last push ($PUSHED_AT) is ${QUIET_SECONDS}s or more ago; no wait."
+            exit 0
+          fi
+          echo "Waiting ${wait}s so a push within ${QUIET_SECONDS}s of $PUSHED_AT replaces this run before its checks start."
+          sleep "$wait"
+
   # feat-cmux-next push CI is the Swift app build only (Lawrence, 2026-10-10): its
   # pushes run the Release compile, the app scheme compile and the nightly-next
   # request. checks, web bundles, swift test, daemon tests and generated files run
@@ -700,7 +745,9 @@ jobs:
   # nightly-next promotion. Keep the run-id concurrency group below: rescue
   # reruns of an older push must not cancel the newest pending run.
   push-head-preflight:
-    if: ${{ inputs.same_tree_sha == '' }}
+    # After the pull request quiet period (skipped outside pull requests, hence !cancelled()).
+    needs: [pr-quiet-period]
+    if: ${{ !cancelled() && inputs.same_tree_sha == '' }}
     name: cmux-next push head preflight
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) }}
     timeout-minutes: 2
@@ -1551,7 +1598,10 @@ jobs:
   # then the measured paid retry route. Its consumers take live fleet capacity from its outputs.
   portable-placement:
     name: portable job placement
-    if: ${{ vars.CI_PORTABLE_LIGHT_JOBS_OFF != '1' && inputs.dev_daily != true && inputs.base_tier != true && inputs.same_tree_sha == '' && github.repository_owner == 'manaflow-ai' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) }}
+    # After the pull request quiet period (skipped outside pull requests, hence !cancelled()), so the
+    # runners it finds idle are still idle when the jobs it places start.
+    needs: [pr-quiet-period]
+    if: ${{ !cancelled() && vars.CI_PORTABLE_LIGHT_JOBS_OFF != '1' && inputs.dev_daily != true && inputs.base_tier != true && inputs.same_tree_sha == '' && github.repository_owner == 'manaflow-ai' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || github.run_attempt == 1 && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 4
     permissions:
@@ -5646,7 +5696,8 @@ jobs:
     needs: [path_route, checks, generated-files, generated-verdict, swift-test, daemon-test]
     # generated-files skips a push whose generated files daemon-test checks (CMUX_NEXT_FOLD_GENERATED);
     # generated-verdict gives that verdict.
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.checks.result == 'success' && (needs.generated-files.result == 'success' || needs.generated-files.result == 'skipped' && needs.generated-verdict.result == 'success') && needs.swift-test.result == 'success' && needs.daemon-test.result == 'success' }}
+    # !cancelled() and each need's result: the implicit success() reads every ancestor, and pr-quiet-period skips on a push.
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.path_route.result == 'success' && needs.checks.result == 'success' && (needs.generated-files.result == 'success' || needs.generated-files.result == 'skipped' && needs.generated-verdict.result == 'success') && needs.swift-test.result == 'success' && needs.daemon-test.result == 'success' }}
     name: cmux-next Swift exports cache
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }}
     timeout-minutes: 10

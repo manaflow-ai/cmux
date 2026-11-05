@@ -82,11 +82,16 @@ public nonisolated struct TerminalGridPolicy: Sendable {
     }
 
     /// Whether the surface may draw its reflow preview (the view's grid, before the owner announces
-    /// it): not while a final grid was reported that the view does not fit yet. The owner's grid is
-    /// then the final one, drawn cropped or padded in the moving view, never reflowed back to the
-    /// view's size of the frame.
-    public var previewsViewGrid: Bool {
-        guard let final else { return true }
+    /// it).
+    ///
+    /// `followingPane`: the view takes its pane's size in every frame of the spring (a key resize with
+    /// `motion.frameOwner.terminals` on, cmux-ad m14). The preview then stays on: each frame draws
+    /// the grid its size fits, with the cursor row in view, whatever grid the owner has.
+    ///
+    /// Otherwise not while a final grid was reported that the view does not fit yet (a size the view
+    /// only passes through): the surface then draws the owner's grid, cropped or padded.
+    public func previewsViewGrid(followingPane: Bool) -> Bool {
+        guard let final, !followingPane else { return true }
         return final == desired
     }
 

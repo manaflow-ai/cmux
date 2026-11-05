@@ -1,12 +1,31 @@
 public import AppKit
+public import CmuxNextDesign
 import GhosttyNextKit
 
 // Mouse, scroll, pressure, and cursor shape. Ghostty turns these into
 // selection or, when the program enabled a mouse mode, into mouse reports
 // that come back through `io_write_cb` (ghostty.h:1643-1655).
 extension TerminalSurfaceView {
+    /// Its own tracking area only where no layout screen serves it (``PanePointerFollowing``): in a pane, the screen's one
+    /// area delivers its moves and sets its cursor, so a pane that moves costs AppKit no cursor-rect or tracking-area work
+    /// (RESIZE MAIN BUDGET: 4.5 cursor-rect invalidations per terminal per key-resize frame, PaneMotionPointerAreasTests).
     public override func updateTrackingAreas() {
+        syncPointerTracking()
+        super.updateTrackingAreas()
+    }
+
+    public override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        syncPointerTracking()
+    }
+
+    /// Installs or removes its own tracking area as its place says (in a window and in a layout screen, or not).
+    func syncPointerTracking() {
+        let served = isServedByPanePointerArea
+        if served, trackingArea == nil { return }
         if let trackingArea { removeTrackingArea(trackingArea) }
+        trackingArea = nil
+        guard !served else { return }
         let area = NSTrackingArea(
             rect: .zero,
             options: [.mouseEnteredAndExited, .mouseMoved, .inVisibleRect, .activeAlways, .cursorUpdate],
@@ -14,7 +33,6 @@ extension TerminalSurfaceView {
         )
         addTrackingArea(area)
         trackingArea = area
-        super.updateTrackingAreas()
     }
 
     public override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -126,14 +144,15 @@ extension TerminalSurfaceView {
         cursor.set()
     }
 
+    /// A cursor rect only where no layout screen serves it: there the screen sets ``cursor`` from its hit test.
     public override func resetCursorRects() {
-        addCursorRect(bounds, cursor: cursor)
+        if !isServedByPanePointerArea { addCursorRect(bounds, cursor: cursor) }
     }
 
     func setCursor(_ newCursor: NSCursor) {
         guard newCursor != cursor else { return }
         cursor = newCursor
-        window?.invalidateCursorRects(for: self)
+        if !isServedByPanePointerArea { window?.invalidateCursorRects(for: self) }
         // The pointer's own location: a key event or a late link-filter answer carries none.
         if let window, isShown, window.isVisible, bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil)) {
             newCursor.set()
@@ -238,4 +257,13 @@ extension TerminalSurfaceView {
         }
         return ghostty_input_scroll_mods_t((precise ? 1 : 0) | (Int32(momentum.rawValue) << 1))
     }
+}
+
+/// In a pane the layout screen's one tracking area hit-tests the pointer and calls these (``PanePointerFollowing``),
+/// as its own tracking area called the overrides above.
+extension TerminalSurfaceView: PanePointerFollowing {
+    public func panePointerCursor(at point: NSPoint) -> NSCursor? { cursor }
+    public func panePointerEntered(with event: NSEvent) { mouseEntered(with: event) }
+    public func panePointerMoved(with event: NSEvent) { mouseMoved(with: event) }
+    public func panePointerExited(with event: NSEvent) { mouseExited(with: event) }
 }
