@@ -293,8 +293,7 @@ pub(super) fn raw_command(mux: &Mux, client: u64, command: &Command) -> bool {
         | Command::RestartTab { .. }
         | Command::ClearHistory { .. }
         | Command::TerminalClipboardReply { .. }
-        | Command::TerminalClipboardSubscribe { .. }
-        => true,
+        | Command::TerminalClipboardSubscribe { .. } => true,
         Command::NewConversationTab(params) => params.native_agent_tab(mux),
         _ => terminal::allows(mux, client, command),
     }
