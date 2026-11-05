@@ -1974,6 +1974,24 @@ class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
     def judge(self):
         return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
 
+    def test_a_compile_pass_under_startup_failure_reruns_still_counts(self):
+        # Review finding on #35949: GitHub's default check-runs list shows only each suite's newest attempt, so a
+        # compile pass whose suite was rerun into startup_failure (no jobs) was not seen. Its last real attempt counts.
+        self.release_run(5)
+        hidden = self.gh.check_runs
+        original = self.gh.json
+
+        def json(route, *, paginate=False):
+            if f"/commits/{HEAD}/check-runs" in route:
+                return [{"check_runs": copy.deepcopy(hidden if "filter=all" in route else [])}]
+            return original(route, paginate=paginate)
+
+        self.gh.json = json
+        self.assertEqual(excuse.compile_pass_at(REPO, HEAD, self.gh), f"'{self.RELEASE}' (job 1005)")
+        # And a red last real attempt still decides over an older green one.
+        self.release_run(6, "failure")
+        self.assertIsNone(excuse.compile_pass_at(REPO, HEAD, self.gh))
+
     def test_no_verdict_with_nothing_else_compiling_the_head_is_refused_even_when_the_base_has_it(self):
         with self.assertRaisesRegex(excuse.Refused, r"no compile verdict.*never a base red"):
             self.judge()
