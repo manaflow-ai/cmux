@@ -144,6 +144,11 @@ HELPER_KILLED = re.compile(r"Process '[^']+' exited with unexpected signal code 
                            r"^(?:##\[error\])?error: exited with unexpected signal code \d+", re.I)
 # A test's own result and progress lines carry assertion text and arguments, never a runtime diagnostic.
 TEST_LINE = re.compile(r"^[◇✔✘↪] (?:Test|Suite) |^Test Case '-\[")
+# A harness's `--- ` section heading names what follows, never a crash itself: fresh_home_launch_smoke.py prints
+# "--- the app's errors in the system log (an uncaught exception or assertion names itself here)" above every failed
+# launch's log, and a relaunch over its time budget read as "the test process crashed" (cmuxterm-hq#7285, run
+# 42053582212). A crash under the heading still names itself on its own line.
+HEADING = re.compile(r"^--- ")
 XCTEST_RESTART = re.compile(r"(?:Restarting after unexpected exit, crash, or test timeout in|"
                             r"Test Case '-\[)(\S+)[ .](\w+)\]?'? crashed|"
                             r"Restarting after unexpected exit, crash, or test timeout in (\S+?)\.(\w+)\(\)")
@@ -648,7 +653,7 @@ def read(log: str | None, bun: bool = True) -> Result:
             signals.append(str(signal_exit))
         killed = SHELL_SIGNAL.search(text) and kept[at] not in passed
         runtime = HELPER_KILLED.search(text) or killed or (
-            (CRASH.search(text) or CRASH_AT_START.search(text) or SIGNALED.search(text)) and not TEST_LINE.search(text))
+            (CRASH.search(text) or CRASH_AT_START.search(text) or SIGNALED.search(text)) and not TEST_LINE.search(text) and not HEADING.match(text))
         if runtime:
             crashed = True
             if number := signal_of(text):
