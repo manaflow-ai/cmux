@@ -71,7 +71,7 @@ public final class TabStripView: NSView {
     var windowControlsInset: CGFloat = 0
     /// The flush corner: the selected tab is the first, on the leading edge (`TabStripView+CornerFlush`).
     var leadsWithSelection = false
-    /// The flush corner's state was reported since it was turned on.
+    /// The flush corner's state reached the window root since it was turned on.
     var reportedCornerFlush = false
 
     /// Builds right-click menus from the App's action registry. With no

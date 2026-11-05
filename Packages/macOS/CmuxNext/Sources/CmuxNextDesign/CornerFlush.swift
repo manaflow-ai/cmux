@@ -114,16 +114,20 @@ public final class CornerFlushChrome: NSView {
     /// A strip's selected tab became, or stopped being, its first: its window's wedges follow in this
     /// same pass, so the corner changes in the tab's frame (a direct call, no broadcast).
     /// `strip` finds its window's chrome among its ancestors' subviews (the window root holds it).
-    public static func stripDidChange(_ strip: any TabStripCorner & NSView) {
+    /// Returns false when none holds it yet (a strip laid out before its workspace joins the window):
+    /// the strip reports again on its next layout.
+    @discardableResult
+    public static func stripDidChange(_ strip: any TabStripCorner & NSView) -> Bool {
         var view = strip.superview
         while let ancestor = view {
             if let chrome = ancestor.subviews.lazy.compactMap({ $0 as? CornerFlushChrome }).first {
                 chrome.strips.add(strip)
                 if !chrome.isHidden { chrome.redraw() }
-                return
+                return true
             }
             view = ancestor.superview
         }
+        return false
     }
 
     /// The card top inset in `root` that centers the top row's pills on the traffic lights' line, where

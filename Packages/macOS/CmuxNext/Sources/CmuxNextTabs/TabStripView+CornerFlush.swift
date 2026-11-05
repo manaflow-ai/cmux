@@ -23,9 +23,10 @@ extension TabStripView: TabStripCorner {
             cell.cornerFeetSkipsLeading = leads && id == model.selectedID
             cell.cornerFoot = foot
         }
-        guard leads != leadsWithSelection || (on && !reportedCornerFlush) else { return }
+        // While it leads, every layout reports too: the strip may have reached the card's corner since.
+        guard leads != leadsWithSelection || leads || (on && !reportedCornerFlush) else { return }
         leadsWithSelection = leads
-        reportedCornerFlush = on
-        CornerFlushChrome.stripDidChange(self)
+        // Not yet in a window root's tree: report again on the next layout.
+        reportedCornerFlush = CornerFlushChrome.stripDidChange(self) && on
     }
 }
