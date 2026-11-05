@@ -105,6 +105,11 @@ public final class PaletteController {
     public func bindRegistryActions() {
         registry.bind("commandPalette") { [weak self] in self?.toggle(.commands) }
         registry.bind("palette.searchShortcuts") { [weak self] in self?.show(.keyboardShortcuts) }
+        // The palette, the Settings button and `cmux settings clear-palette-history`.
+        registry.bindEffect("palette.clearSearchHistory", effect: { [weak self] _ in
+            self?.model.clearSearchHistory()
+            return .done
+        })
         // Cmd-Shift-A: Search, which adds history and agent chats to the open items
         // (search-everything-DESIGN.md section 10.1). The id predates the change; user key files name it.
         registry.bind("search.chats", invoke: { [weak self] invocation in
