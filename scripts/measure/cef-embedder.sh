@@ -27,7 +27,9 @@ fi
 [[ -d "$cef/include" && -d "$cef/libcef_dll" ]] || die "no CEF dist under CMUX_CI_CEF_DIR"
 echo "CEF-EMBEDDER-HOST host=$(scutil --get ComputerName 2>/dev/null || hostname) macos=$(sw_vers -productVersion) cef=$cef"
 
-WORK="${CI_JOB_DIR:-${TMPDIR:-/tmp}}/cef-embedder"
+# Under TMPDIR (a per-step folder the build user owns: /tmp/cbw-*, or steps/<id>/tmp): on a lent worker the step folder ($CI_JOB_DIR) belongs to
+# root and the build user can write only its home, tmp, cache, src and state folders.
+WORK="${TMPDIR:-${CI_JOB_DIR:-/tmp}}/cef-embedder"
 [[ ! -e "$WORK" ]] || chmod -R u+w "$WORK"
 rm -rf "$WORK"; mkdir -p "$WORK/in" "$WORK/run"
 # The copies keep the dist's read-only bits otherwise, and the worker's step cleanup could not remove them.

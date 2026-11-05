@@ -952,13 +952,12 @@
   color: var(--cv-text);
   background: color-mix(in srgb, var(--cv-fg) 6%, transparent);
 }
-/* Retry sends a prompt again: under every prompt (Leo's spec, as Claude's), at the end of another
-   agent's message only on the last ended turn's (VirtualTranscript marks its row; MessageActions.tsx). */
+/* A prompt's Retry, in the Messages view only (UserBubble.tsx): in the transcript the last turn's
+   Retry is its reply footer's (TurnRows.tsx TurnFooter, .cv-turn-retry). */
 .cv-message-retry {
   display: none;
 }
-.cv-user__actions .cv-message-retry,
-.acpmux-row[data-retryable] .cv-message-retry {
+.cv-user__actions .cv-message-retry {
   display: inline-flex;
   align-items: center;
 }
@@ -1092,7 +1091,7 @@
   margin-top: 0;
 }
 .cv-p {
-  margin: 0 0 var(--cv-para-after, 14px);
+  margin: 0 0 var(--cv-para-after, var(--grid-gap-inner));
 }
 .cv-p:has(+ .cv-list) {
   margin-bottom: 0;
@@ -1685,8 +1684,13 @@
 .cv-math--display .katex-display {
   margin: 0;
 }
+/* Paragraph to display math is one grid gap whatever the paragraph token: the paragraph drops its
+   margin (as before a list) and the math carries the gap, since stacked margins collapse. */
+.cv-p:has(+ .cv-math-display) {
+  margin-bottom: 0;
+}
 .cv-p + .cv-math-display {
-  margin-top: calc(12px - var(--cv-para-after, 14px));
+  margin-top: var(--grid-gap-inner);
 }
 .cv-math-display + .cv-math-display {
   margin-top: -1px;
@@ -2238,6 +2242,31 @@ pre.cv-math-source {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* Reserve the widest configured label in both shimmer layers. Generated, inert sizing samples
+   never enter copy, Find or the live region; a long custom phrase still shrinks to the row. */
+.cv-status-verb {
+  display: inline-grid;
+  grid-template-columns: minmax(0, 1fr);
+  width: max-content;
+  max-width: 100%;
+  min-width: 0;
+  vertical-align: top;
+}
+.cv-status-verb > *,
+.cv-status-verb::before {
+  grid-area: 1 / 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cv-status-verb__size {
+  visibility: hidden;
+  pointer-events: none;
+  user-select: none;
+}
+.cv-status-verb__size::before {
+  content: attr(data-text);
 }
 /* The live line's action in full ink, the rest of its words at the line's muted tone, as Claude Code
    desktop draws "Using repo: repo grep" (Thinking.tsx `liveLead`). */
@@ -3146,8 +3175,7 @@ button.cv-video-frames__frame:focus-visible {
    the steps' glyphs and a quiet guide between the icon and text columns, kept inside the
    transcript row because paint containment clips any outside guide. */
 :root:not([data-tool-steps-look="card"]):not([data-tool-steps-look="tree"]):not([data-tool-steps-look="zebra"]):not([data-tool-steps-look="guide"])
-  .cv-steps
-  > .cv-step
+  :is(.cv-steps > .cv-step, .cv-steps > .cv-step > .cv-tool-with-visual)
   > .cv-tool
   > .cv-tool__icon {
   visibility: hidden;
@@ -3169,11 +3197,11 @@ button.cv-video-frames__frame:focus-visible {
    A focused or opened row stays revealed and lifted while its menu or body is open. Hover only
    reveals the chevron: a step's words and glyph keep their tone under the pointer, as a lone tool
    row's do (#20330: tool rows "no longer change on hover"; agent-pane-step-rows.test.ts). */
-.cv-steps > .cv-step > .cv-tool > .cv-tool__chevron {
+:is(.cv-steps > .cv-step, .cv-steps > .cv-step > .cv-tool-with-visual) > .cv-tool > .cv-tool__chevron {
   opacity: 0;
   transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
 }
-.cv-steps > .cv-step > .cv-tool:is(
+:is(.cv-steps > .cv-step, .cv-steps > .cv-step > .cv-tool-with-visual) > .cv-tool:is(
   :focus-within,
   [aria-expanded="true"],
   [data-popup-open],
@@ -3182,7 +3210,7 @@ button.cv-video-frames__frame:focus-visible {
 ) {
   color: var(--cv-text);
 }
-.cv-steps > .cv-step > .cv-tool:is(
+:is(.cv-steps > .cv-step, .cv-steps > .cv-step > .cv-tool-with-visual) > .cv-tool:is(
   :focus-within,
   [aria-expanded="true"],
   [data-popup-open],
@@ -3192,9 +3220,9 @@ button.cv-video-frames__frame:focus-visible {
   > :is(.cv-tool__icon, .cv-tool__text, .cv-command__text, .cv-tool__chevron) {
   color: var(--cv-text);
 }
-.cv-steps > .cv-step > .cv-tool:hover > .cv-tool__chevron,
-.cv-steps > .cv-step > .cv-tool:has([data-popup-open]) > .cv-tool__chevron,
-.cv-steps > .cv-step > .cv-tool:is(:focus-within, [aria-expanded="true"], [data-popup-open], :has([aria-expanded="true"]))
+:is(.cv-steps > .cv-step, .cv-steps > .cv-step > .cv-tool-with-visual) > .cv-tool:hover > .cv-tool__chevron,
+:is(.cv-steps > .cv-step, .cv-steps > .cv-step > .cv-tool-with-visual) > .cv-tool:has([data-popup-open]) > .cv-tool__chevron,
+:is(.cv-steps > .cv-step, .cv-steps > .cv-step > .cv-tool-with-visual) > .cv-tool:is(:focus-within, [aria-expanded="true"], [data-popup-open], :has([aria-expanded="true"]))
   > .cv-tool__chevron {
   opacity: 1;
   transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
@@ -4358,10 +4386,12 @@ a.cv-sha:focus-visible {
    starts on the column (inset-inline below), so the ink lands on it exactly. Nothing comes before the
    buttons (Leo, 2026-11-02: "those buttons should always just be there left aligned"). */
 .cv-reply-actions > .cv-turn-action-group:first-child > .cv-iconbtn:first-child,
-.cv-turn-actions:not(.cv-turn-actions--empty) .cv-turn-footer-row > .cv-turn-action-group:first-child > .cv-iconbtn:first-child {
+.cv-turn-actions:not(.cv-turn-actions--empty) .cv-turn-footer-row > .cv-turn-action-group:first-child > .cv-iconbtn:first-child,
+.cv-turn-actions:not(.cv-turn-actions--empty) .cv-turn-footer-row > .cv-turn-action-group:first-child > .cv-turn-retry:first-child {
   margin-inline-start: calc(-1 * var(--cv-footer-overhang));
 }
-.cv-turn-actions--empty .cv-turn-footer-row > .cv-turn-action-group:first-child > .cv-iconbtn:first-child {
+.cv-turn-actions--empty .cv-turn-footer-row > .cv-turn-action-group:first-child > .cv-iconbtn:first-child,
+.cv-turn-actions--empty .cv-turn-footer-row > .cv-turn-action-group:first-child > .cv-turn-retry:first-child {
   margin-inline-start: calc((var(--cv-glyph-slot) - var(--cv-meta-row)) / 2);
 }
 /* That button's hover pill overhangs its row, which paint containment (styles.css .acpmux-row) would
@@ -4439,6 +4469,37 @@ a.cv-sha:focus-visible {
   width: var(--cv-footer-chevron-slot);
   min-width: var(--cv-footer-chevron-slot);
   margin-left: 0;
+}
+/* A reply footer's Retry and its model switch are one split control, as Claude's and ChatGPT's
+   retry is one control: Retry's 28 square, then a 16 chevron slot tight against it with a 12 glyph,
+   under one hover pill that stays lit while the model menu is open (design/menus.md). Each half
+   takes full ink only under the pointer, the menu's chevron while it is open. */
+.cv-turn-retry {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--ds-radius-control);
+}
+.cv-turn-retry:has(> .cv-iconbtn:hover),
+.cv-turn-retry:has(> .cv-iconbtn[data-popup-open]) {
+  background: color-mix(in srgb, var(--cv-fg) 6%, transparent);
+}
+.cv-turn-retry > .cv-iconbtn:hover,
+.cv-turn-retry > .cv-iconbtn[data-popup-open] {
+  background: none;
+}
+.cv-turn-actions .cv-turn-retry > .cv-iconbtn.cv-turn-retry-menu {
+  width: var(--grid-transcript-icon-box);
+  min-width: var(--grid-transcript-icon-box);
+  margin-inline: calc(-1 * var(--cv-footer-overhang)) var(--grid-half-step);
+}
+.cv-turn-actions:not(.cv-turn-actions--empty) .cv-message-footer-row .cv-turn-retry > .cv-iconbtn.cv-turn-retry-menu > svg,
+.cv-turn-actions--empty .cv-turn-retry > .cv-iconbtn.cv-turn-retry-menu > svg {
+  width: calc(12px * var(--cmux-interface-scale, 1));
+  height: calc(12px * var(--cmux-interface-scale, 1));
+}
+.cv-turn-retry > .cv-iconbtn:disabled {
+  opacity: 0.5;
+  pointer-events: none;
 }
 /* Recovery actions are the one footer content allowed to wrap on narrow panes. The shared rail
    stays centered for glyph controls without clipping sign-in or credential-transfer copy. */
@@ -4884,18 +4945,20 @@ a.cv-sha:focus-visible {
   outline-offset: 2px;
 }
 
-/* The image viewer: one image over the whole pane, a bar with its name, position, copy and close,
-   and arrows through the chat's images at the sides. */
+/* The image viewer: one image over the pane below its tab row (ImageViewer.tsx), a bar with its name,
+   position, copy and close, and arrows through the chat's images at the sides. */
 .acpmux-image-viewer {
   position: fixed;
-  inset: 0;
+  inset: var(--acpmux-image-viewer-top, 0px) 0 0;
   z-index: var(--layer-modal);
   width: auto;
   margin-inline: 0;
   display: flex;
   flex-direction: column;
-  /* Mixed from the opaque surface: the page color is clear in a translucent window. */
-  background: color-mix(in srgb, var(--cmux-surface-solid, var(--agent-page-bg)) 94%, transparent);
+  /* Mixed from the opaque surface (the page color is clear in a translucent window), light enough that
+     the pane reads behind it as a backdrop under the blur (Leo, 2026-11-05: "this screenshot preview has
+     too much opacity"). */
+  background: color-mix(in srgb, var(--cmux-surface-solid, var(--agent-page-bg)) 72%, transparent);
   -webkit-backdrop-filter: blur(24px);
   backdrop-filter: blur(24px);
   color: var(--agent-text);
@@ -4904,6 +4967,19 @@ a.cv-sha:focus-visible {
    * stage immediately. The dialog's close transition still uses its own token. */
   --ui-popup-open: 0s;
   --ui-dialog-open: 0s;
+}
+/* Reduce Transparency: the opaque surface with no blur, never the lighter mix above. */
+@media (prefers-reduced-transparency: reduce) {
+  .acpmux-image-viewer {
+    background: var(--cmux-surface-solid, var(--agent-page-bg));
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+:root[data-reduce-transparency] .acpmux-image-viewer {
+  background: var(--cmux-surface-solid, var(--agent-page-bg));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 .acpmux-image-viewer-backdrop {
   position: fixed;

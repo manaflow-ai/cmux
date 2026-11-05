@@ -18,12 +18,12 @@ mod wire;
 
 use std::time::Instant;
 
-use ghostty_vt::{Callbacks, Dirty, RenderState, Terminal};
+use ghostty_vt::{Callbacks, RenderState, Terminal};
 use serde_json::{Value, json};
 
 use raster::{Raster, Run};
 use video::{Quality, Video};
-use wire::{CellViewer, Deflater, RowDiff};
+use wire::{CellViewer, Deflater, Meta, RenderStream, RowDiff};
 
 const CELL_CADENCE_NS: u64 = 8_000_000; // cmux-tui-core frame_producer RENDER_FRAME_CADENCE
 const CAPTURE_PERIOD_NS: u64 = 1_000_000_000 / 60;
@@ -109,17 +109,15 @@ struct PathStats {
     sends: Vec<(u64, usize, usize)>,
     host_ns: u64,
     viewer_ns: u64,
-    latency_ns: Vec<u64>,
-    /// Per key: [pacing wait, host work, network at the link rate, viewer work].
-    stages_ns: Vec<[u64; 4]>,
+    /// Per key: its echo time and [pacing wait, host work, network at the link rate, viewer work].
+    keys: Vec<(u64, [u64; 4])>,
     mismatched_rows: u64,
     quality: Option<Quality>,
 }
 
 impl PathStats {
-    fn key(&mut self, stages: [u64; 4]) {
-        self.latency_ns.push(stages.iter().sum());
-        self.stages_ns.push(stages);
+    fn key(&mut self, echo: u64, stages: [u64; 4]) {
+        self.keys.push((echo, stages));
     }
 
     fn send(&mut self, t: u64, raw: usize, deflated: usize) {
@@ -136,14 +134,16 @@ impl PathStats {
                 n += usize::from(r > 0);
             }
         }
-        self.latency_ns.sort_unstable();
+        // Keys whose echo falls in the window, like the bytes.
+        let in_win: Vec<[u64; 4]> =
+            self.keys.iter().filter(|k| k.0 >= win.0 && k.0 <= win.1).map(|k| k.1).collect();
+        let mut total: Vec<u64> = in_win.iter().map(|s| s.iter().sum()).collect();
+        total.sort_unstable();
         let q = |f: f64| {
-            self.latency_ns
-                .get(((self.latency_ns.len() as f64 - 1.0) * f).round() as usize)
-                .map(|&ns| ns as f64 / 1e6)
+            total.get(((total.len() as f64 - 1.0) * f).round() as usize).map(|&ns| ns as f64 / 1e6)
         };
         let stage = |i: usize| {
-            let mut v: Vec<u64> = self.stages_ns.iter().map(|s| s[i]).collect();
+            let mut v: Vec<u64> = in_win.iter().map(|s| s[i]).collect();
             v.sort_unstable();
             v.get(v.len().saturating_sub(1) / 2).map(|&ns| ns as f64 / 1e6)
         };
@@ -151,7 +151,7 @@ impl PathStats {
             "kbps": raw as f64 * 8.0 / 1000.0 / secs,
             "kbps_deflate": if def > 0 { json!(def as f64 * 8.0 / 1000.0 / secs) } else { Value::Null },
             "sends_per_s": n as f64 / secs,
-            "key_to_view_ms": {"n": self.latency_ns.len(), "p50": q(0.5), "p95": q(0.95), "max": q(1.0)},
+            "key_to_view_ms": {"n": total.len(), "p50": q(0.5), "p95": q(0.95), "max": q(1.0)},
             "key_stages_p50_ms": {"wait": stage(0), "host": stage(1), "network": stage(2), "viewer": stage(3)},
             "host_cpu_ms_per_s": self.host_ns as f64 / 1e6 / span_s,
             "viewer_cpu_ms_per_s": self.viewer_ns as f64 / 1e6 / span_s,
@@ -174,29 +174,33 @@ fn host_runs(frame: &ghostty_vt::RenderFrame, row: u16) -> Vec<Run> {
 }
 
 /// What a viewer joining now needs before live frames, all of the same screen:
-/// the GHOSTSNP READY the terminal_bytes channel sends, a full render-delta,
-/// and an H.264 IDR of the pane's pixels.
+/// the GHOSTSNP READY the terminal_bytes channel sends, the daemon's
+/// `render-state`, and an H.264 IDR of the pane's pixels.
 fn attach_cost(
     host: &Terminal,
     frame: &ghostty_vt::RenderFrame,
     surf: &raster::Surface,
-    rows: u16,
     w: usize,
     h: usize,
 ) -> Res<Value> {
     // `frame` is the host RenderState's own latest frame: a second RenderState
     // updating the terminal would clear the dirty rows the host's needs.
     let ready = host.encode_snapshot(ghostty_vt::SnapshotPhase::Ready)?;
-    let full = wire::render_delta(frame, &(0..rows).collect::<Vec<_>>(), true);
+    let full = wire::render_state(frame, meta(host));
     let mut idr = Video::new(w, h, 60, 12000, 0)?;
     let idr_bytes = idr.frame(&surf.bgrx, 0)?.bytes;
     Ok(json!({
         "ghostsnp_ready_bytes": ready.len(),
         "ghostsnp_ready_deflate_bytes": Deflater::new().bytes(&ready),
-        "render_delta_full_bytes": full.len(),
-        "render_delta_full_deflate_bytes": Deflater::new().bytes(&full),
+        "render_state_bytes": full.len(),
+        "render_state_deflate_bytes": Deflater::new().bytes(&full),
         "h264_idr_12000k_bytes": idr_bytes,
     }))
+}
+
+/// What the daemon sends beside a frame (`SurfaceRenderFrame`).
+fn meta(host: &Terminal) -> Meta {
+    Meta { scrollback_rows: host.history_rows(), history_epoch: host.history_epoch() }
 }
 
 fn main() -> Res<()> {
@@ -227,6 +231,7 @@ fn main() -> Res<()> {
     let mut host_surf = raster.surface();
     let mut cell_surf = raster.surface();
     let mut cell_view = CellViewer::new(rows.into());
+    let mut cells = RenderStream::default();
     let mut rowdiff = RowDiff::new(rows.into());
     let mut rowdiff_view = CellViewer::new(rows.into());
     let (mut d_vt, mut d_cells, mut d_rowdiff) =
@@ -269,13 +274,9 @@ fn main() -> Res<()> {
                 // render-delta: the dirty rows of this frame.
                 let t0 = Instant::now();
                 host_rs.update(&mut host)?;
-                let first = s_cells.sends.is_empty();
                 let frame = host_rs.build_frame()?;
                 let frame_ns = t0.elapsed().as_nanos() as u64;
-                let full = first || frame.dirty == Dirty::Full;
-                let dirty: Vec<u16> =
-                    if full { (0..rows).collect() } else { frame.dirty_rows.clone() };
-                let msg = wire::render_delta(&frame, &dirty, full);
+                let (msg, dirty) = cells.message(&frame, meta(&host));
                 let host_ns = t0.elapsed().as_nanos() as u64;
                 s_cells.host_ns += host_ns;
                 s_cells.send(due, msg.len(), d_cells.bytes(&msg));
@@ -324,7 +325,7 @@ fn main() -> Res<()> {
                     }
                 }
                 if attach.is_none() && o.attach_at.is_some_and(|a| due >= (a * 1e9) as u64) {
-                    attach = Some(attach_cost(&host, &frame, &host_surf, rows, w, h)?);
+                    attach = Some(attach_cost(&host, &frame, &host_surf, w, h)?);
                 }
                 if !redraw.is_empty() {
                     damaged.iter_mut().for_each(|d| *d = true);
@@ -335,10 +336,10 @@ fn main() -> Res<()> {
                 {
                     let e = k.echo.unwrap_or(due);
                     k.drawn = Some(due);
-                    s_cells.key([due - e, host_ns, ser_ns(msg.len()), viewer_ns]);
+                    s_cells.key(e, [due - e, host_ns, ser_ns(msg.len()), viewer_ns]);
                     // No rowdiff message: its viewer already showed this grid.
                     let rd_len = rd.as_ref().map_or(0, Vec::len);
-                    s_rowdiff.key([due - e, rd_host_ns, ser_ns(rd_len), rd_view_ns]);
+                    s_rowdiff.key(e, [due - e, rd_host_ns, ser_ns(rd_len), rd_view_ns]);
                 }
             } else {
                 for (i, v) in videos.iter_mut().enumerate() {
@@ -347,7 +348,8 @@ fn main() -> Res<()> {
                     if !damaged[i] && !refresh {
                         continue;
                     }
-                    let enc = v.frame(&host_surf.bgrx, (due / 1_000_000) as i64)?;
+                    // `pts` is microseconds (`H264Encoder::encode`).
+                    let enc = v.frame(&host_surf.bgrx, (due / 1_000) as i64)?;
                     v.last_encode_ns = due;
                     s_video[i].host_ns += enc.encode_ns;
                     s_video[i].viewer_ns += enc.decode_ns;
@@ -361,12 +363,8 @@ fn main() -> Res<()> {
                         {
                             k.done[i] = true;
                             let e = k.echo.unwrap_or(due);
-                            s_video[i].key([
-                                due - e,
-                                enc.encode_ns,
-                                ser_ns(enc.bytes),
-                                enc.decode_ns,
-                            ]);
+                            s_video[i]
+                                .key(e, [due - e, enc.encode_ns, ser_ns(enc.bytes), enc.decode_ns]);
                         }
                     }
                 }
@@ -417,7 +415,7 @@ fn main() -> Res<()> {
         s_vt.viewer_ns += viewer_ns;
         for k in keys.iter_mut().filter(|k| k.echo.is_none() && k.t <= rec.t_ns) {
             k.echo = Some(rec.t_ns);
-            s_vt.key([0, 0, ser_ns(rec.data.len()), viewer_ns]);
+            s_vt.key(rec.t_ns, [0, 0, ser_ns(rec.data.len()), viewer_ns]);
         }
         if cell_due.is_none() {
             cell_due =
@@ -431,7 +429,7 @@ fn main() -> Res<()> {
     let (hf, vf) = (host_rs.build_frame()?, vt_rs.build_frame()?);
     s_vt.mismatched_rows = (0..rows).filter(|&r| hf.row_runs(r) != vf.row_runs(r)).count() as u64;
     if attach.is_none() {
-        attach = Some(attach_cost(&host, &hf, &host_surf, rows, w, h)?);
+        attach = Some(attach_cost(&host, &hf, &host_surf, w, h)?);
     }
 
     let span = tr.records.last().map_or(1, |r| r.t_ns).max(1);
