@@ -430,11 +430,12 @@ const PANIC_WINDOW_MS: u64 = 10 * 60 * 1000;
 const PANIC_TAIL_BYTES: u64 = 64 * 1024;
 
 /// The newest real panic in the daemon's panic log (`daemon::panic_log_path`) written within
-/// [`PANIC_WINDOW_MS`] of `now_ms`: `{thread, location, at_ms}`, never the message or backtrace, which
+/// [`PANIC_WINDOW_MS`] of `now_ms` by the daemon whose pid file names `pid` (none without one): `{thread, location, at_ms}`, never the message or backtrace, which
 /// may quote data. None for no log, an older or test panic, or a line that does not parse.
-pub(crate) fn recent_panic(path: &std::path::Path, now_ms: u64) -> Option<Value> {
+pub(crate) fn recent_panic(path: &std::path::Path, now_ms: u64, pid: Option<i32>) -> Option<Value> {
     use std::io::{Read as _, Seek as _, SeekFrom};
-    let mut file = std::fs::File::open(path).ok()?;
+    // As every state file is read: never through a symlink, never blocking on a FIFO, owner-only.
+    let mut file = crate::config::private_state_file(path).ok()?;
     let len = file.metadata().ok()?.len();
     file.seek(SeekFrom::Start(len.saturating_sub(PANIC_TAIL_BYTES))).ok()?;
     let mut tail = Vec::new();
@@ -443,8 +444,12 @@ pub(crate) fn recent_panic(path: &std::path::Path, now_ms: u64) -> Option<Value>
     let line = tail.lines().rev().find(|l| !l.trim().is_empty())?;
     let v: Value = serde_json::from_str(line).ok()?;
     let at_ms = v.get("at_ms").and_then(Value::as_u64)?;
+    // Only this daemon's own panic: an earlier daemon's line is no cause of this one's drop.
+    let other_daemon =
+        pid.is_none_or(|p| v.get("pid").and_then(Value::as_i64) != Some(i64::from(p)));
     if v.get("test").and_then(Value::as_bool) == Some(true)
         || now_ms.saturating_sub(at_ms) > PANIC_WINDOW_MS
+        || other_daemon
     {
         return None;
     }
@@ -519,7 +524,7 @@ pub fn closed_error(context: &str, daemon_build: Option<&str>) -> anyhow::Error 
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as u64);
-    let panic = recent_panic(&crate::daemon::panic_log_path(), now_ms);
+    let panic = recent_panic(&crate::daemon::panic_log_path(), now_ms, pid);
     let (cause, why) = closed_cause(pid, alive, socket, panic.as_ref());
     let build = match daemon_build {
         Some(b) if b != crate::hub::build() => {

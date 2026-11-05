@@ -420,7 +420,7 @@ fn an_envelopes_fields_are_bounded_and_shaped() {
             1,
             &format!("bad detail {long}"),
             true,
-            json!({"errorKind": long.clone(), "message": long}),
+            json!({"errorKind": &long, "message": &long}),
         ),
     );
     // A detail or kind that is not a short code is dropped; the message is cut as before.
