@@ -175,7 +175,11 @@ test("the live line names a running search by its pattern, not the folder it sea
       version: 1,
       at: 1,
       kind: "activity",
-      items: [{ kind: "tool", text: search.title, tool: search }],
+      // Two searches share a closed line, so the live line is what names the running one.
+      items: [
+        { kind: "tool", text: search.title, tool: { ...search, id: `${search.id}-done`, status: "completed" } },
+        { kind: "tool", text: search.title, tool: search },
+      ],
     };
     const live = turnView([user, activity], new Set(), { working: true }).find((row) => row.kind === WORKING);
     expect(live?.doing, harness).toMatch(/ useTool$/);
