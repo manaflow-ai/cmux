@@ -35,8 +35,8 @@ vertical divider left and right, one `debug.mouse` move per display frame:
   --ab KEY runs every round of the drag and key layouts once with the boolean tunable KEY off and once on, in
            this one launch (`debug.tunables set`), the order alternating per round; each layout then reports
            `arms` (terminal_resize_arms.summaries: per arm, the rounds' frames pooled into p50/p95/p99/max)
-           and the run resets KEY after each such layout. `--ab motion.frameOwner.terminals` was FRAME OWNER
-           S4's A/B.
+           and the run resets KEY after each such layout. (`--ab motion.frameOwner.terminals` was FRAME OWNER
+           S4's A/B; cmux-ad m19 deleted that switch.)
 
 The rule for the drag and key layouts: a terminal changes size with its pane in every frame of the motion.
 `debug.terminal_display` samples each terminal shown at the round's start once per display frame, after the frame's
@@ -44,7 +44,8 @@ commit: its pane's size, the size its host asked of it, and the size its layer s
 per terminal, frames sampled, `held` frames (asked is not the pane's size, more than 0.5 pt off) and `lagging` frames
 (shown is not the pane's size), with the first 3 of each, and the round's `held_frames` and `lagging_frames`. A round
 with a held frame fails, and the message names the terminal, its held frames and the first sizes. Lagging frames are
-data only: the frame owner (`motion.frameOwner.terminals`) keeps a frame for 1-4 refreshes by design.
+data only: the frame owner (``TerminalFramePresenter``) keeps a frame while its new size is not drawn yet; in a spring
+the next size is drawn ahead, so only the spring's first refresh keeps.
 
 Per layout it records display-frame intervals and main-thread busy time per frame (`debug.frames`,
 missed = an interval over 1.5 refresh periods, each split by cause into main late, commit late or presented late),

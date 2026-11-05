@@ -37,9 +37,8 @@ struct KeyResizeFirstTickPinTests {
     }
 
     /// (a) Ctrl-Shift-H on p2 (right of p1): p2 grows to the left and its right edge stays. The first tick is late (0.1 s:
-    /// most of the travel in one step). In every frame p2's surface keeps its place against the right edge. With
-    /// `motion.frameOwner.terminals` on (cmux-ad m6) the surface fills its area, so it keeps that place because it follows
-    /// the pane (cmux-ad m18 deleted the switch-off hold).
+    /// most of the travel in one step). In every frame p2's surface keeps its place against the right edge: the surface
+    /// fills its area, so it keeps that place because it follows the pane (cmux-ad m18 deleted the hold, m19 the switch).
     @Test(arguments: [0.1, 1.0 / 120])
     func theHeldSurfaceRidesTheEdgeThatStaysWhenTheFirstTickIsLate(firstStep: Double) throws {
         let rig = Ground.Rig(Ground.column(Ground.pair), focused: "p2")
@@ -63,8 +62,7 @@ struct KeyResizeFirstTickPinTests {
     }
 
     /// (b) Ctrl-Shift-H twice before one tick: each terminal sends one grid, the final one. Then H and L before one tick:
-    /// no terminal sends a grid or takes a new surface size. In both states of `motion.frameOwner.terminals` (review of
-    /// #35470, T5).
+    /// no terminal sends a grid or takes a new surface size (review of #35470, T5).
     @Test
     func pressesBeforeOneTickCoalesce() async throws {
         let rig = Ground.Rig(Ground.column(Ground.pair), focused: "p2")

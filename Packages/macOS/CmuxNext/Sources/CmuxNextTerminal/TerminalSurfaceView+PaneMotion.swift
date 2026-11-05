@@ -102,7 +102,7 @@ extension TerminalSurfaceView: PaneMotionTargeting {
 /// any resize uses (`TerminalHostView` `placeSurface`, the frame owner's ``place(_:anchor:)``), and the reflow preview
 /// re-wraps its text at that size. The grid goes to the PTY once, when the release landed: a program does not redraw at
 /// every size while the owner's announcements come a round trip behind (torn rows mid-drag). Before, the drag hold
-/// (`terminalDrag.holdSurface`, RESIZE VIDEOS A3) kept the drag-start size and text through the drag, and the release's
+/// (`terminalDrag.holdSurface`, RESIZE VIDEOS A3; m14 deleted it) kept the drag-start size and text through the drag, and the release's
 /// spring held its final size (pixel-perfect's trace, STATUS 13764: 157-159 held ticks in col-drag-2, the surface up to
 /// 150 pt off its pane).
 extension TerminalSurfaceView {

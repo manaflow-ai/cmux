@@ -13,9 +13,9 @@ import Testing
 /// FRAME OWNER REFACTOR S3: the rules the content policy keeps beside PaneGroundCoversPaneTests (the shell never shows
 /// inside a pane rect).
 /// - cmux-ad m18 (replaces m6's "program size per press" and the switch-off key hold, whose `...WithTheSwitchOff` tests
-///   are gone: their cases run in both switch states below): in every frame each terminal's surface has the size its
+///   are gone; cmux-ad m19 deleted the switch): in every frame each terminal's surface has the size its
 ///   pane shows it at, so its text follows the pane (S3 held it at one size per press: the text froze, then jumped;
-///   Lawrence on dogfood 363e39f2), with `motion.frameOwner.terminals` on or off. Each PTY gets the view's grid at most
+///   Lawrence on dogfood 363e39f2). Each PTY gets the view's grid at most
 ///   once per 25 ms, the newest, and ends at the landing's grid (`TerminalGridReportCoalescer`; ``grids(_:_:)`` ends the
 ///   window before it reads). These windows draw nothing, so each size shows at once.
 /// - S3c: a closing pane shows its ground as it was at the close, the same host comes back when a close is taken back,
@@ -47,9 +47,8 @@ struct PaneContentPolicyTests {
     /// One press on each side of each axis. p2 grows to the left (H: its leading edge moves), p1 grows to the right (L
     /// on p1: the trailing edge moves), p2 grows up (K: its top edge moves), p1 grows down (J on p1: its bottom edge
     /// moves). In every frame each surface keeps its place against the pane edge that does not move, and the host
-    /// follows the pane. With `motion.frameOwner.terminals` on (cmux-ad m6) the surface fills its area, so it is on that
-    /// edge because it is on every edge; aKeyPressShowsEachSurfaceAtItsPanesSizeAndSendsOneGrid checks the size. This case
-    /// guards the switch-off path and its low-prompt bottom hold (aPromptOnTheLastRowStaysInViewInAPaneAKeyGrowsDown).
+    /// follows the pane. The surface fills its area, so it is on that edge because it is on every edge; aKeyPressShowsEachSurfaceAtItsPanesSizeAndSendsOneGrid checks the size. This case
+    /// guarded the deleted switch-off path and its low-prompt bottom hold (aPromptOnTheLastRowStaysInViewInAPaneAKeyGrowsDown).
     nonisolated struct Side: Sendable, CustomTestStringConvertible {
         let vertical: Bool
         let pressed: PaneID
@@ -104,7 +103,7 @@ struct PaneContentPolicyTests {
 
     // MARK: Note 3: pixels per frame, one grid per press (cmux-ad m6)
 
-    /// One press, in both switch states: in every frame each terminal's surface has the size its pane shows it at, and it
+    /// One press: in every frame each terminal's surface has the size its pane shows it at, and it
     /// takes a new size in most of them (its text follows the pane); no grid goes in the key's turn, and each PTY ends at
     /// its final grid (the frames run in one 25 ms window here, so one grid; m6 sent the final grid by the first frame).
     @Test(arguments: [LayoutDirection.left, .right, .up, .down])
@@ -251,8 +250,8 @@ struct PaneContentPolicyTests {
     /// Review of #35470 (F3): a terminal tab parked when a key press began (another tab showed) and shown again during the
     /// spring follows its pane from the frame it shows: it is unhidden before its area hands it the hold (in the next
     /// layout pass), and `restAt` held its surface at the final size then, a size its pane did not have yet. With the
-    /// switch off (T5) it took at most one new size from the frame it showed; cmux-ad m18 deleted that hold, so in both
-    /// states it has its area's size in every frame and lands at it.
+    /// switch off (T5) it took at most one new size from the frame it showed; cmux-ad m18 deleted that hold, so it
+    /// has its area's size in every frame and lands at it.
     @Test
     func aParkedTerminalShownDuringAKeyHoldFollowsFromItsFirstFrame() async throws {
         let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
@@ -297,7 +296,7 @@ struct PaneContentPolicyTests {
     /// surface at the pane's size in each frame showed that grid's top rows, cut off at the bottom, so the prompt was out
     /// of view for the whole spring.
     /// - cmux-ad m14 replaced S3's bottom hold with the switch on (F2: the surface was taller than its pane and its top
-    ///   rows were cut), and m18 replaced it with the switch off too: in both states the surface has its pane's size in
+    ///   rows were cut), and m18 replaced it with the switch off too (m19 deleted the switch): the surface has its pane's size in
     ///   every frame and holds nothing; it draws the grid that size fits, and the reflow keeps the prompt in view
     ///   (TerminalKeyResizeFrameTests checks what it draws, in a window that draws).
     @Test
@@ -328,7 +327,7 @@ struct PaneContentPolicyTests {
         #expect(unfollowed.isEmpty, "\(unfollowed.count) frames showed p1's surface off its pane's size or holding: \(unfollowed.prefix(3))")
     }
 
-    /// Review of #35470 at c4d6c936c92 (H1 a), with `motion.frameOwner.terminals` on: in a 2x2 grid, Ctrl-Shift-H on p4
+    /// Review of #35470 at c4d6c936c92 (H1 a): in a 2x2 grid, Ctrl-Shift-H on p4
     /// (bottom right) moves its left edge, then Ctrl-Shift-K on p4 before the landing grows it up with its prompt in the
     /// lower half. `restAt` held its surface on the bottom edge then (F2), and that hold kept the final width on the
     /// hold's trailing edge: the moving left edge cut off the start of every line (#35914 gave the hold the area's width).
@@ -366,7 +365,7 @@ struct PaneContentPolicyTests {
         #expect(off.isEmpty, "\(off.count) frames showed p4's surface off its area or holding: \(off.prefix(3))")
     }
 
-    /// Review of #35470 at c4d6c936c92 (H1 b), with `motion.frameOwner.terminals` on: Ctrl-Shift-J on p1 twice (its prompt
+    /// Review of #35470 at c4d6c936c92 (H1 b): Ctrl-Shift-J on p1 twice (its prompt
     /// in the lower half), then Ctrl-Shift-K before the landing. The rest is still taller than at the start of the hold,
     /// so the K press kept a bottom hold at its final size, shorter than p1's area mid-spring: a band of the terminal's
     /// ground showed at the top of the pane until the landing (#35914 gave such a hold the area's frame). cmux-ad m14
@@ -404,7 +403,7 @@ struct PaneContentPolicyTests {
     /// Ctrl-Shift-K before the landing reverses it.
     /// The J press held p1's surface at its final size on the bottom edge (F2) and the bottom hold stayed until the
     /// landing, so the shrinking pane showed the text with its top step cut off over an empty band. cmux-ad m14 (switch on)
-    /// and m18 (switch off too) replaced that hold: in both states the J press holds nothing, and each surface has its
+    /// and m18 (switch off too; m19 deleted the switch) replaced that hold: the J press holds nothing, and each surface has its
     /// pane's size in every frame of both presses.
     @Test
     func aReversePressAfterALowPromptGrowsDownFollowsItsPane() async throws {
@@ -440,7 +439,7 @@ struct PaneContentPolicyTests {
     /// coalescer's rule: the PTY gets at most one grid per 25 ms window from the press to the landing (plus the landing's
     /// flush), the last is the final grid, and none goes after it. The join sends no final grid of its own outside the
     /// coalescer: it joins its area's key hold and follows it (`restAt`). (A tab added new mid-hold hears the follow in
-    /// `didAddSubview`, before its surface joins: no hold.) Both states of `motion.frameOwner.terminals` (T5).
+    /// `didAddSubview`, before its surface joins: no hold.) (T5)
     @Test
     func aTerminalThatJoinsAKeyHoldGetsOneGridPerPressThroughASecondPress() async throws {
         let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
@@ -493,7 +492,7 @@ struct PaneContentPolicyTests {
         #expect(afterFinal.isEmpty, "the PTY got \(Array(afterFinal)) after the final grid \(final): \(sent)")
     }
 
-    /// cmux-ad m14 (c1), the join question, with `motion.frameOwner.terminals` on: a close spring holds a terminal at its
+    /// cmux-ad m14 (c1), the join question: a close spring holds a terminal at its
     /// final size, and a key press comes before it lands (p1 over p2 over p3; p3 closes, so p2 grows; Ctrl-Shift-J on p1
     /// three frames later). A pane still on the close spring starts no key hold (`ScreenContentView.applyPresentation`
     /// starts one only for a pane at rest), so its terminal host does not follow: its surface keeps the close's hold,

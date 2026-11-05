@@ -8,8 +8,8 @@ import Foundation
 public nonisolated struct TerminalPaneFollowSizes: Sendable, Equatable {
     /// The size the surface takes in its host now (``TerminalHostView/surfaceSize(forHostSize:)``): its pane's size.
     public var area: CGSize
-    /// The size the host asked of the surface: the frame it wants while its window's commit owns the frame
-    /// (`motion.frameOwner.terminals`), else the surface view's frame. Not `area` while the surface is held.
+    /// The size the host asked of the surface: the frame it wants (its window's commit owns every terminal frame, cmux-ad
+    /// m19), else the surface view's frame. Not `area` while the surface is held.
     public var asked: CGSize
     /// What shows: the surface layer's bounds.
     public var shown: CGSize

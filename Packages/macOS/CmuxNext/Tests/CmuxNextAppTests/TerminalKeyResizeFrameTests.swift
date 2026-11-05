@@ -14,7 +14,7 @@ import GhosttyNextKit
 import Testing
 
 /// cmux-ad m6 (Lawrence on dogfood 363e39f2: "tabbar moves smoothly on ctrl shift hjkl but browsers/terminals do not
-/// anymore"), part (a) for terminals, with `motion.frameOwner.terminals` on. The contract of a key resize: in EVERY frame
+/// anymore"), part (a) for terminals (every terminal's frame goes through its window's commit, cmux-ad m19). The contract of a key resize: in EVERY frame
 /// each terminal shows pixels at its pane's size in that frame, or the previous frame's (clipped and anchored top-left,
 /// never stretched, never a background gap). cmux-ad m18: the PROGRAM's grid (the PTY's size) follows the view's grid at
 /// most once per 25 ms, the newest (Ghostty.app's rule), and ends at the landing's grid; m6 sent one grid per press.
@@ -170,7 +170,7 @@ struct TerminalKeyResizeFrameTests {
     /// cursor, then the top rows go to history; rows that grow pull history down while the cursor is on the last row).
     ///
     /// p1 over p2, each with history and its prompt on its last row, an IO that announces each grid its view reports,
-    /// as the daemon does (``AnnouncingTerminalIO``, MANUAL_MIRROR), the switch on. Ctrl-Shift-J on p1 (p1 grows down, p2
+    /// as the daemon does (``AnnouncingTerminalIO``, MANUAL_MIRROR). Ctrl-Shift-J on p1 (p1 grows down, p2
     /// shrinks), Ctrl-Shift-K (p1 shrinks, p2 grows up), and J, J, K two frames apart. Each frame's sizes land with their
     /// own frames before the next frame (the test waits for them). After each frame, per terminal:
     /// - the surface's frame is its area's (never taller, never on another edge);
@@ -335,7 +335,7 @@ struct TerminalKeyResizeFrameTests {
     }
 
     /// p1 | p2 (`axis` .vertical: p1 over p2) in a window on screen, each pane the app's `PaneContentView` with a terminal
-    /// in its content area; the switch on, Reduce Motion off, the spring stepped by the test. `announcesGrids`: each
+    /// in its content area; Reduce Motion off, the spring stepped by the test. `announcesGrids`: each
     /// terminal's IO answers as the daemon does (``AnnouncingTerminalIO``); else it announces nothing.
     final class PaneScreen {
         final class Panes: LayoutPaneContentProvider {

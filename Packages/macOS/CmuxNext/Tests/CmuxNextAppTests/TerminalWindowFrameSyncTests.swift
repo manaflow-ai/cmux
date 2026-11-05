@@ -18,13 +18,14 @@ import Testing
 /// commit after the spring's first keeps an old size. A Reduce Motion jump has no next size: it may keep its last frame
 /// and bounds for at most 2 refreshes (m18's allowance). The main thread never waits for a terminal's frame.
 ///
-/// Today, with `motion.frameOwner.terminals` on, ``TerminalFramePresenter`` (ready-or-keep) keeps a terminal's OLD bounds
-/// and frame until its new-size frame is ready (at most `keepLimit`, 6 refreshes), while the rest of the window already
-/// moved. pixel-perfect's film rk-3t on-reduce shows that as a failure: Reduce Motion, one-jump shrink, p2 shows its old
-/// wider frame for one refresh (frames 114 and 152).
+/// When the test was written, ``TerminalFramePresenter`` (ready-or-keep, behind `motion.frameOwner.terminals`) kept a
+/// terminal's OLD bounds and frame until its new-size frame was ready (at most `keepLimit`, 6 refreshes), while the rest of
+/// the window already moved; pixel-perfect's film rk-3t on-reduce showed that as a failure (Reduce Motion, one-jump shrink:
+/// p2 showed its old wider frame for one refresh, frames 114 and 152). cmux-ad m19 deleted the switch and m26 added draw
+/// ahead: a spring's next size is drawn one refresh early, so its commit presents it with its bounds.
 ///
 /// The rig is `TerminalKeyResizeFrameTests.PaneScreen`: p1 | p2, each pane the app's `PaneContentView` with a real Ghostty
-/// surface in its content area, in a borderless window on screen, the switch on, the layout driver stepped by the test.
+/// surface in its content area, in a borderless window on screen, the layout driver stepped by the test.
 /// The presses are the app's (`PaneResize.press`). A run-loop observer right after Core Animation's commit
 /// (``CommitBoundary/order``, as `TerminalSurfaceCommitSizeTests.Fixture` samples) reads, in every committed main turn
 /// from the press to rest, per terminal:
@@ -71,7 +72,7 @@ struct TerminalWindowFrameSyncTests {
         try #require(rest[0].area.width - before[0].area.width >= 10,
                      "p1 did not grow: its area went from \(before[0].area) to \(rest[0].area)")
         let presented = TerminalFramePresenter.forWindow(screen.window).stats.presented - presentedBefore
-        try #require(presented > 0, "no new-size frame came through the presenter: the switch's path did not run")
+        try #require(presented > 0, "no new-size frame came through the presenter")
 
         let allowance = 2 * Self.refreshMs(of: screen.window)
         let found = Self.check(turns, keepAllowedUntilMs: allowance)
