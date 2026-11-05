@@ -790,9 +790,9 @@ test("a floating panel that would lie over the chat's text pushes the chat left,
   // column. Where the whole room would narrow it (Leo, 2026-11-03: "if it would need to be then session
   // info should be an overlay"), as for a 1300px Chat Text Width here, it lies over the chat instead.
   expect(sessionInfoStage("overlay", { width: 1600, height: 700 }, 320, undefined, false, 300)).toBe("push");
-  expect(
-    sessionInfoStage("overlay", { width: 1600, height: 700 }, 320, { min: 720, max: 1300 }, false, 300),
-  ).toBe("overlay");
+  expect(sessionInfoStage("overlay", { width: 1600, height: 700 }, 320, { min: 720, max: 1300 }, false, 300)).toBe(
+    "overlay",
+  );
   row.remove();
   paneWidth = 0;
 });

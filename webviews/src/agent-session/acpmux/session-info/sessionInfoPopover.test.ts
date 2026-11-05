@@ -27,10 +27,12 @@ describe("sessionInfoPopover", () => {
     expect(sessionInfoPopover(960, true)).toBe(false);
     expect(sessionInfoStage("overlay", { width: 370, height: 960 }, 320)).toBe("overlay");
     expect(sessionInfoStage("overlay", { width: 600, height: 960 }, 320)).toBe("overlay");
-    // Pushing at 740px would narrow the column, so it lies over the chat (Leo, 2026-11-03: "if it would
-    // need to be then session info should be an overlay"); at 1100px the push keeps the column's width.
+    // Pushing at 740px or 1100px would narrow Chat Text Width's 800px column, so it lies over the chat
+    // (Leo, 2026-11-03: "if it would need to be then session info should be an overlay"); at 1200px the
+    // push keeps the column's width.
     expect(sessionInfoStage("overlay", { width: 740, height: 960 }, 320)).toBe("overlay");
-    expect(sessionInfoStage("overlay", { width: 1100, height: 960 }, 320)).toBe("push");
+    expect(sessionInfoStage("overlay", { width: 1100, height: 960 }, 320)).toBe("overlay");
+    expect(sessionInfoStage("overlay", { width: 1200, height: 960 }, 320)).toBe("push");
     expect(sessionInfoPushes("push", { width: 370, height: 960 }, 320)).toBe(false);
     expect(sessionInfoPushes("push", { width: 1800, height: 960 }, 320)).toBe(true);
   });
@@ -73,14 +75,14 @@ describe("sessionInfoPopover", () => {
 
   // The stage at each pane width the browser suites open (thread-minimap-left-rail-stays,
   // session-info-overlay-toggle), at the panel's default width in a tall pane: by default it floats in
-  // the gutter at 1600px, pushes where that keeps the column's width (1084px and 1100px) and lies over
-  // the chat elsewhere (#33037). Push always takes its whole room, so it lies over the chat at 1600px
-  // too, where that room would narrow the column.
+  // the gutter at 1600px, pushes where that keeps Chat Text Width's 800px column (1200px) and lies over
+  // the chat elsewhere (#33037), at 1100px and 1084px too, where a push would narrow it. Push always takes
+  // its whole room, which keeps the column at 1600px and 1200px.
   test("pins the stage at each width the browser suites open", () => {
     const widths = [1600, 1200, 1100, 1084, 800, 780, 760];
     const stages = (placement: "overlay" | "push") =>
       widths.map((width) => sessionInfoStage(placement, { width, height: 900 }, SESSION_INFO_WIDTH.fallback));
-    expect(stages("overlay")).toEqual(["float", "overlay", "push", "push", "overlay", "overlay", "overlay"]);
-    expect(stages("push")).toEqual(["overlay", "overlay", "push", "push", "overlay", "overlay", "overlay"]);
+    expect(stages("overlay")).toEqual(["float", "push", "overlay", "overlay", "overlay", "overlay", "overlay"]);
+    expect(stages("push")).toEqual(["push", "push", "overlay", "overlay", "overlay", "overlay", "overlay"]);
   });
 });
