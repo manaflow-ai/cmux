@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextBridge
-import CmuxNextDaemon
+@testable import CmuxNextDaemon
 @testable import CmuxNextLayout
 import CmuxNextTestSupport
 import Foundation
@@ -24,8 +24,11 @@ struct BrowserPaneMotionPointerAreasTests {
             let controller = try #require(services.windows.active)
             try #require(window.isVisible, "the window is not on screen: this test needs a display worker")
             #expect(services.registry.perform("splitRight", invocation: ActionInvocation(origin: .user)))
+            // The split's pane is a stand-in until the daemon answers; a browser tab can open only in the daemon's pane.
             try await PasswordManagerRouteTests.until({ controller.focusedPane != nil && controller.focusedPane !== first
-                && controller.focusedPane?.pane.tabs.isEmpty == false }, report: { "the split never took the focus" })
+                && controller.focusedPane?.pane.tabs.isEmpty == false
+                && (controller.focusedPane?.pane.handle.rawValue ?? .max) < ProvisionalPane.firstHandle },
+                report: { "the split never took the focus with the daemon's pane" })
             let pane = try #require(controller.focusedPane)
             let folder = FileManager.default.temporaryDirectory.appending(path: "browser-pointer-\(UUID().uuidString.prefix(8))")
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
