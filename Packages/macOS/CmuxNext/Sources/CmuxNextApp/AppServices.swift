@@ -158,15 +158,15 @@ final class AppServices {
         weak var objectMenu: NSMenu?
     }
     #endif
-    /// The Machines section's machines joined through the hub (`cmux machine list`), with no Labs switch.
+    /// The Machines section's hub-joined machines (`cmux machine list`); signed out, no service: a read empties them.
     private(set) lazy var joinedMachines = JoinedMachineStore(service: { [weak self] in
         guard let self else { return nil }
         #if DEBUG
         if let fixture = self.debugFixtures.joinedMachines { return fixture }
         #endif
-        return MachineJoinService.app(self)
-    })
-    /// This Mac's one-line join consent (Settings > Devices' switches, the one-time sheet), behind labs.machineJoin.
+        return self.cloud.auth.isSignedIn ? MachineJoinService.app(self) : nil
+    }).following(signIn: { [weak self] in self?.cloud.auth.isSignedIn ?? false })
+    /// This Mac's join consent (Settings > Devices' switches, the one-time sheet): all labs.machineJoin still gates.
     private(set) lazy var joinConsent = JoinConsentModel.app(self)
     /// The app's latest key or mouse input and whether it was the person's (HID system), over the app's one
     /// table of posting processes (`personInput.sources`): backs a consent grant made in a page. Started at launch.
