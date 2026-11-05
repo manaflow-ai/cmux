@@ -155,20 +155,6 @@ thread_local! {
     /// the LSN and the chats to sync.
     pub(crate) static HOLD_AFTER_START: log_sync::HoldSlot =
         const { std::cell::RefCell::new(None) };
-    /// Tests: a freeze on this thread whose `frozen` record found the journal's queue full stops
-    /// before it waits for the journal's writer, holding no lock.
-    pub(crate) static HOLD_BEFORE_FROZEN_RECORD: log_sync::HoldSlot =
-        const { std::cell::RefCell::new(None) };
-    /// Tests: the next freeze on this thread finds the journal's queue full for its `frozen`
-    /// record (`AppendError::Backlog`), as when the writer is behind.
-    pub(crate) static FORCE_FROZEN_BACKLOG: std::cell::Cell<bool> =
-        const { std::cell::Cell::new(false) };
-}
-
-/// Tests: the stop of [`HOLD_BEFORE_FROZEN_RECORD`].
-#[cfg(test)]
-fn hold_before_frozen_record() {
-    log_sync::hold(&HOLD_BEFORE_FROZEN_RECORD);
 }
 
 /// Tests: the stop of [`HOLD_AFTER_START`].

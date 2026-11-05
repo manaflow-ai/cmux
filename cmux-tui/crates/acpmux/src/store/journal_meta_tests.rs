@@ -5,7 +5,6 @@
 //! The journal runs on `cmux_journal::SimStorage`; the chat logs are real files whose OS crash
 //! follows the syncs that ran (`store/sync_model.rs`).
 
-use super::journal_store::{FORCE_FROZEN_BACKLOG, HOLD_AFTER_START, HOLD_BEFORE_FROZEN_RECORD};
 use super::log_sync::{FAIL_NEXT_LOG_SYNC, NOTE_BEFORE_SYNCS_WAIT};
 use super::sync_model;
 use super::*;
@@ -1030,86 +1029,6 @@ fn a_freeze_in_a_home_that_takes_no_new_file_still_writes_the_lines_again() {
         seqs(store.as_ref(), CHAT),
         (1..=5).collect::<Vec<_>>(),
         "the restart after a failed sync whose freeze marker could not be written trusted the log's pages and lost acked lines"
-    );
-}
-
-/// A failed sync's freeze journals a `frozen` record (review of #35866, P2-1 and P2-2). When the
-/// journal's queue is full, that append waits for the journal's writer (up to `SEAL_WAIT`) and
-/// appends again. A checkpoint waits for a failed sync only until the store is frozen, never for
-/// that wait (lead's review of #35866): its wait stays bounded by the syncs under way (#35895). A
-/// checkpoint in flight (held right after its start, `HOLD_AFTER_START`) and another thread's
-/// `flush_session`, whose log sync fails, whose record finds the queue full
-/// (`FORCE_FROZEN_BACKLOG`) and which stops before it waits for the writer
-/// (`HOLD_BEFORE_FROZEN_RECORD`): the checkpoint must return, refused, before that thread goes
-/// on. It says if it waits (`NOTE_BEFORE_SYNCS_WAIT`): no timer.
-#[test]
-fn a_checkpoint_does_not_wait_for_a_frozen_record_on_another_thread() {
-    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
-    let journal = SimStorage::new(99);
-    let store: Arc<dyn Store> = Arc::from(open(home.path(), &journal));
-    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
-    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
-    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
-    store.append(CHAT, &record(2, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
-    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
-    // A checkpoint in flight: past its start, where it read `frozen` (false). It says when it
-    // waits for a sync under way, or that it returned.
-    let (started_tx, started) = std::sync::mpsc::channel();
-    let (go, go_rx) = std::sync::mpsc::channel();
-    let (events_tx, events) = std::sync::mpsc::channel();
-    let flusher = {
-        let store = Arc::clone(&store);
-        std::thread::spawn(move || {
-            HOLD_AFTER_START.with(|hold| *hold.borrow_mut() = Some((started_tx, go_rx)));
-            NOTE_BEFORE_SYNCS_WAIT.with(|note| *note.borrow_mut() = Some(events_tx.clone()));
-            let result = store.flush();
-            let _ = events_tx.send("returned");
-            result
-        })
-    };
-    started.recv_timeout(WAIT).unwrap_or_else(|e| panic!("the checkpoint never started: {e}"));
-    // Another thread's flush_session: its log sync fails, its frozen record finds the queue full,
-    // and it stops before it waits for the writer.
-    let (arrived_tx, arrived) = std::sync::mpsc::channel();
-    let (release, release_rx) = std::sync::mpsc::channel();
-    let failing = {
-        let store = Arc::clone(&store);
-        std::thread::spawn(move || {
-            HOLD_BEFORE_FROZEN_RECORD
-                .with(|hold| *hold.borrow_mut() = Some((arrived_tx, release_rx)));
-            FORCE_FROZEN_BACKLOG.with(|force| force.set(true));
-            FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(true));
-            let result = store.flush_session(CHAT);
-            FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(false));
-            result
-        })
-    };
-    arrived.recv_timeout(WAIT).unwrap_or_else(|e| panic!("the failed sync never froze: {e}"));
-    let _ = go.send(());
-    let first =
-        events.recv_timeout(WAIT).unwrap_or_else(|e| panic!("no word from the checkpoint: {e}"));
-    let _ = release.send(());
-    let failed = failing.join().unwrap_or_else(|_| panic!("the failing thread panicked"));
-    let checkpointed = flusher.join().unwrap_or_else(|_| panic!("the flush panicked"));
-    assert!(failed.is_err(), "flush_session's sync did not fail as the test asked");
-    assert_eq!(
-        first, "returned",
-        "a checkpoint waited for another thread's frozen record, not only for its failed sync"
-    );
-    assert!(checkpointed.is_err(), "a checkpoint went past a freeze");
-    // The record is journaled all the same: the restart writes the lines again, and an OS crash
-    // after its checkpoint keeps them.
-    drop(store);
-    let store = open(home.path(), &journal);
-    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
-    let crashed = journal.restart(Crash::Os);
-    drop(store);
-    sync_model::os_crash(&home.path().join("sessions"));
-    let store = open(home.path(), &crashed);
-    assert_eq!(
-        seqs(store.as_ref(), CHAT),
-        vec![1, 2],
-        "the restart lost a line of the frozen store"
     );
 }
 
