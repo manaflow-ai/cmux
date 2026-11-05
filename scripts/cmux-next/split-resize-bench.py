@@ -35,10 +35,10 @@ parser.add_argument("--out", required=True)
 parser.add_argument("--json")
 parser.add_argument("--tag")
 # `browserResize.dragResize` values to measure, each in its own launch of the same build, back to back
-# (live: AsyncLiveResize, the behaviour before cmux#25842; hold; synced: AsyncLiveResize off).
+# (live: AsyncLiveResize, the behaviour before cmux#25842; hold; synced: AsyncLiveResize off; resizeSync: fork API 27).
 parser.add_argument("--variants", default="")
 opts, _ = parser.parse_known_args()
-VARIANTS = ("live", "hold", "synced")
+VARIANTS = ("live", "hold", "synced", "resizeSync")
 variants = [v for v in opts.variants.split(",") if v] or [None]
 for variant in variants:
     if variant is not None and variant not in VARIANTS:
