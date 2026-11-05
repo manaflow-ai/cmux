@@ -1,7 +1,7 @@
 // The Artifacts page's store over its host ops (`cmux.artifacts.*`, the mock host): the tree is read
-// one folder per call and flattened to file paths, the first file opens at the tree's head, a reply
-// for a file the person already left is dropped, nothing saved yet reads as empty, and a missing
-// host says so.
+// one folder per call and flattened to file paths, the first file opens with its history and the
+// newest revision's change, a revision click compares it with its parent, a reply for a file the
+// person already left is dropped, nothing saved yet reads as empty, and a missing host says so.
 import { expect, test } from "bun:test";
 import { pageError, type PageClient, type PageHandler } from "../src/pages/shared/pageClient";
 import { MockArtifactsProvider } from "../src/pages/artifacts/mockProvider";
@@ -67,7 +67,7 @@ test("the tree is read one folder per call and flattened to sorted file paths", 
   ]);
 });
 
-test("the first file opens at the tree's head, and choosing another file reads it", async () => {
+test("the first file opens with its history and the newest revision's change", async () => {
   const store = new ArtifactsStore(new MockArtifactsProvider());
   await store.start();
   expect(store.getSnapshot()).toMatchObject({
@@ -79,6 +79,98 @@ test("the first file opens at the tree's head, and choosing another file reads i
   const snapshot = store.getSnapshot();
   expect(snapshot.file?.content).toContain("History compares a revision with its parent");
   expect(snapshot.file?.commit).toBe(snapshot.headSha);
+  expect(snapshot.history.map((commit) => commit.message)).toEqual([
+    "Note how history compares revisions",
+    "Save the artifacts pane notes",
+  ]);
+  expect(snapshot.selectedCommit).toBe(snapshot.history[0]!.sha);
+  expect(snapshot.diff?.before).not.toContain("History compares");
+  expect(snapshot.diff?.after).toContain("History compares");
+});
+
+test("a revision with no parent shows the whole file as added", async () => {
+  const store = new ArtifactsStore(new MockArtifactsProvider());
+  await store.start();
+  await store.select("memory/claude/artifacts-pane.md");
+  const first = store.getSnapshot().history[1]!;
+  await store.selectCommit(first);
+  const { diff, selectedCommit } = store.getSnapshot();
+  expect(selectedCommit).toBe(first.sha);
+  expect(diff?.sha).toBe(first.sha);
+  expect(diff?.before).toBeUndefined();
+  expect(diff?.after).not.toContain("History compares");
+});
+
+test("a parent where the file did not exist yet reads as added, not as a failure", async () => {
+  const head = "a".repeat(40);
+  const parent = "b".repeat(40);
+  const host = new Host((op, params) => {
+    if (op === ArtifactsOps.tree)
+      return { ref: "main", sha: head, entries: [{ name: "a.md", path: "a.md", type: "blob" }] };
+    if (op === ArtifactsOps.history)
+      return {
+        commits: [{ sha: head, parents: [parent], message: "Add a", authorName: "cmux", time: 0, trailers: {} }],
+      };
+    if (params.ref === parent) throw pageError("cmux.artifacts.not_found", "Nothing has been saved here yet.");
+    return { path: "a.md", size: 2, contentType: "text/markdown", commit: head, content: "a\n" };
+  });
+  const store = new ArtifactsStore(host);
+  await store.start();
+  const snapshot = store.getSnapshot();
+  expect(snapshot.fileFailure).toBeUndefined();
+  expect(snapshot.diff).toEqual({ sha: head, before: undefined, after: "a\n" });
+});
+
+test("a history that fails to read still shows the file, and a refresh tries it again", async () => {
+  const head = "a".repeat(40);
+  let historyFails = true;
+  const host = new Host((op) => {
+    if (op === ArtifactsOps.tree)
+      return { ref: "main", sha: head, entries: [{ name: "a.md", path: "a.md", type: "blob" }] };
+    if (op === ArtifactsOps.history) {
+      if (historyFails) throw pageError("cmux.artifacts.unavailable", "History is unavailable.");
+      return { commits: [{ sha: head, parents: [], message: "Add a", authorName: "cmux", time: 0, trailers: {} }] };
+    }
+    return { path: "a.md", size: 2, contentType: "text/markdown", commit: head, content: "a\n" };
+  });
+  const store = new ArtifactsStore(host);
+  await store.start();
+  let snapshot = store.getSnapshot();
+  expect(snapshot.fileFailure).toBeUndefined();
+  expect(snapshot.file?.content).toBe("a\n");
+  expect(snapshot.historyFailure?.code).toBe("cmux.artifacts.unavailable");
+  expect(snapshot.history).toEqual([]);
+
+  historyFails = false;
+  await store.start();
+  snapshot = store.getSnapshot();
+  expect(snapshot.historyFailure).toBeUndefined();
+  expect(snapshot.history.map((commit) => commit.message)).toEqual(["Add a"]);
+  expect(snapshot.diff).toEqual({ sha: head, before: undefined, after: "a\n" });
+});
+
+test("a revision with no text on either side shows no change rather than an empty diff", async () => {
+  const head = "a".repeat(40);
+  const parent = "b".repeat(40);
+  const host = new Host((op, params) => {
+    if (op === ArtifactsOps.tree)
+      return { ref: "main", sha: head, entries: [{ name: "a.md", path: "a.md", type: "blob" }] };
+    if (op === ArtifactsOps.history)
+      return {
+        commits: [
+          { sha: head, parents: [parent], message: "Grow a", authorName: "cmux", time: 1, trailers: {} },
+          { sha: parent, parents: [], message: "Add a", authorName: "cmux", time: 0, trailers: {} },
+        ],
+      };
+    if (params.ref === parent)
+      return { path: "a.md", size: 2, contentType: "text/markdown", commit: parent, content: "a\n" };
+    return { path: "a.md", size: 9_000_000, contentType: "text/markdown", commit: head, tooLarge: true };
+  });
+  const store = new ArtifactsStore(host);
+  await store.start();
+  expect(store.getSnapshot().diff).toEqual({ sha: head, after: "", unavailable: true });
+  await store.selectCommit(store.getSnapshot().history[1]!);
+  expect(store.getSnapshot().diff).toEqual({ sha: parent, before: undefined, after: "a\n" });
 });
 
 test("a reply for a file the person already left is dropped", async () => {
@@ -149,6 +241,44 @@ test("a refresh keeps the tree on screen and the chosen file open", async () => 
   expect(store.getSnapshot().selected).toBe("notes/launch.md");
 });
 
+test("a revision's change keeps three lines of context and splits distant edits", async () => {
+  const { lineHunks } = await import("../src/pages/artifacts/lineDiff");
+  const before = Array.from({ length: 20 }, (_, n) => `line ${n}`).join("\n");
+  const after = before.replace("line 2", "line two").replace("line 17", "line seventeen");
+  const hunks = lineHunks(before, after);
+  expect(hunks).toHaveLength(2);
+  expect(hunks[0]!.map((line) => line.type)).toEqual([
+    "context",
+    "context",
+    "del",
+    "add",
+    "context",
+    "context",
+    "context",
+  ]);
+  expect(hunks[1]!.filter((line) => line.type !== "context").map((line) => line.text)).toEqual([
+    "line 17",
+    "line seventeen",
+  ]);
+  expect(lineHunks("same\n", "same\n")).toEqual([]);
+  // Only the final newline changed: the last line shows as replaced.
+  const newline = lineHunks("a", "a\n");
+  expect(newline).toHaveLength(1);
+  expect(newline[0]).toEqual([
+    { type: "del", text: "a", noNewline: true },
+    { type: "add", text: "a" },
+  ]);
+  // Text that looks like a marker is only text.
+  const literal = lineHunks("x\nfoo\u0000no-newline\n", "y\nfoo\u0000no-newline\n");
+  expect(literal[0]!.at(-1)).toEqual({ type: "context", text: "foo\u0000no-newline" });
+  expect(lineHunks("", "a\nb\n")).toEqual([
+    [
+      { type: "add", text: "a" },
+      { type: "add", text: "b" },
+    ],
+  ]);
+});
+
 test("a refresh after a new save reads the chosen file again, keeping it on screen meanwhile", async () => {
   const shas = ["1".repeat(40), "2".repeat(40)];
   let head = 0;
@@ -156,6 +286,20 @@ test("a refresh after a new save reads the chosen file again, keeping it on scre
   const host = new Host((op, params) => {
     const sha = shas[head]!;
     if (op === ArtifactsOps.tree) return { ref: "main", sha, entries: [{ name: "a.md", path: "a.md", type: "blob" }] };
+    if (op === ArtifactsOps.history)
+      return {
+        commits: shas
+          .slice(0, head + 1)
+          .reverse()
+          .map((commit, n, all) => ({
+            sha: commit,
+            parents: all[n + 1] ? [all[n + 1]] : [],
+            message: commit.slice(0, 1),
+            authorName: "cmux",
+            time: 0,
+            trailers: {},
+          })),
+      };
     const at = params.ref ? shas.indexOf(String(params.ref)) : head;
     return { path: "a.md", size: 1, contentType: "text/markdown", commit: shas[at], content: texts[at] };
   });
@@ -170,6 +314,8 @@ test("a refresh after a new save reads the chosen file again, keeping it on scre
   const snapshot = store.getSnapshot();
   expect(snapshot.file?.content).toBe("first\nsecond\n");
   expect(snapshot.file?.commit).toBe(shas[1]);
+  expect(snapshot.history).toHaveLength(2);
+  expect(snapshot.diff).toEqual({ sha: shas[1], before: "first\n", after: "first\nsecond\n" });
 });
 
 test("a refresh with the head unchanged reads only the tree", async () => {
@@ -202,6 +348,7 @@ test("a reload that failed is tried again on the next refresh, and by choosing t
   const host = new Host((op, params) => {
     const sha = shas[head]!;
     if (op === ArtifactsOps.tree) return { ref: "main", sha, entries: [{ name: "a.md", path: "a.md", type: "blob" }] };
+    if (op === ArtifactsOps.history) return { commits: [] };
     if (failing) throw pageError("cmux.artifacts.unavailable", "Artifacts could not be reached.", true);
     return {
       path: "a.md",
@@ -228,6 +375,45 @@ test("a reload that failed is tried again on the next refresh, and by choosing t
   failing = false;
   await store.start();
   expect(store.getSnapshot().file?.content).toBe(`at ${shas[0]}`);
+});
+
+test("a change that failed to read is tried again by a refresh at the same head and by clicking its revision", async () => {
+  const head = "3".repeat(40);
+  const parent = "4".repeat(40);
+  let failParent = true;
+  const host = new Host((op, params) => {
+    if (op === ArtifactsOps.tree)
+      return { ref: "main", sha: head, entries: [{ name: "a.md", path: "a.md", type: "blob" }] };
+    if (op === ArtifactsOps.history)
+      return {
+        commits: [{ sha: head, parents: [parent], message: "Edit", authorName: "cmux", time: 0, trailers: {} }],
+      };
+    if (params.ref === parent && failParent)
+      throw pageError("cmux.artifacts.unavailable", "Artifacts could not be reached.", true);
+    return {
+      path: "a.md",
+      size: 1,
+      contentType: "text/markdown",
+      commit: String(params.ref),
+      content: `at ${String(params.ref)}`,
+    };
+  });
+  const store = new ArtifactsStore(host);
+  await store.start();
+  expect(store.getSnapshot().diff).toBeUndefined();
+  expect(store.getSnapshot().fileFailure?.code).toBe("cmux.artifacts.unavailable");
+  failParent = false;
+  await store.start();
+  expect(store.getSnapshot().diff).toEqual({ sha: head, before: `at ${parent}`, after: `at ${head}` });
+
+  // A fresh page whose first change read fails: clicking the chosen revision reads it again.
+  failParent = true;
+  const fresh = new ArtifactsStore(host);
+  await fresh.start();
+  expect(fresh.getSnapshot().diff).toBeUndefined();
+  failParent = false;
+  await fresh.selectCommit(fresh.getSnapshot().history[0]!);
+  expect(fresh.getSnapshot().diff?.before).toBe(`at ${parent}`);
 });
 
 test("folders under the root are read several at once", async () => {

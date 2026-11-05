@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 
 /// The View / Control toggle: two segments, the selected one on a gray
 /// fill (never an accent color). Control can be disabled (while the path
@@ -12,7 +13,7 @@ final class RemoteModeToggle: NSView {
         super.init(frame: frame)
         wantsLayer = true
         translatesAutoresizingMaskIntoConstraints = false
-        layer?.cornerRadius = 13
+        layer?.cornerRadius = Metrics.cornerRadius(nestedIn: Metrics.capsuleRadius(CGSize(width: 22, height: 22)), inset: -2) // around 22 pt capsule buttons 2 pt in
         let row = RemoteChrome.row([viewButton, controlButton], spacing: 2, insets: NSEdgeInsets(top: 2, left: 2, bottom: 2, right: 2))
         addSubview(row)
         NSLayoutConstraint.activate([

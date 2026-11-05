@@ -180,7 +180,10 @@ again there. When every change is an edit to an existing `CmuxNextApp` Swift fil
 --tree` compiles those files against the build into the side instance's `live-code/` folder, and the running
 copy loads them. With `--here`, the files go to your own app's live folder (Labs > Live Code). A new or deleted
 file, a change outside `CmuxNextApp`, a commit this checkout lacks, a failed compile or a patch the app refuses
-all take the dev build instead, and the script says which one it was. Only Debug and bench builds load patches
+all take the dev build instead, and the script says which one it was. A reload or DEV build records no commit (`CMUXCommit`), so the script uses the HEAD of the checkout
+the build's log compiled, as long as that checkout has no uncommitted CmuxNextApp changes and has not moved since the build.
+`scripts/measure/try-pr-live-code.sh` runs the whole path on a fleet Mac: a live code bench build, a fixture PR that
+turns Home red, and captures before and after. Only Debug and bench builds load patches
 today, so the installed nightly still takes the dev build.
 `scripts/measure/try-pr-side-instance.sh` times a set of PRs from the command to the PR's page
 loading in the side instance.

@@ -12,7 +12,7 @@ final class HomeChatColorsPreviewView: NSView {
     init() {
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerRadius = 10
+        layer?.cornerRadius = Metrics.surfaceCornerRadius
         translatesAutoresizingMaskIntoConstraints = false
         for bubble in [received, sent] { addSubview(bubble) }
         NSLayoutConstraint.activate([

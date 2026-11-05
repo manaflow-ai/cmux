@@ -5,6 +5,7 @@ import type { MachineExecReply } from "./automation-machine.ts"
 import { handStub, apiOrigin } from "./hand-api.ts"
 import { layoutSelector, asDaemonUser, shellQuote } from "./cloud-acpmux-guest.ts"
 import { personalTeamIdFor } from "./domains/user.ts"
+import { platformCloud } from "./platform-cloud.ts"
 
 export interface DefaultChiefMachine {
   readonly workspace: string
@@ -71,7 +72,7 @@ export const authorizeDefaultMachine = async (env: Env, scope: DefaultHandScope,
   const g = state.grants.find((x) => x.id === i?.grant)
   if (!i || i.kind !== "vm" || i.revoked_at !== null || i.bound_team !== team || i.bound_machine !== carrier
     || !g || g.grantee !== install || g.revoked_at !== null || !g.op_classes.includes("vm-self") || (g.expires_at !== null && (!Number.isFinite(g.expires_at) || g.expires_at <= Date.now()))) throw new Error("chief.machine.install_revoked")
-  const cloud = env.CLOUD_DO.get(env.CLOUD_DO.idFromName(team)) as unknown as DefaultCloud
+  const cloud: DefaultCloud = platformCloud(env.CLOUD_DO, team)
   const self = await cloud.readOp(team, {
     identity: `install:${install}`, kind: "install", user: owner, team, install,
     grant: i.grant, install_kind: "vm", bound_machine: carrier, grant_classes: ["vm-self"],

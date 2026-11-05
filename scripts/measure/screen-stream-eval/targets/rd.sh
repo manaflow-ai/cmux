@@ -34,7 +34,10 @@ bench() {
 
 case "$verb" in
   build)
-    cargo build --release --manifest-path "$crate/Cargo.toml" --bin cmux-rd
+    # From cmux-tui, so rustup takes its rust-toolchain.toml: rustup reads the cwd, not the manifest's
+    # folder, and a fleet worker's shared RUSTUP_HOME keeps no default toolchain on purpose
+    # (scripts/build-cmux-cua.sh says why).
+    (cd "$EVAL_ROOT/cmux-tui" && cargo build --release --manifest-path "$crate/Cargo.toml" --bin cmux-rd)
     cp "$crate/target/release/cmux-rd" "$rd"
     ;;
   host-start) host_start ;;
