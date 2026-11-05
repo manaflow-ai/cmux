@@ -2,7 +2,7 @@
 // is highlighted as a diff). Ported from the agent-pane reference prototype
 // (src/conversation/CodeBlock.tsx); CodeBlock.tsx loads it after the page's first frame.
 import { useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
-import { DIFFS_TAG_NAME, File as PierreFile, getFiletypeFromFileName } from "@pierre/diffs";
+import { DIFFS_TAG_NAME, File as PierreFile } from "@pierre/diffs";
 import { AGENT_DIFF_THEME, AGENT_DIFF_THEME_LIGHT, diffUnsafeCSS, registerAgentDiffTheme } from "../diffTheme";
 import { isHighlighted } from "../shikiLanguages";
 import { CopyButton } from "./CopyButton";
@@ -22,7 +22,7 @@ import { highlightWorkerFailed, subscribeHighlightWorker } from "./highlightWork
 const LINE_HEIGHT = 20;
 
 /// Pierre paints its own lines; they are transparent so the card's fill shows through.
-const codeUnsafeCSS = `${diffUnsafeCSS}
+export const codeUnsafeCSS = `${diffUnsafeCSS}
 :host {
   --diffs-dark-bg: transparent;
   --diffs-light-bg: transparent;
@@ -125,10 +125,10 @@ export function HighlightedCode({
 }
 
 /// Pierre's `File` in the pane's syntax theme, painted into `host` in the pane's worker pool: what the
-/// fenced card and a read's bare lines (`HighlightedLines`) share. `painted` turns true once its lines
+/// fenced card and a read's bare lines (HighlightedLines.tsx) share. `painted` turns true once its lines
 /// are on screen; `workerAvailable` false (no pool, a failed worker, a job past its budget) means the
 /// caller draws plain lines instead.
-function usePierreCode(code: string, lang: string, unsafeCSS: string, wrap: boolean) {
+export function usePierreCode(code: string, lang: string, unsafeCSS: string, wrap: boolean) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<PierreFile | undefined>(undefined);
   const pool = paneHighlightPool("word-alt", isHighlighted(lang) ? lang : "text");
@@ -185,26 +185,5 @@ function usePierreCode(code: string, lang: string, unsafeCSS: string, wrap: bool
   return { host, painted, workerAvailable };
 }
 
-/// A read file's lines, highlighted by its name's language, with no card chrome and no wrapping, so
-/// each line keeps the code line height its gutter's numbers are set on (FileResultCard.tsx). Plain
-/// lines until Pierre has painted, and for good when it cannot.
-export function HighlightedLines({ code, path }: { code: string; path: string }) {
-  const type = getFiletypeFromFileName(path);
-  const lang = isHighlighted(type) ? type : "text";
-  const { host, painted, workerAvailable } = usePierreCode(code, lang, codeUnsafeCSS, false);
-  return (
-    <div className="cv-filepeek__lines">
-      {(!workerAvailable || !painted) && <PlainCodeLines code={code} />}
-      {workerAvailable && (
-        <DiffsHost
-          ref={host}
-          className="selectable"
-          style={!painted ? { position: "absolute", inset: "0 0 auto", visibility: "hidden" } : undefined}
-        />
-      )}
-    </div>
-  );
-}
-
 /// Pierre's host element (`<diffs-container>`); it attaches its own shadow root.
-const DiffsHost = DIFFS_TAG_NAME as unknown as "div";
+export const DiffsHost = DIFFS_TAG_NAME as unknown as "div";
