@@ -533,16 +533,16 @@ import Testing
                 manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
                 workspace = try #require(manager.selectedWorkspace)
             } catch {
-                restoreChiefEnabled()
+                Self.restoreChiefEnabled(originalChiefEnabled, key: chiefEnabledKey)
                 throw error
             }
         }
 
-        private func restoreChiefEnabled() {
-            if let originalChiefEnabled {
-                UserDefaults.standard.set(originalChiefEnabled, forKey: chiefEnabledKey)
+        private static func restoreChiefEnabled(_ original: Any?, key: String) {
+            if let original {
+                UserDefaults.standard.set(original, forKey: key)
             } else {
-                UserDefaults.standard.removeObject(forKey: chiefEnabledKey)
+                UserDefaults.standard.removeObject(forKey: key)
             }
         }
 
@@ -551,7 +551,7 @@ import Testing
             // Clear any marker so it can't leak into another serialized test.
             controller.consumeKillSessionsOnWindowClose(windowId: windowId)
             closeWindow(windowId)
-            restoreChiefEnabled()
+            Self.restoreChiefEnabled(originalChiefEnabled, key: chiefEnabledKey)
         }
 
         func cacheConnection(host: RemoteTmuxHost, session: String) {
