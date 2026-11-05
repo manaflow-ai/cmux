@@ -5,9 +5,12 @@ name: cmux NEXT Computer Use helper (dev) signing
 # change reaches DEV builds without a person signing it on a Mac. Leo,
 # 2026-11-05: "Yes, re-sign it".
 #
+# sdk     resolves the feat-cmux-next commit and downloads the pinned Cua
+#         Driver SDK tarball with the R2 read key, on Blacksmith Linux (a job
+#         holding a secret runs where no variable can move it).
 # build   feat-cmux-next's build-cua-helper-dev.sh on an owned Mac first. It
-#         holds no signing secret, only the repository's CMUX_CEF_R2 key, which
-#         the SDK tarball download needs (as in cmux-next.yml).
+#         holds no secret: the SDK tarball comes from the sdk job and is
+#         checked against its pin again.
 # sign    the release environment (its secrets reach main only): the Developer
 #         ID certificate goes into a per-job temporary keychain
 #         (scripts/ci/signing-keychain.sh, deleted by an always() step), then
@@ -40,16 +43,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
-    name: Build the unsigned helper
+  sdk:
+    name: Resolve the commit and fetch the SDK
     if: github.ref == 'refs/heads/main'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS || '{}').macos_26 || 'blacksmith-6vcpu-macos-26' }}
-    timeout-minutes: 30
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
     permissions:
       contents: read
     outputs:
       sha: ${{ steps.resolve.outputs.sha }}
-      unsigned_sha256: ${{ steps.build.outputs.unsigned_sha256 }}
     steps:
       - name: Checkout feat-cmux-next
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -57,7 +59,8 @@ jobs:
           ref: ${{ inputs.sha || 'feat-cmux-next' }}
           fetch-depth: 1
           persist-credentials: false
-          submodules: false
+          sparse-checkout: scripts/cmux-next
+          sparse-checkout-cone-mode: false
 
       # The input may name any commit; only one on feat-cmux-next is built.
       - name: Require a feat-cmux-next commit
@@ -74,16 +77,63 @@ jobs:
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "Building the dev helper from feat-cmux-next $sha" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
-
-      - name: Build
-        id: build
+      - name: Fetch the pinned SDK tarball
         env:
           CMUX_CEF_R2_ACCOUNT_ID: ${{ secrets.CMUX_CEF_R2_ACCOUNT_ID }}
           CMUX_CEF_R2_ACCESS_KEY_ID: ${{ secrets.CMUX_CEF_R2_ACCESS_KEY_ID }}
           CMUX_CEF_R2_SECRET_ACCESS_KEY: ${{ secrets.CMUX_CEF_R2_SECRET_ACCESS_KEY }}
           CMUX_CEF_R2_ENV_FILE: /dev/null
+          CMUX_CUA_ASSET_NO_STORE: "1"
+          CMUX_CUA_ASSET_CACHE_DIR: ${{ runner.temp }}/cua-assets
+        run: |
+          set -euo pipefail
+          tarball="$(./scripts/cmux-next/ensure-cua-pinned-asset.sh scripts/cmux-next/cua-driver-sdk.pin.json)"
+          mkdir -p "$RUNNER_TEMP/sdk"
+          cp "$tarball" "$RUNNER_TEMP/sdk/cua-driver-sdk.tar.gz"
+
+      - name: Upload the SDK tarball
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cua-driver-sdk
+          path: ${{ runner.temp }}/sdk/cua-driver-sdk.tar.gz
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
+  build:
+    name: Build the unsigned helper
+    needs: sdk
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS || '{}').macos_26 || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      sha: ${{ needs.sdk.outputs.sha }}
+      unsigned_sha256: ${{ steps.build.outputs.unsigned_sha256 }}
+    steps:
+      - name: Checkout feat-cmux-next
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.sdk.outputs.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+
+      - name: Download the SDK tarball
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cua-driver-sdk
+          path: ${{ runner.temp }}/sdk
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      # The tarball is checked against cua-driver-sdk.pin.json again here.
+      - name: Build
+        id: build
+        env:
+          CMUX_CUA_SDK_TARBALL: ${{ runner.temp }}/sdk/cua-driver-sdk.tar.gz
+          CMUX_CUA_ASSET_NO_STORE: "1"
           CMUX_CUA_ASSET_CACHE_DIR: ${{ runner.temp }}/cua-assets
         run: |
           set -euo pipefail
@@ -198,7 +248,7 @@ jobs:
   pin-pr:
     name: Open the pin bump
     needs: [build, sign]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     permissions:
       contents: read
