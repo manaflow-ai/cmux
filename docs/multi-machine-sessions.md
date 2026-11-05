@@ -48,8 +48,10 @@ The bar is ChatGPT desktop and iOS: sign in, and your devices are there.
 3. **Then it just works, both ways.** From any Mac: the sidebar machine picker,
    **New Workspace on MacBook**, **Continue on MacBook** (moves the
    workspace with its chats and terminals), **Send This Build to MacBook**.
-   From the phone: the same machines, the same actions, and every approval
-   card. From the CLI: `cmux machine macbook send|run|move`.
+   From the phone: the same machines, opening and moving their workspaces,
+   starting a workspace there, and every approval card. A phone never sends a
+   build (it has none) and never installs one, so it shows no **Send This
+   Build** row. From the CLI: `cmux machine macbook send|run|move`.
 4. **Approvals go where the person is.** A grant set to Ask shows its card on
    that Mac and on the person's phone, whichever answers first.
 5. **What only a person at that Mac can do is said, never attempted.** Screen
@@ -71,7 +73,7 @@ The bar is ChatGPT desktop and iOS: sign in, and your devices are there.
 
 The mobile link (`cmux-next-ios/rust/crates/cmux-mobile-link`, PROTOCOL.md) is
 the transport for every pair of the person's devices, phone to Mac and Mac to
-Mac (and Linux, when hostd runs there). It is the fastest and most tested path
+Mac (Linux later; see Pairing). It is the fastest and most tested path
 cmux has:
 
 - WireGuard (`cmux-wg`, userspace, a fresh key per session) with hole
@@ -124,28 +126,42 @@ demo shows it bound).
 - **My Machines** is one list (drawn from a local cache first, no spinner): the hub's `GET /v1/me/devices` (every Mac and
   phone of the account, with live presence) merged with what `cmux device
   list` already merges locally (acpmux peers, SSH config hosts, Cloud
-  machines). One row per machine id; a machine reachable several ways shows
-  once, with its best route.
+  machines). One row per machine: rows with the same `machineId` group, and
+  within a group each build (release, nightly, a tagged DEV) is a sub-row
+  with its own device id, the online one first. A row with no `machineId`
+  (an older app) is its own machine, keyed by its device id, and is never
+  merged by name. A machine reachable several ways shows once, with its
+  best route.
 
 ## Pairing: first contact, then per-peer grants
 
 Phone pairing already works this way (`pairing.rs`): the first channel of a
 link is `auth`, the caller signs a fresh challenge with its identity key, and
 hostd asks the app "Allow <device>?" unless the key is already approved.
-Machines use the same `auth`, with `kind: "mac"` (or `"linux"`) and the
-grants it asks for. Unchanged: the rate limits per device and per account,
+Machines use the same `auth`, with `kind: "mac"` and the grants it asks for.
+Linux machines come later: today the device registry and the hub know only
+`mac` and `phone` (`backend/src/index.ts`, `schema.ts`, `team-hub.ts`), so a
+Linux kind needs that change in the same PR that lets one pair.
+
+Unchanged: the rate limits per device and per account,
 the deny cooldown, and "a token alone reaches nothing".
 
 Each machine keeps, for every peer, a local record (`DeviceTrust`, extended):
 
 | Grant | The peer may | Phone default | Machine default |
 | --- | --- | --- | --- |
-| `view` | See this machine, its workspaces and chats, read files in chat roots | on (today's phone lanes) | on |
+| `view` | See this machine's workspaces and chats, read files in chat roots | on (today's phone lanes) | off: chosen on the first-contact card or later |
 | `control` | Type into terminals, answer agents, open and close tabs and workspaces (today's phone lanes) | on (today) | Ask |
 | `run` | Start agents and workspaces in listed folders (typed request; no command strings) | off | Ask |
 | `install` | Install a cmux build it sends, signed by the cmux release key or by a build key enrolled here | never | Ask |
 | `move` | Move a workspace in or out, with its chats, terminals' state and folder (a move in is also a write to its folder, so the card names both) | off | Ask |
 | `screen` | See this Mac's screen (View) or also drive its mouse and keyboard (Control) | Ask | Ask |
+
+Pairing alone grants nothing. A paired machine with no grant may open only
+`echo`, `version` and `machine` (its name, OS, desktop state and the grants
+it holds here), none of which says anything about the person's work. The
+first-contact card lists the grants the caller asked for, each unticked; the
+person ticks what to allow, and can change it later in Settings > Devices.
 
 Ask means each request shows the approval card (here and on the phone);
 **Always** on the card allows the same request again (this folder, this
@@ -178,10 +194,15 @@ MacBook**, or the sidebar row's menu.
    deterministic tar (`--zstd`), and a manifest: bundle id, version, tag,
    arch, sha256 and size of the archive.
 2. Signed by either:
-   - **the cmux release key**: the build's codesign is Developer ID
-     Manaflow, Inc. (7WLXT3NR37) and notarized; the receiver checks
-     `codesign --verify --deep --strict`, the team id and `spctl -a` after
-     unpacking; or
+   - **the cmux release key**: an Ed25519 key that signs every release's
+     manifest (the same manifest the updater's appcast already signs), and
+     the build's codesign must satisfy the exact designated requirement of
+     its channel: Developer ID Manaflow, Inc. (7WLXT3NR37), notarized, *and*
+     bundle id `com.cmuxterm.app` (release) or the nightly's id, nothing
+     else. The receiver checks the manifest signature and the archive's
+     sha256 before unpacking, then `codesign --verify --deep --strict
+     -R '<designated requirement>'` and `spctl -a` on the unpacked app. Any
+     other app signed by the team (a helper, a lab app) is refused; or
    - **a build key the person enrolled here**: an Ed25519 key the sender
      made for its own tagged builds (`~/.config/cmux/build-key`, 0600). The
      receiver checks the signature over the manifest and the archive's
@@ -189,8 +210,19 @@ MacBook**, or the sidebar row's menu.
      receiving machine ("Studio wants to install its own builds here"),
      never by the peer.
 3. The receiver streams it to a staging folder on the bulk lane (resumable by
-   offset), verifies size and sha256, then the signature, then unpacks.
-4. **It never replaces anything it did not install.** A build-key build
+   offset), verifies size and sha256, then the signature, then unpacks with
+   its own extractor, not `tar`: regular files and directories only, every
+   path relative and inside one top-level `<name>.app/`, no `..`, no
+   absolute path, no symlink that resolves outside the bundle, no hard
+   link, device, FIFO or setuid bit, and a cap on file count and total
+   size. Anything else refuses the whole archive. It unpacks into a fresh
+   folder in staging, which is moved into place with one rename.
+4. **It never replaces anything it did not install.** The receiver keeps an
+   install ledger (0600, beside Activity): each install's path, bundle id,
+   archive sha256 and the peer that sent it. It replaces an app only if the
+   ledger says this machine link put it there and the app on disk still
+   matches the ledger's hash; anything else at that path is left alone and
+   the send is refused with its reason. A build-key build
    installs only as a tagged DEV app: bundle id `com.cmuxterm.app.debug.<tag>`,
    into `~/Applications/cmux DEV <tag>.app`. A release build installs beside
    the others under its own name. The running app and the person's nightly are never
@@ -211,6 +243,11 @@ Answer: the host-qualified receipt `{machine, workspace_id, surface_id,
 session_id}`; the caller's sidebar shows it under that machine and opens it
 over the same link (the phone's `daemon` and `acpmux` lanes).
 
+Every `run` carries a request id the caller makes once (a UUID). The target
+keeps the ids it answered for a day, with their receipts, in the install
+ledger's sibling file; a retry after a lost reply (a link that dropped and
+came back) gets the same receipt, never a second workspace.
+
 ### Move (`move`)
 
 `cmux machine macbook move [WORKSPACE]`, **Continue on MacBook**, and back
@@ -224,6 +261,15 @@ with the link in place of the Cloud socket:
 - terminals reopen in the same folders; the workspace layout is recreated;
 - the source keeps a "Moved to MacBook" ledger row (as `CloudMovedChats`)
   so **Continue on Studio** brings it back.
+
+Neither pump may simply be pointed at a Mac. `fs-v1` is served only by a
+Cloud host today, and `agent-transfer-v1` refuses remote and stamped
+clients, both on purpose. A Mac serves them on the link only behind a new
+gate: the peer holds `move` here, the request names one workspace, and the
+folder it writes is the workspace's own (a new folder under the person's
+chosen root on the receiver, or the same repo's worktree), checked by
+realpath on every file. No other root is reachable. That gate, with its
+tests, is the move PR's first commit.
 
 ### Take over (`screen`)
 
@@ -326,7 +372,7 @@ cmux machine NAME remove
 
 1. **This design** and the #13742 recommendation.
 2. **Machines on the link.** hostd: a `dial` control request (dial a peer
-   through the warm signaling socket), `auth` for `kind: mac|linux` with
+   through the warm signaling socket), `auth` for `kind: mac` with
    grants, the per-peer record, `machine.describe`, Activity log. CLI `cmux
    machine NAME show|doctor|activity|remove`. Tests: a Mac dialing a Mac over
    loopback with the fake backend, refused without `auth`, refused for
