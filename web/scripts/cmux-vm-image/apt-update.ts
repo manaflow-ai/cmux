@@ -11,6 +11,10 @@
  * snapshot source kept at `saved` for diagnosis) and one more 60 s update run. The exact pins
  * that follow still decide whether the archive has every locked version. POSIX sh: the browser
  * role's phases run under dash.
+ *
+ * A 20 s probe of the first source's InRelease goes first, so an unreachable mirror falls back at once. It does
+ * not catch a mirror that answers but whose update fails (bake runs 41857345925 and 42012003953: 226 and
+ * 230 s, then the fallback); the layered bake's cached system layer is what skips that wait.
  */
 const ARCHIVE_SOURCES_BASE64 = "VHlwZXM6IGRlYgpVUklzOiBodHRwOi8vYXJjaGl2ZS51YnVudHUuY29tL3VidW50dS8KU3VpdGVzOiBub2JsZSBub2JsZS11cGRhdGVzIG5vYmxlLWJhY2twb3J0cwpDb21wb25lbnRzOiBtYWluIHJlc3RyaWN0ZWQgdW5pdmVyc2UgbXVsdGl2ZXJzZQpTaWduZWQtQnk6IC91c3Ivc2hhcmUva2V5cmluZ3MvdWJ1bnR1LWFyY2hpdmUta2V5cmluZy5ncGcKClR5cGVzOiBkZWIKVVJJczogaHR0cDovL3NlY3VyaXR5LnVidW50dS5jb20vdWJ1bnR1LwpTdWl0ZXM6IG5vYmxlLXNlY3VyaXR5CkNvbXBvbmVudHM6IG1haW4gcmVzdHJpY3RlZCB1bml2ZXJzZSBtdWx0aXZlcnNlClNpZ25lZC1CeTogL3Vzci9zaGFyZS9rZXlyaW5ncy91YnVudHUtYXJjaGl2ZS1rZXlyaW5nLmdwZwo=";
 
@@ -18,7 +22,9 @@ export function aptUpdateCommand(options: { aptArgs?: string; log: string; sourc
   const aptGet = options.aptArgs ? `apt-get ${options.aptArgs}` : "apt-get";
   return [
     "apt_update_ok=0;",
-    "for attempt in 1 2; do",
+    `probe_url="$(awk '/^URIs:/{u=$2} /^Suites:/{s=$2} END{sub(/\\/$/, "", u); print u "/dists/" s "/InRelease"}' ${options.sources})";`,
+    `if curl -fsS -o /dev/null -r 0-0 -m 20 "$probe_url" >${options.log} 2>&1; then mirror_up=1; else mirror_up=0; echo "apt-update: probe $probe_url failed" >> ${options.log}; fi;`,
+    "[ \"$mirror_up\" -eq 0 ] || for attempt in 1 2; do",
     "  if [ \"$attempt\" -eq 1 ]; then timeout_s=180; else timeout_s=30; fi;",
     `  if timeout "\${timeout_s}s" ${aptGet} update -q --error-on=any >${options.log} 2>&1; then apt_update_ok=1; break; fi;`,
     "  [ \"$attempt\" -eq 2 ] || sleep 5;",

@@ -49,7 +49,7 @@ import {
   rdTmpfiles,
   rdUnit,
 } from "../scripts/cmux-vm-image/agent-tools";
-import { bakeOptionsFromArgv, daemonUnit } from "../scripts/cmux-vm-image/bake";
+import { bakeOptionsFromArgv, daemonUnit, desktopRecord } from "../scripts/cmux-vm-image/bake";
 import { CURRENT_BIN, type InputsLock, type LockedProgram, readInputsLock, rolesManifest, storeEntry } from "../scripts/cmux-vm-image/lock";
 import { DEVBOX_WORK_UID } from "../services/vms/images/workUser";
 import { runChild } from "./helpers/run-child";
@@ -363,6 +363,11 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
       const noRole: InputsLock = { ...withoutRd, programs: [...withoutRd.programs, { ...rd, roles: ["cua"] }] };
       expect(() => rdHostPath(noRole)).toThrow(/role desktop/);
       expect(rdHostPath(rdLock)).toBe(hostBin);
+    });
+
+    test("the bake records role desktop from the lock (so a layered bake with a cached agents layer records it too)", () => {
+      expect(desktopRecord(rdLock)).toEqual({ role: "desktop", program: "cmux-rd", version: rd.version, socketUnit: RD_SOCKET_UNIT, socket: RD_SOCKET });
+      expect(() => desktopRecord(withoutRd)).toThrow(/cmux-rd-v<version>/);
     });
 
     test("the socket is root:cmux 0660 (the link receiver runs as cmux) in a 0711 root dir, enabled at boot, and starts the host service", () => {

@@ -8,6 +8,8 @@
                   a long Codex exec in acpmux's log (27,564 updates for 223 calls, about 5 KB each)
   "subagents: K"  a turn that starts K subagents (subagent_spawned), each with a thought, eight
                   tool calls with output and a reply of its own, then ends them all (completed)
+  "edit: DIR"     a turn that edits DIR/src/file0.py .. file2.py (completed `edit` tool calls with a
+                  diff each), so the chat's header shows Changes (App.tsx lastEditTurn)
 
 Every other prompt is fake_agent.py's. Nothing here waits on a timer: each turn answers as fast
 as acpmux reads it, so seeding thousands of turns costs only acpmux's own time.
@@ -72,6 +74,19 @@ def subagents(sid, count):
     text(sid, "Every subagent reported; the findings are above.")
 
 
+def edit(sid, folder):
+    text(sid, "Adding the doubled helpers to each file.", "agent_thought_chunk")
+    for i in range(3):
+        path = os.path.join(folder, "src", f"file{i}.py")
+        added = "".join(f"def g{i}_{k}():\n    return {k} * 2\n\n" for k in range(40))
+        fake.update(sid, {"sessionUpdate": "tool_call", "toolCallId": f"edit-{i}", "title": f"Edit src/file{i}.py",
+                          "kind": "edit", "status": "in_progress", "locations": [{"path": path}],
+                          "rawInput": {"file_path": path}})
+        fake.update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": f"edit-{i}", "status": "completed",
+                          "content": [{"type": "diff", "path": path, "oldText": "", "newText": added}]})
+    text(sid, "Each file has its doubled helpers now.")
+
+
 def bloat(sid, calls, updates, kib):
     output = ("cargo build: compiling crate ... ok\n" * (kib * 32))[: kib * 1024]
     for c in range(calls):
@@ -96,6 +111,8 @@ def handle_prompt(rid, params):
         bloat(sid, calls, updates, kib)
     elif said.startswith("subagents:"):
         subagents(sid, int(said[10:].strip() or "3"))
+    elif said.startswith("edit:"):
+        edit(sid, said[5:].strip())
     else:
         original(rid, params)
         return

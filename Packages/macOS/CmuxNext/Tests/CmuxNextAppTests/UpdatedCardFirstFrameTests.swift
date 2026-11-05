@@ -234,5 +234,66 @@ struct UpdatedCardFirstFrameTests {
             #expect(relaunched.scrollView.frame.minY == listBottom, "the list moved (notes arrive: \(notesArrive))")
         }
     }
+
+    /// Review of #36248 (F1, #36267): the page can report a height before the sidebar's first layout
+    /// (a window laid out late, a page that answers fast). That report set `pageReported` before the slot
+    /// armed the hold, so the first frame used the page's short height (the host's items) and the late
+    /// notes grew the card. The hold is armed at the first layout whatever has reported, and the early
+    /// report is remembered at the card's width once it is known.
+    @Test func aPageReportBeforeTheFirstLayoutStillHoldsTheFirstFrame() throws {
+        Self.forget()
+        defer { Self.forget() }
+        let before = FakeSurfaces()
+        let first = Self.launch(before)
+        try #require(before.islands.first).report(77)
+        first.layoutSubtreeIfNeeded()
+        let drawn = first.updatedCardView.frame
+
+        // The relaunch: the page reports the host's items before the sidebar has laid out once.
+        let after = FakeSurfaces()
+        let relaunched = Self.unlaidLaunch(after)
+        let island = try #require(after.islands.first)
+        island.report(64)
+        relaunched.layoutSubtreeIfNeeded()
+        #expect(relaunched.updatedCardView.height == 77, "an early report skipped the first frame's hold")
+        #expect(relaunched.updatedCardView.frame == drawn, "the card's first frame is not its final one")
+        let listBottom = relaunched.scrollView.frame.minY
+
+        // The notes, late: nothing moves.
+        island.report(77)
+        relaunched.layoutSubtreeIfNeeded()
+        #expect(relaunched.updatedCardView.frame == drawn, "the card moved when its notes arrived")
+        #expect(relaunched.scrollView.frame.minY == listBottom, "the list moved when the notes arrived")
+    }
+
+    /// One launch whose sidebar has not laid out yet when the page reports.
+    static func unlaidLaunch(_ surfaces: FakeSurfaces, width: CGFloat = 260) -> SidebarView {
+        let model = SidebarModel(sections: [])
+        model.updatedCard = card
+        let sidebar = SidebarView(model: model, design: DesignSettings())
+        sidebar.frame = NSRect(x: 0, y: 0, width: width, height: 600)
+        sidebar.updateSurfaces = surfaces
+        sidebar.updatedCardView.configure(card)
+        return sidebar
+    }
+
+    /// F1 of #36248: a page's only report lands before the first layout. Its real height is remembered
+    /// at the card's width (the width is not known when it lands), so the next launch starts at it.
+    @Test func anEarlyReportIsRememberedAtTheCardsWidth() throws {
+        Self.forget()
+        defer { Self.forget() }
+        let before = FakeSurfaces()
+        let first = Self.launch(before)
+        try #require(before.islands.first).report(77)
+        first.layoutSubtreeIfNeeded()
+
+        let surfaces = FakeSurfaces()
+        let early = Self.unlaidLaunch(surfaces)
+        try #require(surfaces.islands.first).report(64)
+        early.layoutSubtreeIfNeeded()
+
+        let next = Self.launch(FakeSurfaces())
+        #expect(next.updatedCardView.height == 64, "the early report was not remembered at the card's width")
+    }
 }
 

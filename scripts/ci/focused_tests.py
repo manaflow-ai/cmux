@@ -43,7 +43,7 @@ Nothing here is a hand list that rots: the map is derived from the tree at the h
   python  A changed tests/test_*.py runs itself. Any other file selects the tests/test_*.py
           that name its repo path, or, for a script or workflow with a distinctive basename,
           that basename (`fast-tier.py`, `cmux-next.yml`). The lane comes from
-          tests/test-execution.toml; a runner runs only the lanes it can (linux-guard on Linux).
+          tests/test-execution.d/; a runner runs only the lanes it can (linux-guard on Linux).
 
 scripts/ci/focused-tests-extra.json adds what the tree cannot show: {"rules": [{"prefix":
 "Resources/markdown-viewer/", "python": ["tests/test_x.py"]}]}. Keep it small; a rule there is
@@ -72,7 +72,9 @@ PYTHON_TEST_DIRS = ("tests", "scripts/tests")
 WEB_CAP = int(os.environ.get("FOCUSED_WEB_CAP", "60"))
 # More Swift test targets than this is a whole-package run: the candidate's swift test tier.
 SWIFT_CAP = int(os.environ.get("FOCUSED_SWIFT_CAP", "8"))
-REGISTRY = "tests/test-execution.toml"
+REGISTRY = "tests/test-execution.toml"  # the single file before the split, read while present
+REGISTRY_FRAGMENTS = "tests/test-execution.d"
+REGISTRY_FRAGMENT = re.compile(r"tests/test-execution\.d/[^/]+\.toml")
 IMPORT = re.compile(r"^\s*(?:@testable\s+)?import\s+(?:(?:struct|class|enum|func|protocol)\s+)?([A-Za-z_][A-Za-z0-9_]*)", re.M)
 # A basename this common names many unrelated files; only its full path selects tests.
 COMMON = {"README.md", "Package.swift", "Package.resolved", "Cargo.toml", "Cargo.lock", "index.ts",
@@ -87,11 +89,22 @@ def changed_files(root: Path, base: str, head: str) -> list[str]:
     return sorted({line for line in out.splitlines() if line})
 
 
+def registry_texts(root: Path) -> list[str]:
+    """The registry's files in reading order: the old single file, then each area fragment by name."""
+    paths = [root / REGISTRY] if (root / REGISTRY).is_file() else []
+    if (root / REGISTRY_FRAGMENTS).is_dir():
+        paths += sorted((root / REGISTRY_FRAGMENTS).glob("*.toml"), key=lambda path: path.name)
+    return [path.read_text(encoding="utf-8") for path in paths]
+
+
 def lanes(root: Path) -> dict[str, str]:
-    path = root / REGISTRY
-    if not path.is_file():
-        return {}
-    text = path.read_text(encoding="utf-8")
+    found = {}
+    for text in registry_texts(root):
+        found.update(registry_lanes(text))
+    return found
+
+
+def registry_lanes(text: str) -> dict[str, str]:
     if tomllib:
         return {t["path"]: (t.get("lane", ""), bool(t.get("serial"))) for t in tomllib.loads(text).get("test", [])}
     found, current = {}, None
@@ -337,6 +350,12 @@ def plan(root: Path, files: list[str]) -> dict:
             if test != path and (path in text or (name and name in text)):
                 python.setdefault(test, f"names {path if path in text else name}")
                 hit = True
+        if REGISTRY_FRAGMENT.fullmatch(path):
+            # A registry fragment selects what the single file did: the tests that read the registry.
+            for test, text in corpus.items():
+                if REGISTRY in text or REGISTRY_FRAGMENTS in text:
+                    python.setdefault(test, f"reads the test registry ({path})")
+                    hit = True
         for rule in extra:
             if path.startswith(rule["prefix"]):
                 for test in rule.get("python", []):

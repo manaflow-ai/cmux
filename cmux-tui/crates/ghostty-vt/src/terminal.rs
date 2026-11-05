@@ -207,6 +207,15 @@ pub struct VtReplay {
     pub pending_sequence: Vec<u8>,
 }
 
+/// A replay that keeps only the newest rows of the history
+/// ([`Terminal::vt_replay_tail_theme_portable_with_aliases`]).
+#[derive(Debug, Clone)]
+pub struct VtReplayTail {
+    pub replay: VtReplay,
+    /// Rows of history older than the replay's first row, left out.
+    pub history_rows_omitted: u64,
+}
+
 impl VtReplay {
     /// One byte stream for consumers that append nothing between the replay
     /// and the live stream.
@@ -2046,6 +2055,21 @@ impl Terminal {
         self.vt_replay_bounded_with_palette(max_bytes, false)
     }
 
+    /// [`Self::vt_replay_bounded_theme_portable_with_aliases`] that keeps at
+    /// most `max_history_rows` rows of scrollback above the active area: the
+    /// latest screen first, for a viewer that fetches older rows later. The
+    /// active area itself always comes whole, and so do the rows of the
+    /// visible Kitty images' anchors.
+    /// `history_rows_omitted` says how many older rows were left out (0: the
+    /// replay holds the whole history).
+    pub fn vt_replay_tail_theme_portable_with_aliases(
+        &mut self,
+        max_bytes: usize,
+        max_history_rows: u64,
+    ) -> Result<VtReplayTail> {
+        self.vt_replay_bounded_tail(max_bytes, false, Some(max_history_rows))
+    }
+
     /// Bytes appended after the formatted replay for state Ghostty's VT
     /// formatter does not emit.
     fn replay_state_suffix(&self) -> Vec<u8> {
@@ -2110,6 +2134,15 @@ impl Terminal {
         max_bytes: usize,
         include_palette: bool,
     ) -> Result<VtReplay> {
+        self.vt_replay_bounded_tail(max_bytes, include_palette, None).map(|tail| tail.replay)
+    }
+
+    fn vt_replay_bounded_tail(
+        &mut self,
+        max_bytes: usize,
+        include_palette: bool,
+        max_history_rows: Option<u64>,
+    ) -> Result<VtReplayTail> {
         let (inflight, pending) = self.replay_inflight_and_pending(max_bytes)?;
         let state_suffix = self.replay_state_suffix();
         let remaining = max_bytes
@@ -2134,6 +2167,7 @@ impl Terminal {
             catalog.placement_rows(),
             active_start,
             include_palette,
+            max_history_rows,
         )?;
         let visible_cost =
             active_text.range.map(|range| catalog.visible_cost(range, remaining)).unwrap_or(0);
@@ -2154,8 +2188,10 @@ impl Terminal {
                 catalog.placement_rows(),
                 active_start,
                 include_palette,
+                max_history_rows,
             )?
         };
+        let history_rows_omitted = text.range.map_or(0, |range| range.start);
         let graphics_budget = remaining.saturating_sub(text.bytes.len());
         let graphics = catalog.plan(text.range, graphics_budget, false);
         let reset_before_images = text.range.is_none();
@@ -2185,12 +2221,13 @@ impl Terminal {
         bytes.extend_from_slice(&state_suffix);
         let replay_cursor_offset = u32::try_from(bytes.len()).map_err(|_| Error::OutOfSpace)?;
         bytes.extend_from_slice(&inflight);
-        Ok(VtReplay {
+        let replay = VtReplay {
             bytes,
             kitty_image_aliases: graphics.aliases,
             kitty_state: self.kitty_replay_state(replay_cursor_offset)?,
             pending_sequence: pending,
-        })
+        };
+        Ok(VtReplayTail { replay, history_rows_omitted })
     }
 
     /// Bounded byte-only compatibility replay. This discards Kitty aliases.
@@ -2204,6 +2241,7 @@ impl Terminal {
         placement_rows: &KittyReplayRowIndex,
         minimum_start: Option<u64>,
         include_palette: bool,
+        max_history_rows: Option<u64>,
     ) -> Result<ReplayText> {
         #[cfg(test)]
         REPLAY_TEXT_LAYOUTS.with(|count| count.set(count.get() + 1));
@@ -2219,10 +2257,17 @@ impl Terminal {
             .unwrap_or_else(|| scrollbar.total.saturating_sub(screen_rows))
             .min(scrollbar.total - 1);
         let minimum_rows = scrollbar.total.saturating_sub(minimum_start).max(screen_rows);
+        // The newest rows a tail replay may hold: the screen and its history
+        // allowance, never fewer than the rows that must come whole.
+        let limit = max_history_rows
+            .map_or(scrollbar.total, |history| {
+                screen_rows.saturating_add(history).max(minimum_rows)
+            })
+            .min(scrollbar.total);
         let mut tail_rows =
             vt_replay_row_window(scrollbar.total, screen_rows, self.cols(), max_bytes)
                 .max(minimum_rows)
-                .min(scrollbar.total);
+                .min(limit);
         let mut best = None;
         let mut failed_start = None;
 
@@ -2237,7 +2282,7 @@ impl Terminal {
                 max_bytes,
                 include_palette,
             )? {
-                if tail_rows == scrollbar.total {
+                if tail_rows == limit {
                     return Ok(replay);
                 }
                 if let Some(failed_start) = failed_start {
@@ -2250,7 +2295,7 @@ impl Terminal {
                     );
                 }
                 best = Some(replay);
-                let next = tail_rows.saturating_mul(2).min(scrollbar.total);
+                let next = tail_rows.saturating_mul(2).min(limit);
                 if next == tail_rows {
                     break;
                 }

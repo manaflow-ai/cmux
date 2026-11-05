@@ -101,7 +101,7 @@ import { translate } from "./i18n";
 import { OFFER_RESULT, offersShown } from "./offer/offersShown";
 import { cliHost, incomingPrompt, type IncomingContext, type IncomingMessage } from "./conversation/incomingMessage";
 import { noticeRowText } from "./conversation/agentNotice";
-import { inboxText, type InboxMessage, type InboxNotice } from "./conversation/inboxNotice";
+import { inboxMessages, inboxText, type InboxMessage, type InboxNotice } from "./conversation/inboxNotice";
 import { recapDismissed, rememberRecapDismissed } from "./conversation/recapDismissed";
 import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
@@ -652,6 +652,7 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
     ...(typeof toolCall?.toolCallId === "string" ? { toolCallId: toolCall.toolCallId } : {}),
     scope: permissionScopeFromMessage(raw, toolCall),
     diffs: permissionDiffs(toolCall),
+    plan: permissionPlan(toolCall, claudeMeta),
     pending: true,
     options: (raw.options ?? []).map((option: any) => ({
       id: String(option.optionId ?? option.id),
@@ -1165,6 +1166,30 @@ export function permissionDiffs(
   tool: { kind?: unknown; content?: unknown; locations?: unknown; rawInput?: unknown } | undefined,
 ): AcpmuxFileDiff[] | undefined {
   return toolDiffs(tool?.content, tool?.locations) ?? (tool?.kind === "edit" ? inputDiffs(tool.rawInput) : undefined);
+}
+
+/// The plan a plan approval asks about: one acpmux attached (`_meta.acpmux.plan.markdown`, as for
+/// Gemini's plan file), Claude Code's ExitPlanMode input `plan`, or the plan acpmux puts in a
+/// `switch_mode` ask it builds from Grok's and Cursor's own plan approvals (hub xai.rs,
+/// cursor_ext.rs), from its input or else its text content. Undefined for any other ask, and for a
+/// plan approval with no plan text.
+export function permissionPlan(
+  tool: { kind?: unknown; content?: unknown; rawInput?: unknown; _meta?: unknown } | undefined,
+  claudeMeta?: { tool?: unknown },
+): string | undefined {
+  const attached = stringValue(objectValue(objectValue(objectValue(tool?._meta)?.acpmux)?.plan)?.markdown)?.trim();
+  if (attached) return attached;
+  if (claudeMeta?.tool !== "ExitPlanMode" && tool?.kind !== "switch_mode") return undefined;
+  const input = stringValue(objectValue(tool?.rawInput)?.plan)?.trim();
+  if (input) return input;
+  const text = Array.isArray(tool?.content)
+    ? tool.content
+        .map((item: any) => (item?.type === "content" && item.content?.type === "text" ? item.content.text : ""))
+        .filter((part: unknown): part is string => typeof part === "string" && part.trim() !== "")
+        .join("\n\n")
+        .trim()
+    : "";
+  return text || undefined;
 }
 
 /// The input an earlier event of a call carried, kept as its `inputSummary` JSON.
@@ -8605,21 +8630,7 @@ export class AcpmuxDirectClient {
     const reply = (await this.request("_acpmux/inbox_thread", { sessionId, threadId }, 15_000)) as {
       messages?: unknown;
     } | null;
-    const messages = Array.isArray(reply?.messages) ? reply.messages : [];
-    return messages
-      .flatMap((m): InboxMessage[] => {
-        const r = m as Record<string, unknown> | null;
-        if (!r || typeof r.text !== "string") return [];
-        return [
-          {
-            from: typeof r.from === "string" ? r.from : "",
-            text: r.text,
-            ...(typeof r.promptId === "string" && { promptId: r.promptId }),
-            ...(typeof r.at === "number" && { at: r.at }),
-          },
-        ];
-      })
-      .reverse();
+    return inboxMessages(Array.isArray(reply?.messages) ? reply.messages : []).reverse();
   }
   /// An offer the reducer draws: offers of one group share one card, in the order they came.
   private addOffer(offer: AcpmuxSessionOffer, at: number): void {
