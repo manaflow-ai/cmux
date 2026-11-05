@@ -666,6 +666,67 @@ async fn leave_with_the_hub_down_changes_nothing_unless_local_only() {
     server.join().unwrap();
 }
 
+/// A record copied from another box, as a daemon start on this one left it.
+fn cloned_record(home: &Path, origin: &str) -> Vec<u8> {
+    let path = home.join(FINAL);
+    std::fs::write(&path, json!({"credential":CREDENTIAL,"machine_id":"machine_original","team_id":"team_test","name":"test","hub_origin":origin,"last_heartbeat":null,"revoked":false,"wgPublicKey":"original-key","credential_generation":1,"host_fingerprint":"another-box","cloned":true}).to_string()).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    std::fs::read(&path).unwrap()
+}
+
+#[tokio::test]
+async fn status_on_a_copied_home_says_cloned_and_never_sends_the_originals_credential() {
+    let home = tempfile::tempdir().unwrap();
+    // Any request here would be the original box's credential leaving the copy.
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let original = cloned_record(home.path(), &origin);
+    let result = tokio::time::timeout(
+        Duration::from_secs(10),
+        cli(home.path()).args(["host", "join", "--status", "--json"]).output(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_exit(&result, 0);
+    assert_redacted(&result);
+    let body: Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(body["cloned"], true);
+    assert!(body["hint"].as_str().is_some_and(|hint| hint.contains("new join line")), "{body}");
+    assert_eq!(body["revoked"], false);
+    assert_eq!(body["hubReachable"], false);
+    listener.set_nonblocking(true).unwrap();
+    assert!(
+        matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock),
+        "the copy called the hub"
+    );
+    assert!(std::fs::read(home.path().join(FINAL)).unwrap() == original);
+    let text = cli(home.path()).args(["host", "join", "--status"]).output().await.unwrap();
+    assert!(String::from_utf8_lossy(&text.stdout).starts_with("cloned: "));
+}
+
+#[tokio::test]
+#[ignore = "mutates OS-account consent; run with --include-ignored in a disposable Unix account"]
+async fn a_new_join_on_a_copy_gets_its_own_credential_without_touching_the_original() {
+    let consent = machine_consent_home::ConsentHome::isolated();
+    let home = tempfile::tempdir().unwrap();
+    // The hub's script refuses a `replaceCredential`: the copy never retires the original.
+    let (origin, server) =
+        hub(vec![Step::Redeem(200), Step::Live(None)], home.path(), &consent.root);
+    cloned_record(home.path(), &origin);
+    let output = join(home.path(), Some(&origin), true, false).await;
+    assert_exit(&output, 0);
+    let answer: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(answer["joined"], true, "a copy is not already joined");
+    let record = read_json(&home.path().join(FINAL));
+    assert!(record["credential"] != CREDENTIAL);
+    assert_eq!(record["machine_id"], "machine_test");
+    assert!(record.get("cloned").is_none());
+    assert!(record["wgPublicKey"] != "original-key");
+    assert_complete(home.path(), &origin);
+    server.join().unwrap();
+}
+
 #[tokio::test]
 async fn status_records_the_person_and_grants_its_own_machines_on_an_older_join() {
     let home = tempfile::tempdir().unwrap();

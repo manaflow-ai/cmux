@@ -209,6 +209,9 @@ async fn probe(p: &Pending) -> Result<Probe> {
         // Optional until every hub names it: a missing or malformed one only means no
         // automatic same-person control, never a failed join.
         user_id: body.user_id.as_ref().and_then(|user| safe_id(&user.to_string())),
+        // Joined on this box: a later start on another box finds the copy.
+        host_fingerprint: host_fingerprint::current(),
+        cloned: false,
     })))
 }
 
@@ -329,6 +332,10 @@ pub(super) async fn join(
             Probe::Unknown => p,
         }
     } else {
+        // A home copied from another box: mark it and give this box its own node key before
+        // anything proposes one (the caller holds the join lock).
+        settle_clone_at(&state_dir(), host_fingerprint::current().as_deref())
+            .map_err(|_| store_error())?;
         if already_joined(replace, json_out)? {
             return Ok(());
         }
@@ -342,8 +349,12 @@ pub(super) async fn join(
         }
         let prior = if replace {
             match load().map_err(|_| store_error())? {
-                Some(old) => replacement_proof(old).await?,
-                None => None,
+                // A copy never proves a replacement with the original box's credential: that
+                // would retire the original's enrollment from here.
+                Some(old) if !copied_here(&old, host_fingerprint::current().as_deref()) => {
+                    replacement_proof(old).await?
+                }
+                _ => None,
             }
         } else {
             None

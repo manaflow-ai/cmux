@@ -425,6 +425,16 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     }
     let mailbox = crate::mailbox::Mailbox::open(home().join("mailbox"))?;
     let memory_store = config.store.mode == crate::config::StoreMode::Memory;
+    // A machine credential copied here from another box (`cli/cloud_join/host_fingerprint.rs`)
+    // is marked cloned and this box gets its own node key, before the WireGuard transport and
+    // the mesh relay read either.
+    match crate::cli::cloud_join::settle_clone_at_start() {
+        Ok(crate::cli::cloud_join::CloneCheck::Cloned) => tracing::warn!(
+            "machine credential was copied from another machine: not used here; this machine has a new node key. Paste a new join line to join it."
+        ),
+        Ok(_) => {}
+        Err(e) => tracing::warn!("machine clone check skipped: {e:#}"),
+    }
     // Start one mesh before Hub starts its saved peers. It forwards only to
     // the WebSocket listener bound above, whose existing tokens remain mandatory.
     let wireguard = if config.transport.wireguard {
