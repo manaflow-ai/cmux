@@ -94,7 +94,9 @@ public final class AgentPaneTailCache {
     /// because the page has read on since and this one is what it now stands behind.
     public func remember(_ tail: JSONValue?, for sessionId: String) {
         guard acceptsTails else { return }
-        let held = tail.flatMap { Self.holds($0) ? $0 : nil }
+        // Typed: `JSONValue` is `ExpressibleByNilLiteral`, so an untyped `nil` here was `.null`, and a
+        // refused tail was kept as `.null` instead of forgotten.
+        let held: JSONValue? = if let tail, Self.holds(tail) { tail } else { nil }
         hold(held, for: sessionId)
         disk?.write(held, for: sessionId)
     }
