@@ -450,6 +450,9 @@ fn native_token_receiver_reports_a_newer_peer_binding_as_policy_behind_and_still
     for token in [forged, signed(&other)] {
         assert!(verifier.verify(&token, &expected(Service::Daemon)).is_err());
     }
+    // A newer token for this peer, sent over another WireGuard session: no hint.
+    let wrong = Expected { peer_key: &[7; 32], ..expected(Service::Daemon) };
+    assert!(verifier.verify(&signed(&c), &wrong).is_err());
     assert_eq!(behind.load(Ordering::SeqCst), 2, "only a signed, current token hints");
     // The current token still verifies: the hint admits nothing and spends nothing.
     assert!(verifier.verify(f["token"].as_str().unwrap(), &expected(Service::Daemon)).is_ok());

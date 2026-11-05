@@ -455,10 +455,17 @@ impl TokenVerifier for NativeTokenVerifier {
                 && p.binding == c.network
                 && p.binding.key().as_ref() == Some(expected.peer_key)
         }) else {
-            // Signed and current in every other claim: only the peer binding
-            // differs, so this policy is behind the control plane's.
+            // Signed and current in every other claim, bound to the WireGuard
+            // key this stream came in on, and only its binding differs from the
+            // policy's peer for that key: the policy is behind the control
+            // plane's. A token for another peer, or sent over another peer's
+            // session, never hints (the renewal loop also spaces early reads).
+            let newer = c.network.key().as_ref() == Some(expected.peer_key)
+                && policy.peers.iter().any(|p| {
+                    p.install == c.sub && p.binding.key().as_ref() == Some(expected.peer_key)
+                });
             drop(state);
-            if let Some(hook) = self.behind.get() {
+            if newer && let Some(hook) = self.behind.get() {
                 hook();
             }
             return Err(TokenRefused::Invalid);
