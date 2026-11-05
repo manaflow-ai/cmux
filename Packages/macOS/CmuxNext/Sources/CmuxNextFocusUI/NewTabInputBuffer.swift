@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextActions
 
 /// One opening owns its original key events until its field and native responder are ready.
 /// The hold always ends: by the field's readiness, by the opening ending (the page left, focus
@@ -45,13 +46,16 @@ public final class NewTabInputBuffer {
     /// before create"), so they go with it, never to another tab.
     public func discard() { events.removeAll() }
 
-    /// Gives every held key, in typing order, to the normal dispatch (whatever has focus now).
+    /// Gives every held key, in typing order, to the normal dispatch (whatever has focus now). They are the person's own
+    /// keys, so they go on in no action's run, whatever run ends the hold (a CLI's opening, a menu pick, a create task).
     public func release() {
         guard !replaying else { return }
         replaying = true
         let pending = events
         events.removeAll()
-        for event in pending { deliver(event) }
+        ActionRunScope.carrying(nil) {
+            for event in pending { deliver(event) }
+        }
         replaying = false
     }
 }
