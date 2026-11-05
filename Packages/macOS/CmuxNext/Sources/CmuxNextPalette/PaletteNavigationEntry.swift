@@ -56,10 +56,15 @@ public nonisolated struct PaletteNavigationEntry: Sendable, Hashable, Identifiab
     /// The machine whose daemon holds the pane or tab; nil for this Mac's. Forks keep
     /// ids, so choosing the row acts on this machine's object only (cmux#30755).
     public var machineID: String?
+    /// The sidebar place (0 is the top) of the row's workspace, or of a group's first workspace;
+    /// nil when the sidebar does not draw it.
+    public var sidebarRank: Int?
 
     public init(id: String, kind: Kind, title: String, workspaceTitle: String? = nil, workspaceID: String? = nil, groupTitle: String? = nil,
                 cwd: String? = nil, url: String? = nil, agent: String? = nil, sessionID: String? = nil, keywords: [String] = [],
-                color: GroupColor? = nil, isCurrent: Bool = false, lastUsed: Date? = nil, machineID: String? = nil) {
+                color: GroupColor? = nil, isCurrent: Bool = false, lastUsed: Date? = nil, machineID: String? = nil,
+                sidebarRank: Int? = nil) {
+        self.sidebarRank = sidebarRank
         self.id = id
         self.kind = kind
         self.title = title

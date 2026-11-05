@@ -136,8 +136,15 @@ public final class PaletteModel {
     /// one never writes the cache.
     @ObservationIgnored var emptyRankRequests: [String: PaletteEmptyRankRequest] = [:]
     @ObservationIgnored var emptyRankRequestCounter = 0
-    /// The usage history's owner; `frecency` mirrors its `history`.
+    /// The usage history's owner; `frecency` mirrors its `history` (only its hidden rows while
+    /// ``remembersSearches`` is off).
     @ObservationIgnored let usage: any PaletteUsageStore
+    /// cmux.json `palette.searchHistory`: off, runs are not recorded and nothing ranks by history.
+    @ObservationIgnored public var remembersSearches = true {
+        didSet {
+            if remembersSearches != oldValue { syncHistory() }
+        }
+    }
     @ObservationIgnored public internal(set) var nav = PaletteNavState()
     /// The typed query's frame signposts (key.palette_query_rows, key.palette_query_answer).
     @ObservationIgnored var queryFrames = PaletteQueryFrameMarks()
@@ -188,8 +195,7 @@ public final class PaletteModel {
         self.usage = usage
         self.frecency = usage.history
         usage.onChange = { [weak self] in
-            guard let self else { return }
-            frecency = self.usage.history
+            self?.syncHistory()
         }
     }
 
@@ -328,8 +334,20 @@ public final class PaletteModel {
     /// Records a use of `key` (an item's `frecencyKey`) from outside the
     /// palette, so actions run by shortcut or menu also rank higher here.
     public func recordUse(_ key: String, query: String = "") {
+        guard remembersSearches else { return }
         usage.recordUse(key: key, query: query, at: now())
-        frecency = usage.history
+        syncHistory()
+    }
+
+    /// Clear Search History (`palette.clearSearchHistory`): forgets every use and learned pick.
+    public func clearSearchHistory() {
+        usage.clearHistory()
+        syncHistory()
+    }
+
+    /// Mirrors the usage store's history into ``frecency``, the one history every rank reads.
+    func syncHistory() {
+        frecency = remembersSearches ? usage.history : usage.history.keepingOnlyHidden()
     }
 
     /// Runs `command` for `item`, recording usage.

@@ -18,12 +18,12 @@ nonisolated struct PaletteNavigationGroup: Hashable {
 /// lone tab (not in a Home, `WorkspaceModel.isAnyHome`). Tabs closing now are left out, as in Search Tabs.
 nonisolated enum PaletteNavigationEntries {
     static func entries(_ topology: ControlTopology, groups: [PaletteNavigationGroup], lastActive: [String: Date],
-                        closing: Set<String> = []) -> [PaletteNavigationEntry] {
+                        closing: Set<String> = [], sidebarRanks: [String: Int] = [:]) -> [PaletteNavigationEntry] {
         var groupOfWorkspace: [String: String] = [:]
         var entries: [PaletteNavigationEntry] = groups.map { group in
             for workspace in group.workspaceIDs where groupOfWorkspace[workspace] == nil { groupOfWorkspace[workspace] = group.name }
             return PaletteNavigationEntry(id: group.id, kind: .group(workspaceCount: group.workspaceIDs.count), title: group.name,
-                                          color: group.color)
+                                          color: group.color, sidebarRank: group.workspaceIDs.compactMap { sidebarRanks[$0] }.min())
         }
         let focus = topology.focus
         for workspace in topology.workspaces {
@@ -38,14 +38,15 @@ nonisolated enum PaletteNavigationEntries {
                     entries.append(PaletteNavigationEntry(
                         id: pane.id, kind: .pane, title: pane.name ?? selected?.title ?? "", workspaceTitle: workspace.name, workspaceID: workspace.id,
                         groupTitle: groupTitle, cwd: selected?.cwd, keywords: tabs.map(\.title), isCurrent: pane.id == focus.paneID,
-                        lastUsed: tabs.compactMap { lastActive[$0.id] }.max(), machineID: workspace.machine))
+                        lastUsed: tabs.compactMap { lastActive[$0.id] }.max(), machineID: workspace.machine,
+                        sidebarRank: sidebarRanks[workspace.id]))
                 }
                 for tab in tabs where !folds {
                     entries.append(PaletteNavigationEntry(
                         id: tab.id, kind: .tab(kind(of: tab)), title: tab.title, workspaceTitle: workspace.name, workspaceID: workspace.id,
                         groupTitle: groupTitle,
                         cwd: tab.cwd, url: tab.url, agent: tab.agent, sessionID: sessionID(of: tab), isCurrent: tab.id == focus.tabID,
-                        lastUsed: lastActive[tab.id]))
+                        lastUsed: lastActive[tab.id], sidebarRank: sidebarRanks[workspace.id]))
                 }
             }
         }
