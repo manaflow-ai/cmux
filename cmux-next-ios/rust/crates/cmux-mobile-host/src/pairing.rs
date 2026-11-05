@@ -120,7 +120,7 @@ pub struct TrustedDevice {
     pub kind: crate::peer::PeerKind,
     /// What a machine may do here (`peer.rs`). Ignored for phones, whose
     /// lanes are unchanged.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::peer::known_grants")]
     pub grants: Vec<crate::peer::Grant>,
 }
 

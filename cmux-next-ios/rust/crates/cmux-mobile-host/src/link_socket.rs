@@ -315,20 +315,7 @@ async fn authenticate(
         )
         .await
         .map_err(|_| closed("auth"))?;
-    let next = |channel: &mut cmux_mobile_link::Channel| {
-        let deadline = AUTH_TIMEOUT;
-        async move {
-            match tokio::time::timeout(deadline, channel.recv()).await {
-                Ok(Some(ChannelEvent::Data(bytes))) => {
-                    serde_json::from_slice::<Value>(&bytes).map_err(|_| ("bad_reply", "not JSON".to_owned()))
-                }
-                Ok(Some(ChannelEvent::Closed(info))) => Err((close_code(&info.code), info.reason)),
-                Ok(None) => Err(("closed", "the link closed".to_owned())),
-                Err(_) => Err(("timeout", "nobody answered on that machine".to_owned())),
-            }
-        }
-    };
-    let challenge = next(&mut channel).await?;
+    let challenge = next_reply(&mut channel).await?;
     let nonce = challenge.get("challenge").and_then(Value::as_str).unwrap_or_default();
     if challenge.get("mac").and_then(Value::as_str) != Some(peer) {
         return Err(("bad_reply", "that machine answered for another device id".to_owned()));
@@ -341,7 +328,7 @@ async fn authenticate(
         .await
         .map_err(|_| closed("auth"))?;
     loop {
-        let answer = next(&mut channel).await?;
+        let answer = next_reply(&mut channel).await?;
         if answer.get("ok").and_then(Value::as_bool) == Some(true) {
             return Ok(());
         }
@@ -351,6 +338,18 @@ async fn authenticate(
             continue;
         }
         return Err(("bad_reply", answer.to_string()));
+    }
+}
+
+/// The next JSON reply on `auth`, or why there is none.
+async fn next_reply(channel: &mut cmux_mobile_link::Channel) -> Result<Value, Refused> {
+    match tokio::time::timeout(AUTH_TIMEOUT, channel.recv()).await {
+        Ok(Some(ChannelEvent::Data(bytes))) => {
+            serde_json::from_slice::<Value>(&bytes).map_err(|_| ("bad_reply", "not JSON".to_owned()))
+        }
+        Ok(Some(ChannelEvent::Closed(info))) => Err((close_code(&info.code), info.reason)),
+        Ok(None) => Err(("closed", "the link closed".to_owned())),
+        Err(_) => Err(("timeout", "nobody answered on that machine".to_owned())),
     }
 }
 

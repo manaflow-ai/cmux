@@ -128,9 +128,9 @@ import Testing
         #expect(devices.devices[0].fingerprint.count == 16)
     }
 
-    /// Another of the person's Macs (docs/multi-machine-sessions.md): allowed, it starts with `view`
-    /// only, reaches hostd as a `mac` record with its grants, and never approves agent actions.
-    @Test func anAllowedMacStartsWithViewAndIsNeverAnApprover() throws {
+    /// Another of the person's Macs (docs/multi-machine-sessions.md): allowed, it starts with no
+    /// grant at all, reaches hostd as a `mac` record with its grants, and never approves agent actions.
+    @Test func anAllowedMacStartsWithNoGrantAndIsNeverAnApprover() throws {
         var devices = MobileHostPairedDevices(userID: "u")
         let mac = MobileHostPairRequest(phoneDeviceID: "m1", name: "Studio", identityKey: Self.identity, approvalKey: "", kind: "mac")
         #expect(mac.isMachine)
@@ -139,7 +139,7 @@ import Testing
         #expect(devices.decision(for: mac) == .trusted)
         // The same keys asking as a phone are a different request.
         #expect(devices.decision(for: MobileHostPairRequest(phoneDeviceID: "m1", name: "Studio", identityKey: Self.identity, approvalKey: "")) == .ask)
-        #expect(devices.devices[0].grants == ["view"])
+        #expect(devices.devices[0].grants.isEmpty, "pairing grants nothing")
         devices.setGrants(["run", "view", "root"], for: "m1")
         #expect(devices.devices[0].grants == ["view", "run"], "unknown grants are dropped, the order is fixed")
         devices.approve(Self.request, at: Date(timeIntervalSince1970: 6))

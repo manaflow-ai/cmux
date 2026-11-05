@@ -48,7 +48,9 @@ impl PeerKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Grant {
-    /// See this machine, its workspaces and chats; read files in chat roots.
+    /// See this machine's workspaces and chats; read files in chat roots. Never
+    /// given at pairing: the person grants it (pairing alone opens only
+    /// `echo`, `version` and `machine`, which say nothing about the person's work).
     View,
     /// Type into terminals, answer agents, open and close tabs (the phone's lanes).
     Control,
@@ -72,26 +74,43 @@ impl Grant {
     }
 }
 
-/// The grant a machine peer needs to open `service`. `None`: the service is
-/// not offered to machines at all (refused `not_granted` whatever it holds).
+/// The grants of a `devices` record, dropping words this hostd does not know
+/// (a newer app's grant), so one new word never voids the whole trust list.
+pub fn known_grants<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Vec<Grant>, D::Error> {
+    let words = Vec::<String>::deserialize(deserializer)?;
+    Ok(words.iter().filter_map(|word| serde_json::from_value(serde_json::Value::from(word.as_str())).ok()).collect())
+}
+
+/// What a machine peer needs to open a service.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Need {
+    /// Only to be paired: the service says nothing about the person's work.
+    Paired,
+    /// This grant, which the person gave it on this Mac.
+    Grant(Grant),
+}
+
+/// What a machine peer needs to open `service`. `None`: the service is not
+/// offered to machines at all (refused `not_offered` whatever it holds).
 ///
 /// Phones never come here: their lanes are `policy.rs` and the service list
 /// in `services.rs`, unchanged.
-pub fn grant_for(service: &str) -> Option<Grant> {
+pub fn need_for(service: &str) -> Option<Need> {
     Some(match service {
-        "echo" | "version" | "machine" => Grant::View,
-        "file" | "file-preview" | "needs-you" => Grant::View,
-        "daemon" | "acpmux" | "chief" | "upload" | "browser" | "surface" | "localhost" => Grant::Control,
+        "echo" | "version" | "machine" => Need::Paired,
+        "file" | "file-preview" | "needs-you" => Need::Grant(Grant::View),
+        "daemon" | "acpmux" | "chief" | "upload" | "browser" | "surface" | "localhost" => Need::Grant(Grant::Control),
         // Cloud chats ride the Mac's own Cloud session: a phone's lane only.
         _ => return None,
     })
 }
 
-/// Whether `grants` lets a machine open `service`.
+/// Whether `grants` lets a paired machine open `service`.
 pub fn allows(grants: &[Grant], service: &str) -> Result<(), &'static str> {
-    match grant_for(service) {
-        Some(needed) if grants.contains(&needed) => Ok(()),
-        Some(_) => Err("not_granted"),
+    match need_for(service) {
+        Some(Need::Paired) => Ok(()),
+        Some(Need::Grant(needed)) if grants.contains(&needed) => Ok(()),
+        Some(Need::Grant(_)) => Err("not_granted"),
         None => Err("not_offered"),
     }
 }
@@ -112,16 +131,19 @@ mod tests {
 
     #[test]
     fn a_machine_opens_only_what_it_was_granted() {
+        // Paired with nothing granted: it may say hello and ask what it may do, nothing more.
+        assert!(allows(&[], "machine").is_ok());
+        assert!(allows(&[], "version").is_ok());
+        assert_eq!(allows(&[], "file"), Err("not_granted"));
+        assert_eq!(allows(&[], "file-preview"), Err("not_granted"));
+        assert_eq!(allows(&[], "needs-you"), Err("not_granted"));
         let view = [Grant::View];
-        assert!(allows(&view, "machine").is_ok());
-        assert!(allows(&view, "version").is_ok());
+        assert!(allows(&view, "file-preview").is_ok());
         assert_eq!(allows(&view, "daemon"), Err("not_granted"));
         assert_eq!(allows(&view, "acpmux"), Err("not_granted"));
         let control = [Grant::View, Grant::Control];
         assert!(allows(&control, "daemon").is_ok());
         assert!(allows(&control, "surface").is_ok());
-        // Nothing at all: even `machine` is refused.
-        assert_eq!(allows(&[], "machine"), Err("not_granted"));
         // Phone-only lanes and unknown names are never offered to machines.
         assert_eq!(allows(&[Grant::View, Grant::Control], "cloud-acpmux"), Err("not_offered"));
         assert_eq!(allows(&[Grant::View, Grant::Control], "cloud-directory"), Err("not_offered"));
@@ -133,5 +155,12 @@ mod tests {
         let grants: Vec<Grant> = serde_json::from_str(r#"["view","control","install"]"#).unwrap();
         assert_eq!(grants, vec![Grant::View, Grant::Control, Grant::Install]);
         assert!(serde_json::from_str::<Vec<Grant>>(r#"["shell"]"#).is_err());
+        #[derive(Deserialize)]
+        struct Record {
+            #[serde(deserialize_with = "known_grants")]
+            grants: Vec<Grant>,
+        }
+        let record: Record = serde_json::from_str(r#"{"grants":["view","screen","run"]}"#).unwrap();
+        assert_eq!(record.grants, vec![Grant::View, Grant::Run], "a newer grant is dropped, not fatal");
     }
 }

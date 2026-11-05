@@ -64,7 +64,8 @@ public struct MobileHostPairedDevice: Sendable, Equatable, Codable, Identifiable
     /// `phone`, or a machine (`mac`, `linux`) with ``grants``.
     public var kind: String
     /// What a machine may do here (`view`, `control`, `run`, `install`, `move`); hostd re-reads
-    /// it at every channel open. Empty for phones, which keep their own lanes.
+    /// it at every channel open. Empty at pairing (a paired machine may only ask what it may
+    /// do), and always empty for phones, which keep their own lanes.
     public var grants: [String]
 
     public init(id: String, name: String, identityKey: String, approvalKey: String, pairedAt: Date,
@@ -141,7 +142,7 @@ public struct MobileHostPairedDevices: Sendable, Equatable, Codable {
         if request.transport == .hostd { denied.removeAll { $0.id == request.phoneDeviceID } }
         devices.append(MobileHostPairedDevice(id: request.phoneDeviceID, name: request.name, identityKey: request.identityKey,
                                        approvalKey: request.approvalKey, pairedAt: date, transport: request.transport,
-                                       kind: request.kind, grants: request.isMachine ? ["view"] : []))
+                                       kind: request.kind, grants: []))
     }
 
     /// What machine `id` may do here; the person widens or narrows it in Settings > Devices.

@@ -82,7 +82,7 @@ enum IPhoneHostStrings {
     /// starts with `view` only, so the prompt says that and where to widen it.
     static func machinePairBody(_ account: String) -> String {
         String(format: String(localized: "iphone.pair.machineBody",
-                              defaultValue: "It is your Mac, signed in as %@. Once allowed, it can see this Mac’s name and what it may do here, nothing more. Choose more in Settings > Devices; remove it there to stop it at once.",
+                              defaultValue: "It is your Mac, signed in as %@. Once allowed, it can see this Mac’s name and what it may do here, nothing more: it cannot see your work until you choose what it may do in Settings > Devices. Remove it there to stop it at once.",
                               table: "IPhone", bundle: .module), account)
     }
     static func pairKey(_ fingerprint: String) -> String {

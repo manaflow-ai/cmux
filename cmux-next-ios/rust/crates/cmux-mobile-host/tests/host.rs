@@ -1266,7 +1266,7 @@ async fn a_mac_opens_only_what_this_mac_granted_it() {
             kind: PeerKind::Mac,
         }
     );
-    // The app allows it as a Mac that may only look.
+    // The app allows it as a Mac, granting nothing yet (the person chooses grants after).
     let granting = |grants: Vec<Grant>| DeviceTrust {
         devices: vec![TrustedDevice {
             id: fixture.phone_id.clone(),
@@ -1277,13 +1277,20 @@ async fn a_mac_opens_only_what_this_mac_granted_it() {
         }],
         denied: vec![],
     };
-    fixture.trust.as_ref().unwrap().send_replace(Some(granting(vec![Grant::View])));
+    fixture.trust.as_ref().unwrap().send_replace(Some(granting(vec![])));
     assert_eq!(json_frame(channel.recv().await), serde_json::json!({"ok": true}));
 
     let mut machine = link.open("machine", serde_json::json!({})).await.unwrap();
     let described = json_frame(machine.recv().await);
-    assert_eq!(described["grants"], serde_json::json!(["view"]));
+    assert_eq!(described["grants"], serde_json::json!([]));
     assert!(described.get("os").is_some());
+    let mut preview = link.open("file-preview", serde_json::json!({})).await.unwrap();
+    assert_eq!(drain(&mut preview).await.1, "not_granted", "pairing alone reads no files");
+
+    // Granted view, it still may not type or reach agents.
+    fixture.trust.as_ref().unwrap().send_replace(Some(granting(vec![Grant::View])));
+    let mut machine = link.open("machine", serde_json::json!({})).await.unwrap();
+    assert_eq!(json_frame(machine.recv().await)["grants"], serde_json::json!(["view"]));
     for (service, code) in
         [("daemon", "not_granted"), ("acpmux", "not_granted"), ("cloud-acpmux", "not_offered")]
     {
