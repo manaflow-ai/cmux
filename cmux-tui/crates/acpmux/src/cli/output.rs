@@ -708,6 +708,14 @@ pub(crate) async fn plain_attach(client: Arc<Client>, id: &str) -> Result<()> {
             _ => print_item(item),
         }
     }
+    // A chat read through the mesh hub (`server/mesh_read.rs`) is its newest page, with no stream
+    // to follow: the attach ends after it rather than waiting on events that never come.
+    if v.get("via").and_then(Value::as_str) == Some("hub") {
+        if assistant_len > 0 {
+            println!();
+        }
+        return Ok(());
+    }
     while let Some(m) = notes.recv().await {
         let Message::Notification { method: m, params } = m else { continue };
         if m == method::MUX_DISCONNECTED {
