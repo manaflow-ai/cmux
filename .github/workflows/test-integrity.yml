@@ -26,14 +26,13 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
-          # The base SHA is fetched below from this private repository. Keep
-          # the read-only workflow token available for that fetch; no PR code
-          # is executed in this job.
-          persist-credentials: true
+          # cmux is public, so the base fetch needs no workflow token. No PR
+          # code is executed in this job.
+          persist-credentials: false
       - name: Flag deleted or weakened tests
         env:
           TEST_INTEGRITY_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
-          TEST_INTEGRITY_APPROVED: ${{ github.event.action == 'labeled' && github.event.label.name == 'test-integrity-approved' }}
+          TEST_INTEGRITY_APPROVED: ${{ github.event.action != 'synchronize' && contains(github.event.pull_request.labels.*.name, 'test-integrity-approved') }}
         run: |
           set -euo pipefail
           base="${TEST_INTEGRITY_BASE_SHA:-HEAD^1}"
