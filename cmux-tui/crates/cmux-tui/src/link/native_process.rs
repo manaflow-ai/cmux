@@ -158,10 +158,10 @@ async fn first_policy(
     behind: Arc<tokio::sync::Notify>,
 ) -> anyhow::Result<()> {
     let mut retry = Duration::from_secs(1);
-    let snapshot = loop {
+    let (snapshot, first_took) = loop {
         let started = Instant::now();
         match refresh(&source).await {
-            Ok(snapshot) => break snapshot,
+            Ok(snapshot) => break (snapshot, started.elapsed()),
             Err(failure) => {
                 if source.is_retired() {
                     return Err(anyhow!("cloud.receiver.generation_retired"));
@@ -184,10 +184,12 @@ async fn first_policy(
     let next = renewal_at(&snapshot, snapshot.started().elapsed())?;
     let expires = Some(snapshot.admitted_until());
     let admitted = snapshot.admits_locally().then(|| snapshot.admitted_until());
+    let mut log = RenewalLog { last_slow: None, last_admits: None };
+    log.admission(first_took, admitted.map(|end| end.saturating_duration_since(Instant::now())));
     send.send(Some(snapshot.native_policy()))
         .await
         .map_err(|_| anyhow!("cloud.receiver.stopped"))?;
-    renew(source, send, next, expires, admitted, behind).await
+    renew(source, send, next, expires, admitted, behind, log).await
 }
 
 /// When to start the next policy read: early enough that it lands before the
@@ -221,9 +223,44 @@ fn renewal_delay(left: Duration, took: Duration) -> Duration {
 /// read is reported at most once a minute. Ids and timings only.
 struct RenewalLog {
     last_slow: Option<Instant>,
+    /// Whether the last answered read carried local admission (`admit_until`); None before the first.
+    last_admits: Option<bool>,
+}
+
+/// The journal line for an answered policy read whose local admission (`admit_until`) is new:
+/// the first read, or one that gained or lost it. `admission` is how long it lasts, None when absent.
+fn admission_line(took: Duration, admission: Option<Duration>) -> String {
+    match admission {
+        Some(left) => format!(
+            "cmux link: receiver policy read took {} ms; admit_until present ({} s of local admission)",
+            took.as_millis(),
+            left.as_secs()
+        ),
+        None => format!(
+            "cmux link: receiver policy read took {} ms; admit_until absent (no local admission)",
+            took.as_millis()
+        ),
+    }
 }
 
 impl RenewalLog {
+    /// Logs the read's admission when it is new (``admission_line``), so the journal shows whether the
+    /// control plane granted local admission without a line per read.
+    fn admission(&mut self, took: Duration, admission: Option<Duration>) {
+        if let Some(line) = self.admission_change(took, admission) {
+            eprintln!("{line}");
+        }
+    }
+
+    /// The line to write for this read's admission, or None when it is the same as the last read's.
+    fn admission_change(&mut self, took: Duration, admission: Option<Duration>) -> Option<String> {
+        let admits = admission.is_some();
+        (self.last_admits != Some(admits)).then(|| {
+            self.last_admits = Some(admits);
+            admission_line(took, admission)
+        })
+    }
+
     fn read(&mut self, took: Duration, lifetime: Duration, lapsed: Option<Duration>) {
         if let Some(gap) = lapsed {
             eprintln!(
@@ -295,9 +332,9 @@ async fn renew(
     mut expires: Option<Instant>,
     mut admitted: Option<Instant>,
     behind: Arc<tokio::sync::Notify>,
+    mut log: RenewalLog,
 ) -> anyhow::Result<()> {
     let mut retry = Duration::from_secs(1);
-    let mut log = RenewalLog { last_slow: None };
     let mut last_read = Instant::now();
     loop {
         // A snapshot's own renewal deadline or a failed request's backoff,
@@ -329,6 +366,7 @@ async fn renew(
                 log.read(took, snapshot.expires() - snapshot.started(), lapsed);
                 expires = Some(snapshot.admitted_until());
                 admitted = snapshot.admits_locally().then(|| snapshot.admitted_until());
+                log.admission(took, admitted.map(|end| end.saturating_duration_since(arrived)));
                 next = renewal_at(&snapshot, took)?;
                 retry = Duration::from_secs(1);
                 send.send(Some(snapshot.native_policy()))

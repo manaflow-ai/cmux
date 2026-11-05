@@ -8,8 +8,9 @@
 //! background tasks under the daemon (`bg_start`, `bg_list`, `bg_output`, `bg_stop`,
 //! `acpmux_mcp_bg.rs`), so they outlive a hibernated agent, and reads a pull request's state
 //! in one condensed call (`pr_state`, `acpmux_mcp_pr.rs`), and ends a turn with the next-step
-//! box the person sees under the answer (`wrap_up`, `acpmux_mcp_wrap_up.rs`). `github_status` names the GitHub
-//! account cmux can see, never a token (`github_status.rs`). With a cmux sign-in it also saves,
+//! box the person sees under the answer (`wrap_up`, `acpmux_mcp_wrap_up.rs`), and keeps the chat's
+//! goal and its done-when on any harness (`goal_set`, `goal_update`, `goal_get`,
+//! `acpmux_mcp_goal.rs`). `github_status` names the GitHub account cmux can see, never a token (`github_status.rs`). With a cmux sign-in it also saves,
 //! searches, lists and reads the person's cmux artifacts (`artifact_*`, `acpmux_mcp_artifacts.rs`).
 //!
 //! Each tool is the request the agent's own `acpmux` CLI makes, over a connection that carries
@@ -67,6 +68,8 @@ const LS_FIELDS: &[&str] =
 pub(crate) mod artifacts;
 #[path = "acpmux_mcp_bg.rs"]
 mod bg;
+#[path = "acpmux_mcp_goal.rs"]
+mod goal;
 #[path = "acpmux_mcp_pr.rs"]
 mod pr;
 #[path = "acpmux_mcp_send.rs"]
@@ -80,6 +83,7 @@ fn tools() -> Value {
         list.extend(bg::tools());
         list.push(pr::tool());
         list.push(wrap_up::tool());
+        list.extend(goal::tools());
     }
     all
 }
@@ -233,6 +237,9 @@ fn instructions(tools: &Value) -> Option<String> {
     if crate::mcp_hint::names(tools).any(|n| n == wrap_up::NAME) {
         parts.push(wrap_up::STEER);
     }
+    if crate::mcp_hint::names(tools).any(|n| goal::TOOLS.contains(&n)) {
+        parts.push(goal::STEER);
+    }
     (!parts.is_empty()).then(|| parts.join(" "))
 }
 
@@ -284,6 +291,9 @@ pub async fn run() -> Result<()> {
                 }
                 if name == wrap_up::NAME {
                     return wrap_up::call(&args);
+                }
+                if goal::TOOLS.contains(&name) {
+                    return goal::call(&daemon, &session, name, &args).await;
                 }
                 if name == crate::github_status::TOOL {
                     let sources = crate::github_status::Sources::current();
