@@ -3,7 +3,7 @@
 // agent (relayEnvelope.ts).
 import { expect, test } from "bun:test";
 import { incomingPrompt } from "./incomingMessage";
-import { inboxNotice } from "./inboxNotice";
+import { inboxMessages, inboxNotice } from "./inboxNotice";
 import { relayEnvelope, withoutRelayHead } from "./relayEnvelope";
 
 /// As the broker writes it (leo-workspace machines/lane-gh-broker.json, action send), from a
@@ -134,6 +134,13 @@ test("an inbox thread whose preview is only the label previews its newest messag
     ],
   });
   expect(notice?.threads[0]?.preview).toBe("Merged #36125");
+});
+
+test("a thread's messages fetched when it opens leave the label out", () => {
+  // `_acpmux/inbox_thread` (direct.ts inboxThread), for a notice that kept no messages of its own.
+  expect(inboxMessages([{ from: "build-box/lane-3", text: relayed("Merged #36125"), at: 1 }, { text: 7 }])).toEqual([
+    { from: "build-box/lane-3", text: "Merged #36125", at: 1 },
+  ]);
 });
 
 test("a preview without the label reads as written", () => {

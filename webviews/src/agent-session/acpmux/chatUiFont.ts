@@ -8,8 +8,11 @@
 // not SF, so the default sets nothing and renders as today; System UI is the system font (SF). Each other choice sets
 // `--font-ui` on the page and its own tracking on the type scale's letter-spacing tokens (Inter's
 // curve is tuned to Inter, so the others draw at their designed spacing, and System UI, tight a
-// step under it). Roboto, IBM Plex Sans, Source Sans 3 and Geist are bundled (chatFonts/FONTS.md)
-// and load only when chosen; Verdana and the system font come with macOS.
+// step under it). Roboto, IBM Plex Sans, Source Sans 3, Geist, Hanken Grotesk, Atkinson Hyperlegible
+// Next and cmux Sans are bundled (chatFonts/FONTS.md) and load only when chosen; Verdana and the
+// system font come with macOS. The last three are the font study's picks (webviews/src/gallery/
+// fontStudy; Leo, 2026-11-05: "you guys never actually tested and, like, judged it"): cmux Sans is
+// our own face, built from Source Sans 3 (scripts/fonts/cmux-sans/build.py).
 
 export type ChatUiFont =
   | "inter-tuned"
@@ -19,6 +22,9 @@ export type ChatUiFont =
   | "plex"
   | "source-sans"
   | "geist"
+  | "cmux-sans"
+  | "hanken"
+  | "atkinson"
   | "system-ui"
   | "system-ui-tight";
 
@@ -33,6 +39,9 @@ export const CHAT_UI_FONTS: readonly ChatUiFont[] = [
   "plex",
   "source-sans",
   "geist",
+  "cmux-sans",
+  "hanken",
+  "atkinson",
   "system-ui",
   "system-ui-tight",
 ];
@@ -41,12 +50,15 @@ export const isChatUiFont = (value: unknown): value is ChatUiFont =>
   typeof value === "string" && (CHAT_UI_FONTS as readonly string[]).includes(value);
 
 /// The faces this module bundles, by the family name their @font-face declares (chatFonts/faces.ts).
-export type BundledChatFont = "roboto" | "plex" | "source-sans" | "geist";
+export type BundledChatFont = "roboto" | "plex" | "source-sans" | "geist" | "cmux-sans" | "hanken" | "atkinson";
 export const BUNDLED_FAMILY: Record<BundledChatFont, string> = {
   roboto: "cmux Roboto",
   plex: "cmux IBM Plex Sans",
   "source-sans": "cmux Source Sans 3",
   geist: "cmux Geist",
+  "cmux-sans": "cmux Sans",
+  hanken: "cmux Hanken Grotesk",
+  atkinson: "cmux Atkinson Hyperlegible Next",
 };
 const isBundled = (font: ChatUiFont): font is BundledChatFont => font in BUNDLED_FAMILY;
 
@@ -60,6 +72,9 @@ const STACKS: Record<Exclude<ChatUiFont, "inter-tuned">, string> = {
   plex: `"${BUNDLED_FAMILY.plex}", "IBM Plex Sans", "Inter", sans-serif`,
   "source-sans": `"${BUNDLED_FAMILY["source-sans"]}", "Source Sans 3", "Inter", sans-serif`,
   geist: `"${BUNDLED_FAMILY.geist}", Geist, "Inter", sans-serif`,
+  "cmux-sans": `"${BUNDLED_FAMILY["cmux-sans"]}", "Inter", sans-serif`,
+  hanken: `"${BUNDLED_FAMILY.hanken}", "Hanken Grotesk", "Inter", sans-serif`,
+  atkinson: `"${BUNDLED_FAMILY.atkinson}", "Atkinson Hyperlegible Next", "Inter", sans-serif`,
   "system-ui": "-apple-system, BlinkMacSystemFont, system-ui, sans-serif",
   "system-ui-tight": "-apple-system, BlinkMacSystemFont, system-ui, sans-serif",
 };

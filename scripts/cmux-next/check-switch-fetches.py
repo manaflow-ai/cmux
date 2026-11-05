@@ -42,6 +42,8 @@ ALLOWED_LISTENERS = {
     (f"{ACPMUX}/App.tsx", "visibilitychange"): "harness health re-reads only after a Log In ran "
     "in a terminal (`healthStale`)",
     (f"{ACPMUX}/App.tsx", "focus"): "harness health, as above",
+    (f"{ACPMUX}/VirtualTranscript.tsx", "visibilitychange"): "forgets the rows still entering when "
+    "the page hides, so they don't replay on return; reads no data",
     (f"{ACPMUX}/composerFocus.ts", "focus"): "focus claim when the window is focused (the composer "
     "focus lane); reads no data",
     (f"{ACPMUX}/newtab/NewTabScreen.tsx", "focus"): "the field takes the keyboard back when the "

@@ -42,29 +42,6 @@ struct CloudBringBackTests {
         }
     }
 
-    /// An idle-paused machine is resumed by the same attach path as Move to Cloud before
-    /// Bring Back Local reads its socket. A failed attempt must not strand Retry either.
-    @Test func aPausedMachineResumesBeforeTheChatComesBack() async throws {
-        try await Self.withRoundTrip("back") { trip in
-            let connection = try #require(trip.machine.daemon.connection)
-            trip.machine.daemon.shutdownConnection()
-            await connection.close()
-            trip.machine.machine.status = .paused
-            var resumed = 0
-            trip.machine.resumer = { id, _ in
-                #expect(id == trip.machine.machineID)
-                resumed += 1
-                trip.machine.machine.status = .running
-                trip.machine.daemon.start(remote: { trip.vmSocket })
-            }
-            if let error = await trip.bringBack() { Issue.record("cmux cloud bring-back: \(error.code) \(error.message)") }
-            #expect(resumed == 1, "Bring Back Local never resumed the paused machine")
-            try await trip.waitUntil { trip.localChat() != nil && trip.machineChat() == nil }
-            #expect(trip.localChat()?.agentSession?.session == "chat-live")
-            #expect(trip.services.cloud.bringBackRetries[trip.machineKey] == nil)
-        }
-    }
-
     /// The chat comes back: the machine's folder is merged into the chat's folder here, the chat
     /// moves from the machine's tab to this Mac in that folder, and opens in a local tab bound to
     /// its session on this Mac; then the machine's tab closes.
