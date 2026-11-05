@@ -148,6 +148,10 @@ struct ImportScannerTests {
         #expect(found?.id == "agents.conductor")
         #expect(found?.count == 3)
 
+        // A file beside the workspace folders, at either level, is no workspace.
+        let files = try Home(["conductor/workspaces/app/lima/README", "conductor/workspaces/app/notes.txt", "conductor/workspaces/todo.md"])
+        #expect(Self.scanner(files) { _ in .missing }.scan().first { $0.kind == .conductor }?.count == 1)
+
         let databaseOnly = try Home(["Library/Application Support/com.conductor.app/conductor.db"])
         #expect(Self.scanner(databaseOnly) { _ in .missing }.scan().first { $0.kind == .conductor }?.count == 0)
         #expect(Self.scanner(try Home()) { _ in .missing }.scan().allSatisfy { $0.kind != .conductor })

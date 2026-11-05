@@ -6,7 +6,7 @@ import { JSDOM } from "jsdom";
 import type { AcpmuxActivity } from "../model";
 import { translatorFor } from "../i18n";
 import { SubsessionContext, SubsessionStore } from "../subagents/subsessions";
-import { toolGroups } from "./toolGroups";
+import { staysInSight, toolGroups } from "./toolGroups";
 import { resetTranscriptDisclosure } from "./transcriptDisclosure";
 import { WhoElseCard, whatText } from "./WhoElseCard";
 import { whoElseCall, WHO_ELSE_SCHEMA } from "./whoElseCalls";
@@ -188,6 +188,25 @@ test("the card names each session as a chip that opens its chat, with its branch
   expect(page.querySelector(".cv-who-else__note")?.textContent).toBe("Not asked: studio-mac");
   await act(async () => chips[0]!.click());
   expect(opened).toEqual(["s-codex"]);
+});
+
+test("a folded run keeps the card in sight beside its summary lines", () => {
+  const item = activity({ title: "mcp__acpmux__who_else", output: JSON.stringify(ANSWER) });
+  const read = activity({ title: "Read a.ts", kind: "read" });
+  const card = toolGroups([item, read])[0]!;
+  expect(card.type).toBe("whoElse");
+  expect(staysInSight(card)).toBe(true);
+});
+
+test("sessions acpmux left out count in the line and are a note, not rows More would open", async () => {
+  const capped = { ...ANSWER, more: 3, unreached: [] };
+  const item = activity({ title: "mcp__acpmux__who_else", output: JSON.stringify(capped) });
+  const page = await render(<WhoElseCard item={item} call={whoElseCall(item)!} />);
+  expect(page.querySelector(".cv-who-else__line")?.textContent).toBe("5 other sessions work on these files");
+  // Both rows the answer holds show, so there is no More to open.
+  expect(page.querySelectorAll(".cv-who-else__rows li")).toHaveLength(2);
+  expect(page.querySelector(".cv-who-else__more")).toBeNull();
+  expect(page.querySelector(".cv-who-else__note")?.textContent).toBe("3 more not listed");
 });
 
 test("an answer with nobody says so in one line", async () => {

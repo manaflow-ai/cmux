@@ -42,6 +42,7 @@
         "CmuxNextDaemonService",
         "CmuxNextDesign",
         "CmuxNextIcons",
+        "CmuxNextOnboarding",
         "CmuxNextPages",
         "CmuxNextSettings",
         "CmuxNextWakeups"
@@ -1355,7 +1356,8 @@
         "CmuxNextImportSuggestions",
         "CmuxNextOnboarding",
         "CmuxNextSettings",
-        "CmuxNextSidebar"
+        "CmuxNextSidebar",
+        "CmuxNextWakeups"
       ],
       "packages": []
     },
@@ -1363,7 +1365,8 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextImportSuggestions",
       "targets": [
-        "CmuxNextBrowserImport"
+        "CmuxNextBrowserImport",
+        "CmuxNextCompat"
       ],
       "packages": []
     },

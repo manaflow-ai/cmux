@@ -112,6 +112,10 @@ extension UpdaterService {
     /// for the person's click (``UpdateController/asksBeforeInstalling``); any other build clears it.
     static let pickedBuildKey = "cmux.next.updates.pickedBuild"
 
+    /// Whether the running build is the one a rollback or Install this version went to, so a newer
+    /// build waits for the person's click (the driver's hold, and ``applyDownloadPolicy()``'s resume).
+    var runsPickedBuild: Bool { defaults.string(forKey: Self.pickedBuildKey) == identity.build }
+
     /// Rolls back to `build` (nil: the newest kept) when ``rollbackDecision``
     /// allows it: swaps the bundles, stops offering the build left behind,
     /// then quits keeping every session and lets `relaunch` reopen the app.

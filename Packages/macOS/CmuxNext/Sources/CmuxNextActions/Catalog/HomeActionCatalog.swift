@@ -12,7 +12,7 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
         let waits: Set<ActionID> = ["home.newMessage", "home.invite", "home.inviteToTeam", "home.newChief", "home.archiveChief", "home.deleteChief", "home.setPrimaryChief",
                                     "home.renameConversation", "home.addMembers", "home.removeMember", "home.leaveConversation",
                                     "home.muteConversation", "home.unmuteConversation", "home.sendMessage",
-                                    "home.createGroup", "home.setChiefReplies"]
+                                    "home.createGroup", "home.setChiefReplies", "home.createChannel"]
         return (all + debugOnly).map { descriptor in
             var descriptor = descriptor
             descriptor.waitsForResult = waits.contains(descriptor.id)
@@ -365,6 +365,23 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                                            isRequired: false),
                             Self.replies(isRequired: false)],
                 cliName: "chat create",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
+            // Chief channels (plans/cmux-next/chief-channels-DESIGN.md): `cmux chat channel create --title T
+            // [--members "Leo, ana@example.com"] [--chief NAME]` makes a group the person owns with its own
+            // Chief scoped to it, and invites the members (an email gets an invite).
+            ActionDescriptor(
+                id: "home.createChannel", title: t("action.home.createChannel", "New Channel…"),
+                keywords: ["home", "channel", "channels", "chief", "team", "group", "room", "slack", "new", "create", "invite"],
+                category: .window, symbol: "number", surfaces: [.palette, .keyboard],
+                arguments: [ActionArgument(name: "title", title: t("argument.home.channelTitle", "Channel Name"), kind: .string),
+                            ActionArgument(name: "members", title: t("argument.home.groupMembers", "Members"), kind: .string,
+                                           isRequired: false,
+                                           suggestions: ActionSuggestions(source: ActionSuggestions.homeMembers, pinned: [],
+                                                                          allowsMultiple: true)),
+                            ActionArgument(name: "chief", title: t("argument.home.channelChief", "Chief Name"), kind: .string,
+                                           isRequired: false)],
+                cliName: "chat channel create",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
             ActionDescriptor(

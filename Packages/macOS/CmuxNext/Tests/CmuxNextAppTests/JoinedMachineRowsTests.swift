@@ -5,8 +5,10 @@ import CmuxNextDaemonService
 import CmuxNextRemote
 @testable import CmuxNextServer
 import Foundation
+import Observation
 import Testing
 import CmuxNextTestSupport
+import CmuxNextWakeups
 
 /// The Machines section's machines joined through the hub: rows from `cmux machine list` (none
 /// while the store has no service), online by a heartbeat within 90 s, revoked ones dropped, Revoke and Rotate through the CLI and a fresh read after, Check
@@ -86,12 +88,23 @@ import CmuxNextTestSupport
         #expect(!store.isAging, "the last section hid: the deadline stops")
         store.startAging(section) { visible }
         visible = false
+        store.pauseAging()
+        #expect(!store.isAging, "the window was covered: the deadline stops at once, no wakeup at the expiry")
+        store.startAging(section) { visible }
         let reads = fake.lists
         await store.ageFired()
         #expect(fake.lists == reads, "a fire with no section on screen reads nothing")
-        #expect(store.isAging, "an occluded section keeps its aging: one more window, never lost")
+        #expect(!store.isAging, "a covered window costs no wakeups: the deadline stops until it shows")
+        store.resumeAging()
+        #expect(!store.isAging, "still covered: resuming starts nothing")
+        visible = true
+        store.resumeAging()
+        #expect(store.isAging, "the window shows again: aging restarts at once")
         store.stopAging(section)
         #expect(!store.isAging)
+        visible = false
+        await store.ageFired()
+        #expect(!store.isAging, "no section registered: a fire never reschedules")
         fake.rows = [JoinedMachine(id: "m_1", name: "a", state: .offline, heartbeatAt: now.addingTimeInterval(-10))]
         await store.refresh()
         visible = true
@@ -115,6 +128,84 @@ import CmuxNextTestSupport
         #expect(store.machines.first?.state == .offline)
         #expect(!store.isAging, "no online row left: no next deadline")
         store.stopAging(section)
+    }
+
+    /// A covered window coming back into view after its rows' heartbeat passed reads at once: the
+    /// deadline is due now, not a window later.
+    @Test func aWindowShownAgainPastTheExpiryReadsAtOnce() async {
+        let fake = Fake()
+        fake.rows = [JoinedMachine(id: "m_1", name: "a", state: .online, heartbeatAt: Date().addingTimeInterval(-200))]
+        let store = fake.store()
+        await store.refresh()
+        let section = NSObject()
+        var visible = false
+        store.startAging(section) { visible }
+        await store.ageFired()
+        let reads = fake.lists
+        visible = true
+        store.resumeAging()
+        for _ in 0..<400 where fake.lists == reads { await Task.yield(); try? await Task.sleep(for: .milliseconds(5)) }
+        #expect(fake.lists == reads + 1, "shown again past the expiry: one read now")
+        #expect(store.machines.first?.state == .offline)
+        store.stopAging(section)
+    }
+
+    /// Switching account or team empties the rows at once (the old team's machines never show under
+    /// the new one) and reads the new account's list; a read still in flight for the old one is dropped.
+    @Test func switchingAccountEmptiesThenReadsTheNewList() async {
+        let fake = Fake()
+        let store = fake.store()
+        await store.refresh()
+        #expect(store.machines.map(\.id) == ["m_1"])
+        let stale = store.beginRead()
+        fake.rows = [Fake.machine("m_9", "other-team-box")]
+        await store.switchedAccount()
+        #expect(store.machines.map(\.id) == ["m_9"])
+        store.finishRead([Fake.machine("m_1", "lane-vm-3")], ticket: stale)
+        #expect(store.machines.map(\.id) == ["m_9"], "the old account's read lands late and is dropped")
+    }
+
+    /// The follow runs on an account change, not only on signing in or out.
+    @Test func theStoreFollowsAnAccountChange() async {
+        let fake = Fake()
+        let account = AccountBox()
+        let store = fake.store().following(account: { account.key })
+        await store.refresh()
+        let reads = fake.lists
+        fake.rows = [Fake.machine("m_9", "other-team-box")]
+        account.key = "u_1|team_b"
+        for _ in 0..<400 where fake.lists == reads { await Task.yield(); try? await Task.sleep(for: .milliseconds(5)) }
+        #expect(fake.lists == reads + 1)
+        #expect(store.machines.map(\.id) == ["m_9"])
+    }
+
+    /// A section hears its window's occlusion reports through the app's one occlusion observer until it
+    /// stops following or goes away (no observer of its own).
+    @Test func aSightFollowerHearsItsWindowUntilItStops() async throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 80, height: 80), styleMask: [], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false // the test holds it; close must not release it a second time
+        defer { window.close() }
+        var heard = 0
+        var owner: NSObject? = NSObject()
+        FrameScheduler.followSight(of: window, owner: owner!) { heard += 1 }
+        func report() async throws {
+            NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: window) // global-notice-allow: the app's one occlusion observer (FrameScheduler.watchSight) listens on .default and takes no center
+            try await Task.sleep(for: .milliseconds(10)) // yields the main actor so the report is delivered on the main queue
+        }
+        try await report()
+        #expect(heard == 1)
+        owner = nil
+        try await report()
+        #expect(heard == 1, "the owner went away: it is not told")
+        let other = NSObject()
+        FrameScheduler.followSight(of: window, owner: other) { heard += 1 }
+        FrameScheduler.unfollowSight(of: window, owner: other)
+        try await report()
+        #expect(heard == 1, "unfollowed: not told")
+    }
+
+    @MainActor @Observable final class AccountBox {
+        var key: String? = "u_1|team_a"
     }
 
     @Test func aRefreshIsOneReadAndAFailedReadKeepsTheRows() async {

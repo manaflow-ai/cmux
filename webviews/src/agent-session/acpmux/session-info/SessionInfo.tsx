@@ -112,8 +112,7 @@ import { sessionInfoLists, type SessionInfoProcess, type ProcessRegistry } from 
 import { ServersSection } from "./ServersSection";
 import { SubagentLimitStepper } from "./SubagentLimitStepper";
 import { SubagentCountsMeta, SubagentsSection } from "./SubagentsSection";
-import { AlsoHereSection } from "./AlsoHereSection";
-import { alsoHere } from "./alsoHere";
+import { AlsoHereSection, useAlsoHere } from "./AlsoHereSection";
 import { TasksSection } from "./TasksSection";
 import { currentPlan, planDone, ProgressSection, type SessionInfoPlan } from "./ProgressSection";
 import { WorkflowTasks, type WorkflowAgentRowVariant } from "./WorkflowTasks";
@@ -2006,7 +2005,8 @@ export function SessionInfo({
   // (they were a card of their own, most often one row). Every server runs.
   const running = runningTasks + servers.length + workflows.filter((workflow) => workflow.state === "running").length;
   // The other chats in this chat's worktree or on its branch (alsoHere.ts), shown only when there are.
-  const alsoHereRows = useMemo(() => alsoHere(chatId, allSessions, Date.now()), [chatId, allSessions]);
+  // A chat that goes a day idle leaves the list while Session Info stays open (useAlsoHere).
+  const alsoHereRows = useAlsoHere(chatId, allSessions);
   const alsoHereSection = alsoHereRows.length > 0 && (
     <SessionInfoSection
       id="alsoHere"
