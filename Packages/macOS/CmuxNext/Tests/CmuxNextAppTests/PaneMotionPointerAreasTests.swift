@@ -22,18 +22,22 @@ import Testing
 @MainActor
 @Suite(.serialized, .closesItsWindows)
 struct PaneMotionPointerAreasTests {
-    /// Counts, by the receiver's class, what AppKit does for pointer areas while the panes move: cursor-rect
-    /// invalidations (`-[NSWindow invalidateCursorRectsForView:]`), tracking-area updates (`-[NSView updateTrackingAreas]`,
-    /// reached by every override's `super`) and the window's drag-margin rebuilds (`-[NSWindow _resetDragMargins]`).
+    /// Counts, by the receiver's class, what pointer areas cost while the panes move: cursor-rect invalidations
+    /// (`-[NSWindow invalidateCursorRectsForView:]`), tracking areas added (`-[NSView addTrackingArea:]`: a view that owns
+    /// one removes and adds it at each update) and the window's drag-margin rebuilds (`-[NSWindow _resetDragMargins]`).
+    /// `trackingUpdates` (`-[NSView updateTrackingAreas]`) is only printed: AppKit calls it on every view of a moved
+    /// subtree, whether it owns an area or not (PaneClipView, PaneHostView own none), and no view can stop that.
     enum Spy {
         static var invalidations: [String: Int] = [:]
         static var trackingUpdates: [String: Int] = [:]
+        static var areasAdded: [String: Int] = [:]
         static var dragMarginResets = 0
         private static var originals: [(Method, IMP)] = []
 
         static func install() {
             invalidations = [:]
             trackingUpdates = [:]
+            areasAdded = [:]
             dragMarginResets = 0
             guard originals.isEmpty else { return }
             if let method = class_getInstanceMethod(NSWindow.self, #selector(NSWindow.invalidateCursorRects(for:))) {
@@ -54,6 +58,17 @@ struct PaneMotionPointerAreasTests {
                 let block: @convention(block) (AnyObject) -> Void = { this in
                     MainActor.assumeIsolated { trackingUpdates[String(describing: type(of: this)), default: 0] += 1 } // main-proof: AppKit calls it on main
                     call(this, #selector(NSView.updateTrackingAreas))
+                }
+                method_setImplementation(method, imp_implementationWithBlock(block))
+                originals.append((method, imp))
+            }
+            if let method = class_getInstanceMethod(NSView.self, #selector(NSView.addTrackingArea(_:))) {
+                let imp = method_getImplementation(method)
+                typealias Fn = @convention(c) (AnyObject, Selector, NSTrackingArea) -> Void
+                let call = unsafeBitCast(imp, to: Fn.self)
+                let block: @convention(block) (AnyObject, NSTrackingArea) -> Void = { this, area in
+                    MainActor.assumeIsolated { areasAdded[String(describing: type(of: this)), default: 0] += 1 } // main-proof: AppKit calls it on main
+                    call(this, #selector(NSView.addTrackingArea(_:)), area)
                 }
                 method_setImplementation(method, imp_implementationWithBlock(block))
                 originals.append((method, imp))
@@ -80,8 +95,9 @@ struct PaneMotionPointerAreasTests {
 
         static var line: String {
             func list(_ counts: [String: Int]) -> String { counts.sorted { $0.value > $1.value }.map { "\($0.key):\($0.value)" }.joined(separator: ",") }
-            return "invalidations=\(invalidations.values.reduce(0, +)) [\(list(invalidations))] tracking_updates=\(trackingUpdates.values.reduce(0, +)) "
-                + "[\(list(trackingUpdates))] drag_margin_resets=\(dragMarginResets)"
+            return "invalidations=\(invalidations.values.reduce(0, +)) [\(list(invalidations))] areas_added=\(areasAdded.values.reduce(0, +)) "
+                + "[\(list(areasAdded))] tracking_updates=\(trackingUpdates.values.reduce(0, +)) [\(list(trackingUpdates))] "
+                + "drag_margin_resets=\(dragMarginResets)"
         }
     }
 
@@ -136,7 +152,7 @@ struct PaneMotionPointerAreasTests {
         print("HPA-COUNT case=pane-motion-pointer-areas own_frames=\(ownFrames) frames=\(frames) motion: \(inMotion) with landing: \(Spy.line)")
         try #require(frames > 3, "the press did not spring (\(frames) frames)")
         #expect(Spy.invalidations.isEmpty, "\(frames) key-resize frames made AppKit invalidate cursor rects: \(inMotion)")
-        #expect(Spy.trackingUpdates.isEmpty, "\(frames) key-resize frames updated tracking areas: \(inMotion)")
+        #expect(Spy.areasAdded.isEmpty, "\(frames) key-resize frames re-added tracking areas: \(inMotion)")
         #expect(Spy.dragMarginResets == 0, "\(frames) key-resize frames rebuilt the window's drag margins \(Spy.dragMarginResets) times")
     }
 
