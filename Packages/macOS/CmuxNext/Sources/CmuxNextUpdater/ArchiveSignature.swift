@@ -10,7 +10,7 @@ public import Foundation
 nonisolated public struct ArchiveSignature: Sendable, Equatable, Decodable {
     /// `sparkle:edSignature`: base64 Ed25519 over the archive's bytes.
     public var edSignature: String
-    /// The enclosure's `length`; nil checks no length.
+    /// The enclosure's `length`; a signature without one is refused.
     public var length: Int?
 
     public init(edSignature: String, length: Int? = nil) {
@@ -34,8 +34,10 @@ nonisolated public struct ArchiveSignature: Sendable, Equatable, Decodable {
     /// else why not.
     func failure(checking file: URL, publicKey: String?) -> String? {
         guard let publicKey, !publicKey.isEmpty, !publicKey.hasPrefix("$(") else { return "this app has no update signing key" }
+        // Every signature the publisher writes names its length: one that names none (or a bad one) is refused.
+        guard let length, length >= 0 else { return "the download's signature names no length" }
         guard let data = try? Data(blockingContentsOf: file, options: .alwaysMapped) else { return "could not read the download" }
-        if let length, data.count != length { return "the download is \(data.count) bytes, its feed item says \(length)" }
+        if data.count != length { return "the download is \(data.count) bytes, its feed item says \(length)" }
         return ContentSignature.verify(data, signature: edSignature, publicKey: publicKey)
             ? nil : "the download's EdDSA signature does not check"
     }

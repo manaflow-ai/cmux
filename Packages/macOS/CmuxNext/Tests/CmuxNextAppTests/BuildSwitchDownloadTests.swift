@@ -86,14 +86,18 @@ struct BuildSwitchDownloadTests {
     }
 
     @Test func aDiskImageThisAppsKeyDidNotSignIsNeverOpened() async throws {
-        let other = ArchiveSignature(edSignature: try Curve25519.Signing.PrivateKey().signature(for: Self.image).base64EncodedString())
+        let other = ArchiveSignature(edSignature: try Curve25519.Signing.PrivateKey().signature(for: Self.image).base64EncodedString(),
+                                     length: Self.image.count)
         let (otherKey, keptA) = try await Self.run(build: "100", imageBuild: "100", signature: other)
         #expect(otherKey?.contains("EdDSA signature does not check") == true)
         #expect(keptA.isEmpty)
         let (otherBytes, keptB) = try await Self.run(build: "100", imageBuild: "100",
-                                                     signature: Self.signed(Data("other bytes".utf8), length: nil))
+                                                     signature: Self.signed(Data("other bytes".utf8)))
         #expect(otherBytes?.contains("EdDSA signature does not check") == true)
         #expect(keptB.isEmpty)
+        let (noLength, keptE) = try await Self.run(build: "100", imageBuild: "100", signature: Self.signed(length: nil))
+        #expect(noLength?.contains("names no length") == true)
+        #expect(keptE.isEmpty)
         let (shortened, keptC) = try await Self.run(build: "100", imageBuild: "100", signature: Self.signed(length: 3))
         #expect(shortened?.contains("feed item says 3") == true)
         #expect(keptC.isEmpty)
