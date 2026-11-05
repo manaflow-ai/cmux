@@ -145,6 +145,8 @@ public struct Metrics {
     public static var stripTopOutset: CGFloat { floatingPanes ? 0 : panePadding }
     /// `layout.panePadding`, else the density default (no Debug Settings override).
     static var codePanePadding: CGFloat {
+        // The flush corner (`chrome.cornerFlush`): each strip's first tab starts on its pane's (the card's) edge.
+        if CornerFlush.current.isOn { return 0 }
         let chrome = DesignSettings.shared.paneChrome
         return chrome.padding ?? paneSeparation.impliedPadding ?? densityPanePadding
     }
