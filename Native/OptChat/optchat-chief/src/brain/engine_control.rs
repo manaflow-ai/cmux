@@ -80,12 +80,19 @@ impl Brain {
             compactor_harness,
             compactor_model,
             turn_routing,
+            computer,
             reactions,
         } = request
         {
             if let Some(value) = turn_routing {
                 match crate::engine::parse_turn_routing(&value) {
                     Ok(value) => choice.turn_routing = value,
+                    Err(reason) => return error("invalid_value", reason),
+                }
+            }
+            if let Some(value) = computer {
+                match crate::engine::parse_computer(&value) {
+                    Ok(value) => choice.computer = value,
                     Err(reason) => return error("invalid_value", reason),
                 }
             }

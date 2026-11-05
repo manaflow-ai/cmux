@@ -122,6 +122,7 @@ extension HomeChiefSettingsView {
              defaultTitle: HomeEngineStrings.defaultValue)
         if let row = speed.superview, row.isHidden == shown.offersFast { row.isHidden = !shown.offersFast }
         reactionRows.show(snapshot)
+        showComputer(snapshot.computer)
         stats.stringValue = snapshot.turns.first.map(HomeEngineStrings.lastTurn) ?? HomeEngineStrings.noTurn
         // Which engine answered each recent reply (the trace's turn.end).
         replies.stringValue = snapshot.turns.isEmpty ? ""
@@ -184,7 +185,7 @@ extension HomeChiefSettingsView {
     }
 
     /// The pickers, in the card's order.
-    var pickers: [NSPopUpButton] { [harness, model, effort, speed] }
+    var pickers: [NSPopUpButton] { [harness, model, effort, speed, computerPicker] }
 
     /// The rows' items for `snapshot`, with this harness's recent models.
     func titles(_ snapshot: HomeChiefSnapshot) -> HomeChiefEngineTitles {

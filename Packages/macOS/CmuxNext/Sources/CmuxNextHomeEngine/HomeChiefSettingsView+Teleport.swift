@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 
 /// The Runs On row (Chief teleport): where this Mac's Chief runs, as the location chip whose
-/// Teleport menu moves it (the same menu as the Home header's chip). Shown only for the Chief that
+/// Teleport menu moves it (the Home header shows no location chip, cmux issue 36047). Shown only for the Chief that
 /// `cmux chief move` moves, this Mac's default one, wherever it runs now.
 extension HomeChiefSettingsView {
     func addTeleportRow() {
