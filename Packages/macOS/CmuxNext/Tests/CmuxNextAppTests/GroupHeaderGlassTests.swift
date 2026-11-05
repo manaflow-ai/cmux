@@ -11,6 +11,9 @@ import Testing
 /// chroma, `GlassRimView`'s rim, its name in the theme's ink at the rows' own size, semibold, and the role's opaque
 /// fallback under Reduce Transparency; the solid bar stays a Debug choice. The palette is unchanged.
 @MainActor @Suite(.serialized) struct GroupHeaderGlassTests {
+    /// Runs `body` with the solid bar (`sidebar.groupGlass` solid), for the tests that describe the bar's own look.
+    static func onSolidBar(_ body: () throws -> Void) throws { try withGlass(.solid, body) }
+
     static func withGlass(_ glass: SidebarGroupGlass, _ body: () throws -> Void) throws {
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(SidebarTunables.all)

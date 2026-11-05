@@ -157,6 +157,28 @@ import Testing
         }
     }
 
+    /// The pane holds a group's trailing Done, Archived and Show more rows (router review F2); the rail of a colored
+    /// group still ends at its last member.
+    @Test func thePaneRunsToTheGroupsFoldRows() {
+        let id = GroupID("g-fold")
+        func row(_ key: SidebarRowKey, _ y: CGFloat) -> SidebarRow {
+            SidebarRow(key: key, y: y, height: 24, section: .pinned, group: id, siblingIndex: 0, parentIndex: nil,
+                       isLastInGroup: false, isCollapsed: false, childCount: 0, groupColor: nil)
+        }
+        let fold = SidebarDoneFoldID(section: .pinned, group: id)
+        let rows = [row(.group(id), 0), row(.workspace(WorkspaceID("m")), 26), row(.doneFold(fold), 52), row(.showMore(fold), 78)]
+        let frame: (SidebarRow) -> CGRect = { CGRect(x: 8, y: $0.y, width: 200, height: $0.height) }
+        func line(_ group: SidebarGroup) -> SidebarGroupLine? {
+            SidebarGroupLine.lines(rows, colors: [id: group], blocks: true, frame: frame).first { $0.group == id }
+        }
+        let pane = line(SidebarGroup(id: id, name: "plain", custom: GroupTint.noneWire, workspaces: []))
+        #expect(pane?.isBlock == true)
+        #expect(pane?.frame.maxY == 102, "the pane ends at \(String(describing: pane?.frame.maxY)), the Show more row at 102")
+        let rail = line(SidebarGroup(id: id, name: "blue", color: .blue, workspaces: []))
+        #expect(rail?.isBlock == false)
+        #expect(rail?.frame.maxY == 50, "the rail still ends at the last member")
+    }
+
     /// Under Reduce Transparency the pane is the role's opaque fallback: no rim, a hairline.
     @Test func reduceTransparencyDrawsTheOpaqueFallback() throws {
         ReduceTransparency.shared.override = true

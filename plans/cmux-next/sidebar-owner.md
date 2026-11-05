@@ -126,7 +126,8 @@
   literally depicting it as if it were unhovered", "a differently highlighted, differently refracted, differently
   transparented thing ... a grouped up thing", and "we're not necessarily into that indentation thing". The group's
   line view becomes its block (`SidebarGroupLine.isBlock`): from the header's top to the last shown member's bottom,
-  the header's width, a collapsed group's header alone, under every row (below `decorations`) so hover, selection and
+  the header's width, a collapsed group's header alone, an open group's trailing Done, Archived and Show more rows
+  inside it (9bc3fb24b72, router review F2), under every row (below `decorations`) so hover, selection and
   drop fills draw over it. The pane is the `group` role's veil (grey 0.11 at 6% dark, 0.99 at 20% light) with its rim, under the rows' hover. The
   Debug choice keeps `tray` (no rim), `lit` (fades from the header) and `plain` (the look since #32198).
   No hue comes back (#32198 and #32685 stand); a colored group keeps its rail. A tab group with no color washes its

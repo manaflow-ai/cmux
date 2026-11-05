@@ -70,6 +70,9 @@ extension SidebarGroupLine {
         // Groups drawn as their one member's row (`SidebarRow.standsForGroup`): a line along that row, no header.
         var soles: [(GroupID, SidebarRow)] = []
         var last: [GroupID: SidebarRow] = [:]
+        // Each group's last row of any kind, its Done, Archived and Show more rows too: a block runs to it (the rail keeps
+        // ending at the last member, `last`).
+        var lastAny: [GroupID: SidebarRow] = [:]
         var first: [GroupID: SidebarRow] = [:] // each group's first own member, whose x the rail keeps
         var below: [GroupID: SidebarRow] = [:] // the row right under each header: the rail never starts inside it
         var pending = Set<GroupID>()
@@ -87,6 +90,14 @@ extension SidebarGroupLine {
         for row in rows {
             for id in pending { below[id] = row }
             pending.removeAll()
+            if let group = row.group, drawn.contains(group) {
+                var current: GroupID? = group
+                var seen = Set<GroupID>()
+                while let id = current, drawn.contains(id), seen.insert(id).inserted {
+                    lastAny[id] = row
+                    current = nested ? colors[id]?.parent : nil
+                }
+            }
             switch row.key {
             case let .group(id):
                 headers.append((id, row))
@@ -112,7 +123,9 @@ extension SidebarGroupLine {
         }
         let soleLines = soles.map { id, row in
             let head = frame(row), tail = frame(last[id] ?? row), bar = SidebarStyle.groupBarX(membersMinX: head.minX)
-            if blocks, tint(id, last[id] ?? row).isNone { return block(id, head, tail, level: nested ? max(0, row.depth - 1) : 0) }
+            if blocks, tint(id, last[id] ?? row).isNone {
+                return block(id, head, frame(lastAny[id] ?? last[id] ?? row), level: nested ? max(0, row.depth - 1) : 0)
+            }
             let x = layout == .inside ? max(bar, SidebarStyle.groupLineX(membersMinX: head.minX)) : bar
             return SidebarGroupLine(group: id, frame: CGRect(x: x, y: head.minY,
                                                              width: width, height: tail.maxY - head.minY),
@@ -120,7 +133,7 @@ extension SidebarGroupLine {
         }
         return soleLines + headers.compactMap { id, header in
             if blocks, tint(id, last[id] ?? header).isNone {
-                let end = header.isCollapsed ? header : last[id] ?? header
+                let end = header.isCollapsed ? header : [lastAny[id], last[id]].compactMap { $0 }.max { $0.y < $1.y } ?? header
                 return block(id, frame(header), frame(end), level: nested ? header.depth : 0)
             }
             guard !header.isCollapsed, let end = last[id], end.y > header.y else { return nil }
