@@ -19,6 +19,8 @@ describe("pullRequestDiffUrl", () => {
       "https://github.com/manaflow-ai/cmux/pull/1?w=1",
       "https://github.com/manaflow-ai/cmux/pull/01",
       "https://github.com/../cmux/pull/1",
+      "https://github.com/-x/cmux/pull/1",
+      `https://github.com/${"a".repeat(101)}/cmux/pull/1`,
       "http://github.com/a/b/pull/1",
       "https://gitlab.com/a/b/pull/1",
     ])
