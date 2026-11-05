@@ -140,9 +140,16 @@ export function AddAccountDialog({
             }}
           >
             {choices.map((choice) => (
-              <label key={choice.way} className="acpmux-add-account-way" htmlFor={`${group}-${choice.way}`}>
+              <label
+                key={choice.way}
+                className="acpmux-add-account-way"
+                htmlFor={`${group}-${choice.way}`}
+                aria-label={choice.title}
+              >
                 <input
                   id={`${group}-${choice.way}`}
+                  aria-label={choice.title}
+                  aria-describedby={`${group}-${choice.way}-detail`}
                   type="radio"
                   name={group}
                   value={choice.way}
@@ -152,7 +159,7 @@ export function AddAccountDialog({
                 />
                 <span>
                   <strong>{choice.title}</strong>
-                  <small>{choice.detail}</small>
+                  <small id={`${group}-${choice.way}-detail`}>{choice.detail}</small>
                 </span>
               </label>
             ))}
