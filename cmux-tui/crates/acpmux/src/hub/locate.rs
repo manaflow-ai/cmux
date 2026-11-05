@@ -77,6 +77,13 @@ impl Hub {
                     let exact_all = by_key_exact(&summaries, query, &own);
                     if !exact_all.is_empty() {
                         (None, exact_all)
+                    } else if names_hosts
+                        && let Some(route) = self.key_route(query)?.filter(|route| route != query)
+                    {
+                        // No exact name or id: the one session every other command finds for it
+                        // (`hub/key_route.rs`: another case before a prefix, a prefix here before
+                        // a name without separators); several are refused, never picked.
+                        return self.locate(&route, false, names_hosts);
                     } else {
                         (None, by_key(&summaries, query, &own))
                     }
@@ -108,11 +115,6 @@ impl Hub {
             // read-only machine's connection (`names_hosts`).
             if link.is_some() || !names_hosts {
                 return Err(e);
-            }
-            // A name in another case, a prefix or one without separators: the one session it
-            // names, as every other command finds it (`hub/key_route.rs`); several are refused.
-            if let Some(route) = self.key_route(query)?.filter(|route| route != query) {
-                return self.locate(&route, false, names_hosts);
             }
             // The names it nearly matched, as `Hub::unknown_session` gives them: every name that
             // contains the query, any case (`session_name::candidates`), closed chats' included.
