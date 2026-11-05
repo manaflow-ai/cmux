@@ -188,13 +188,11 @@ async fn a_steer_into_a_stopped_turn_is_not_run_again_by_its_retry() {
     };
     c.send(method::SESSION_PROMPT, prompt_with_id(&id, "until-cancel", "p-run", false)).await;
     c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "running").await;
-    // The steer's own answer, not the turn's "steer: also this" update, says the agent read it:
-    // the answer (`steered`) comes on the request's reply path and can reach this client before
-    // the update does, and a wait for the update passed over it (a base red under load: the
-    // reply was never seen again, "timeout waiting for response").
     let sent = c.send(method::SESSION_PROMPT, steer(false)).await;
-    let (answer, _) = c.response(sent).await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "steer: also this")
+        .await;
     hub.cancel(&hub.resolve(&id).unwrap()).await.expect("the Stop is refused");
+    let (answer, _) = c.response(sent).await;
     ran(&hub, &id, "p-run").await;
     hub.shutdown_all().await;
     drop(c);
