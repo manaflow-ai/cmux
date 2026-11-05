@@ -1415,6 +1415,9 @@ compactions 98.1% of their prefix (spec: 98.6% and 96.2%). What differs:
   them); the next turn reads their summaries. A node the compactor cannot
   build at all (a setup error such as a missing acpmux preset or a refused
   harness, or a request error on every try) is stuck at once and holds no
+  turn; a transient failure (a session that does not answer under load)
+  is stuck after `COMPACT_TRIES` and retried quietly, and a request the API
+  refuses as too large keeps its input, cut to the room, as the line. Neither holds a
   turn; the Chief status says why. The class rule: a user message never
   waits more than 1 s on the compactor (a turn's start and `spawn` alike).
   Cost: a deferred turn's cache mark covers a view with placeholders, so the

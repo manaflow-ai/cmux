@@ -12,6 +12,9 @@ import CmuxNextSettings
 import CmuxNextTabs
 import Observation
 
+/// Makes an agent chat tab in a pane of a daemon, in a new split on that side of it when given (``AgentTabStore/open(in:of:session:seed:newTab:spare:linked:adopt:host:idempotencyKey:split:)``).
+typealias AgentTabOpen = (PaneID, DaemonService, SplitDirection?) throws -> AgentTabPending
+
 /// The pane views of agent chat tabs (the React acpmux pane, CmuxNextAgentPane).
 ///
 /// An agent chat tab is a workspace store tab: a `conversation` tab whose source is an acpmux
@@ -58,6 +61,8 @@ final class AgentTabStore {
     /// the caller places the tab itself.
     var openInMainPane: @MainActor (_ chat: String, _ focus: Bool, _ open: (PaneID, DaemonService) throws -> AgentTabPending,
                                     _ created: (@MainActor (String) -> Void)?, _ finished: (@MainActor (Bool) -> Void)?) -> Bool? = { _, _, _, _, _ in nil }
+    /// Lays out now the split beside chat `chat` holding new tab `key` (focus expected on it when `focus`); the result takes the store's tab.
+    var showSplit: @MainActor (_ chat: String, _ key: String, _ focus: Bool) -> @MainActor (SurfaceID) -> Void = { _, _, _ in { _ in } }
     /// Every agent tab the trees list, with its record.
     var listTabs: @MainActor () -> [(key: String, record: AgentSessionRef)] = { [] }
     /// Creates the store tab with idempotency key `key` (AppServices: `new-conversation-tab` on
@@ -272,9 +277,9 @@ final class AgentTabStore {
     /// A background task's terminal beside chat tab `chat` (``AgentProcessTerminal``); false when none opened.
     var openProcess: (@MainActor (_ chat: String, _ viewer: AgentPaneProcessViewer) -> Bool)?
     var cloudCredentialTransfer: (@MainActor (_ chat: String, _ request: AgentPaneCloudCredentialTransferRequest) async -> Bool)?
-    /// Session `session` on chat tab `chat`'s right as a link opens (``LinkOpener``, `layout.linkPlacement`):
-    /// a tab in the pane there, else a new split, focused; false when nothing opened.
-    var openRight: (@MainActor (_ chat: String, _ session: String) -> Bool)?
+    /// Session `session` (of acpmux `host`, nil: this Mac's) on tab `chat`'s right as a link opens (``LinkOpener``,
+    /// `layout.linkPlacement`): a tab in the pane there, else a new split, focused; false when nothing opened.
+    var openRight: (@MainActor (_ chat: String, _ session: String, _ host: String?) -> Bool)?
     /// The header's Terminal or Browser on chat tab `chat`'s right (``AgentChatTabActions/openTool``).
     var openTool: (@MainActor (_ chat: String, _ kind: RightColumnPlacement.Kind, _ cwd: String?) -> Bool)?
     var gitLink: (@MainActor (String) -> AgentPaneGitLink?)?, openFiles: (@MainActor (_ chat: String, _ folder: String, _ target: String?) -> Void)?, moveToFloatingChat: (@MainActor (String) -> Bool)?

@@ -306,7 +306,7 @@ extension Data.WritingOptions {
 /// The push keychain group is in every build (`PushSharedPreference`), so the reply goes
 /// there under the notification's request id. The extension then opens the app with
 /// `performNotificationDefaultAction()`, whose response names that same request: the app
-/// takes exactly that reply and sends it like an outbox reply (Face ID first, on the Mac's
+/// takes exactly that reply and sends it like an outbox reply (signed first, on the Mac's
 /// link). Keyed by request, so nothing lists the keychain and two processes never race.
 public struct PushHandover: Sendable {
     public let store: any PushSecretStore

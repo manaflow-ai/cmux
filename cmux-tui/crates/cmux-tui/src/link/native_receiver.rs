@@ -12,9 +12,7 @@ use anyhow::{anyhow, bail};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use cmux_host::cloud::receiver::ReceiverBinding;
 use cmux_link::elapsed::Deadline;
-use cmux_link::native_token::{
-    MAX_POLICY_LEASE_MS, NativePolicy, NativeTokenVerifier, PolicyDeadline,
-};
+use cmux_link::native_token::{MAX_ADMIT_MS, NativePolicy, NativeTokenVerifier, PolicyDeadline};
 use cmux_link::overlay_addr::overlay_address;
 use cmux_wg::{
     InterfaceAddress, IpNetwork, WgMesh, WgMeshConfig, WgMeshListener, WgPeer, WgStream,
@@ -24,7 +22,9 @@ use tokio::net::UdpSocket;
 use tokio::sync::{mpsc, oneshot};
 use zeroize::Zeroizing;
 
-use super::host_inbound::{HostIdentity, serve_host_inbound};
+#[cfg(test)]
+use super::host_inbound::serve_host_inbound;
+use super::host_inbound::{HostIdentity, HostRefused, StreamTrace, serve_host_inbound_traced};
 
 const MAX_STREAMS: usize = 4096;
 type ServiceTask = Pin<Box<dyn Future<Output = u64> + Send>>;
@@ -134,7 +134,14 @@ impl NativeReceiver {
     }
 
     fn accept(&mut self, stream: WgStream, key: [u8; 32]) {
-        if self.services.len() >= MAX_STREAMS || !self.peers.contains_key(&key) {
+        if self.services.len() >= MAX_STREAMS {
+            eprintln!("cmux link: receiver dropped a stream: {MAX_STREAMS} streams already open");
+            return;
+        }
+        if !self.peers.contains_key(&key) {
+            eprintln!(
+                "cmux link: receiver dropped a stream: its key is no peer of the current policy"
+            );
             return;
         }
         let Some(id) = self.serial.checked_add(1) else { return };
@@ -149,11 +156,15 @@ impl NativeReceiver {
         self.inflight.push(Box::pin(async move {
             let source = stream.peer_addr();
             let me = HostIdentity { host: &host, epoch, session_socket: &session, sshd };
-            tokio::select! {
+            let started = Instant::now();
+            let mut trace = StreamTrace::default();
+            let outcome = tokio::select! {
                 biased;
-                _ = cancelled => {},
-                _ = serve_host_inbound(stream, key, source, &*verifier, &me) => {},
-            }
+                _ = cancelled => None,
+                served = serve_host_inbound_traced(stream, key, source, &*verifier, &me, &mut trace) => Some(served),
+            };
+            // One journal line per stream: a refused or dropped stream otherwise closes with no word on either side.
+            eprintln!("{}", stream_ended_line(id, &source, started.elapsed(), &trace, outcome.as_ref()));
             id
         }));
     }
@@ -173,7 +184,7 @@ impl NativeReceiver {
             let lifetime = policy
                 .expires_at_ms
                 .checked_sub(policy.checked_at_ms)
-                .filter(|duration| *duration > 0 && *duration <= MAX_POLICY_LEASE_MS)
+                .filter(|duration| *duration > 0 && *duration <= MAX_ADMIT_MS)
                 .ok_or_else(|| anyhow!("cloud.receiver.policy_lease_refused"))?;
             let deadline = policy
                 .request_started
@@ -274,3 +285,47 @@ async fn expired(deadline: Option<(Instant, Option<Deadline>)>) -> std::io::Resu
 #[cfg(test)]
 #[path = "native_receiver_tests.rs"]
 mod tests;
+
+/// The journal line for stream `id` from `source`, which ended after `took`:
+/// `outcome` is `None` when the receiver closed it (its peer left the
+/// policy, or the receiver stopped). Ids, services, reasons and byte counts
+/// only: never a token or a byte of the stream.
+pub(super) fn stream_ended_line(
+    id: u64,
+    source: &SocketAddr,
+    took: Duration,
+    trace: &StreamTrace,
+    outcome: Option<&Result<(), HostRefused>>,
+) -> String {
+    let service =
+        trace.service.map_or_else(|| "no hello".to_string(), |s| format!("{s:?}").to_lowercase());
+    let how = match outcome {
+        None => {
+            "closed by the receiver (its peer left the policy, or the receiver stopped)".to_string()
+        }
+        Some(Err(HostRefused::Token)) => match (trace.token, &trace.check) {
+            // The verifier's own check, when it names more than the variant.
+            (Some(why), Some(check)) if check.reason != why.name() => {
+                format!("refused: token {why:?}: {check}")
+            }
+            (Some(why), _) => format!("refused: token {why:?}"),
+            (None, _) => "refused: token".to_string(),
+        },
+        Some(Err(why)) => format!("refused: {why:?}"),
+        Some(Ok(())) => match trace.spliced {
+            Some(spliced) => match (spliced.to_entry, spliced.to_peer, spliced.error) {
+                (Some(to_entry), Some(to_peer), _) => {
+                    format!("spliced: {to_entry} bytes in, {to_peer} bytes back")
+                }
+                (_, _, Some(kind)) => format!("spliced: the copy ended on {kind:?}"),
+                _ => "spliced".to_string(),
+            },
+            None => "served".to_string(),
+        },
+    };
+    format!(
+        "cmux link: receiver stream {id} ({service}) from {} ended after {} ms: {how}",
+        source.ip(),
+        took.as_millis()
+    )
+}

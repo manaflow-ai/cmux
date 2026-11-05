@@ -2138,6 +2138,29 @@ class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
                       f"hash [{digest}]", f'pack "{digest}"', f"artifact = {digest}"):
             self.assertEqual(excuse.mask_shas(named), named)
 
+    def test_a_stored_thing_id_after_a_bracket_alone_is_not_masked(self):
+        # cmux#35941 F3: the separator still needed a space or a `:`/`=` before its optional bracket, so
+        # `artifact(<40-hex>)` and `pack"<40-hex>"` fell back to the bare branch and two differing digests
+        # compared as one red.
+        digest = "f06132224fc58d3cd5349ed190eaadc44736abf2"
+        for named in (f"artifact({digest})", f'pack"{digest}"', f"bundle[{digest}]", f"digest`{digest}`",
+                      f"checksum'{digest}'"):
+            self.assertEqual(excuse.mask_shas(named), named)
+        # Two such ids are still two error lines once every digit is masked too.
+        other = "2cadcc0a5426124272e806a9dca5273ce19940ea"
+        self.assertNotEqual(excuse.normalise_error(f"##[error]artifact({digest}) does not match"),
+                            excuse.normalise_error(f"##[error]artifact({other}) does not match"))
+
+    def test_a_bare_forty_hex_with_no_naming_word_is_still_masked(self):
+        # The separator stays required, so the wider separator does not turn the bare branch off: a 40-hex
+        # with no stored-thing word before it is each run's own commit and still masks.
+        self.assertEqual(excuse.mask_shas(f"({HEAD})"), "(<sha>)")
+        self.assertEqual(excuse.mask_shas(f'built "{HEAD}" from [{BASE_SHA}]'), 'built "<sha>" from [<sha>]')
+        # A word that names a commit rather than a stored thing masks through a bracket too.
+        self.assertEqual(excuse.mask_shas(f"tree({HEAD})"), "tree(<sha>)")
+        self.assertEqual(excuse.normalise_error(f"##[error]source stamp {HEAD} != {BASE_SHA}"),
+                         excuse.normalise_error(f"##[error]source stamp {BASE_SHA} != {HEAD}"))
+
     def test_a_preserved_id_keeps_its_digits(self):
         # cmux#35941 F2: normalise_error masks every digit after mask_shas, so two preserved ids that differ
         # only in digits still normalised the same way.

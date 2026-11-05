@@ -22,6 +22,24 @@ const REMOTE_ENV_CLEARED_KEY: &str = "__ACPMUX_REMOTE_ENV_CLEARED";
 /// session (Claude Code 2.1.312 offers neither them nor TodoWrite without it).
 const TODO_TOOLS_ENV: &str = "CLAUDE_CODE_ENABLE_TODO_TOOLS";
 
+/// Claude Code's own name for the session (`--name`): its acpmux name, so the
+/// peer list and a held message's "From:" read as `acpmux ls` does, not as the
+/// folder name and a number Claude Code derives (Leo: "it's called projects-34
+/// but it's named differnetly in cmux-next"). A command line that names the
+/// session keeps its own; a remote-origin chain (its env policy, or its sandbox's
+/// `--strict-mcp-config`) passes no flag its plan did not check.
+fn claude_name_args(
+    env: &std::collections::BTreeMap<String, String>,
+    args: &[String],
+    name: &str,
+) -> Vec<String> {
+    let name = name.trim();
+    let remote = env.get(REMOTE_ENV_POLICY_KEY).is_some_and(|v| v == "1")
+        || args.iter().any(|a| a == "--strict-mcp-config");
+    let own = args.iter().any(|a| a == "--name" || a == "-n" || a.starts_with("--name="));
+    if name.is_empty() || remote || own { Vec::new() } else { vec!["--name".into(), name.into()] }
+}
+
 /// The harness command line and environment, as acpmux runs it: the login
 /// environment, no nested-agent markers, the session's `ACPMUX_*` caller
 /// context, and the profile's env. Shared by direct children and hosts.
@@ -53,10 +71,11 @@ pub(crate) fn harness_command(
             "{name} is a terminal harness without ACP; open it with `cmux harness run {name}`"
         ));
     }
-    let owned = if let (true, Some((session_id, _))) = (claude_session, session) {
+    let owned = if let (true, Some((session_id, session_name))) = (claude_session, session) {
         let extra =
             crate::agent_tools::claude_args_for(false, &profile.env, &owned.1, session_id, cwd);
-        (owned.0, owned.1.into_iter().chain(extra).collect())
+        let named = claude_name_args(&profile.env, &owned.1, session_name);
+        (owned.0, owned.1.into_iter().chain(extra).chain(named).collect())
     } else {
         owned
     };
@@ -463,6 +482,38 @@ mod tests {
     }
 
     use super::*;
+
+    /// A Claude session is launched under its acpmux name (`--name`), so Claude
+    /// Code's peer list says what `acpmux ls` says; with cmux's tools off too.
+    #[test]
+    fn a_claude_session_is_launched_under_its_acpmux_name() {
+        let mut profile: HarnessProfile = serde_json::from_value(serde_json::json!({
+            "argv": ["claude"]
+        }))
+        .unwrap();
+        profile.kind = crate::config::HarnessKind::ClaudeStdio;
+        profile.env.insert(crate::agent_tools::SWITCH_ENV.into(), "0".into());
+        let args = |line: Vec<&str>, name: &str| -> Vec<String> {
+            let line = Some(("claude".to_owned(), line.into_iter().map(str::to_owned).collect()));
+            let id = "01a15d7d-b692-76b3-b8de-a9a71809de2a";
+            let cmd =
+                harness_command("local", &profile, &std::env::temp_dir(), line, Some((id, name)))
+                    .unwrap();
+            cmd.as_std().get_args().map(|a| a.to_string_lossy().into_owned()).collect()
+        };
+        let named = args(vec!["-p"], "reviewer");
+        assert!(named.windows(2).any(|w| w == ["--name", "reviewer"]), "{named:?}");
+        // A command line that names the session keeps its own name.
+        let own = args(vec!["-p", "--name", "pinned"], "reviewer");
+        assert!(!own.iter().any(|a| a == "reviewer"), "{own:?}");
+        // No name, no flag; a remote chain's sandboxed plan gets none either.
+        assert!(!args(vec!["-p"], " ").iter().any(|a| a == "--name"));
+        let sandboxed = args(vec!["-p", "--strict-mcp-config"], "reviewer");
+        assert!(!sandboxed.iter().any(|a| a == "--name"), "{sandboxed:?}");
+        let env =
+            std::collections::BTreeMap::from([(REMOTE_ENV_POLICY_KEY.to_owned(), "1".to_owned())]);
+        assert!(claude_name_args(&env, &[], "reviewer").is_empty());
+    }
 
     #[test]
     fn hosted_remote_environment_cannot_be_reopened_by_a_profile_key_collision() {

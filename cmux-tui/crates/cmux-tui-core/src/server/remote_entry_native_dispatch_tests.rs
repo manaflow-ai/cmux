@@ -206,5 +206,51 @@ fn native_owner_transfer_uses_existing_guard() {
     assert_eq!(fake.frame()["method"], json!("_acpmux/transfer_finish"));
 }
 
+/// A Cloud chat's folder copy reaches the owner's own machine over the owner's Native dial: its
+/// file, seed and repo frames pass the entry (answered by fs_wire, here `fs.unavailable` with no
+/// file owner installed), and identify on that carrier may list their capabilities. A team or
+/// unverified Native dial is refused every one of them, as a line and as a byte-stream dial.
+#[test]
+fn native_data_frames_reach_only_the_owner() {
+    let frames = [
+        json!({"cmd":"fs.stat", "path":"/home/cmux/work"}),
+        json!({"cmd":"fs.list", "path":"/home/cmux/work"}),
+        json!({"cmd":"fs.write", "path":"/home/cmux/work/a", "data":""}),
+    ];
+    for role in [Some(VmKind::Owner), Some(VmKind::Team), None] {
+        let entry = entry_with(true, Arc::new(FsGate), Some(true));
+        let (mut stream, mut reader) = connect_as_link(&entry);
+        send(&mut stream, &native_stamp(role));
+        for frame in &frames {
+            let reply = call(&mut stream, &mut reader, frame.clone());
+            if role == Some(VmKind::Owner) {
+                assert_ne!(reply["error_code"], json!(REMOTE_DENIED), "{role:?} {frame} {reply}");
+            } else {
+                assert_eq!(reply["error_code"], json!(REMOTE_DENIED), "{role:?} {frame} {reply}");
+            }
+        }
+    }
+    for frame in &frames {
+        let line = frame.to_string();
+        assert!(fs_wire::native_dial_admits(Some(Some(VmKind::Owner)), &line));
+        assert!(fs_wire::native_dial_admits(None, &line), "a classic dial keeps its gate");
+        assert!(!fs_wire::native_dial_admits(Some(Some(VmKind::Team)), &line));
+        assert!(!fs_wire::native_dial_admits(Some(None), &line));
+    }
+    // Other frames keep the gate's answer on every dial.
+    assert!(fs_wire::native_dial_admits(Some(Some(VmKind::Team)), r#"{"cmd":"identify"}"#));
+    for capability in [
+        crate::fs_ops::FS_CAPABILITY,
+        crate::fs_ops::FS_SYMLINK_CAPABILITY,
+        crate::fs_ops::FS_WRITE_DEFLATE_CAPABILITY,
+        crate::fs_ops::FS_WRITE_NOFOLLOW_CAPABILITY,
+        crate::git_seed::GIT_SEED_CAPABILITY,
+        crate::git_seed::GIT_SEED_EXPORT_CAPABILITY,
+        crate::blob_fetch::BLOB_FETCH_CAPABILITY,
+    ] {
+        assert!(native_owner::carries(capability), "{capability}");
+    }
+}
+
 #[path = "remote_entry_native_terminal_tests.rs"]
 mod terminal;

@@ -1768,6 +1768,12 @@ fn warm_seeded_deps(folder: &Path) {
 pub fn main() -> std::process::ExitCode {
     // SAFETY: the first statement of main: no other thread runs yet (G4).
     unsafe { startup_env::take_link_token_from_env() };
+    // SAFETY: still the first statements of main: one thread. Under a test,
+    // name the test process for every process this one starts (cx-leo45).
+    #[cfg(any(target_vendor = "apple", target_os = "linux"))]
+    unsafe {
+        cmux_tui_core::test_owner::adopt();
+    }
     // Before any mode can serve `identify` or `ping`, or run acpmux.
     cmux_tui_core::server::install_build_stamp(build_stamp());
     cmux_tui_core::release::install_distribution_version(version_report::DISTRIBUTION_STAMP);

@@ -19,7 +19,14 @@ public nonisolated struct AgentPaneAddAccount: Equatable, Sendable {
         self.id = id
         self.kind = kind
         self.family = family
-        self.fields = fields
+        self.fields = fields.merging(Self.expandedHome(fields["accountHome"])) { _, home in home }
+    }
+
+    /// The page offers a new login a folder of its own as `~/.cmux/accounts/<id>`: it knows no home
+    /// path, and the daemon takes only an absolute one. Anything else goes through as written.
+    static func expandedHome(_ home: String?, homeDirectory: String = NSHomeDirectory()) -> [String: String] {
+        guard let home, home.hasPrefix("~/"), home.count > 2 else { return [:] }
+        return ["accountHome": (homeDirectory as NSString).appendingPathComponent(String(home.dropFirst(2)))]
     }
 
     @MainActor

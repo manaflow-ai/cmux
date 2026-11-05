@@ -10,7 +10,12 @@ import { type DiffItem, type FileTreeSource } from "../diff-stream";
 import { treeFileRowPath } from "../file-activation";
 import { nativeMenu, pickedId } from "../ui/nativeMenu";
 import { defaultDiffFileFilter, isDiffFileFilterActive, type DiffFileFilter } from "../file-filter";
-import { planPierreFileTreeRefresh, selectPierreFileTreePath } from "../file-tree-refresh";
+import {
+  folderOrderedPaths,
+  planPierreFileTreeRefresh,
+  selectOnlyPierreFileTreePath,
+  selectPierreFileTreePath,
+} from "../file-tree-refresh";
 import {
   createTextMeasure,
   diffChangeSpriteSheet,
@@ -24,6 +29,9 @@ import {
 import { Icon } from "../icons";
 import { fileTreeUnsafeCSS } from "../pierre-options";
 import { type ViewedFileState } from "../viewed-files";
+import { experimentArm } from "../experiments/experiment";
+import { attachTreeTitles } from "../agent-session/acpmux/changes/treeTitles";
+import { TREE_NAME_FADES, treeNameFade } from "../agent-session/acpmux/changes/treeMotion.experiment";
 import type { DiffViewerLabelResolver } from "../labels";
 import { type AppAction, type AppState } from "./state";
 import { LoadingFileList } from "./Loading";
@@ -253,6 +261,7 @@ function PierreFileTree({
   const activatedPath = useRef<string | null>(null);
   const syncingSelection = useRef(false);
   const onActivate = useSyncedRef(onActivateItem);
+  const fadeWidth = TREE_NAME_FADES[experimentArm(treeNameFade)];
   // Native listeners (not JSX handlers): the wrapper is not itself a control,
   // the row buttons are, and keyboard activation reaches it as their click.
   const treeActivationRef = useCallback(
@@ -274,14 +283,17 @@ function PierreFileTree({
       };
       element.addEventListener("click", capture, true);
       element.addEventListener("click", finish);
+      // Long names fade at their end and scroll once on hover or focus, as in the changes view.
+      const detachTitles = attachTreeTitles(element, { fadeWidth });
       return () => {
         element.removeEventListener("click", capture, true);
         element.removeEventListener("click", finish);
+        detachTitles();
       };
     },
-    [latest, onActivate],
+    [fadeWidth, latest, onActivate],
   );
-  const [initialPreparedInput] = useState(() => preparePresortedFileTreeInput(source.paths));
+  const [initialPreparedInput] = useState(() => preparePresortedFileTreeInput(folderOrderedPaths(source.paths)));
   const [measureStats] = useState(() => createTextMeasure(FILE_TREE_FONT_FAMILY));
   const { model } = useFileTree({
     // Single-child folder chains render as one row ("infra / tsadmin").
@@ -321,6 +333,17 @@ function PierreFileTree({
     },
     onSelectionChange(paths: readonly string[]) {
       const path = paths[paths.length - 1];
+      // A folder row's click toggles the folder and selects it too; the highlight goes back to the
+      // file in view, so a folder never keeps one. (A modified click's multiple selection stays.)
+      if (!syncingSelection.current && paths.length === 1 && path?.endsWith("/")) {
+        syncingSelection.current = true;
+        try {
+          selectOnlyPierreFileTreePath(model, latest.current.selectedPath);
+        } finally {
+          syncingSelection.current = false;
+        }
+        return;
+      }
       // The click that activated this row already acted on the file, and a
       // selection the viewer made (following the file in view) must not
       // scroll the viewer back.
@@ -417,14 +440,12 @@ function usePierreFileTreeSource(
           model.batch(plan.addedPaths.map((path) => ({ type: "add", path })));
           useFullGitStatus = !plan.sourceFollowsPrevious;
         } catch {
-          const preparedInput = preparePresortedFileTreeInput(source.paths);
-          model.resetPaths(source.paths, { preparedInput });
+          resetPierreFileTreePaths(model, source.paths);
           useFullGitStatus = true;
         }
       }
     } else {
-      const preparedInput = preparePresortedFileTreeInput(source.paths);
-      model.resetPaths(source.paths, { preparedInput });
+      resetPierreFileTreePaths(model, source.paths);
       useFullGitStatus = true;
     }
     // Setting the icons re-renders the rows, so new counts show, and adds the
@@ -434,6 +455,12 @@ function usePierreFileTreeSource(
       model.setIcons(fileTreeIcons(source, measureStats));
     }
   }, [measureStats, model, source]);
+}
+
+/** Rebuilds the tree from `paths`, each folder's rows together (`folderOrderedPaths`). */
+function resetPierreFileTreePaths(model: ReturnType<typeof useFileTree>["model"], paths: readonly string[]): void {
+  const ordered = folderOrderedPaths(paths);
+  model.resetPaths(ordered, { preparedInput: preparePresortedFileTreeInput(ordered) });
 }
 
 /** "Open file search" (the native action, `diffViewerOpenFileSearch`) focuses the sidebar's filter field. */

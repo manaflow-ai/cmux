@@ -283,13 +283,8 @@ struct CloudMove {
         // A paused machine (idle auto-pause) resumes on this attach; a live one connects. A
         // record that may be stale (paused behind the app) is read again first.
         try CloudHandlers.requireAttachableState(session)
-        // Every first send from a workspace waits here for its new machine (Leo, 2026-11-04: "why is it taking so long to start a chat
-        // \"in cloud\"?"): read 1 s apart for the first 20 reads, then 3 s (80 reads, about 3 min), and a pause ends
-        // as soon as another read shows it running.
-        await session.untilRunning(pause: { attempt in
-            _ = await CloudWait.holds(within: .seconds(attempt <= 20 ? 1 : 3)) { session.machine.status == .running }
-            try Task.checkCancellation()
-        })
+        // A new machine that still binds: the app link's connect waits in the Cloud app server until it runs
+        // (cloud.machine.upsert or its own read of that machine), never a list read from here.
         if session.daemon.connection == nil {
             await session.refreshIfMaybePaused()
             try CloudHandlers.requireAttachableState(session)

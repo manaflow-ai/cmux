@@ -195,6 +195,7 @@
     "cmux-tui/crates/acpmux/src/hub/remote_sandbox.rs": {"count": 2, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "cmux-tui/crates/acpmux/src/hub/restart_resume.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "cmux-tui/crates/acpmux/src/hub/secrets.rs": {"count": 2, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
+    "cmux-tui/crates/acpmux/src/hub/tool_read_images.rs": {"count": 1, "reason": "safe: a derived preview budget; an image file an agent viewed that is larger is never refused or changed, it only shows as its path as before"},
     "cmux-tui/crates/acpmux/src/hub/transfer_out.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "cmux-tui/crates/acpmux/src/hub/watch.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "cmux-tui/crates/acpmux/src/launch_credential.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},

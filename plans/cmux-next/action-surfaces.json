@@ -28909,7 +28909,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Chat on Cloud Machine over the Relay…",
+      "title" : "Chat on Cloud Machine via the Relay…",
       "title_key" : "action.cloudRelayChat",
       "title_table" : "CloudSessionActions"
     },

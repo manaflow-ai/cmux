@@ -35,8 +35,11 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAccounts",
       "targets": [
         "CmuxNextActions",
+        "CmuxNextAgentPane",
+        "CmuxNextAgentUpdates",
         "CmuxNextCloud",
         "CmuxNextCodeRouter",
+        "CmuxNextDaemonService",
         "CmuxNextDesign",
         "CmuxNextIcons",
         "CmuxNextPages",
@@ -312,6 +315,7 @@
         "CmuxNextImportSuggestions",
         "CmuxNextKeepAwake",
         "CmuxNextLayout",
+        "CmuxNextLiveCode",
         "CmuxNextMacScreen",
         "CmuxNextMallocZone",
         "CmuxNextMobile",
@@ -466,6 +470,7 @@
         "CmuxNextVSCodeServer",
         "CmuxNextWakeups",
         "CmuxNextWakeupsTestSupport",
+        "CmuxNextWebUpdates",
         "CmuxNextWorkspaceNaming",
         "CmuxNextWorkspaceRepair"
       ],
@@ -1365,10 +1370,19 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextLayout",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextIcons",
         "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextLiveCode": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextLiveCode",
+      "targets": [
+        "CmuxNextCompat"
       ],
       "packages": []
     },
