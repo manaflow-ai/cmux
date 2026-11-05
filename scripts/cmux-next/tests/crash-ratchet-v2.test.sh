@@ -484,4 +484,34 @@ if out="$(ratchet)"; then fail "an index through another value's lock, a value b
 g reset -q
 reset
 
+# 23. Review of #36236 (finding 1): a closure inside a statement's condition or a parameter
+#     list must not take the statement's bindings. `if let model = ms.first(where: { ... }) {`,
+#     `for model in ms.filter({ ... }) {` and a multi-line parameter list with a `= { }` default
+#     bind `model` in the body, so the property `var model = Local()` does not apply there and
+#     each subscript counts. A binding typed with this file's Local still gets its body.
+cat > "$shared/Sources/MessagesLabHome/F.swift" <<'SWIFT'
+struct Local {
+    var rows: [String: Int] = [:]
+}
+final class Reader {
+    var model = Local()
+    func read(ms: [Model], i: Int, id: Int, key: String) {
+        if let model = ms.first(where: { $0.id == id }) { let a = model.rows[i] }
+        for model in ms.filter({ $0.ok }) { let b = model.rows[i] }
+        if let typed: Local = pick({ $0 }) { let t = typed.rows[key] }
+    }
+    func multi(model: Model,
+               done: () -> Void = { },
+               i: Int) {
+        let c = model.rows[i]
+    }
+}
+SWIFT
+printf 'struct Model {\n    var rows: [Int] = []\n}\n' > "$shared/Sources/MessagesLabHome/G.swift"
+g add -A
+if out="$(ratchet)"; then fail "a binding taken by a closure in a condition or a parameter list let the outer local exempt an index: $out"; fi
+[[ "$out" == *"swift MessagesLabHome: index_subscript 0 -> 3"* ]] || fail "if let / for with a closure in the condition, or a multi-line parameter list with a closure default, was exempt, or the Local-typed if let counted: $out"
+g reset -q
+reset
+
 echo "crash-ratchet-v2.test.sh: ok"
