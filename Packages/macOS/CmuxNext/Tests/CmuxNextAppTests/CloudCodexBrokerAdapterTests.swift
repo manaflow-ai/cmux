@@ -158,6 +158,24 @@ done
         await adapter.shutdown()
     }
 
+    /// A grant from the Mac's Codex renews while a newer Mac token still qualifies (15 min left), not
+    /// 2 minutes before its end, when nothing from the Mac would be accepted any more.
+    @Test func aMacGrantRenewsBeforeTheLocalCutoff() async throws {
+        let (root, launch) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let files = Files()
+        let scope = CloudCodexBrokerScope(userID: "user", teamID: nil)
+        let registry = CloudCodexBrokerRegistry()
+        let adapter = CloudCodexBrokerAdapter(root: root, registry: registry, currentScope: { scope }, launch: { launch }, target: { _, id in files.target(id) })
+        let expiry = Date().addingTimeInterval(3600)
+        adapter.localSignIn = { CloudCodexAccessGrant(accessToken: "mac-access", chatgptAccountID: "account", expiresAt: expiry) }
+        try await adapter.run(machineID: "vm", scope: scope, confirmed: true, askLocalSignIn: { true }, presentDeviceCode: { _ in false })
+        let broker = try #require(await registry.existing(for: scope))
+        let renewal = try #require(await broker.scheduledRenewal)
+        #expect(renewal <= expiry.addingTimeInterval(-CloudCodexLocalAccess.minimumLifetime))
+        await adapter.shutdown()
+    }
+
     /// A no (or no Mac sign-in) keeps the device code exactly as before.
     @Test func aDeclinedMacSignInFallsBackToTheDeviceCode() async throws {
         let (root, launch) = try fixture()
