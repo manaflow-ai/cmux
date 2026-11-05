@@ -343,11 +343,6 @@ pub const BACKGROUND_TASKS: &str = "_acpmux/claude/background_tasks";
 /// or Claude Code's error.
 pub const MCP_RECONNECT: &str = "_acpmux/claude/mcp_reconnect";
 
-/// The most categories, memory files, MCP tools and skills a context breakdown
-/// names (`context_breakdown`; the lists the largest first, categories in Claude Code's order): a chat with hundreds of MCP
-/// tools would otherwise log every one at each turn's end.
-const BREAKDOWN_ROWS: usize = 50;
-
 /// The internal ACP request for Claude Code's native, transcript-free `/btw`
 /// control request. The translator turns this into a `side_question`
 /// `control_request` on Claude's running stream-json process.
@@ -439,6 +434,13 @@ pub fn spawn_plan(
     if let Some(e) = effort.and_then(cli_effort) {
         args.push("--effort".into());
         args.push(e.into());
+    }
+    // In -p, Claude Code 2.1.310 streams thinking blocks empty (display
+    // omitted) unless asked for summaries, so the chat showed no thinking
+    // (Leo: "why is no thinking appearing for you?"). A profile may pin its own.
+    if !profile.argv.iter().any(|a| a == "--thinking-display") {
+        args.push("--thinking-display".into());
+        args.push("summarized".into());
     }
     // A later --model wins over one the profile pins in its argv.
     if let Some(m) = model.filter(|m| !m.is_empty() && *m != "default") {
@@ -781,8 +783,11 @@ impl Translator {
         held
     }
 
-    /// Error answers for the steered prompts Claude Code never echoed: the
-    /// turn ended without reading them (no echo support).
+    /// The answers of the steered prompts Claude Code never echoed: the turn ended
+    /// without reading them (acpmux always asks for echoes, `--replay-user-messages`,
+    /// and Claude Code echoes each line it reads). Each answers `STEER_NO_TURN`, so the
+    /// hub runs it as the next prompt (`hub/steer_end.rs`), never "Not sent" (Leo,
+    /// 2026-11-05: "WTF IS THIS").
     async fn fail_steers(&self) -> Vec<Message> {
         let mut batches = self.batches.lock().await;
         let mut steers = self.steers.lock().await;
@@ -796,10 +801,7 @@ impl Translator {
         drop(batches);
         let failed = failed.into_iter().map(|(_, id)| {
             let id: Id = serde_json::from_str(&id).unwrap_or(Value::String(id));
-            Message::err(
-                id,
-                RpcError::internal("steer: the turn ended before Claude Code read the message"),
-            )
+            Message::err(id, RpcError::invalid_params(STEER_NO_TURN))
         });
         held.into_iter().chain(failed).collect()
     }
@@ -1078,10 +1080,10 @@ pub fn is_context_answer(line: &Value) -> bool {
         .is_some_and(|id| id.starts_with("ctx-"))
 }
 
-/// Claude Code's answer to `get_context_usage` (its `/context`), trimmed to
-/// what a client draws: each category's tokens and kind, the memory files,
-/// MCP tools and skills by size (at most `BREAKDOWN_ROWS` of each, the
-/// largest), and the totals; no grid or colors. None without categories: a
+/// Claude Code's answer to `get_context_usage` (its `/context`), retaining
+/// every reported category, memory file, MCP tool and skill with token counts.
+/// Detail rows are sorted by size; presentation-only grid and colors are omitted.
+/// None without categories: a
 /// Claude Code too old to answer, or one that answered something else.
 pub(super) fn context_breakdown(usage: &Value) -> Option<Value> {
     let categories = usage.get("categories")?.as_array()?;
@@ -1104,13 +1106,10 @@ pub(super) fn context_breakdown(usage: &Value) -> Option<Value> {
             })
             .collect();
         rows.sort_by_key(|row| std::cmp::Reverse(tokens(row)));
-        rows.truncate(BREAKDOWN_ROWS);
         rows
     };
-    // Claude Code names a dozen; the bound keeps a misbehaving answer out of the log.
     let categories: Vec<Value> = categories
         .iter()
-        .take(BREAKDOWN_ROWS)
         .map(|c| {
             let mut kept =
                 json!({"name": c.get("name"), "tokens": tokens(c), "kind": c.get("kind")});

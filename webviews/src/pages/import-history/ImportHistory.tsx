@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { AgentMark } from "../../agent-session/shared/AgentMark";
 import { DialogButton } from "../../ui/DialogButton";
 import type { Strings } from "../shared/i18n";
 import { canImport, type HistoryRow, type ImportHistoryStore, type Origin } from "./model";
@@ -29,10 +30,20 @@ export function ImportHistory({ store, strings, layout = "list" }: ImportHistory
         <h1>{t("history.title")}</h1>
         <p className="history-lead">{t("history.subtitle")}</p>
       </header>
-      <output className="history-notice" aria-live="polite">
-        {t(`history.state.${snapshot.phase}`)}
-      </output>
-      <div className="history-sources">
+      <div className="history-scan-status">
+        <output className="history-notice" aria-live="polite">
+          {t(`history.state.${snapshot.phase}`)}
+        </output>
+        <button
+          type="button"
+          className="history-link"
+          disabled={busy || snapshot.phase === "detecting" || Boolean(snapshot.picking)}
+          onClick={() => void store.findExports()}
+        >
+          {t("history.findExports")}
+        </button>
+      </div>
+      <div className="history-sources" aria-label={t("history.sources")}>
         {snapshot.rows.map((row) => (
           <SourceRow
             key={row.id}
@@ -43,14 +54,6 @@ export function ImportHistory({ store, strings, layout = "list" }: ImportHistory
           />
         ))}
       </div>
-      <button
-        className="history-link history-dot"
-        type="button"
-        disabled={busy || Boolean(snapshot.picking)}
-        onClick={() => void store.pickZip("dot")}
-      >
-        {t("history.savedDot")}
-      </button>
       {(snapshot.error || snapshot.phase === "error") && (
         <div className="history-error" role="alert">
           <p>
@@ -112,9 +115,10 @@ function SourceRow({
 }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const t = strings.t;
-  const title = t(`history.source.${row.id}`);
+  const localizedTitle = t(`history.source.${row.id}`);
+  const title = row.title ?? (localizedTitle === `history.source.${row.id}` ? titleFor(row.id) : localizedTitle);
   const unavailable = row.kind === "local" && !row.source;
-  const selected = row.kind === "text" ? Boolean(row.expanded) : row.selected;
+  const expanded = Boolean(row.expanded);
   return (
     <section className={`history-source phase-${row.phase}`}>
       <div className="history-source-line">
@@ -123,7 +127,7 @@ function SourceRow({
             type="checkbox"
             id={`history-select-${row.id}`}
             aria-label={title}
-            checked={selected}
+            checked={row.selected}
             disabled={busy || unavailable || (row.kind === "zip" && !row.source)}
             onChange={(event) => {
               const checked = event.target.checked;
@@ -131,12 +135,20 @@ function SourceRow({
               if (row.kind === "text" && Boolean(row.expanded) !== checked) store.expand(row.id);
             }}
           />
-          {row.kind === "zip" ? (
+          <span className="history-source-icon">
+            <AgentMark
+              agent={markFor(row.id, row.title)}
+              size={24}
+              label={title}
+              fallback={<span aria-hidden="true">{title.charAt(0)}</span>}
+            />
+          </span>
+          {row.kind === "zip" && !row.detected ? (
             <button
               type="button"
               className="history-source-title"
               disabled={busy || Boolean(snapshot.picking)}
-              onClick={() => void store.pickZip(row.id as "chatgpt" | "claude" | "dot")}
+              onClick={() => void store.pickZip(row.id)}
             >
               {title}
             </button>
@@ -145,7 +157,7 @@ function SourceRow({
           )}
         </div>
         <div className="history-source-action">
-          {row.kind === "local" && (
+          {(row.kind === "local" || row.detected) && (
             <span className="history-muted">
               {t(
                 snapshot.phase === "detecting"
@@ -161,7 +173,7 @@ function SourceRow({
               type="button"
               className="history-link"
               disabled={busy || Boolean(snapshot.picking)}
-              onClick={() => void store.pickZip(row.id as "chatgpt" | "claude" | "dot")}
+              onClick={() => void store.pickZip(row.id)}
               aria-label={strings.format("history.chooseFor", title)}
             >
               {t(snapshot.picking === row.id ? "history.choosing" : "history.choose")}
@@ -170,7 +182,7 @@ function SourceRow({
         </div>
       </div>
       {row.name && <p className="history-file">{row.name}</p>}
-      {row.kind === "text" && row.expanded && (
+      {row.kind === "text" && expanded && (
         <div className="history-paste">
           <p>{t("history.pasteHelp")}</p>
           <button
@@ -214,5 +226,28 @@ function SourceRow({
       )}
       {row.error && !row.error.startsWith("cmux.") && <p className="history-error-detail">{row.error}</p>}
     </section>
+  );
+}
+
+function markFor(id: string, title?: string): string {
+  if (id === "claude" || id === "claude-code" || id === "claude-memory") return "claude";
+  if (id === "codex" || id === "codex-sessions") return "codex";
+  if (id === "chatgpt" || id === "dots" || id === "dot") return "chatgpt";
+  if (id === "grok-bot" || title?.toLowerCase().includes("grok")) return "grok";
+  if (id === "muse" || title?.toLowerCase().includes("muse")) return "muse";
+  if (id === "instinct" || title?.toLowerCase().includes("instinct")) return "instinct";
+  if (title?.toLowerCase().includes("dot")) return "chatgpt";
+  return id;
+}
+
+function titleFor(id: string): string {
+  return (
+    {
+      "codex-sessions": "Codex chats",
+      "grok-bot": "Grok Bot",
+      muse: "Muse",
+      dots: "ChatGPT Dots",
+      instinct: "Instinct",
+    }[id] ?? "Saved export (.zip)"
   );
 }

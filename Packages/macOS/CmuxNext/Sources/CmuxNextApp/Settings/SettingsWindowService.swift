@@ -119,7 +119,7 @@ final class SettingsWindowService: InternalPageProvider {
                 || content.workspace.screens.contains { $0.panes.contains { $0.tabs.contains { $0.page == page.rawValue } } }
         }
         if let shown = window.content, holds(shown) { return }
-        let homeHidden = SidebarBridge.hidesHome(services.sidebarLayout.document)
+        let homeHidden = services.sidebarLayout.document.hidesHome
         let mounted = window.mountedContents.filter(holds).map(\.workspace)
         let members = services.windows.registry.members(of: window.state.id).compactMap { services.machines.workspace(id: $0)?.0 }
             .filter { $0.screens.contains { $0.panes.contains { $0.tabs.contains { $0.page == page.rawValue } } } }

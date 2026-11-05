@@ -199,7 +199,7 @@ extension SidebarBridge {
         model.ungroupedFirst = !services.sidebarDoc.isActive && !usesMixedOrder
         let shownAt = services.sidebarDoc.store?.shownChanges
         var sections = Self.sections(services.machines, doc: services.sidebarDoc, members: services.windows.registry.members(of: state.id), profile: state.profileID,
-                                     hidesHome: Self.hidesHome(services.sidebarLayout.document), selection: state.selection,
+                                     hidesHome: services.sidebarLayout.document.hidesHome, selection: state.selection,
                                      newTabPages: Self.newTabPages(services.agentTabs, in: services.machines.local.store), muted: services.notifications.preferences.mutedWorkspaces,
                                      harnessIcons: { [weak services] in services?.harnessIconLookup ?? .none })
         sections = WorkspaceGroupConfigLook(config: services.settings?.snapshot.workspaceGroups ?? WorkspaceGroupConfig(), machines: services.machines)

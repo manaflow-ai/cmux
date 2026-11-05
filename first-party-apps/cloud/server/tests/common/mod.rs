@@ -7,7 +7,9 @@
 //! `vm-get` (every `cloud.machine.get` answers a running machine of that id),
 //! `vm-list` (`cloud.machine.list {}` answers `vm-alpha01` running and
 //! `vm-beta02` paused) and `vm-resume` (every `cloud.machine.start` answers
-//! the machine running).
+//! the machine running). `vm-start-not-paused` answers every start with
+//! `cloud.machine.not_paused` (state running): something else, such as
+//! inbound traffic, woke the machine first.
 
 #![allow(dead_code)]
 
@@ -28,6 +30,9 @@ pub struct FakeControlPlane {
     get_any: bool,
     list_two: bool,
     start_any: bool,
+    /// `vm-start-not-paused`: every `cloud.machine.start` answers
+    /// `cloud.machine.not_paused`, and the machine runs from then on.
+    start_not_paused: bool,
     /// `vm-get-unbound`: every `cloud.machine.get` answers a provisioning
     /// machine with no host yet.
     get_unbound: bool,
@@ -76,6 +81,7 @@ impl FakeControlPlane {
             get_any: false,
             list_two: false,
             start_any: false,
+            start_not_paused: false,
             get_unbound: false,
             connect_info: None,
             vm_kind: None,
@@ -91,6 +97,7 @@ impl FakeControlPlane {
                 "vm-get" => fake.get_any = true,
                 "vm-list" => fake.list_two = true,
                 "vm-resume" => fake.start_any = true,
+                "vm-start-not-paused" => fake.start_not_paused = true,
                 "vm-get-unbound" => fake.get_unbound = true,
                 "connect-info-nofs" => fake.connect_info = Some(false),
                 "connect-info-fs" => fake.connect_info = Some(true),
@@ -130,6 +137,13 @@ impl FakeControlPlane {
     /// the caller's access to the machine ended).
     pub fn fail_connect_info(&mut self, code: &'static str) {
         self.connect_info_error = Some(code);
+    }
+
+    /// `vm-get-unbound` ends: the machine is bound and runs from now on
+    /// (every get and `connect_info` answers it running).
+    pub fn bind_now(&mut self) {
+        self.get_unbound = false;
+        self.get_any = true;
     }
 
     /// True when nothing reached the backend.
@@ -183,6 +197,15 @@ impl FakeControlPlane {
                 info
             }
             ("cloud.machine.get", Some(id)) if self.get_any => link_machine(id, "running"),
+            ("cloud.machine.start", Some(id)) if self.start_not_paused => {
+                self.started.push(id.to_owned());
+                return Some(WireReply::Error(WireError {
+                    code: "cloud.machine.not_paused".into(),
+                    message: "only a paused machine can be started".into(),
+                    details: Some(json!({ "machine": id, "state": "running" })),
+                    retryable: false,
+                }));
+            }
             ("cloud.machine.start", Some(id)) if self.start_any => {
                 self.started.push(id.to_owned());
                 let mut running = link_machine(id, "running");

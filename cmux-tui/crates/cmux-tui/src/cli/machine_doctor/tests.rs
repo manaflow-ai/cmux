@@ -132,7 +132,7 @@ fn a_stale_heartbeat_and_a_missing_mesh_daemon_fail_with_the_joined_end_fix() {
     let heartbeat = state(&checked, "heartbeat");
     assert_eq!(heartbeat.state, StepState::Fail);
     assert_eq!(heartbeat.detail, "last heartbeat 10 min ago");
-    let fix = "Run cmux machine doctor (or acpmux host doctor --here) on lane-vm-3";
+    let fix = "Run cmux machine doctor (or acpmux machine doctor --here) on lane-vm-3";
     assert_eq!(heartbeat.fix.as_deref(), Some(fix));
     let mesh = state(&checked, "mesh");
     assert_eq!(mesh.state, StepState::Fail);
@@ -156,7 +156,7 @@ fn the_mesh_step_degrades_without_a_mesh_id_or_a_mesh() {
     assert_eq!(mesh.state, StepState::Fail, "a mesh that is off fails the check");
     assert_eq!(
         mesh.fix.as_deref(),
-        Some("Run cmux machine doctor (or acpmux host doctor --here) on lane-vm-3")
+        Some("Run cmux machine doctor (or acpmux machine doctor --here) on lane-vm-3")
     );
     let (text, ok) = doctor::render("lane-vm-3", "joined machine", &checked, Print::Lines);
     assert!(!ok);

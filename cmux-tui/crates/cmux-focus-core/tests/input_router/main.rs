@@ -14,4 +14,5 @@ mod key_router {
     mod scenarios;
     mod sessions;
     mod support;
+    mod window_focus;
 }

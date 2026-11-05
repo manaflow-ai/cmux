@@ -20,19 +20,7 @@ impl Mux {
         decided: (u16, u16),
     ) -> (u16, u16) {
         let now = Instant::now();
-        let present = entry
-            .engine
-            .participant_ids()
-            .map(|id| {
-                let participant = entry.engine.participant(id);
-                let seat = AppliedSeat {
-                    handheld: participant
-                        .is_some_and(|participant| participant.device_kind.is_handheld()),
-                    sized: participant.is_some_and(|participant| participant.viewport.is_some()),
-                };
-                (id.to_owned(), seat)
-            })
-            .collect::<std::collections::BTreeMap<String, AppliedSeat>>();
+        let present = AppliedSeat::present(entry);
         let (departed, returned) = {
             let previous = entry.applied_participants.borrow();
             let departed =
@@ -241,6 +229,27 @@ pub(in crate::mux) struct AppliedSeat {
     handheld: bool,
     /// It has reported a viewport.
     sized: bool,
+}
+
+impl AppliedSeat {
+    /// One participant as an apply records it.
+    pub(in crate::mux) fn of(participant: Option<&TerminalSizingParticipant>) -> Self {
+        AppliedSeat {
+            handheld: participant.is_some_and(|participant| participant.device_kind.is_handheld()),
+            sized: participant.is_some_and(|participant| participant.viewport.is_some()),
+        }
+    }
+
+    /// Every participant of `entry` now, as an apply records them.
+    pub(in crate::mux) fn present(
+        entry: &TerminalSizingEntry,
+    ) -> std::collections::BTreeMap<String, AppliedSeat> {
+        entry
+            .engine
+            .participant_ids()
+            .map(|id| (id.to_owned(), Self::of(entry.engine.participant(id))))
+            .collect()
+    }
 }
 
 /// `Mux::terminal_grid_hold_snapshot`.

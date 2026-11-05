@@ -1684,6 +1684,11 @@ class Nightly(unittest.TestCase):
         self.assertEqual(rescue.job_pool({"labels": [TRUSTED, "glaeda-runner-cmux15-glaeda"]}), TRUSTED)
         self.assertEqual(rescue.job_pool({"labels": ["glaeda-root-trusted-std-xcode-26.6"]}),
                          "glaeda-root-trusted-std-xcode-26.6")
+        # NEXT's all-nightly reservation is not a normal persistent pool, but
+        # its queued app build is still eligible for the nightly rescue.
+        for label in ("glaeda-nightly-only-m4pro", "glaeda-nightly-only-m4pro-builder",
+                      "glaeda-nightly-only-xl-builder"):
+            self.assertEqual(rescue.job_pool({"labels": [label]}), label)
         self.assertIsNone(rescue.job_pool({"labels": ["glaeda-trusted"]}))
         # The pickers never hand it out: it is not a pull request pool.
         self.assertFalse(rescue.persistent(TRUSTED))
@@ -1898,6 +1903,27 @@ class Nightly(unittest.TestCase):
         self.assertTrue(rescue.nightly_watched({"name": "decide", "labels": ["gcp-linux-control"]}))
         self.assertFalse(rescue.nightly_watched({"name": "decide", "labels": ["blacksmith-32vcpu-ubuntu-2404"]}))
         self.assertFalse(rescue.nightly_watched({"name": "other", "labels": ["glaeda-nightly-std-xcode-26.6"]}))
+
+    def test_the_all_nightly_reservation_is_judged(self):
+        self.assertTrue(rescue.nightly_watched({"name": "build-nightly-app",
+                                                 "labels": ["glaeda-nightly-only-m4pro"]}))
+        self.assertTrue(rescue.nightly_watched({"name": "decide",
+                                                "labels": ["glaeda-nightly-only-xl-builder"]}))
+        self.assertFalse(rescue.nightly_watched({"name": "other",
+                                                  "labels": ["glaeda-nightly-only-xl-builder"]}))
+
+    def test_a_queued_all_nightly_build_enters_the_rescue_watch(self):
+        clock = Clock()
+
+        def jobs(_seconds):
+            return [job("decide", status="completed", labels=[BLACKSMITH]),
+                    job("build-nightly-app", labels=["glaeda-nightly-only-m4pro"], status="queued")]
+
+        api = NightlyAPI(clock, jobs, head=HEAD)
+        _, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"),
+                              env_extra={"RESCUE_SECONDS": "30"})
+        self.assertIn("queued on glaeda-nightly-only-m4pro", summary)
+        self.assertIn("cancel", api.calls)
 
     def test_nightly_control_runner_is_rescued_but_hosted_labels_are_not(self):
         control = {"name": "decide", "labels": ["gcp-linux-control"], "status": "queued"}
@@ -2411,6 +2437,12 @@ class Workflow(unittest.TestCase):
                      "github.event.workflow_run.head_repository.full_name == github.repository",
                      "github.event_name != 'workflow_run' || github.event.action != 'completed' || github.event.workflow_run.conclusion == 'failure'"):
             self.assertIn(part, condition)
+        # The NEXT trigger is branch based, rather than gated on the legacy
+        # trusted-pool variables; dedicated all-nightly labels use a separate
+        # reservation and must still wake the rescue.
+        self.assertIn("github.event.workflow_run.head_branch == 'nightly-next' && github.event.workflow_run.event == 'push'",
+                      condition)
+        self.assertNotIn("startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_POOL", condition)
         step = self.doc["jobs"]["rescue"]["steps"][-1]
         self.assertEqual(step["env"]["WATCH_RUN_ID"], "${{ inputs.run_id }}")
         self.assertIn("inputs.run_id || github.event.workflow_run.id", self.doc["concurrency"]["group"])

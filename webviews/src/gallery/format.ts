@@ -282,7 +282,7 @@ export type AppsPageVariant = VariantBase & {
 /** The Cloud page on an in-page cmuxPage host serving the Cloud app server's projection. */
 export type CloudPageVariant = VariantBase & {
   mode?: "normal" | "loading" | "error";
-  action?: "select-machine" | "create" | "get" | "ports-pending";
+  action?: "select-machine" | "create" | "get" | "ports-pending" | "ports-shared";
   error?: { code: string; message: string };
   signedIn?: boolean;
   layout?: "rows" | "cards";
@@ -293,7 +293,7 @@ export type CloudPageVariant = VariantBase & {
   /** Sample forwards shown by Ports variants (gallery-only). */
   ports?: import("../pages/cloud/ops").PortForward[];
   /** Hold one port action after its control is activated to show the busy boundary. */
-  pendingAction?: "forward" | "close" | "browser";
+  pendingAction?: "forward" | "close" | "browser" | "share" | "revoke";
   /** The create sheet's snapshot list fails once (its Retry then loads the sample snapshots). */
   snapshotsFail?: boolean;
   machines: CloudMachine[];

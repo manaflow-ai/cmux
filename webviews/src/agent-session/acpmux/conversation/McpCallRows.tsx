@@ -80,17 +80,13 @@ function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[
         onClick={fold.toggle}
       >
         <span className="cv-tool__icon">
-          <ToolGroup size={16} strokeWidth={1.2} />
+          <ToolGroup size={16} />
         </span>
         <span className="cv-tool__text" data-find-skip>
           <ToolLabel text={label} />
           {failures > 0 && <span className="cv-tool__failed"> {t("tools.failedCount", { n: failures })}</span>}
         </span>
-        <ChevronRight
-          size={14}
-          strokeWidth={1.2}
-          className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
-        />
+        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
       </button>
       {fold.present && (
         <div {...fold.bodyProps}>
@@ -159,7 +155,7 @@ function McpCallRow({ item }: { item: AcpmuxActivity; grouped?: boolean }) {
           onClick={fold.toggle}
         >
           <span className="cv-tool__icon">
-            <ToolGroup size={16} strokeWidth={1.2} />
+            <ToolGroup size={16} />
           </span>
           <span className="cv-tool__text" data-find-skip>
             <ToolLabel text={label} />
@@ -177,11 +173,7 @@ function McpCallRow({ item }: { item: AcpmuxActivity; grouped?: boolean }) {
               <ApprovedMark />
             </span>
           )}
-          <ChevronRight
-            size={14}
-            strokeWidth={1.2}
-            className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
-          />
+          <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
         </button>
       </ToolVisualRow>
       <ToolFailureCause failure={failure} />
@@ -418,7 +410,7 @@ export function CmuxExecDetails({
           onOpenChange={setRawOpen}
           icon={
             <span className="cv-tool__icon">
-              <CodeBrackets size={16} strokeWidth={1.2} />
+              <CodeBrackets size={16} />
             </span>
           }
         >

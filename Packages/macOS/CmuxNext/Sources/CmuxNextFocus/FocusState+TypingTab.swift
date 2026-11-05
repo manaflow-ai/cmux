@@ -1,11 +1,4 @@
 extension FocusState {
-    /// The tab a key typed now is for: the tab the focus is on its way to (a creation's new tab, shown and focused in
-    /// the key's frame), else the focused terminal's tab. A creation hold binds each held key to it (P0 1193).
-    public var typingTab: String? {
-        if case .tab(let tab)? = expectation?.key { return tab }
-        return terminalTab
-    }
-
     /// The focused terminal or browser page that keys typed now are for (pane, tab, whether a page); nil for other focus.
     /// A window's key hold waits while its content is not shown yet (REOPEN-F4).
     public var awaitableContent: (pane: String, tab: String, isPage: Bool)? {

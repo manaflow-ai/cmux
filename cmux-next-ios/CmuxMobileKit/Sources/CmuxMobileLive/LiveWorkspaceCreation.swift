@@ -158,95 +158,21 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         }
     }
 
-    /// One tab of a phone's Duplicate Workspace.
-    enum DuplicateStep: Hashable, Sendable {
-        /// A new shell; `folder` is typed as `cd` when it can be (nil: the Mac's default).
-        case terminal(folder: String?)
-        case browser(url: String)
-    }
-
-    /// What Duplicate Workspace makes, as the Mac's `WorkspaceBlueprint`: each terminal tab
-    /// again as a new shell in its folder, each web page again, in tab order. Agent chats and
-    /// pages that are not http or https are left out (a phone never opens those itself).
-    nonisolated static func duplicatePlan(_ workspace: Workspace, directories: [String: String]) -> [DuplicateStep] {
-        workspace.tabs.compactMap { tab in
-            switch tab.kind {
-            case .terminal:
-                return .terminal(folder: directories[tab.id] ?? tab.subtitle)
-            case .browser:
-                guard let url = tab.url, ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return nil }
-                return .browser(url: url.absoluteString)
-            case .agent, .simulator:
-                return nil
-            }
-        }
-    }
-
-    /// The Mac's Duplicate Workspace (`workspace.duplicate`), from lines a phone already
-    /// sends: `new-workspace {name}` (one shell), then in its pane `new-tab {pane}` per
-    /// terminal and `new-browser-tab {url, pane}` per page, and each shell gets
-    /// `cd '<folder>' && clear` typed (`changeDirectoryLine`), as New Workspace in a folder.
-    /// The daemon never takes a program or folder from the phone. Unlike the Mac, every tab
-    /// goes in one pane (the phone does not copy splits), and color and icon stay.
-    public func duplicate(_ workspace: Workspace) async throws -> Workspace {
+    /// The Mac's Duplicate Workspace (`workspace.duplicate`) and Duplicate Workspace Without
+    /// Browser Tabs (`workspace.duplicateTerminalsOnly`): its layout, tabs, color and icon,
+    /// from lines a phone already sends (LiveWorkspaceDuplicate.swift).
+    public func duplicate(_ workspace: Workspace, browsers: Bool) async throws -> Workspace {
         guard canManage(on: workspace.macID), let client = sync.daemon, let tree = sync.tree else {
             throw WorkspaceCreationError("Not connected")
         }
         guard !workspace.isHome else { throw WorkspaceCreationError("Home has no duplicate.", isForPerson: true) }
-        let plan = Self.duplicatePlan(workspace, directories: tree.directories)
+        // The Mac's own copy of the workspace now (its layout is the tree's, not a stale row's).
+        let current = (tree.workspaces.first { $0.id == workspace.id }) ?? workspace
+        // Pages only where the Mac can open them, so no pane keeps a placeholder shell for one.
+        let pages = browsers && Self.streamsBrowser(capabilities(workspace.macID))
+        let blueprint = Self.duplicateBlueprint(current, directories: tree.directories, browsers: pages)
         do {
-            func surface(_ reply: Data) throws -> Int {
-                guard let id = (try WorkspaceSync.check(reply)["data"] as? [String: Any])?["surface"] as? Int else {
-                    throw WorkspaceCreationError("The Mac didn't say which tab it opened")
-                }
-                return id
-            }
-            let first = try surface(await client.request("new-workspace", params: ["name": workspace.title]))
-            let listed = try await sync.listNow()
-            let firstID = DaemonTree.tabID(surface: first)
-            guard let pane = listed.tabPlaces[firstID]?.pane,
-                  let createdID = listed.workspaces.first(where: { $0.tabs.contains { $0.id == firstID } })?.id else {
-                // Its first tab is all there is of it: close it, so no empty copy stays.
-                _ = try? await client.request("close-surface", params: ["surface": first])
-                throw WorkspaceCreationError("The new workspace didn't appear on the Mac")
-            }
-            // Pages only on a Mac that streams browser tabs; one that fails is left out (as
-            // New Browser Tab is optional elsewhere), never the terminals after it.
-            let pages = Self.streamsBrowser(capabilities(workspace.macID))
-            var firstUsed = false
-            do {
-                for step in plan {
-                    switch step {
-                    case .terminal(let folder):
-                        let shell: Int
-                        if firstUsed {
-                            shell = try surface(await client.request("new-tab", params: ["pane": pane]))
-                        } else {
-                            shell = first
-                            firstUsed = true
-                        }
-                        if let folder, let line = Self.changeDirectoryLine(folder) {
-                            _ = try? await client.request("send", params: ["surface": shell, "text": line])
-                        }
-                    case .browser(let url):
-                        guard pages else { continue }
-                        _ = try? await client.request("new-browser-tab", params: ["url": url, "pane": pane])
-                    }
-                }
-            } catch {
-                // A half-made copy is never left behind.
-                _ = try? await client.request("close-workspace", params: ["key": createdID])
-                throw error
-            }
-            // Only pages: the first shell goes, as the Mac's builder closes its initial tab.
-            if !firstUsed, !plan.isEmpty {
-                _ = try? await client.request("close-surface", params: ["surface": first])
-            }
-            let tree = try await sync.listNow()
-            guard let created = tree.workspaces.first(where: { $0.id == createdID }) else {
-                throw WorkspaceCreationError("The new workspace didn't appear on the Mac")
-            }
-            return created
+            return try await buildDuplicate(blueprint, name: current.title, color: current.colorHex, icon: current.icon, on: client)
         } catch let error as DaemonReplyError {
             throw WorkspaceCreationError(error.message)
         }
@@ -542,6 +468,58 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     public func renameTab(_ tab: WorkspaceTab, in workspace: Workspace, to title: String) async throws {
         let (client, surface) = try target(tab, in: workspace)
         try await run(client, "rename-surface", ["surface": surface, "name": title])
+    }
+
+    /// The Mac's Clear Tab Name: `rename-surface {surface, name: ""}` (the daemon reads an
+    /// empty name as none), then a fresh list.
+    public func clearTabName(_ tab: WorkspaceTab, in workspace: Workspace) async throws {
+        let (client, surface) = try target(tab, in: workspace)
+        try await run(client, "rename-surface", ["surface": surface, "name": ""])
+    }
+
+    /// The Mac's New Tab rows (`newTabOfPaneKind`): a tab of the pane's kind, `new-tab {pane}`
+    /// for a terminal, `new-browser-tab {url: about:blank, pane}` for a page and a new chat of
+    /// the same agent (`new-conversation-tab {pane, agent_session}`), then `move-tab {surface,
+    /// pane, index}` to the position. Nothing new on the daemon lane.
+    public func newTab(besides tab: WorkspaceTab, at position: NewTabPosition, in workspace: Workspace) async throws -> WorkspaceTab {
+        let (client, _) = try target(tab, in: workspace)
+        guard let place = sync.tree?.tabPlaces[tab.id] else { throw WorkspaceCreationError("The Mac doesn't list this tab") }
+        do {
+            let reply: Data
+            switch tab.kind {
+            case .terminal:
+                reply = try await client.request("new-tab", params: ["pane": place.pane])
+            case .browser:
+                reply = try await client.request("new-browser-tab", params: ["url": "about:blank", "pane": place.pane])
+            case .agent:
+                let (harness, session) = try await startAgentSession(AgentChatStart(harness: sync.tree?.agentTabs[tab.id]?.harness), in: workspace)
+                reply = try await client.request("new-conversation-tab", params: [
+                    "pane": place.pane, "agent_session": ["harness": harness, "session": session],
+                ])
+            case .simulator:
+                throw WorkspaceCreationError("Open phone tabs on your Mac.", isForPerson: true)
+            }
+            guard let surface = (try WorkspaceSync.check(reply)["data"] as? [String: Any])?["surface"] as? Int else {
+                throw WorkspaceCreationError("The Mac didn't say which tab it opened")
+            }
+            let id = DaemonTree.tabID(surface: surface)
+            var tree = try await sync.listNow()
+            if let created = tree.tabPlaces[id], created.pane == place.pane, let anchor = tree.tabPlaces[tab.id],
+               let slots = tree.paneSlots[place.pane],
+               let index = position.moveIndex(from: created.index, anchor: anchor.index, pinned: slots.map(\.pinned),
+                                              groups: slots.map(\.group)) {
+                // The tab stays where the Mac put it when the move is refused: it was made.
+                if (try? WorkspaceSync.check(await client.request("move-tab", params: ["surface": surface, "pane": place.pane, "index": index]))) != nil {
+                    tree = try await sync.listNow()
+                }
+            }
+            guard let created = tree.workspaces.flatMap(\.tabs).first(where: { $0.id == id }) else {
+                throw WorkspaceCreationError("The new tab didn't appear on the Mac")
+            }
+            return created
+        } catch let error as DaemonReplyError {
+            throw WorkspaceCreationError(error.message)
+        }
     }
 
     /// The Mac's Duplicate Tab: a terminal is a new terminal in the tab's pane (the Mac

@@ -545,8 +545,12 @@ extension AgentPaneTransport {
         let answer = !facts.isFirst
             && (facts.method == "_acpmux/permission_respond" || facts.method == "_acpmux/permission_group_respond")
         if answer, let pageID = facts.pageID {
-            decisions.sent(pageID: pageID, proved: box.hasAcpmuxMeta("approverDecision") || box.hasAcpmuxMeta("approverDecisions"),
-                           single: facts.method == "_acpmux/permission_respond")
+            let proved = box.hasAcpmuxMeta("approverDecision") || box.hasAcpmuxMeta("approverDecisions")
+            let single = facts.method == "_acpmux/permission_respond"
+            // One click, one answer (Leo, 2026-11-04): a peer that has not enrolled this Mac yet
+            // gets the same signed answer again after this Mac enrolls there (``enrollThenRetry``).
+            let retry = proved && single && !remoteWire && peerApprover?.enroll != nil ? box.encoded(id: nil) : nil
+            decisions.sent(pageID: pageID, proved: proved, single: single, retry: retry)
         }
         if let error = await Self.encodeAndSend(box, relayID: relayID, socket: socket) {
             socket.pageFrameNotSent(method: facts.method)

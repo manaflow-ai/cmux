@@ -32,6 +32,7 @@ use super::client::{
 use super::github;
 use super::github_minter::{Ask, Minter, Stop};
 use super::handoff::{self, HandoffReport};
+use super::relay::{Relay, Runner};
 use super::sender::{Answer, Backoff, OpRequest};
 use super::session::Session;
 use super::trajectory::Layout;
@@ -293,7 +294,7 @@ pub fn resolve_daemon_info(paths: &Paths) -> Result<DaemonInfo, String> {
     let recorded = fs::read_to_string(paths.at(DAEMON_INFO_FILE))
         .map_err(|_| "no daemon identify and no recorded daemon.json".to_owned())?;
     let info: DaemonInfo = serde_json::from_str(&recorded).map_err(|e| e.to_string())?;
-    Ok(info.with_activity(false, false))
+    Ok(info.with_activity(false, false, false))
 }
 
 /// `wg genkey | wg pubkey` (wireguard-tools in the base image).
@@ -487,6 +488,8 @@ struct Worker {
     github: Minter<PosterHttp>,
     /// ACP chats kept in cmux Cloud and restored on a replacement (`trajectory_thread.rs`).
     trajectories: Option<Trajectories<PosterHttp>>,
+    /// The held socket of the relay-first chat path (`relay.rs`), from bind on.
+    relay: Option<Relay>,
     bind_retry_at: Option<u64>,
     bind_backoff: Backoff,
     rng: SystemRandom,
@@ -535,6 +538,7 @@ impl Worker {
             live: None,
             github: Minter::spawn(wall_ms, log, github_stop)?,
             trajectories,
+            relay: None,
             bind_retry_at: None,
             bind_backoff: Backoff::new(2_000, 600_000),
             rng: SystemRandom::new(),
@@ -769,21 +773,26 @@ impl Worker {
                 let valid = serde_json::from_str::<Request>(&line)
                     .is_ok_and(|r| r.op == super::receiver::POLICY_OP);
                 let value = if valid {
-                    self.live.as_mut().and_then(|live| {
+                    self.live.as_mut().map(|live| {
                         super::receiver_files::reply(
                             &self.paths,
                             &self.instance_id,
                             &mut live.client,
                             wall_ms(),
                         )
-                        .ok()
                     })
                 } else {
                     None
                 };
-                let value = value.unwrap_or_else(
-                    || json!({ "ok": false, "error": "cloud.vm.network_policy.unavailable" }),
-                );
+                // `refused` revokes the receiver's retained policy at once;
+                // `unavailable` (no answer) lets local admission keep it.
+                let value = match value {
+                    Some(Ok(value)) => value,
+                    Some(Err(error)) if super::receiver::is_refusal(&error) => {
+                        json!({ "ok": false, "error": super::receiver::POLICY_REFUSED })
+                    }
+                    _ => json!({ "ok": false, "error": super::receiver::POLICY_UNAVAILABLE }),
+                };
                 let Some(client) = self.clients.get_mut(i) else { continue };
                 client.output = serde_json::to_vec(&value).unwrap_or_default();
                 if client.output.len() > 1024 * 1024 {
@@ -934,6 +943,16 @@ impl Worker {
                 Ok(client) => trajectories.bound(client),
                 Err(e) => log(&format!("trajectory mirror: {e}")),
             }
+        }
+        // A rebind replaces the relay: dropping the old one closes its socket and ends its chats at once.
+        self.relay = None;
+        match (github_client(&bound, &key), relay_runner()) {
+            (Ok(client), Ok(runner)) => {
+                self.relay = Relay::spawn(client, runner, wall_ms, log)
+                    .map_err(|e| log(&format!("relay: {e}")))
+                    .ok();
+            }
+            (Err(e), _) | (_, Err(e)) => log(&format!("relay: {e}")),
         }
         let mut session = Session::new(&bound.machine, daemon, heartbeat);
         let reqs = session.start(self.now());
@@ -1129,6 +1148,23 @@ fn spawn_trajectories(paths: &Paths) -> io::Result<Trajectories<PosterHttp>> {
     };
     let identity = Some((user.uid, user.gid));
     Trajectories::spawn(layout, Box::new(importer), identity, wall_ms, random_unit, log)
+}
+
+/// Who runs relay chats: the machine's acpmux as the work user (the
+/// trajectory mirror's layout), or root's on an image without that user.
+fn relay_runner() -> Result<Runner, String> {
+    let user = lookup_user(WORK_USER)
+        .or_else(|| lookup_user("root"))
+        .ok_or_else(|| "no work user and no root user".to_owned())?;
+    let home = if user.uid == 0 { PathBuf::from(ROOT_HOME) } else { PathBuf::from(WORK_HOME) };
+    Ok(Runner {
+        bin: binary_path(&home),
+        user: user.name.clone(),
+        uid: user.uid,
+        gid: user.gid,
+        groups: crate::linux::spawn::group_list(&user.name, user.gid),
+        home,
+    })
 }
 
 /// The harness-login sync (removed) kept its state here on machines that ran

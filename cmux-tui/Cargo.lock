@@ -20,6 +20,7 @@ dependencies = [
  "cmux-git",
  "cmux-host",
  "cmux-host-budget",
+ "cmux-journal",
  "cmux-json",
  "cmux-link",
  "cmux-local-auth",
@@ -58,6 +59,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "signal-hook-registry",
  "syntect",
  "tar",
  "tempfile",
@@ -1064,6 +1066,26 @@ name = "cmux-cloud-cli"
 version = "0.1.0"
 
 [[package]]
+name = "cmux-cloud-config"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-cloud-environment"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tokio",
+ "url",
+]
+
+[[package]]
 name = "cmux-cloud-start-core"
 version = "0.1.0"
 dependencies = [
@@ -1119,7 +1141,7 @@ dependencies = [
 [[package]]
 name = "cmux-codex-acp"
 version = "0.1.0"
-source = "git+https://github.com/manaflow-ai/cmux-codex-acp?rev=ffa7aa863bcdb3f995b0c4b96ea2349e817fed1a#ffa7aa863bcdb3f995b0c4b96ea2349e817fed1a"
+source = "git+https://github.com/manaflow-ai/cmux-codex-acp?rev=3b8fa33adad103ce04a1b622f1657bdc091a2a6d#3b8fa33adad103ce04a1b622f1657bdc091a2a6d"
 dependencies = [
  "serde_json",
 ]
@@ -1248,12 +1270,14 @@ name = "cmux-host"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-cloud-environment",
  "cmux-cloud-wire",
  "cmux-json",
  "cmux-link",
  "cmux-server",
  "cmux-server-core",
  "flate2",
+ "futures-util",
  "libc",
  "proptest",
  "ring",
@@ -1263,8 +1287,10 @@ dependencies = [
  "tar",
  "tempfile",
  "tokio",
+ "tokio-tungstenite",
  "url",
  "x25519-dalek",
+ "yaml-rust",
  "zeroize",
 ]
 
@@ -1287,6 +1313,15 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-journal"
+version = "0.1.0"
+dependencies = [
+ "crc32fast",
+ "libc",
+ "tempfile",
 ]
 
 [[package]]
@@ -1752,6 +1787,8 @@ dependencies = [
  "cmux-automations",
  "cmux-build-identity",
  "cmux-chat-index",
+ "cmux-cloud-config",
+ "cmux-cloud-environment",
  "cmux-config",
  "cmux-conversation",
  "cmux-git",
@@ -1778,6 +1815,7 @@ dependencies = [
  "cmux-wg",
  "crossbeam-channel",
  "crossterm",
+ "diffy",
  "flate2",
  "fs4",
  "futures-util",
@@ -1831,6 +1869,7 @@ name = "cmux-tui-cloud-conversations"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-cloud-environment",
  "cmux-cloud-wire",
  "cmux-json",
  "serde",
@@ -2048,6 +2087,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "clap",
+ "cmux-cloud-config",
  "cmux-vm-client",
  "futures",
  "nix 0.31.3",

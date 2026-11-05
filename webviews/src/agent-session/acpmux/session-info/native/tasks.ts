@@ -1,8 +1,9 @@
 // Session Info's Background tasks as the App draws it (model.ts): what Session Info's `tasks`,
 // WorkflowTasks.tsx, ServersSection.tsx and TasksSection.tsx show, as plain rows. The chat's Claude
 // workflows first (running, then finished; each with its phases and, in an open phase, its agents),
-// then the dev servers, then the running commands and the scheduled wakeups, then "N finished",
-// which opens into the ended commands. The lists, their order and their words come from the page's
+// then the dev servers, then the running commands and the wakeups and cron jobs still ahead, then
+// "N finished", which opens into the ended commands and the scheduled items whose time has passed
+// (session-info/scheduled.ts), latest first. The lists, their order and their words come from the page's
 // own helpers, so both panels say the same thing.
 import { useState } from "react";
 import { formatDuration } from "../../conversation/turns";
@@ -20,6 +21,8 @@ import {
   type SessionInfoProcess,
 } from "../processes";
 import { COMMAND_STATE } from "../TasksSection";
+import { scheduledTrailing, splitScheduled, type ScheduledEntry } from "../scheduled";
+import { TASK_ICONS } from "../taskIcons";
 import { compactTokens } from "../../conversation/CompactionNote";
 import type { NativeInfoActions, NativeInfoButton, NativeInfoRow, NativeInfoSection, NativeInfoTone } from "./model";
 import { nativeExternalUrl } from "./links";
@@ -46,8 +49,11 @@ export type TasksSectionInput = {
   onStopWorkflow?: (id: string) => Promise<unknown>;
   onOpenWorkflowAgent?: (agent: WorkflowAgent) => void;
   onOpenUrl?: (url: string) => void;
-  /// The clock the elapsed times read (the page's `useNow`).
+  /// The clock the elapsed times read (the page's `useNow`, and `useScheduledClock` for when a
+  /// wakeup or cron job ends).
   now: number;
+  /// The pane's language, for a cron schedule's words and a wakeup's time of day.
+  language?: string;
   /// The finished commands show under "N finished"; `onFinishedOpen` flips it.
   finishedOpen?: boolean;
   onFinishedOpen?: (open: boolean) => void;
@@ -64,6 +70,14 @@ const COMMAND_TONE: Record<BackgroundCommand["state"], NativeInfoTone> = {
   failed: "failed",
   stopped: "muted",
   lost: "muted",
+};
+
+const SCHEDULED_TONE: Record<ScheduledEntry["status"]["state"], NativeInfoTone> = {
+  scheduled: "waiting",
+  done: "done",
+  expired: "muted",
+  cancelled: "muted",
+  failed: "failed",
 };
 
 const WORKFLOW_TONE: Record<WorkflowAgent["state"], NativeInfoTone> = {
@@ -136,7 +150,7 @@ export function tasksSection(
     const onStop = input.onStopProcess;
     return {
       id: `command:${key}`,
-      symbol: "terminal.prompt",
+      symbol: TASK_ICONS.command.native,
       title: sendLabel(t, item) ?? item.command,
       ...(trailing ? { trailing } : {}),
       tone: COMMAND_TONE[item.state],
@@ -161,31 +175,43 @@ export function tasksSection(
         item.startedAt !== undefined ? formatDuration(Math.max(0, now - item.startedAt)) : t(COMMAND_STATE.running),
       ),
     );
-  for (const wakeup of scheduled)
-    rows.push({
-      id: `scheduled:${wakeup.id}`,
-      symbol: "clock",
-      title: wakeup.text,
-      ...(wakeup.cron ? { trailing: wakeup.cron } : {}),
-    });
-  if (finished.length > 0) {
+  const { active, finished: ended } = splitScheduled(scheduled, now);
+  const scheduledRow = (entry: ScheduledEntry): NativeInfoRow => {
+    const trailing = scheduledTrailing(t, input.language ?? "en", entry);
+    const ended = entry.status.state !== "scheduled";
+    return {
+      id: `scheduled:${entry.item.id}`,
+      symbol: TASK_ICONS[entry.item.kind].native,
+      title: entry.item.text,
+      ...(trailing ? { trailing } : {}),
+      ...(ended ? { tone: SCHEDULED_TONE[entry.status.state] } : {}),
+      help: entry.item.cron && !ended ? `${entry.item.text} (${entry.item.cron})` : entry.item.text,
+    };
+  };
+  for (const entry of active) rows.push(scheduledRow(entry));
+  const finishedCommand = (item: BackgroundCommand): NativeInfoRow => {
+    const time =
+      item.endedAt !== undefined && item.startedAt !== undefined
+        ? formatDuration(Math.max(0, item.endedAt - item.startedAt))
+        : undefined;
+    return command(item, [time, t(COMMAND_STATE[item.state])].filter(Boolean).join(" · "));
+  };
+  // The ended commands and scheduled items as one list, latest first.
+  const finishedRows = [
+    ...finished.map((item) => ({ at: item.endedAt ?? item.startedAt, row: () => finishedCommand(item) })),
+    ...ended.map((entry) => ({ at: entry.status.endedAt, row: () => scheduledRow(entry) })),
+  ].sort((a, b) => (b.at ?? -Infinity) - (a.at ?? -Infinity));
+  if (finishedRows.length > 0) {
     const finishedOpen = input.finishedOpen ?? false;
     const onFinishedOpen = input.onFinishedOpen;
     rows.push({
       id: "finished",
       symbol: finishedOpen ? "chevron.down" : "chevron.right",
-      title: t("rail.finished", { count: finished.length }),
+      title: t("rail.finished", { count: finishedRows.length }),
       tone: "muted",
       ...(onFinishedOpen ? { action: actions.add("tasks.finished", () => onFinishedOpen(!finishedOpen)) } : {}),
     });
-    if (finishedOpen)
-      for (const item of finished) {
-        const time =
-          item.endedAt !== undefined && item.startedAt !== undefined
-            ? formatDuration(Math.max(0, item.endedAt - item.startedAt))
-            : undefined;
-        rows.push(command(item, [time, t(COMMAND_STATE[item.state])].filter(Boolean).join(" · ")));
-      }
+    if (finishedOpen) for (const entry of finishedRows) rows.push(entry.row());
   }
 
   const runningCount =

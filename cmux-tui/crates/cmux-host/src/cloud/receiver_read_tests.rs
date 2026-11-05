@@ -376,7 +376,7 @@ refuses!(vm_receiver_client_read_refuses_wrong_stream, |p, _| p["stream"] =
 refuses!(vm_receiver_client_read_refuses_wrong_operation, |p, _| p["op"] =
     "cloud.vm.self.get".into());
 refuses!(vm_receiver_client_read_refuses_long_lease, |p, _| p["value"]["expires_at"] =
-    (NOW + 30_001).into());
+    (NOW + 120_001).into());
 refuses!(vm_receiver_client_read_refuses_empty_lease, |p, _| p["value"]["expires_at"] = NOW.into());
 refuses!(vm_receiver_client_read_refuses_missing_generation, |p, _| {
     p["value"].as_object_mut().unwrap().remove("receiver_generation");
@@ -551,4 +551,56 @@ fn rechecks_files(private: bool) {
             assert!(!paths.at(INSTALL_KEY_FILE).exists(), "read recreated a removed key");
         }
     }
+}
+
+/// Local admission: only a refusal (403, or an answered reply that does not
+/// match) may revoke a retained policy; a server error is no answer.
+#[test]
+fn vm_receiver_client_read_says_whether_a_failure_refused_or_went_unanswered() {
+    use super::receiver::is_refusal;
+    for (status, refused) in [(403, true), (500, false), (503, false), (429, false)] {
+        let (mut client, wg, _) = setup_tweaked(
+            |_, _| {},
+            |_, _, _| {},
+            None,
+            |http| {
+                http.status = status;
+            },
+        );
+        let error = client.receiving_policy(&wg, NOW).err().unwrap();
+        assert_eq!(is_refusal(&error), refused, "status {status}");
+    }
+    let (mut client, wg, _) = setup(|policy, _| policy["value"]["epoch"] = 5.into());
+    let error = client.receiving_policy(&wg, NOW).err().unwrap();
+    assert!(is_refusal(&error), "a reply for another epoch must revoke, not ride out");
+}
+
+#[test]
+fn vm_receiver_client_admit_until_runs_authority_to_the_admission_end_within_an_hour() {
+    let (mut client, wg, _) =
+        setup(|policy, _| policy["value"]["admit_until"] = (NOW + 3_600_000).into());
+    let snapshot = client.receiving_policy(&wg, NOW).unwrap();
+    assert!(snapshot.admits_locally());
+    assert_eq!(snapshot.native_policy().expires_at_ms, NOW + 3_600_000);
+    assert!(snapshot.admitted_until() > snapshot.expires() + Duration::from_secs(3_000));
+    // The kill switch: no admit_until, authority ends with the lease.
+    let (mut client, wg, _) = setup(|_, _| {});
+    let snapshot = client.receiving_policy(&wg, NOW).unwrap();
+    assert!(!snapshot.admits_locally());
+    assert_eq!(snapshot.native_policy().expires_at_ms, NOW + 30_000);
+    for bad in [NOW + 3_600_001, NOW + 29_999, NOW - 1] {
+        let (mut client, wg, _) = setup(|policy, _| policy["value"]["admit_until"] = bad.into());
+        assert!(client.receiving_policy(&wg, NOW).is_err(), "admit_until {bad}");
+    }
+}
+
+#[test]
+fn vm_receiver_client_malformed_or_refused_keyset_refuses() {
+    use super::receiver::is_refusal;
+    let (mut client, wg, _) = setup(|_, keys| keys["value"]["version"] = "bad".into());
+    assert!(is_refusal(&client.receiving_policy(&wg, NOW).err().unwrap()));
+    let (mut client, wg, _) = setup(|_, keys| {
+        *keys = json!({"ok":true,"value":{"version":"0000000000000001","keys":{}}});
+    });
+    assert!(is_refusal(&client.receiving_policy(&wg, NOW).err().unwrap()));
 }

@@ -476,6 +476,75 @@
    },
    "additional_properties": false
   },
+  "LayoutSizeSplitRatio": {
+   "kind": "object",
+   "fields": {
+    "split": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "ratio": {
+     "type": {
+      "kind": "scalar",
+      "name": "float32"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      {
+       "clamped_minimum": 0.05,
+       "clamped_maximum": 0.95
+      }
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "LayoutSizePaneWidth": {
+   "kind": "object",
+   "fields": {
+    "pane": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "width": {
+     "type": {
+      "kind": "scalar",
+      "name": "float32"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      {
+       "minimum": 0.1,
+       "maximum": 1.0
+      }
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "LayoutSizeValue": {
+   "kind": "untagged_union",
+   "variants": [
+    {
+     "kind": "ref",
+     "name": "LayoutSizeSplitRatio"
+    },
+    {
+     "kind": "ref",
+     "name": "LayoutSizePaneWidth"
+    }
+   ]
+  },
   "Size": {
    "kind": "object",
    "fields": {
@@ -13813,6 +13882,46 @@
    "stream": null,
    "constraints": [
     "width must be finite."
+   ]
+  },
+  "set-layout-sizes": {
+   "authority": "control",
+   "since": 12,
+   "capability": "layout-sizes-batch-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "values": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "LayoutSizeValue"
+       },
+       "min_items": 1,
+       "max_items": 64
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "transaction": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "EmptyResult"
+   },
+   "stream": null,
+   "constraints": [
+    "All values are on one screen; a refused value refuses them all, and nothing changes."
    ]
   },
   "set-column-dock": {

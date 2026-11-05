@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Button } from "../../../ui/Button";
+import { SignInButton } from "../../../ui/SignInButton";
 import { useSettingsState, useStore } from "../context";
 
 /** The host owns GitHub App authentication; this card never receives a credential. */
@@ -18,14 +19,18 @@ export function GitHubAccountsCard() {
           </div>
           <div className="accounts-body">
             <div className="accounts-buttons">
-              <Button
-                className="button"
-                data-github-action="connect"
-                disabled={!github.canConnect}
-                onClick={() => void store.runAccounts({ action: "githubConnect" })}
-              >
-                {github.connect}
-              </Button>
+              {github.signIn ? (
+                <SignInButton label={github.signIn} onSignIn={() => void store.runAccounts({ action: "signIn" })} />
+              ) : (
+                <Button
+                  className="button"
+                  data-github-action="connect"
+                  disabled={!github.canConnect}
+                  onClick={() => void store.runAccounts({ action: "githubConnect" })}
+                >
+                  {github.connect}
+                </Button>
+              )}
               <Button
                 className="button"
                 disabled={github.busy}

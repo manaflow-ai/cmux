@@ -20,7 +20,6 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -61,13 +60,32 @@ pub const NAME_KEY: &str = "ACPMUX_ROUTE_NAME";
 /// A route file named `cmux` replaces it; `find` resolves it, `load` does not list it.
 pub const CMUX_ROUTE_ID: &str = "cmux";
 
+/// The built-in route to the Codex CLI's own signed-in login (`~/.codex/auth.json`, or the chat's
+/// `CODEX_HOME`): no endpoint and no account home, so a chat on it runs on the login Settings shows
+/// as "ChatGPT / Codex". A codex chat whose route fails, and names no fallback of its own, moves
+/// onto it by itself (`hub/route_switch.rs`). A route file named `codex-login` replaces it; `find`
+/// resolves it, `load` does not list it (the Account menu already shows the CLI login).
+pub const CODEX_LOGIN_ROUTE_ID: &str = "codex-login";
+
+/// Whether the Codex CLI is signed in in `home` (its `CODEX_HOME`), else in `~/.codex`.
+pub fn codex_signed_in(home: Option<&Path>) -> bool {
+    let dir = match home {
+        Some(home) => home.to_path_buf(),
+        None => match dirs::home_dir() {
+            Some(home) => home.join(".codex"),
+            None => return false,
+        },
+    };
+    dir.join("auth.json").is_file()
+}
+
 fn builtin_routes() -> Vec<Route> {
-    vec![Route {
-        id: CMUX_ROUTE_ID.into(),
+    let codex_login = Route {
+        id: CODEX_LOGIN_ROUTE_ID.into(),
         file: RouteFile {
-            name: Some("cmux model router".into()),
-            kind: RouteKind::CmuxRouter,
-            families: vec![],
+            name: Some("ChatGPT (Codex CLI login)".into()),
+            kind: RouteKind::DirectSubscription,
+            families: vec!["codex".into()],
             anthropic_base_url: None,
             openai_base_url: None,
             auth: None,
@@ -76,11 +94,33 @@ fn builtin_routes() -> Vec<Route> {
             health_url: None,
             fallback: vec![],
             auto_fallback: false,
-            notes: Some("built in: open-source models through the cmux model router".into()),
+            notes: Some("built in: the Codex CLI's own signed-in login".into()),
             account_home: None,
         },
         path: PathBuf::new(),
-    }]
+    };
+    vec![
+        codex_login,
+        Route {
+            id: CMUX_ROUTE_ID.into(),
+            file: RouteFile {
+                name: Some("cmux model router".into()),
+                kind: RouteKind::CmuxRouter,
+                families: vec![],
+                anthropic_base_url: None,
+                openai_base_url: None,
+                auth: None,
+                secret: None,
+                headers: BTreeMap::new(),
+                health_url: None,
+                fallback: vec![],
+                auto_fallback: false,
+                notes: Some("built in: open-source models through the cmux model router".into()),
+                account_home: None,
+            },
+            path: PathBuf::new(),
+        },
+    ]
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -821,7 +861,7 @@ pub fn local_router_with(
         ))
     };
     let stream = UnixStream::connect(&socket).map_err(|e| unavailable(e.to_string()))?;
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(3)));
+    let _ = stream.set_read_timeout(Some(crate::rpc::ANSWER_WAIT));
     let mut writer = stream.try_clone().map_err(|e| unavailable(e.to_string()))?;
     let mut reader = BufReader::new(stream);
     let mut ask = |line: Value| -> Result<Value, RouteError> {

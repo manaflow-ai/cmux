@@ -1,12 +1,12 @@
 public import CmuxNextDesign
 
-/// `window.titlebar` in cmux.json: "standard" (the default titlebar strip
-/// with the workspace name) or "minimal" (no titlebar strip; the top row's
-/// empty space moves the window).
+/// `window.titlebar` in cmux.json: "minimal" (default: no titlebar strip,
+/// the top row's empty space moves the window) or "standard" (a titlebar
+/// strip with the workspace name).
 public nonisolated struct WindowTitlebarSetting {
     public nonisolated init() {}
     public static let configPath = ["window", "titlebar"]
-    public static let fallback: TitlebarStyle = .standard
+    public static let fallback: TitlebarStyle = .minimal
 
     /// A missing key is the default with no diagnostic; a bad value is the
     /// default plus a diagnostic.

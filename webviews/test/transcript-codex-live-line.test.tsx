@@ -205,9 +205,11 @@ test("the live line draws Running or Ran with the turn's time, or Thinking alone
   const thinking = renderToStaticMarkup(<Thinking since={start} untimed now={() => start + 9_000} />);
   expect(words(thinking)).toBe("Thinking");
   expect(thinking).toContain("is-shimmer");
-  // Behind streaming text it keeps its height but draws nothing (`cv-worked--live` sets its words on
-  // the status rows' text column, #33157).
-  expect(renderToStaticMarkup(<Thinking untimed quietKey="a:7" />)).toContain("cv-worked cv-worked--live is-quiet");
+  // Under streaming text it stays shown and reads "Writing" (Leo, 2026-11-04: "it appears and
+  // disappears????").
+  const writing = renderToStaticMarkup(<Thinking untimed quietKey="a:7" liveState="writing" />);
+  expect(writing).not.toContain("is-quiet");
+  expect(words(writing)).toBe("Writing");
 });
 
 test("shortCommand drops the setup a script starts with", () => {

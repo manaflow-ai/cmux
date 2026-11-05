@@ -112,7 +112,7 @@ public final class ChiefSession {
     public private(set) var questions: [AgentQuestion] = []
     /// Each answer's progress, by question id (``ChiefAnswerFlow``).
     public private(set) var answers: [String: ChiefAnswerFlow] = [:]
-    /// The signer for answers (Face ID with this phone's approval key), asked
+    /// The signer for answers (this phone's approval key), asked
     /// at answer time: the link's pairing may change while Chief is open.
     public var answerSigner: (@MainActor () -> (any ChiefAnswerSigning)?)?
     /// The newest message the user has seen with the conversation open.
@@ -363,7 +363,7 @@ public final class ChiefSession {
         }
     }
 
-    /// Answers `question` (Face ID, then the Mac). The flow says where it is;
+    /// Answers `question` (signed, then the Mac). The flow says where it is;
     /// a second call while one is in flight does nothing.
     public func answer(_ question: AgentQuestion, with answer: AgentQuestionAnswer) {
         guard let source = backend as? any ChiefQuestionSource else { return }

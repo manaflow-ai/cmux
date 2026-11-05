@@ -1209,7 +1209,7 @@ fn timed_out(response: &Result<Value, Value>) -> bool {
 }
 
 /// One request with exactly `params` (no read barrier) and its response.
-fn exchange(
+pub(super) fn exchange(
     stream: &mut UnixStream,
     method: &str,
     params: Value,

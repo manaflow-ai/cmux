@@ -205,16 +205,33 @@ Limits: the frame's commit is the app's Core Animation commit. The display's own
 has no mark here. The probe follows one press at a time: a key typed before the last echo landed closes the
 open press as unfinished (`--key-interval` keeps keys apart).
 
-Two more record kinds, not press stages (trace.py leaves them out of the press; read them by thread id):
-- `daemon.req.begin.<command>` and `daemon.req.end.<command>` (flow 0, no terminal) on each connection's
-  `mux-control-dispatch` thread around every request it runs: the requests a terminal view sends by name (send,
-  send-key, resize-attached-view, resize-surface, set-client-sizing, set-size-policy, snapshot-request,
-  release-attached-view-size, set-size-counts, set-attach-visibility, detach-attached-view, scroll-surface), every
-  other as `other`. A key whose `daemon.send.write` is late after its `daemon.send.read` waited in its connection's
-  queue; the begin and end records on the same thread id before it name the request it waited for.
-- The daemon's output hops (`daemon.output.host`, `daemon.output.attach`, `daemon.output.holder`) are recorded only
-  for a terminal that had a traced key press in the last 10 s (`cmux_flow_trace::hop_on_traced`): with a thousand
-  busy terminals they filled the ring and it dropped key-press records (3.8 M records dropped in one typing run).
+### Records beside the presses
+
+- The daemon's output hops (`daemon.output.host`, `daemon.output.holder`, `daemon.output.attach`) are press stages,
+  but they are recorded only for a terminal that had a traced key press in the last 10 s
+  (`cmux_flow_trace::hop_on_traced`): with a thousand busy terminals they filled the ring and it dropped key-press
+  records (3.8 M records dropped in one typing run). A hop with a flow id and a terminal opens that window; a hop
+  with no terminal (`daemon.send.read`) opens none. At most 16 traced terminals keep a window at once: the slots
+  are reused in turn, so a newly traced terminal can take the slot of one whose window is still open.
+- `daemon.req.begin.<command>` and `daemon.req.end.<command>` (flow 0, no terminal) are not press stages. They are
+  only in the flow files (`flows/flows-<pid>.jsonl` in the `--out` folder): trace.py does not draw them, so read
+  them by thread id. Each connection's `mux-control-dispatch` thread records them around every request it runs
+  itself: the requests a terminal view sends by name (send, send-key, resize-attached-view, resize-surface,
+  set-client-sizing, set-size-policy, snapshot-request, release-attached-view-size, set-size-counts,
+  set-attach-visibility, detach-attached-view, scroll-surface), every other as `other`.
+- A traced key comes on its terminal view's own connection (only the view's `send` carries a flow id). Its queue
+  and dispatcher are that connection's. On that thread, the begin and end records before the key's own
+  `daemon.req.begin.send` name the requests it waited behind: those that ended between the key's `daemon.send.read`
+  and its own begin, including one that began before the read. A late key (a long gap from its `daemon.send.read`
+  to its own `daemon.req.begin.send`) with no `daemon.req.end.*` record in that gap waited for its hand-off to the
+  queue and for the dispatcher thread to wake up. A gap between its own begin and its `daemon.send.write` is in the
+  `send` handler before the write (the terminal lookup, and the creating-input wait while a terminal is being
+  created).
+- Creates, `wait-for` and `clear-history` come on other connections (the app's control connection, a CLI), never on
+  a Mac terminal view's (`TerminalAttachment`). On those connections the dispatcher records nothing while it hands
+  one off, or while it runs a create inline because the terminal work pool is full. A `clear-history` also holds
+  later requests to its surface on that connection until it ends. An iOS view sends `clear-history` on its own
+  attach connection (its keys carry no flow id, so no traced key waits behind it).
 
 ## How to open it
 

@@ -5,6 +5,9 @@ import {
   DEV_API,
   DEV_PLATFORM,
   AGENT_SCRIPT,
+  STUB_SCRIPT,
+  agentScript,
+  stubTurns,
   LOGIN_VAR,
   NONCE_VAR,
   PLACEHOLDER,
@@ -225,6 +228,48 @@ const env = (login = LOGIN) => ({ CMUX_UITEST_STACK_EMAIL: EMAIL, CMUX_UITEST_ST
 const isAgent = (a: string[]) => a[0] === opts.ssh
 
 describe("machine-vault-e2e", () => {
+  test("on the model stub: a made-up login, Claude Code pointed at the stub, every model request carried that login", async () => {
+    const f = fakes()
+    let log = ""
+    f.deps.readFile = (path) => (path === "/tmp/stub.jsonl" ? log : "")
+    const run = f.deps.run
+    f.deps.run = async (argv, o) => {
+      if (argv[0] === opts.ssh) {
+        const sha = new Bun.CryptoHasher("sha256").update((o.stdin ?? "").trim()).digest("hex")
+        log = [1, 2, 3, 4].map((step) => JSON.stringify({ protocol: "anthropic", method: "POST", path: "/v1/messages", stream: true, step, cred_sha256: sha })).join("\n") + "\n"
+      }
+      return run(argv, o)
+    }
+    const e = await runE2E(opts, { ...env(""), MODEL_STUB_URL: "http://127.0.0.1:18123", MODEL_STUB_LOG: "/tmp/stub.jsonl" }, f.deps)
+    expect(e.result).toBe("pass")
+    expect(e.reason).toContain("on the model stub")
+    expect(e.model).toEqual({ mode: "stub", requests: 4, loginMatched: true })
+    expect(f.stdins.ssh).toMatch(/^sk-ant-oat01-vaultstub-[0-9a-f]+\n$/)
+    const agent = f.calls.find(isAgent)!
+    expect(agent[3]).toBe(agentScript("http://127.0.0.1:18123"))
+    expect(agent[3]).toContain("ANTHROPIC_BASE_URL")
+    expect(agent[3]).toContain("http://127.0.0.1:18123")
+    expect(AGENT_SCRIPT).not.toContain("ANTHROPIC_BASE_URL")
+  })
+
+  test("on the model stub: a model request with another login fails the run", async () => {
+    const f = fakes()
+    f.deps.readFile = () => JSON.stringify({ protocol: "anthropic", method: "POST", path: "/v1/messages", cred_sha256: "0".repeat(64) }) + "\n"
+    const e = await runE2E(opts, { ...env(""), MODEL_STUB_URL: "http://127.0.0.1:18123", MODEL_STUB_LOG: "/tmp/stub.jsonl" }, f.deps)
+    expect(e.result).toBe("fail")
+    expect(e.reason).toContain("did not carry the login")
+    expect(e.model.loginMatched).toBe(false)
+  })
+
+  test("the stub address must be loopback, and the stub's script is the prompt's three commands", () => {
+    expect(() => agentScript("http://evil.example:80")).toThrow()
+    expect(() => agentScript("http://127.0.0.1:1; rm -rf ~")).toThrow()
+    expect(stubTurns('{"protocol":"anthropic","method":"POST","path":"/v1/messages","cred_sha256":"a"}\nnot json\n{"protocol":"anthropic","method":"POST","path":"/v1/messages/count_tokens"}\n')).toHaveLength(1)
+    const script = JSON.parse(require("node:fs").readFileSync(require("node:path").join(import.meta.dir, "../..", STUB_SCRIPT), "utf8"))
+    const shells = script.steps.filter((s: any) => s.shell).map((s: any) => s.shell)
+    for (const piece of [`printenv ${NONCE_VAR}`, `https://${ALLOWED_HOST}/headers`, "https://httpbin.org/headers"]) expect(shells.join("\n")).toContain(piece)
+  })
+
   test("passes when the subscription-signed-in agent replies with the nonce, and cleans up", async () => {
     const f = fakes()
     const e = await runE2E(opts, env(), f.deps)
@@ -358,6 +403,13 @@ describe("machine-vault-e2e", () => {
     expect(inHome.result).toBe("fail")
     expect(inHome.reason).toContain("the home holds the Claude login")
     expect(inHome.secretScan.home.login).toBe(1)
+    expect(inHome.secretScan.home.files).toEqual(["./.zshenv"])
+    // A file name that is itself a secret is redacted.
+    const nf = fakes({ homeFiles: { [`./${LOGIN}`]: "x" } })
+    await runE2E(opts, env(), nf.deps)
+    // The written evidence keeps the redacted path (it is not the redaction-failure stub).
+    const written = JSON.parse(nf.files.get(opts.evidence) ?? "{}")
+    expect(written.secretScan.home.files).toEqual(["./[secret]"])
   })
 
   test("a reply in the login's shape is never written as evidence", async () => {

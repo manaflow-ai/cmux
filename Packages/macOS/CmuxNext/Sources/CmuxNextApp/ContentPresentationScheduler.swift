@@ -46,11 +46,8 @@ final class ContentPresentationScheduler {
         schedule()
     }
 
-    /// Shows `pane`'s selection now when that fits this frame's budget (its
-    /// content is alive, or no surface was created since the last frame),
-    /// else queues it. Used when a pane comes on screen, so a split's new
-    /// pane draws in the same frame as the layout change instead of one
-    /// blank frame later. Returns true when it was shown now.
+    /// Shows `pane`'s selection now when that fits this frame's budget (its content is alive, or no surface was made since the
+    /// last frame: only a surface really made spends it), else queues it: a split's new pane shows with the layout change.
     @discardableResult
     func showNow(_ pane: any PresentablePane) -> Bool {
         let alive = pane.selectedContentIsAlive
@@ -59,8 +56,8 @@ final class ContentPresentationScheduler {
             return false
         }
         cancel(pane)
-        if !alive { createdThisFrame = true }
         BenchSpans.measure("presentation.showNow") { pane.showSelected() }
+        if !alive, pane.selectedContentIsAlive { createdThisFrame = true }
         schedule()
         return true
     }
@@ -90,9 +87,10 @@ final class ContentPresentationScheduler {
         for key in focused + order.filter({ !focused.contains($0) }) {
             guard let pane = pending[key] else { continue }
             if pane.selectedContentIsAlive || !created {
-                if !pane.selectedContentIsAlive { created = true }
+                let alive = pane.selectedContentIsAlive
                 pending[key] = nil
                 BenchSpans.measure("presentation.frame") { pane.showSelected() }
+                if !alive, pane.selectedContentIsAlive { created = true }
             } else {
                 remaining.append(key)
             }

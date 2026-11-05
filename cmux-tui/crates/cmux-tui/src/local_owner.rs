@@ -133,7 +133,9 @@ mod identify;
 mod recovery_tests;
 use identify::{IdentifyError, identify};
 pub(crate) use install_key::{OWNER_INSTALL_KEY_FD_ARG, install_key_from_launcher};
-pub(crate) use replace::{ReplaceError, is_wedged, replace_if_unresponsive, replace_if_wedged};
+pub(crate) use replace::{
+    ReplaceError, is_wedged, replace_if_backend_changed, replace_if_unresponsive, replace_if_wedged,
+};
 
 /// Takes an inherited descriptor (`option` names it) from argv and keeps it
 /// out of every process the owner starts (terminal hosts): only this owner
@@ -256,6 +258,7 @@ pub(crate) struct ReadyOwner {
     pub session: String,
     pub pid: u64,
     pub generation: String,
+    pub cloud_backend: Option<String>,
 }
 
 pub(crate) enum Ensured {
@@ -288,6 +291,24 @@ pub(crate) enum EnsureError {
     InvalidIdentity,
     /// The server speaks a protocol incompatible with this client.
     UnsupportedProtocol,
+}
+
+/// The backend requested by a NEXT app launch. Classic callers do not set the
+/// runtime marker, so they must never cause an existing daemon to restart.
+fn requested_cloud_backend() -> Option<String> {
+    if std::env::var("CMUX_NEXT_CLOUD_RUNTIME").as_deref() != Ok("1")
+        || std::env::var("CMUX_NEXT_CLOUD_LAUNCHER").as_deref() != Ok("1")
+    {
+        return None;
+    }
+    std::env::var("CMUX_NEXT_CLOUD_BACKEND")
+        .ok()
+        .or_else(|| std::env::var("CMUX_NEXT_CLOUD_ENV").ok())
+        .filter(|value| !value.trim().is_empty())
+}
+
+fn cloud_backend_from_identity(identity: &Value) -> Option<String> {
+    identity.get("cloud_backend").and_then(Value::as_str).map(str::to_owned)
 }
 
 /// One connect-and-identify attempt against the session socket.
@@ -345,10 +366,32 @@ pub(crate) fn ensure_owner(
     cmux_tui_core::server::prepare_socket_parent(&spec.socket, spec.socket_is_derived)
         .map_err(|error| EnsureError::Spawn(io::Error::other(error)))?;
     let restore_deadline = deadline.max(Instant::now() + RESTORE_DEADLINE);
+    let requested_backend = requested_cloud_backend();
     let owner = loop {
         if let Some(ready) =
             wait_while_starting(spec, expected_session, restore_deadline, progress)?
         {
+            if let Some(expected) = requested_backend.as_deref()
+                && ready.cloud_backend.as_deref() != Some(expected)
+            {
+                // The app may have quit while this daemon stayed alive. Stop
+                // the stale owner through the existing replacement machinery;
+                // terminal hosts remain running and are adopted by the next
+                // owner. Re-probe after the exit to handle races.
+                match replace_if_backend_changed(spec, expected) {
+                    Ok(Some(_)) => continue,
+                    Ok(None) if Instant::now() < restore_deadline => continue,
+                    Ok(None) => {
+                        return Err(EnsureError::RestoreTimeout);
+                    }
+                    Err(error) => {
+                        return Err(EnsureError::Spawn(io::Error::other(format!(
+                            "cloud backend restart refused: {}",
+                            error.code()
+                        ))));
+                    }
+                }
+            }
             return Ok(Ensured::Running(ready));
         }
         if Instant::now() >= restore_deadline {
@@ -365,7 +408,24 @@ pub(crate) fn ensure_owner(
         // owner while this call waited for the lock. A restoring owner is
         // awaited outside the lock (next turn), never while holding it.
         match attempt(spec, expected_session, attempt_deadline(restore_deadline))? {
-            Attempt::Ready(ready) => return Ok(Ensured::Running(ready)),
+            Attempt::Ready(ready) => {
+                if let Some(expected) = requested_backend.as_deref()
+                    && ready.cloud_backend.as_deref() != Some(expected)
+                {
+                    match replace_if_backend_changed(spec, expected) {
+                        Ok(Some(_)) => continue,
+                        Ok(None) if Instant::now() < restore_deadline => continue,
+                        Ok(None) => return Err(EnsureError::RestoreTimeout),
+                        Err(error) => {
+                            return Err(EnsureError::Spawn(io::Error::other(format!(
+                                "cloud backend restart refused: {}",
+                                error.code()
+                            ))));
+                        }
+                    }
+                }
+                return Ok(Ensured::Running(ready));
+            }
             Attempt::Starting(pid) => {
                 progress.restoring(pid);
                 drop(lock);
@@ -413,7 +473,26 @@ pub(crate) fn ensure_owner(
         ),
     };
     match ready {
-        Ok(Some(ready)) => Ok(Ensured::Started(ready)),
+        Ok(Some(ready)) => {
+            if let Some(expected) = requested_backend.as_deref()
+                && ready.cloud_backend.as_deref() != Some(expected)
+            {
+                match replace_if_backend_changed(spec, expected) {
+                    Ok(Some(_)) | Ok(None) => {
+                        owner.terminate();
+                        return Err(EnsureError::NotReady);
+                    }
+                    Err(error) => {
+                        owner.terminate();
+                        return Err(EnsureError::Spawn(io::Error::other(format!(
+                            "cloud backend restart refused: {}",
+                            error.code()
+                        ))));
+                    }
+                }
+            }
+            Ok(Ensured::Started(ready))
+        }
         Ok(None) => {
             owner.terminate();
             Err(EnsureError::NotReady)
@@ -654,6 +733,7 @@ fn attempt(
         session: session.to_string(),
         pid,
         generation: generation.to_string(),
+        cloud_backend: cloud_backend_from_identity(&identity),
     }))
 }
 
@@ -695,8 +775,16 @@ struct SpawnedOwner {
     ready: Option<std::convert::Infallible>,
 }
 
-const DETACHED_OWNER_IDENTITY_ENV: [&str; 5] =
-    ["CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID", "CMUX_TAB_ID", "CMUX_PANEL_ID", "CMUX_PANE_ID"];
+const DETACHED_OWNER_IDENTITY_ENV: [&str; 6] = [
+    "CMUX_SURFACE_ID",
+    "CMUX_WORKSPACE_ID",
+    "CMUX_TAB_ID",
+    "CMUX_PANEL_ID",
+    "CMUX_PANE_ID",
+    // Only the app launcher may reconcile a backend switch. A terminal
+    // or a detached owner must never inherit this one-shot authority.
+    "CMUX_NEXT_CLOUD_LAUNCHER",
+];
 
 /// Remove terminal identity and agent caller claims
 /// (`startup_env::AGENT_CALLER_ENV`, cx-4nar) from the detached owner while
@@ -796,10 +884,10 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     if let Some(brains) = &spec.chief_brains {
         command.env(cmux_tui_core::chief_brains::ENV, brains);
     }
-    // R-LIFECYCLE stage 1's switch reaches only the owner this call spawns
-    // (headless.rs `take_owner_keepers_switch`).
-    if crate::headless::owner_keepers_switch() {
-        command.env(crate::headless::OWNER_KEEPERS_ENV, "1");
+    // R-LIFECYCLE stage 1's switch, when off, reaches only the owner this
+    // call spawns (headless.rs `take_owner_keepers_switch`); on is the default.
+    if !crate::headless::owner_keepers_switch() {
+        command.env(crate::headless::OWNER_KEEPERS_ENV, "0");
     }
     // The app directory settings this client took at start go to the owner
     // daemon it spawns only (cx-e0cs): the owner takes them out of its own
@@ -932,7 +1020,21 @@ mod tests {
     use std::ffi::OsString;
     use std::process::Command;
 
+    use super::cloud_backend_from_identity;
     use super::configure_detached_owner_environment;
+    use serde_json::json;
+
+    #[test]
+    fn backend_identity_is_optional_for_classic_and_exact_for_next() {
+        assert_eq!(cloud_backend_from_identity(&json!({"app":"cmux-tui"})), None);
+        assert_eq!(
+            cloud_backend_from_identity(
+                &json!({"cloud_backend":"https://cloud-api-staging.cmux.dev"})
+            ),
+            Some("https://cloud-api-staging.cmux.dev".to_owned())
+        );
+        assert_eq!(cloud_backend_from_identity(&json!({"cloud_backend": 7})), None);
+    }
 
     #[cfg(unix)]
     mod event_driven {
@@ -1002,6 +1104,7 @@ mod tests {
             .env("CMUX_TAB_ID", "tab")
             .env("CMUX_PANEL_ID", "panel")
             .env("CMUX_PANE_ID", "pane")
+            .env("CMUX_NEXT_CLOUD_LAUNCHER", "1")
             .env("CMUX_TUI_CONFIG", "/tmp/mux.json")
             .env("CMUX_MUX_CONFIG", "/tmp/legacy-mux.json");
 
@@ -1016,6 +1119,7 @@ mod tests {
         {
             assert_eq!(values.get(OsString::from(key).as_os_str()), Some(&None));
         }
+        assert_eq!(values.get(OsString::from("CMUX_NEXT_CLOUD_LAUNCHER").as_os_str()), Some(&None));
         assert_eq!(
             values.get(OsString::from("CMUX_TUI_CONFIG").as_os_str()),
             Some(&Some(OsString::from("/tmp/mux.json")))

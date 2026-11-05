@@ -1083,7 +1083,7 @@
   margin-top: 0;
 }
 .cv-p {
-  margin: 0 0 var(--cv-para-after, 14px);
+  margin: 0 0 var(--cv-para-after, var(--grid-gap-inner));
 }
 .cv-p:has(+ .cv-list) {
   margin-bottom: 0;
@@ -1676,8 +1676,13 @@
 .cv-math--display .katex-display {
   margin: 0;
 }
+/* Paragraph to display math is one grid gap whatever the paragraph token: the paragraph drops its
+   margin (as before a list) and the math carries the gap, since stacked margins collapse. */
+.cv-p:has(+ .cv-math-display) {
+  margin-bottom: 0;
+}
 .cv-p + .cv-math-display {
-  margin-top: calc(12px - var(--cv-para-after, 14px));
+  margin-top: var(--grid-gap-inner);
 }
 .cv-math-display + .cv-math-display {
   margin-top: -1px;
@@ -2101,6 +2106,13 @@ pre.cv-math-source {
 .cv-worked__total .cv-worked__time {
   margin-inline: 0;
 }
+/* The live line's counts ("Ran cat x 0s · 39s · 1K tokens") read in one tone: every dot, time and
+   count at the time's dim tone, so no segment after the words reads brighter than another (Leo,
+   2026-11-03: "same here it's annoying to look at"; test webviews/test/transcript-row-hover-scope.test.ts).
+   Their 4px around each dot is `.cv-worked__count`'s (#34866). */
+.cv-worked--live > .cv-worked__count:not(:has(.cv-worked__open)) {
+  color: var(--cv-text-dim);
+}
 /* A command in flight leads with the terminal glyph (WorkingFor.tsx), still, like the tool rows'. */
 .cv-worked__glyph {
   flex: none;
@@ -2435,14 +2447,19 @@ pre.cv-math-source {
    run's or group's summary line lights on hover only (below), so its focus is left out. */
 /* A message row keeps one steady tone (design/chat-transcript.md, as a received message's line):
    a sent row the reader clicked never reads brighter than the ones around it (Leo, 2026-11-02, on
-   rows "in bright and dim text with no clear rule": "i also think this is quite weird looking"). */
-.cv-tool:not(.is-run, .cv-sent):focus-within:not(:has(.cv-agent-tag.is-open:focus)),
-.cv-worked:hover,
-.cv-worked:focus-visible {
+   rows "in bright and dim text with no clear rule": "i also think this is quite weird looking").
+   An activity row (TranscriptActivityRow) is left out: a click leaves it focused, and its words
+   keep their rest tone (TranscriptActivityRow.css). */
+/* Only the "Worked for" button lifts: the live line (`div.cv-worked`, Thinking.tsx) has nothing
+   behind it, so it never lights up under the pointer (Leo, 2026-11-03: "this thing appears/lights
+   up on hover for no reason!?"). */
+.cv-tool:not(.is-run, .cv-sent, .cv-agent-activity__control):focus-within:not(:has(.cv-agent-tag.is-open:focus)),
+button.cv-worked:hover,
+button.cv-worked:focus-visible {
   color: var(--cv-text);
 }
-.cv-tool:not(.is-run, .cv-sent):focus-within:not(:has(.cv-agent-tag.is-open:focus)) .cv-tool__chevron,
-.cv-tool:not(.is-run, .cv-sent):focus-within:not(:has(.cv-agent-tag.is-open:focus)) .cv-tool__detail {
+.cv-tool:not(.is-run, .cv-sent, .cv-agent-activity__control):focus-within:not(:has(.cv-agent-tag.is-open:focus)) .cv-tool__chevron,
+.cv-tool:not(.is-run, .cv-sent, .cv-agent-activity__control):focus-within:not(:has(.cv-agent-tag.is-open:focus)) .cv-tool__detail {
   color: var(--cv-text);
 }
 /* The running rows' mark (`Spinner`: compaction, tool groups, MCP calls, command and shell rows).
@@ -2654,6 +2671,7 @@ pre.cv-math-source {
 }
 .cv-worked:focus-visible,
 .cv-tool.is-toggle:focus-visible,
+.cv-agent-activity__control:focus-visible,
 .cv-iconbtn:focus-visible {
   /* Inset: the transcript row clips paint (`contain: paint`), so an outset ring would be cut. */
   outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
@@ -3675,10 +3693,10 @@ button.cv-video-frames__frame:focus-visible {
   white-space: nowrap;
   user-select: none;
 }
-/* Pointing at the sender's name lights only the name (its own pill below), never the whole line. */
-.cv-received > .cv-disclosure__line:hover:not(:has(.cv-agent-tag.is-open:hover)),
-.cv-received > .cv-disclosure__line:focus-within:not(:has(.cv-agent-tag.is-open:focus)),
-.cv-received > .cv-disclosure__line:has([aria-haspopup="menu"]:is([aria-expanded="true"], [data-popup-open])) {
+/* No plate under the line on hover, as a sent message's and a tool's line have none (cmux#28113
+   gave received lines one): pointing at it reveals its actions only, and pointing at the sender's
+   name lights only the name (its own pill below). Keyboard focus keeps the plate, so focus shows. */
+.cv-received > .cv-disclosure__line:has(:focus-visible):not(:has(.cv-agent-tag.is-open:focus)) {
   background: color-mix(in srgb, var(--cv-text) 6%, transparent);
 }
 .cv-received .cv-disclosure__toggle {
@@ -3713,11 +3731,8 @@ button.cv-video-frames__frame:focus-visible {
   display: inline-flex;
   align-items: center;
   padding-inline-start: var(--ds-space-2);
-  background: linear-gradient(
-    to right,
-    transparent,
-    color-mix(in srgb, var(--cv-text) 6%, var(--acpmux-base, var(--cv-bg))) var(--ds-space-2)
-  );
+  /* The pane's own ground, with no plate under the line, so the actions cover the preview's tail. */
+  background: linear-gradient(to right, transparent, var(--acpmux-base, var(--cv-bg)) var(--ds-space-2));
   opacity: 0;
   pointer-events: none;
 }
@@ -4397,7 +4412,8 @@ a.cv-sha:focus-visible {
   letter-spacing: var(--text-caption--letter-spacing);
   white-space: nowrap;
 }
-.cv-iconbtn.cv-turn-continue:disabled {
+.cv-iconbtn.cv-turn-continue:disabled,
+.cv-user__queued-hover .cv-message-retry .cv-iconbtn:disabled {
   opacity: 0.5;
   pointer-events: none;
 }
@@ -4790,9 +4806,13 @@ a.cv-sha:focus-visible {
 }
 
 /* R104: the newest revealed characters fade in (RevealedMarkdown); opacity only, on the
- * compositor. The text holds its final layout while transparent, so no line ever reflows. */
+ * compositor. The text holds its final layout while transparent, so no line ever reflows. The fade
+ * runs three of the host's fade-in steps (FRESH_FADE_STEPS), so the last few words of a streaming
+ * reply read as a soft trailing edge, as Claude's and ChatGPT's do; one step (120 ms) was too quick
+ * to see (Leo, 2026-11-03: "hey even u have that text fading in! i want that..."). A zero token
+ * (motion off) still makes it zero. */
 .cv-fresh {
-  animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+  animation: cv-enter-fade calc(var(--agent-motion-in, 180ms) * 3) var(--agent-ease-out, ease-out) both;
 }
 
 /* Footnotes (Markdown.tsx): a superscript number that scrolls to its note, and the notes
@@ -5674,6 +5694,14 @@ a.cv-sha:focus-visible {
 .cv-plan__chevron {
   color: var(--cv-text-muted);
 }
+/* Its ink --cv-chevron-gap after the progress words, like every row's chevron: the summary's 8px gap
+   and the glyph's own inset taken back (test/transcript-chevron-after-label.test.ts). */
+.cv-plan__summary .cv-plan__chevron {
+  flex: none;
+  width: var(--cv-chevron-glyph);
+  height: var(--cv-chevron-glyph);
+  margin-inline-start: calc(var(--cv-chevron-gap) - 8px - var(--cv-chevron-ink));
+}
 /* Folded, the list is that line alone: no card around it, like the turn's other summary lines. */
 .cv-plan[data-folded] {
   /* The folded 12px mark sits centred in the transcript's icon column (gallery invariant icon-column). */
@@ -5981,7 +6009,8 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   top: calc((var(--grid-gap-turn) - var(--grid-transcript-action-control)) / 2 - 1.5px);
 }
 
-/* An unread steer shows only Send now and remove, with the same quiet height as hover actions. */
+/* An unread steer shows Send now at rest, and Copy, Retry, Fork and remove on hover (PendingSteer.tsx),
+   with the same quiet height as hover actions. */
 .cv-user__pending {
   display: inline-flex;
   align-items: center;
@@ -6276,7 +6305,7 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   max-width: calc(100% - var(--cv-chevron-glyph, 12px) - var(--ds-space-4, 16px));
 }
 /* The selection's Reply chip (SelectionReply.tsx): a small pill over the selection's end, as
-   Claude's and ChatGPT's. It shows on the selection's end with no fade-in and goes when the
+   Claude's and ChatGPT's, placed where no transcript text is under it. It shows on the selection's end with no fade-in and goes when the
    selection does. `icon` draws the glyph alone. */
 .cv-selection-reply {
   position: fixed;
@@ -6329,4 +6358,13 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   color: var(--cv-text-dim);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+/* Under a finished subagent's line (SubagentDoneLine.tsx) the reply is the line's own continuation
+   on the stack's grid: no margin of its own (the row's frame gives the run gap after it), the notes'
+   20px lines at the rows' text column, so model.ts `reactionReplyHeight` is its drawn height and the
+   next row keeps the one row pitch (design/chat-transcript.md "One-line row pitch"). cmux#33283 gave
+   it a 4px and 6px margin the estimate never counted. */
+.cv-tools > .cv-reaction-reply {
+  margin: 0;
+  line-height: 20px;
 }

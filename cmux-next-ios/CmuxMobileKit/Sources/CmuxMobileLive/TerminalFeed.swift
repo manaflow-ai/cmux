@@ -45,10 +45,6 @@ public final class TerminalFeed {
         /// The push that names this question (`q-` and a hash of what it asks,
         /// cmux-mobile-host `question_event_id`): a notification answers only its own question.
         public var questionEventID: String?
-        /// What the row's agent said (its answer, error, approval command or plan; the
-        /// question's text), while the Mac's daemon keeps it in memory: a Feed that reads the
-        /// ledger after the live event (the phone connected later) still shows it.
-        public var texts: Texts?
 
         public init?(json: [String: Any]) {
             guard let id = json["id"] as? String, !id.isEmpty else { return nil }
@@ -66,10 +62,6 @@ public final class TerminalFeed {
                 surface.flatMap { AgentQuestion(terminalQuestion: question, ledgerID: id, surface: $0) }
             }
             questionEventID = raw.flatMap(Self.eventID(question:))
-            func text(_ key: String) -> String? { (json[key] as? String).flatMap { $0.isEmpty ? nil : $0 } }
-            let message = text("message") ?? text("detail")
-            let prompt = text("prompt")
-            texts = message == nil && prompt == nil ? nil : Texts(prompt: prompt, message: message)
         }
 
         /// cmux-mobile-host `question_event_id`: `q-` and the 64-bit FNV-1a, in hex, of the
@@ -366,11 +358,9 @@ public final class TerminalFeed {
                 unclaimed[surface]?.removeFirst()
                 if texts.updateValue(kept, forKey: entry.id) == nil { textOrder.append(entry.id) }
             }
-            // The live event's texts, else what the ledger read still carries.
-            let rowTexts = texts[entry.id] ?? entry.texts
             var item = Self.item(entry, id: id, harness: harness, workspace: place.workspace, tab: place.tab,
-                                 texts: rowTexts)
-            if rowTexts == nil, let known, Self.isRicher(known, than: item) {
+                                 texts: texts[entry.id])
+            if texts[entry.id] == nil, let known, Self.isRicher(known, than: item) {
                 // Shown with its texts before (this launch, or the archive): a later read of the
                 // thin ledger row keeps them.
                 item.kind = known.kind
@@ -484,17 +474,6 @@ public final class TerminalFeed {
             case .finished: kind = .response; markdown = message
             // What went wrong, under what failed ("Reported an error: Bash").
             case .failed: markdown += "\n\n" + fenced(message)
-            // What it waits on: an approval's command, a plan to review, or the question it
-            // asked (once answered, the question card is gone), under the headline.
-            // The detail's first paragraph is the tool the headline already names ("Bash"):
-            // it shows once.
-            case .needsInput where !markdown.contains(message):
-                let head = message.components(separatedBy: "\n\n").first ?? ""
-                let detail = !head.isEmpty && markdown.hasSuffix(head)
-                    ? String(message.dropFirst(head.count).drop(while: \.isNewline)) : message
-                if !detail.isEmpty {
-                    markdown = (markdown.hasPrefix("**") ? markdown : "**\(markdown)**") + "\n\n" + detail
-                }
             default: break
             }
         }

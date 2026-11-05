@@ -289,7 +289,7 @@ targets:
         NSSpeechRecognitionUsageDescription: Turn your voice notes for Chief into text on this device. Audio is not sent for recognition.
         # The Action Button Chief call keeps recording while the phone is locked.
         UIBackgroundModes: [audio]
-        NSFaceIDUsageDescription: Approve agent actions and unlock cmux with Face ID.
+        NSFaceIDUsageDescription: Unlock cmux with Face ID when Require Face ID is on.
         CADisableMinimumFrameDurationOnPhone: true
         UILaunchScreen:
           UIColorName: LaunchBackground

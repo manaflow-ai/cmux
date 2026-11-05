@@ -42,15 +42,15 @@ export function toolIcon(kind?: string): ReactNode {
     case "delete":
     case "move":
     case "fileChange":
-      return <Pencil size={16} strokeWidth={1.1} />;
+      return <Pencil size={16} />;
     case "search":
       return <Magnifier />;
     case "execute":
       return <TerminalSquare />;
     case "fetch":
-      return <Globe size={16} strokeWidth={1.1} />;
+      return <Globe size={16} />;
     default:
-      return <ToolGroup size={16} strokeWidth={1.2} />;
+      return <ToolGroup size={16} />;
   }
 }
 
@@ -193,11 +193,7 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
             onClick={fold.toggle}
           >
             {content}
-            <ChevronRight
-              size={14}
-              strokeWidth={1.2}
-              className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
-            />
+            <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
           </button>
         ) : (
           <div className={`cv-tool${running ? " is-live" : " is-strong"}`} data-tool-id={tool.id}>

@@ -52,7 +52,7 @@ enum ChatNativeRowActions {
                 switch hit {
                 case .openDiff(let file):
                     Task { @MainActor in openDiff(await context.changeSet(turnID: turnID, fallbackID: call.id), file: file) }
-                case .toggle(let key): toggleDisclosure(context.foldHold) { disclosures.set(key, true) }
+                case .toggle(let key): toggleDisclosure(context.foldHold, key: key, in: disclosures) { disclosures.set(key, true) }
                 default: break
                 }
             }
@@ -116,7 +116,7 @@ enum ChatNativeRowActions {
         // SwiftUI row's button does (`toggleDisclosure`): the tapped line stays where it is drawn,
         // and a chat following its newest row does not re-pin to it while the body opens.
         actions.hit = { hit in
-            if case .toggle(let key) = hit { toggleDisclosure(context.foldHold) { disclosures.set(key, true) } }
+            if case .toggle(let key) = hit { toggleDisclosure(context.foldHold, key: key, in: disclosures) { disclosures.set(key, true) } }
         }
     }
 
