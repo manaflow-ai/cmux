@@ -115,6 +115,29 @@ fn a_host_without_the_fs_owner_does_not_advertise_and_refuses_every_op() {
     }
 }
 
+/// `fs.stat` of a folder says how many bytes the machine still has for a
+/// writer there, so a copy can be refused before it starts; a file's stat
+/// does not. RED before the stat said it: a folder copy could only learn of
+/// a full disk from a refused write partway.
+#[test]
+fn a_folder_stat_names_the_free_bytes_and_a_file_stat_does_not() {
+    let home = Home::new("free");
+    let service = home.service();
+    let line = home.map(r#"{"id":1,"cmd":"fs.stat","path":"/home/cmux"}"#);
+    let answer = answer_line(Some(&service), true, "owner", &line);
+    assert_eq!(answer["ok"], true, "{answer}");
+    assert!(answer["data"]["available_bytes"].as_u64().is_some_and(|free| free > 0), "{answer}");
+
+    let write = home.map(
+        r#"{"id":2,"cmd":"fs.write","path":"/home/cmux/a.txt","text":"a","mode":"create"}"#,
+    );
+    assert_eq!(answer_line(Some(&service), true, "owner", &write)["ok"], true);
+    let line = home.map(r#"{"id":3,"cmd":"fs.stat","path":"/home/cmux/a.txt"}"#);
+    let answer = answer_line(Some(&service), true, "owner", &line);
+    assert_eq!(answer["ok"], true, "{answer}");
+    assert!(answer["data"].get("available_bytes").is_none(), "{answer}");
+}
+
 #[test]
 fn a_websocket_client_is_refused() {
     let home = Home::new("ws");
