@@ -19,6 +19,10 @@ to the first frame the pane shows the chat's content, with every surface the pan
              for 223 calls)
   restore    the app quit and launched again on the same state: the restored chat's pane, timed
              from the process start (a launch trace, CMUX_CHAT_OPEN_TRACE_LAUNCH=1)
+  relaunched a chat read and left before the app quit and launched again, opened again in a new
+             workspace after the relaunch, as a sidebar or link open of another session's chat
+             does (Leo, 2026-11-05: "There's no reason for them to have a delay, even under
+             load."): the app's memory holds nothing of it, only what it kept on disk
   click      a mouse click on the sidebar row of a chat never shown in this app's life (its workspace made in
              the background, so the click makes its pane): judged from pixels, not the page's mark
   click_again  a click back onto the row of a chat shown before and left (its page kept)
@@ -301,6 +305,8 @@ def seed(root):
         per[condition] = {
             "sidebar": [copy_chat(home, small, f"Sidebar {condition} {i}") for i in range(opts.runs)],
             "reopen": [copy_chat(home, small, f"Reopen {condition} {i}") for i in range(opts.runs)],
+            "relaunched": [copy_chat(home, small, f"Relaunched {condition} {i}") for i in range(opts.runs)]
+            if "relaunched" in CASES else [],
             "click": [copy_chat(home, small, f"Click {condition} {i}") for i in range(opts.runs)],
             "click_again": [copy_chat(home, small, f"Click again {condition} {i}") for i in range(opts.runs)],
             "subagent": [copy_chat(home, sub, f"Subagents {condition} {i}") for i in range(opts.runs)],
@@ -831,7 +837,7 @@ def main():
                 time.sleep(opts.settle)  # test script: the load reaches steady state
             results.setdefault("load_avg", {})[condition] = load_average()
             base = shown_workspace(run)
-            for case in [c for c in CASES if c != "restore"]:
+            for case in [c for c in CASES if c not in ("restore", "relaunched")]:
                 if case in ("big", "bloated") and not sessions[condition][case]:
                     continue
                 records = []
@@ -853,6 +859,23 @@ def main():
                         f"empty={record.get('longest_empty_ms')} flashes={record.get('flashes')}{why(record)}")
                 results["raw"].setdefault(condition, {})[case] = records
                 results["cases"].setdefault(condition, {})[case] = (cof.summarize if case in CLICK_CASES else summarize)(records)
+            if "relaunched" in CASES:
+                records = []
+                for index in range(opts.runs):
+                    session = sessions[condition]["relaunched"][index]
+                    settle_open(run, session)
+                    run.app.action("workspace.newAtBottom", focus=True)  # leave it: read, not shown at the quit
+                    time.sleep(1)  # test script: the page hands its tail over as it leaves
+                    run.quit()
+                    run.launch()
+                    time.sleep(5)  # test script: let launch work end before the measured open, as at the start
+                    record = traced(run, lambda: open_workspace(run, session))
+                    record["invalid_reason"] = invalid_reason(record)
+                    records.append(record)
+                    say(f"chat-open: {condition} relaunched {index}: first_content_ms={record.get('first_content_ms')} "
+                        f"empty={record.get('longest_empty_ms')} flashes={record.get('flashes')}{why(record)}")
+                results["raw"].setdefault(condition, {})["relaunched"] = records
+                results["cases"].setdefault(condition, {})["relaunched"] = summarize(records)
             if "restore" in CASES:
                 records = []
                 for index in range(opts.runs):
