@@ -532,6 +532,10 @@ def why(record):
     return (" " + " ".join(parts)) if parts else ""
 
 
+# A finished subagent's transcript line, the button its click opens the subagent from (SubagentDoneLine.tsx).
+SUBAGENT_LINE = "button.cv-subagent-done"
+
+
 def click_subagent(run):
     """Clicks a subagent line the chat shows, newest first. The click needs the line in the page,
     and which of the chat's subagent lines it renders depends on the build: a fixed name per open
@@ -539,13 +543,18 @@ def click_subagent(run):
     another (2026-10-31). A click that matches nothing returns that error at once and does
     nothing, so the next name is tried. The reply is the app's (its `clicked` and any `error` as
     they came), with the subagent it named under `subagent`. Each open is its own copy of the chat with its own
-    subagents, so the same name in two opens opens two subagents."""
+    subagents, so the same name in two opens opens two subagents.
+
+    A build whose finished line reads its task before the name ("Subagent finished: Audit area 3: ...",
+    SubagentDoneLine since #34529) shows no element whose text is the name alone; then the first finished
+    subagent line it shows (`SUBAGENT_LINE`) is clicked, under `subagent` as that selector."""
     reply = None
     for k in range(SUBAGENTS - 1, -1, -1):
         reply = run.rpc("debug.agent_pane", {"action": "click", "text": f"Auditor {k}"}) or {}
         if reply.get("error") != "no visible element matches":
             return {**reply, "subagent": f"Auditor {k}"}
-    return reply
+    line = run.rpc("debug.agent_pane", {"action": "click", "selector": SUBAGENT_LINE}) or {}
+    return {**line, "subagent": SUBAGENT_LINE} if line.get("error") != "no visible element matches" else reply
 
 
 def workspace_id(row):
