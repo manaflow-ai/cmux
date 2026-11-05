@@ -456,6 +456,7 @@ fn native_token_receiver_reports_a_newer_peer_binding_as_policy_behind_and_still
     assert_eq!(behind.load(Ordering::SeqCst), 2, "only a signed, current token hints");
     // The current token still verifies: the hint admits nothing and spends nothing.
     assert!(verifier.verify(f["token"].as_str().unwrap(), &expected(Service::Daemon)).is_ok());
+}
 
 /// RED before reasons: every check below refused as the same bare `Invalid`,
 /// so a production issuer mismatch (`cmux:cloud:prod` minted against a
