@@ -216,8 +216,8 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
     extra?: () => Record_[];
     width?: number;
   };
-  /// The Retry buttons a page shows: under the person's prompts (each prompt's own, Leo's prompt row),
-  /// and anywhere else (a turn's footer, another agent's message).
+  /// The Retry buttons a page shows: under the person's prompts (the Messages view's), and anywhere
+  /// else (a turn's reply footer, where the transcript's Retry is).
   async function retryButtons(page: Page): Promise<{ prompts: number; elsewhere: number }> {
     return page.evaluate(() => {
       const shown = [...document.querySelectorAll('button[aria-label="Retry"]')].filter(
@@ -959,9 +959,10 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       expect(order.first).toBeGreaterThanOrEqual(0);
       expect(order.footers.some((index) => index > order.first && index < order.second)).toBe(true);
       expect(await page.locator("body").innerText()).not.toContain("The date changed.");
-      // The last turn is the reminder's, which has no prompt of the person's to send again: no
-      // Retry resends the earlier prompt in its place. Only the person's one prompt has its own.
-      expect(await retryButtons(page)).toEqual({ prompts: 1, elsewhere: 0 });
+      // The last turn is the reminder's, which has no prompt of the person's to send again, so its
+      // footer offers no Retry. The person's one prompt keeps one, on its own turn's footer
+      // (cmux#34779: Retry is the reply footer's, never the prompt bubble's).
+      expect(await retryButtons(page)).toEqual({ prompts: 0, elsewhere: 1 });
       await page.close();
     });
 
@@ -1006,8 +1007,9 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
         ],
       });
       await page.getByText("The build is done.").first().waitFor({ timeout: 10_000 });
-      // Only the person's one prompt has its own Retry; the notification's turn offers none.
-      expect(await retryButtons(page)).toEqual({ prompts: 1, elsewhere: 0 });
+      // Only the person's one prompt has a Retry, on its own turn's footer (cmux#34779); the
+      // notification's turn offers none.
+      expect(await retryButtons(page)).toEqual({ prompts: 0, elsewhere: 1 });
       await page.close();
     });
 

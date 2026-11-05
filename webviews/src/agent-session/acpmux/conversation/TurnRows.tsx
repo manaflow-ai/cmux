@@ -20,7 +20,7 @@ import type { RetryNote } from "../subagents/retryState";
 import { RowReplyButton } from "./SelectionReply";
 import { TurnActionsContext } from "./turnActions";
 import { errorRecovery, signInRetry, type ErrorRecovery } from "./errorRecovery";
-import { footerLabel, isEmptyFooter, isStopped, workedLabel } from "./turns";
+import { footerLabel, isEmptyFooter, isStopped, offersRetry, workedLabel } from "./turns";
 import { stoppedTurnLook } from "./stoppedTurn.experiment";
 import { turnCopyText } from "./turnCopy";
 import { hasTokens, TimedLabel, tokensText, TurnTokens } from "./TurnTokens";
@@ -384,10 +384,11 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
       : retry && prompt && row.retryRowId
         ? () => retry(row.retryRowId!, prompt)
         : undefined;
-  // The chat's last turn that ended well sends its prompt again as the prompt's Retry did (turns.ts
-  // marks it `retryable` with the prompt to send, until a later prompt goes or waits to).
+  // The footer of the person's last prompt, when that turn ended well, sends it again as the
+  // prompt's Retry did: the chat's last turn, or the one before notices and reminders that came
+  // after it (turns.ts retryTargetAt marks it `retryTarget` with the prompt to send).
   const lastRetry =
-    !failed && !messages && !readOnly && row.retryable === true && retry && prompt && row.retryRowId
+    !failed && !messages && !readOnly && offersRetry(row) && retry && prompt && row.retryRowId
       ? () => retry(row.retryRowId!, prompt)
       : undefined;
   const footerRetry = failedRetry ?? lastRetry;

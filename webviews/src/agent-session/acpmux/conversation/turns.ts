@@ -146,9 +146,24 @@ export const isEmptyFooter = (row: AcpmuxRow) =>
   !endsChatOnWork(row) &&
   !offersRetry(row);
 
-/// The last turn's footer with a prompt to send again (TurnRows.tsx TurnFooter's Retry).
-/// transcriptGrid.ts rowMark and model.ts isBlankFooter repeat it inline.
-export const offersRetry = (row: AcpmuxRow) => row.retryable === true && Boolean(row.prompt) && Boolean(row.retryRowId);
+/// The footer with the person's last prompt to send again (TurnRows.tsx TurnFooter's Retry): the
+/// chat's last turn, or the last one a prompt opened when every turn after it came from a notice
+/// or a reminder (`retryTarget`). transcriptGrid.ts rowMark and model.ts isBlankFooter repeat it inline.
+export const offersRetry = (row: AcpmuxRow) => row.retryTarget === true && Boolean(row.prompt) && Boolean(row.retryRowId);
+
+/// A turn's prompt that Retry can send again: not a notification or acpmux's inbox notice
+/// (incomingMessage.ts), and with text. A turn whose prompt is not one leaves Retry with the turn
+/// before it (`retryTargetAt`).
+const resendable = (user: AcpmuxRow) =>
+  user.incoming?.kind !== "notice" && user.incoming?.kind !== "inbox" && Boolean(user.resend ?? user.text);
+
+/// The turn whose footer offers Retry: the last one, or, when the last turns came from a notice or a
+/// reminder (nothing to send again), the last turn before them whose prompt can be sent again, as
+/// the prompt's Retry did before it moved to the footer (cmux#34779). -1: none.
+function retryTargetAt(rows: readonly AcpmuxRow[], starts: readonly number[]): number {
+  for (let at = starts.length - 1; at >= 0; at -= 1) if (resendable(rows[starts[at]!]!)) return at;
+  return -1;
+}
 
 /// The last turn's footer when the turn said something and ended on work (`isEmptyFooter` above).
 /// transcriptGrid.ts rowMark repeats it inline (that module imports nothing).
@@ -203,6 +218,8 @@ export type TurnView = {
   pending: readonly AcpmuxRow[];
   /// Where the first prompt is: the rows before it draw as they are.
   lead: number;
+  /// The turn whose footer offers Retry (`retryTargetAt`), -1 for none.
+  retryAt: number;
   /// Each turn's prompt index in `source`, its times, whether it is dated, and how many drawn
   /// rows there are up to its end.
   starts: number[];
@@ -370,9 +387,13 @@ export function turnViewFrom(
     const turn = { promptAt: rows[start]!.at, answerAt };
     times.push(turn);
   }
+  const retryAt = retryTargetAt(rows, starts);
   // Reused turns were drawn with the previous view's folds. A row after them can change which
-  // background turns fold (cmux#30535), so a different set draws every turn again.
-  if (reuse > 0 && !sameIds(foldedBackground, previous!.foldedBackground))
+  // background turns fold (cmux#30535), so a different set draws every turn again. So does a Retry
+  // that moves off or onto a reused turn (`retryTargetAt`).
+  const retryMoved =
+    reuse > 0 && retryAt !== previous!.retryAt && [retryAt, previous!.retryAt].some((at) => at >= 0 && at < first);
+  if (reuse > 0 && (!sameIds(foldedBackground, previous!.foldedBackground) || retryMoved))
     return turnViewFrom(rows, expanded, {
       now,
       working,
@@ -407,6 +428,7 @@ export function turnViewFrom(
       agentFamily,
       foldedBackground,
       live ? trayAgents : 0,
+      at === retryAt,
     );
     // Other sessions' messages the agent read stay each its own line where it read them
     // (IncomingMessageCard.tsx). One it has not read yet (a steer that waits for its step) leaves
@@ -445,6 +467,7 @@ export function turnViewFrom(
     ...(waitingSteers ? { waitingSteers } : {}),
     pending: pending.length ? pending : NO_PENDING,
     lead,
+    retryAt,
     starts,
     times,
     dated,
@@ -470,6 +493,8 @@ type ShapedTurn = {
   /// Which of its background-task runs' lines are open (backgroundRuns.ts `openBackgroundRuns`).
   backgroundRuns: string;
   last: boolean;
+  /// Whether its footer offers Retry (`retryTargetAt`).
+  retryTarget: boolean;
   clockOffset: number;
   dated: boolean;
   liveRuns: boolean;
@@ -535,6 +560,7 @@ function shapedTurn(
   agentFamily?: string,
   foldedBackground: ReadonlySet<string> = new Set(),
   trayAgents = 0,
+  retryTarget = false,
 ): AcpmuxRow[] {
   const user = rows[start]!;
   // A running turn changes with every event: it is neither read from nor kept in the cache, so its
@@ -559,6 +585,7 @@ function shapedTurn(
     cached.messageRuns === messageRuns &&
     cached.backgroundRuns === backgroundRuns &&
     cached.last === last &&
+    cached.retryTarget === retryTarget &&
     cached.clockOffset === clockOffset &&
     cached.dated === dated &&
     cached.liveRuns === liveRuns &&
@@ -623,6 +650,7 @@ function shapedTurn(
       live,
       last,
       last && held.length === 0,
+      retryTarget && (!last || held.length === 0),
       clockOffset,
       liveRuns,
       sessionStatus,
@@ -670,6 +698,7 @@ function shapedTurn(
       messageRuns,
       backgroundRuns,
       last,
+      retryTarget,
       clockOffset,
       dated,
       liveRuns,
@@ -773,6 +802,7 @@ function shapeTurn(
   live: boolean,
   last: boolean,
   retryable: boolean,
+  retryTarget: boolean,
   clockOffset = 0,
   liveRuns = false,
   sessionStatus = false,
@@ -970,11 +1000,12 @@ function shapeTurn(
     turnCopy: turnCopyParts(body),
     ...(resumable && { resumable }),
     ...(retryable && { retryable }),
+    ...(retryTarget && { retryTarget }),
     ...(continuable && { continuable }),
     ...(answer && { answerId: answer.id }),
     // Retry sends the prompt as the agent got it: an incoming message with its sender. A
     // notification, or acpmux's inbox notice, is not a prompt to send again (incomingMessage.ts).
-    ...(retryable &&
+    ...((retryable || retryTarget) &&
       user.incoming?.kind !== "notice" &&
       user.incoming?.kind !== "inbox" &&
       (user.resend ?? user.text) && {
@@ -983,7 +1014,7 @@ function shapeTurn(
         retryAttachments: user.retryAttachments,
       }),
     // A turn is either stopped or failed, so Continue's bit serves both.
-    version: version * 4 + (retryable ? 1 : 0) + (resumable || continuable ? 2 : 0),
+    version: version * 8 + (retryable ? 1 : 0) + (resumable || continuable ? 2 : 0) + (retryTarget ? 4 : 0),
   });
   // Anything after the summary (late tool updates, or a turn the agent started on its own)
   // draws as it came.

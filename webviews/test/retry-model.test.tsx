@@ -67,6 +67,7 @@ const lastTurn: AcpmuxRow = {
   status: "completed",
   text: "Added it.",
   retryable: true,
+  retryTarget: true,
   prompt: "Add retry to the uploader",
   retryRowId: "user-1",
 };

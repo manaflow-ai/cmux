@@ -487,6 +487,9 @@ export type AcpmuxRow = {
   /// A turn summary of the chat's last turn, which a failed turn's Retry asks acpmux to retry
   /// (turns.ts), even when its prompt is an attempt acpmux sent and draws nothing.
   retryable?: boolean;
+  /// A turn summary whose footer offers Retry with `prompt` (turns.ts retryTargetAt): the chat's last
+  /// turn, or the last one a prompt opened when only notices and reminders came after it.
+  retryTarget?: true;
   /// A turn footer's answer row (turns.ts), whose right-click menu the footer's More opens.
   answerId?: string;
   /// A turn footer's whole turn for its Copy (conversation/turnCopy.ts): the agent's replies and each
@@ -1805,7 +1808,8 @@ const isBlankFooter = (row: AcpmuxRow) =>
   row.status !== "error" &&
   !row.text &&
   !row.resumable &&
-  !(row.retryable === true && ((row.turnCopy?.length ?? 0) > 0 || (Boolean(row.prompt) && Boolean(row.retryRowId))));
+  !(row.retryable === true && (row.turnCopy?.length ?? 0) > 0) &&
+  !(row.retryTarget === true && Boolean(row.prompt) && Boolean(row.retryRowId));
 const isTurnWork = (row: AcpmuxRow) =>
   row.kind === "assistant" ||
   row.kind === "activity" ||

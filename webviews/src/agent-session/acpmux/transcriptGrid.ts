@@ -66,6 +66,7 @@ type MarkedRow = {
   resumable?: boolean;
   below?: boolean;
   retryable?: boolean;
+  retryTarget?: boolean;
   turnCopy?: readonly unknown[];
   prompt?: string;
   retryRowId?: string;
@@ -81,7 +82,7 @@ export function rowMark(row: MarkedRow): number {
   if (row.kind === "turnSummary") {
     // turns.ts isEmptyFooter's inverse, inline so this module stays import-free.
     const endsOnWork = row.retryable === true && (row.turnCopy?.length ?? 0) > 0;
-    const offersRetry = row.retryable === true && Boolean(row.prompt) && Boolean(row.retryRowId);
+    const offersRetry = row.retryTarget === true && Boolean(row.prompt) && Boolean(row.retryRowId);
     return row.status !== "failed" &&
       row.status !== "error" &&
       !row.resumable &&

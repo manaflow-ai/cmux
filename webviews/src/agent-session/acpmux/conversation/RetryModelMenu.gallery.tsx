@@ -47,6 +47,7 @@ const lastTurn = {
   status: "completed",
   text: "Added retry to the uploader.",
   retryable: true,
+  retryTarget: true,
   prompt: "Add retry to the uploader",
   retryRowId: "user-1",
 };

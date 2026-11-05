@@ -9,7 +9,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxRow } from "../model";
 import { MARK_FOOTER_ROW, rowMark } from "../transcriptGrid";
 import { TurnFooter } from "./TurnRows";
-import { isEmptyFooter } from "./turns";
+import { isEmptyFooter, offersRetry, turnViewFrom } from "./turns";
 import { TurnActionsContext, type TurnActions } from "./turnActions";
 
 const last: AcpmuxRow = {
@@ -21,6 +21,7 @@ const last: AcpmuxRow = {
   text: "Done.",
   answerId: "reply",
   retryable: true,
+  retryTarget: true,
   prompt: "Cover it",
   retryRowId: "user-4",
 };
@@ -89,4 +90,36 @@ test("a tool-only last turn's footer shows to carry its Retry", () => {
   expect(markup).toContain('aria-label="Retry"');
   // With nothing to send again (an earlier turn), it stays the hover-only empty footer.
   expect(isEmptyFooter({ ...toolsOnly, retryable: undefined, prompt: undefined, retryRowId: undefined })).toBe(true);
+});
+
+// A turn a notification started has no prompt to send again, so Retry stays with the person's last
+// prompt, on its own turn's footer, as the prompt's Retry stayed under it before (cmux#34779). Once
+// the person sends another prompt, Retry moves to that turn, also when the view builds on the last.
+test("Retry stays on the person's last prompt's footer when a notification's turn follows", () => {
+  const prompt = (id: string, at: number, text: string): AcpmuxRow => ({ id, version: 1, at, kind: "user", text });
+  const reply = (id: string, at: number, text: string): AcpmuxRow => ({ id, version: 1, at, kind: "assistant", text });
+  const summary = (id: string, at: number): AcpmuxRow => ({ id, version: 1, at, kind: "turnSummary", status: "completed" });
+  const notice: AcpmuxRow = {
+    id: "n",
+    version: 1,
+    at: 40,
+    kind: "user",
+    text: "<task-notification>done</task-notification>",
+    incoming: { kind: "notice", text: "Build finished" },
+  };
+  const rows = [
+    prompt("p1", 10, "Fix the grid"),
+    reply("a1", 20, "Fixed."),
+    summary("s1", 30),
+    notice,
+    reply("a2", 50, "The build is done."),
+    summary("s2", 60),
+  ];
+  const view = turnViewFrom(rows, new Set(), { now: 100 });
+  const footers = view.rows.filter((row) => row.kind === "turnSummary");
+  expect(footers.map(offersRetry)).toEqual([true, false]);
+  expect(footers[0]!.prompt).toBe("Fix the grid");
+  const next = [...rows, prompt("p2", 70, "Now the header"), reply("a3", 80, "Done."), summary("s3", 90)];
+  const built = turnViewFrom(next, new Set(), { now: 100 }, view);
+  expect(built.rows.filter((row) => row.kind === "turnSummary").map(offersRetry)).toEqual([false, false, true]);
 });
