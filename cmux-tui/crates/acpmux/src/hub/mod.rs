@@ -228,8 +228,10 @@ pub mod person;
 pub mod presence;
 mod processes;
 mod pull_requests;
+mod touched;
 pub(crate) mod purge_tombstones;
 pub(crate) mod questions;
+mod remote_cwd;
 mod remote_floor;
 pub(crate) mod remote_sandbox;
 pub mod vm_boundary;
@@ -266,6 +268,7 @@ mod usage_view;
 pub(crate) use usage_view::READ_WAIT as USAGE_READ_WAIT;
 mod background_cause;
 pub mod background_turn;
+mod goal_tools;
 #[cfg(feature = "sim")]
 mod sim_startup;
 #[cfg(all(test, unix))]
@@ -477,6 +480,10 @@ pub struct PromptOptions {
     /// An automatic continuation (`auto_resume.rs`): runs only while the chat still ends on
     /// this turn, checked again once it holds the turn lock, else refused unrecorded.
     pub after_turn: Option<String>,
+    /// A goal's continuation (`goal_tools.rs`): runs only while the chat's goal is still the one
+    /// that asked for it ([`crate::generic_goal::mark`]), checked again once it holds the turn
+    /// lock, else refused.
+    pub goal_mark: Option<String>,
     /// `_meta.acpmux.supersede` (`supersede.rs`): the same sender's prompts still queued under
     /// this key leave the queue, replaced by this one.
     pub supersede: Option<String>,
@@ -1429,6 +1436,8 @@ impl Hub {
             background_turns: StdMutex::new(Default::default()),
             processes: StdMutex::new(Default::default()),
             pr_creates: StdMutex::new(Default::default()),
+            touch_queue: StdMutex::new(Default::default()),
+            overlaps_told: StdMutex::new(Default::default()),
             start_calls: StdMutex::new(Default::default()),
             composers: StdMutex::new(Default::default()),
         });

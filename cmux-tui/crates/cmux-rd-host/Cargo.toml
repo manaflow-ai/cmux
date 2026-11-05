@@ -33,7 +33,7 @@ cmux-rd-link = { path = "../cmux-rd-link", features = ["net"], optional = true }
 openh264 = { version = "0.9", default-features = false, features = ["source"], optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-x11rb = { version = "0.14", features = ["shm", "damage", "xtest"] }
+x11rb = { version = "0.14", features = ["shm", "damage", "xtest", "xinput"] }
 
 
 [build-dependencies]

@@ -48,9 +48,7 @@
 #             printed as soon as a target fails, so a later package's setup
 #             failure (any exit) never hides an earlier compile failure.
 #             --skip-package=DIR leaves that package out of the plan
-#             (compile_test_plan.py --skip-package); the pull-request check
-#             skips CmuxNext, whose test targets cmux-next.yml's swift test
-#             job already builds.
+#             (compile_test_plan.py --skip-package).
 #
 # --event and --full-suite default to EVENT_NAME and FULL_SUITE. Run from the
 # repository root; every helper path is relative to it.

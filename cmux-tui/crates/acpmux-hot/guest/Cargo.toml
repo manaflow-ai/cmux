@@ -1,0 +1,33 @@
+# The guest: acpmux's own source files, compiled to a WebAssembly component
+# (`cargo build --release --target wasm32-wasip2`, see ../bench.sh). Not a member of the cmux-tui
+# workspace: it only ever builds for wasm.
+[package]
+name = "acpmux-hot-guest"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+# Bench variants: `trap` makes is-pure-read panic (a wasm trap), `spin` makes it loop until the
+# host's fuel runs out, `v2` only bumps a marker, so a swap to it can be seen. None ship.
+trap = []
+spin = []
+v2 = []
+# `login-offer` never finds an offer: the daemon sign-in test fails with it, which proves the
+# daemon asked the module.
+no-offer = []
+
+[dependencies]
+wit-bindgen = "=0.61.1"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[workspace]

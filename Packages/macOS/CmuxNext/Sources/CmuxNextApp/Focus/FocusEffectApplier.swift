@@ -17,9 +17,9 @@ import CmuxNextCompat
 final class FocusEffectApplier: FocusEffectApplying {
     private unowned let controller: WindowController
     /// The CEF page this window gave focus to, and the key changes focusing one makes (#24913).
-    private lazy var pageFocus = ChildPageFocus(keys: AppKitKeyWindows()) { [weak self] page, focused in
-        guard let self, let page = page as? any BrowserTab else { return }
-        self.setPageFocus(page, focused)
+    private lazy var pageFocus = ChildPageFocus(keys: AppKitKeyWindows(), canTakeKeys: { ($0 as? CEFTab)?.canTakeKeys ?? true },
+                                                keepAsk: { ($0 as? CEFTab)?.keepFocusAsk() }, dropAsk: { ($0 as? CEFTab)?.dropFocusAsk() }) { [weak self] page, focused in
+        if let page = page as? any BrowserTab { self?.setPageFocus(page, focused) }
     }
     /// The tab whose docked DevTools this window gave focus to.
     private weak var focusedDevTools: (any BrowserDevToolsHosting)?
@@ -91,7 +91,7 @@ final class FocusEffectApplier: FocusEffectApplying {
 
     private func moveResponder(_ resolved: FocusState.Resolved, state: FocusState) {
         guard let window = controller.window else { return }
-        // The parked New Tab spare follows the focused pane's size (NewTabSparePool).
+        // The parked New Tab spare draws the context a Cmd-T in the focused pane gives and takes its size once still (NewTabSparePool).
         controller.services.newTabSpares.paneLayoutDidChange(in: window)
         switch resolved {
         case .terminal(let pane, let tab):
@@ -185,7 +185,7 @@ final class FocusEffectApplier: FocusEffectApplying {
         // The keyboard moves from the tools back to the page.
         let fromDevTools = focusedDevTools.map { $0 === page } ?? false
         if focusedDevTools != nil { blurDevTools() }
-        if fromDevTools { pageFocus.page = nil }
+        if fromDevTools { pageFocus.replace(with: nil) }
         switch page.presentation {
         case .inView:
             blurChildWindowPage()
@@ -230,7 +230,7 @@ final class FocusEffectApplier: FocusEffectApplying {
         guard focusedDevTools !== devTools else { return }
         blurDevTools()
         // Not `blurChildWindowPage`: that would make this window key again.
-        pageFocus.page = nil
+        pageFocus.replace(with: nil)
         devTools.setDevToolsFocused(true)
         focusedDevTools = devTools
     }
@@ -347,7 +347,7 @@ final class FocusEffectApplier: FocusEffectApplying {
         case .devTools:
             guard let devTools else { return }
             // A click into a docked DevTools: the tools have the keyboard.
-            pageFocus.page = nil
+            pageFocus.replace(with: nil)
             focusedDevTools = devTools.tab
             controller.focus.responderDidChange(.devTools(pane: devTools.key), source: .mouse)
             if window.firstResponder !== window { window.makeFirstResponder(nil) }
@@ -364,7 +364,7 @@ final class FocusEffectApplier: FocusEffectApplying {
         case .chosenPage, .reapply:
             guard let pane else { return }
             focusedDevTools = nil
-            pageFocus.page = pane.page
+            pageFocus.replace(with: pane.page)
             InputJournal.shared.append(window: controller.state.id, .page(tab: pane.page.id.rawValue, focused: true, engine: "chromium-key"))
             // A click chose the page. Another owned window over a pane (an
             // extension popup) keeps the old rule: a key change that is not a

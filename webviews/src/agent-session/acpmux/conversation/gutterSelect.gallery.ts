@@ -137,7 +137,7 @@ export default agentPaneEntry({
   height: 560,
   widths: { narrow: 900, normal: 1100, wide: 1280 },
   anchors: [{ selector: ".acpmux-scroll" }],
-  covers: ["agent-session/acpmux/App.tsx#VirtualTranscript"],
+  covers: ["agent-session/acpmux/VirtualTranscript.tsx#VirtualTranscript"],
   variants: {
     ...gapVariants,
     "gaps-ready": {

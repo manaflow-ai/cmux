@@ -43,7 +43,7 @@ Arms (`inject.swift` for the routes, MCP stdio for the drivers):
 | `nsevent-pid` | an `NSEvent` with the target's `windowNumber` and a window-local location, converted to a CGEvent, posted to the pid (Hopp's idea; Hopp is AGPL, so idea only, no code). No scroll: NSEvent has no public wheel constructor |
 | `stamped-pid` | Cua Driver's event fields (1, 3, 7, 40, 51, 58, 91, 92, `CGEventSetWindowLocation`, a `mouseMoved` primer), posted through SkyLight then CGEventPostToPid, without its focus step. Ported from trycua/cua (MIT) |
 | `stamped-sl`, `stamped-cg` | the same stamped events, posted through only SkyLight or only `CGEventPostToPid`: `stamped-pid` posts both, and a gesture that arrives through both arrives twice |
-| `cmux-cua-X.Y.Z` | the cmux-cua release at cmux's pin for this ref (`CMUX_CUA_RELEASE_TAG` and its hash in `scripts/build-cmux-cua.sh`; the release binary, without cmux's local patches), run as cmux runs it: `serve --socket` on a socket of the run with the app's helper environment and its argv (cursor motion and owner pid when the manifest declares them), and `mcp --socket` with the agent token and `CMUX_CUA_MCP_FORCE_PROXY=1`, with its own `click`, `press_key`, `scroll` tools |
+| `cmux-cua-X.Y.Z` | the cmux-cua release at cmux's pin for this ref (`CMUX_CUA_RELEASE_TAG` and its hash in `scripts/build-cmux-cua.sh`; the release binary, without cmux's local patches), run as cmux runs it: inside a `cmux Computer Use.app` laid out as `build-cmux-cua.sh` assembles it (the binary refuses `serve` anywhere else), `serve --socket` on a socket of the run with exactly the app's helper environment (`ComputerUseHelperDaemon.environment`) and argv (cursor motion and owner pid when the manifest declares them), and `mcp --socket` with exactly acpmux's environment for it (`agent_tools.rs`: the agent token, `CMUX_CUA_MCP_FORCE_PROXY=1`, the cursor colors), with its own `click`, `press_key`, `scroll` tools. The app starts the helper through LaunchServices; here it is a child of the A/B |
 | `cua-driver-0.38.0` | upstream Cua Driver v0.38.0 (`pins.json`), run as `mcp --direct`, the same tools |
 
 Driver x,y are screenshot pixels: the scale comes from each driver's own `get_window_state`
@@ -62,11 +62,13 @@ that landed in the user's window. **Clean** is delivered with none of those.
 `input-ab/trials.jsonl` and every app's log. results.json (schema `cmux.cu-driver-eval/1`,
 docstrings of `eval.py` and `input_ab.py`):
 
-- `run`: `at`, `host`, `cpu`, `macos`, `rev`, `display`, `reps`, and `blocked` when nothing ran.
+- `run`: `at`, `host`, `cpu`, `macos`, `rev`, `display`, `screen` (the main display in points), `reps`, and `blocked` when nothing ran.
 - `suites.input_ab`: `arms`, `targets`, `grants`, `errors`, `rows["ARM|TARGET|GESTURE|CONDITION"]`
   (`n`, `delivered`, `delivered_rate`, `clean`, `clean_rate`, `duplicates`, `focus_steals`,
   `key_losses`, `raises`, `pointer_moved`, `stray`, `loc_err_max`, `call_ms_p50`, `unsupported`,
-  `errors`) and `wins[TARGET][GESTURE]`.
+  `errors`), `wins[TARGET][GESTURE]`, and `obstruction`: the first driver refusal of the run
+  because a window was in front, with every on-screen window at that moment (owner, number, layer,
+  alpha, frame), or null.
 
 A count nobody could measure is null, never left out, so two runs line up key by key.
 
@@ -75,7 +77,9 @@ A count nobody could measure is null, never left out, so two runs line up key by
 The first stage of the bench: the pinned Lume (`pins.json` `lume`) clones the pinned
 `trycua/macos-tahoe-cua:26.5.2` image (`image`; a moved tag is refused) for one run, sets 6 CPUs,
 12 GB and 1920x1080, boots it headless, records what the guest has (`vm.json`: macOS, display,
-SIP, Xcode tools, Homebrew, Python, Node), then deletes the clone. Given `base_url=`, the team's
+SIP, Xcode tools, Homebrew, Python, Node), then deletes the clone. The image keeps the 1024 x 768 mode it
+was saved with whatever framebuffer Lume gives it, so the A/B switches the guest to 1920 x 1080 points
+first (`CU_DRIVER_EVAL_DISPLAY`, `cu-eval-inject display-mode`). Given `base_url=`, the team's
 Claude route, the step first checks that the worker reaches it and stops when it does not. Lume's image cache stays on the worker, so the 23 GB pull happens once. Lume pulls by tag
 only, so the digest it logs for the manifest it fetched must equal the pin, or the base is deleted.
 
