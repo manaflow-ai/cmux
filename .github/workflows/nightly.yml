@@ -4057,7 +4057,7 @@ jobs:
             exit 1
           fi
           recovery_app_archive="cmux-nightly-notarization-recovery-app.tar.gz"
-          tar -C "$(dirname "$CHANNEL_APP_PATH")" -czf "$recovery_app_archive" "$(basename "$CHANNEL_APP_PATH")"
+          ./scripts/ci/archive-recovery-app.sh "$CHANNEL_APP_PATH" "$recovery_app_archive"
           dmg_sha256="$(shasum -a 256 "$NIGHTLY_DMG_RELEASE" | awk '{print $1}')"
           [[ "$dmg_sha256" =~ ^[[:xdigit:]]{64}$ ]] || {
             echo "Could not record a SHA-256 for $NIGHTLY_DMG_RELEASE" >&2
