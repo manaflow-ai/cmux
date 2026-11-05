@@ -11,6 +11,7 @@ run-name: >-
       || github.event_name == 'schedule' && format('Nightly macOS build · {0}', github.event.schedule)
       || inputs.nightly_next_unsigned_run && format('Resume nightly-next run {0} attempt {1}', inputs.nightly_next_unsigned_run, inputs.nightly_next_unsigned_attempt)
       || inputs.nightly_next_republish_run && format('Republish nightly-next run {0} attempt {1}', inputs.nightly_next_republish_run, inputs.nightly_next_republish_attempt)
+      || inputs.nightly_next_post_publish && 'Comment a published nightly-next build on its PRs'
       || '' }}
 
 # Publish channels, resolved once in `decide`: `main` publishes cmux NIGHTLY, `rc/**` cmux RC,
@@ -122,6 +123,11 @@ on:
         required: false
         default: ''
         type: string
+      nightly_next_post_publish:
+        description: nightly-next only, sent by a push run's dispatch-published-in. JSON {source_run, version, head_sha, published_sha} of a published build. This run builds, signs and publishes nothing; it only runs published-in, so the PR comments never hold the push group.
+        required: false
+        default: ''
+        type: string
       promote_nightly_next_sha:
         description: Main only. Move branch nightly-next to this green feat-cmux-next commit (40 hex) and build nothing in this run; the push run on nightly-next publishes it. Prefix it with "dry-run:" to only decide and print why, moving nothing.
         required: false
@@ -210,7 +216,7 @@ jobs:
       actions: read
       checks: read # Read authenticated controller receipts; no App or secret expansion.
       contents: read
-    if: github.event_name != 'workflow_dispatch' || ((inputs.probe_mode || 'off') == 'off' && inputs.promote_nightly_next_sha == '')
+    if: github.event_name != 'workflow_dispatch' || ((inputs.probe_mode || 'off') == 'off' && inputs.promote_nightly_next_sha == '' && inputs.nightly_next_post_publish == '')
     # Routing bootstrap: nothing places it first, so it takes the nightly-only pool (glaeda's light class).
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     outputs:
@@ -6169,11 +6175,32 @@ jobs:
   # body's "PRs in this build" list uses (the previous published commit to
   # this build's), first-parent, so main's PRs arriving through a sync merge
   # are not claimed. No secrets; a comment failure never fails the nightly.
-  published-in:
-    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly]
+  #
+  # The comments run in their own dispatched run of this workflow (published-in, below), not in the
+  # push run. A nightly-next push run holds the one push group until its last job ends (#36111), and
+  # the paced writes take about 7.5 s a PR, 17-19 min a normal build and 40 on run 41982716550 (247 PRs),
+  # while the whole-Mac publish jobs on the same mini waited for them. This job asks for that run once
+  # the push run's own publishing on the mini is done, so the push run ends with it.
+  dispatch-published-in:
+    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly, publish-nightly-next-github, publish-nightly-next-github-names, generate-nightly-deltas, republish-nightly-deltas]
     if: "!cancelled() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.no_publish != 'true' && needs.decide.outputs.published_sha != '' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.source != 'recovered'"
-    # Hosted Ubuntu: the token stays on an ephemeral runner, and a paced job of up to five hours
-    # must not hold a nightly-only mini. Never Blacksmith.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    timeout-minutes: 10
+    continue-on-error: true
+    permissions:
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE: ${{ toJSON(fromJSON(format('{{"source_run":"{0}","version":"{1}","head_sha":"{2}","published_sha":"{3}"}}', github.run_id, needs.build-nightly-app.outputs.daemon_version, needs.resolve-nightly-cmux-tui-client.outputs.build_sha, needs.decide.outputs.published_sha))) }}
+    steps:
+      - name: Ask for this build's published-in run
+        run: gh workflow run nightly.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME" -f nightly_next_post_publish="$SOURCE"
+
+  # The dispatched run's only job. decide skips when nightly_next_post_publish is set, so nothing
+  # else in this workflow runs there (tests/test_nightly_post_publish_mode.py).
+  published-in:
+    if: "!cancelled() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/nightly-next' && inputs.nightly_next_post_publish != ''"
+    # A paced job of up to five hours, on the nightly mini like the rest of the nightly. Never Blacksmith.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     # Each write is paced at 7.5 s under GitHub's hourly content limit.
     # A shared edit plus a legacy deletion for all 1,000 allowed PRs takes
@@ -6184,14 +6211,13 @@ jobs:
       contents: read
       pull-requests: write
     env:
-      NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
-      NIGHTLY_VERSION: ${{ needs.build-nightly-app.outputs.daemon_version }}
-      HEAD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
-      PUBLISHED_SHA: ${{ needs.decide.outputs.published_sha }}
+      NIGHTLY_VERSION: ${{ fromJSON(inputs.nightly_next_post_publish).version }}
+      HEAD_SHA: ${{ fromJSON(inputs.nightly_next_post_publish).head_sha }}
+      PUBLISHED_SHA: ${{ fromJSON(inputs.nightly_next_post_publish).published_sha }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          ref: ${{ fromJSON(inputs.nightly_next_post_publish).head_sha }}
           persist-credentials: false
           sparse-checkout: scripts
       - *wait-through-github-api-rate-l

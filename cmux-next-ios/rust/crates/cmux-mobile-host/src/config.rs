@@ -143,7 +143,7 @@ pub fn default_state_dir() -> PathBuf {
         .unwrap_or_else(|| home().join("Library/Application Support/cmux-mobile-host"))
 }
 
-fn hostname() -> String {
+pub(crate) fn hostname() -> String {
     let mut buffer = [0u8; 256];
     // SAFETY: the buffer is valid for its length; gethostname NUL-terminates
     // on success when the name fits.
@@ -270,7 +270,12 @@ pub fn sibling_device_ids(app_support: &Path, own: &str, machine_id: &str) -> Ve
 /// this build is its own computer; claiming this Mac's folders as its
 /// siblings would make the backend give its id to every same-owner record
 /// that has none yet (old builds, other rigs) and fold them into it for good.
-pub fn registration_siblings(app_support: &Path, own: &str, machine_id: &str, overridden: bool) -> Vec<String> {
+pub fn registration_siblings(
+    app_support: &Path,
+    own: &str,
+    machine_id: &str,
+    overridden: bool,
+) -> Vec<String> {
     if overridden {
         return Vec::new();
     }
@@ -372,6 +377,9 @@ impl HostConfig {
             )))
             .with_spent_replies(std::sync::Arc::new(crate::mailbox::SpentReplies::load(
                 default_state_dir().join("mailbox-spent.json"),
+            )))
+            .with_activity(std::sync::Arc::new(crate::activity::Activity::file(
+                default_state_dir().join("machine-activity.jsonl"),
             )))
         });
         let max_tabs = env("CMUX_MOBILE_RB_MAX_TABS").and_then(|v| v.parse().ok()).unwrap_or(4);
