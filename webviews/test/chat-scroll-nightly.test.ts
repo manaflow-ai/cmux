@@ -127,7 +127,6 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
       running: true,
       lead,
       attachPage: 160,
-      ready: ".acpmux-running-tray",
     });
   });
   afterAll(async () => {
