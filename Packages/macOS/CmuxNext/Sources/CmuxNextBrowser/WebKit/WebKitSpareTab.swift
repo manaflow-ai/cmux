@@ -81,6 +81,8 @@ public final class WebKitSpareTab {
             underPressure = level != .normal
             if underPressure { drop() } else { scheduleBuild() }
         }
+        // The kernel never reports the level the app is already under; read it once now.
+        memoryPressure.refresh()
     }
 
     /// A WebKit tab is likely soon: the next idle moment makes the spare.

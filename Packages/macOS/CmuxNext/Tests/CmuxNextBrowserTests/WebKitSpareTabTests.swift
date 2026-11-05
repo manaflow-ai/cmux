@@ -31,8 +31,9 @@ import CmuxNextWakeupsTestSupport
         }
     }
 
-    private func rig() -> Rig {
+    private func rig(startLevel: MemoryPressureLevel? = nil) -> Rig {
         let clock = ManualClock(), input = Input(), pressure = ManualMemoryPressureSource()
+        pressure.level = startLevel
         let events = MemoryPressureEvents(source: pressure)
         let spare = WebKitSpareTab(clock: clock, activity: { input.count }, isTrackingMenu: { false },
                                    isEnabled: { input.enabled }, memoryPressure: events)
@@ -107,6 +108,16 @@ import CmuxNextWakeupsTestSupport
         rig.pressure.send(.normal)
         try await rig.idle()
         #expect(rig.spare.tab != nil, "back to normal: the next idle moment makes the spare again")
+    }
+
+    @Test func anAppAlreadyUnderPressureMakesNoSpareUntilNormal() async throws {
+        let rig = rig(startLevel: .warning)
+        defer { rig.spare.drop() }
+        rig.spare.noteLikely()
+        #expect(rig.spare.state == "none", "the level the app started under was not read: a spare was asked for")
+        rig.pressure.send(.normal)
+        try await rig.idle()
+        #expect(rig.spare.tab != nil, "back to normal: the next idle moment makes the spare")
     }
 
     @Test func switchedOffEveryTabBuildsItsOwnViewAndAWaitingSpareCloses() async throws {

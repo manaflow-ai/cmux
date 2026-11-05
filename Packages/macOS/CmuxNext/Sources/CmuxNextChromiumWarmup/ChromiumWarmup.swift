@@ -95,6 +95,8 @@ public final class ChromiumWarmup {
         pressureObservation = memoryPressure?.observe { [weak engine] level in
             engine?.holdSparePages(level != .normal)
         }
+        // The kernel never reports the level the app is already under; read it once now.
+        memoryPressure?.refresh()
         self.engine = engine
         self.policy = policy
         launchTimer = DemandTimer(owner: "ChromiumWarmup.preload", clock: clock)
