@@ -26,6 +26,7 @@ final class HomeHostView: NSView {
     var fastRebuildProbe3 = 3
     var fastRebuildProbe4 = 4
     var fastRebuildProbe5 = 5
+    var fastRebuildProbe6 = 6
     var fastRebuildProbe2 = 2
     var fastRebuildProbe1 = 1
     private let message = ChromeLabel(labelWithString: "")
