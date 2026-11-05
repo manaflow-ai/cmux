@@ -3821,7 +3821,6 @@ CmuxNextBrowser	enum	BrowserSecurityState	0	LOGIC	100	0	Packages/macOS/CmuxNext/
 CmuxNextBrowser	struct	BrowserTabState	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Core/BrowserTabState.swift	from enum BrowserLoadPhase:4: tab load phase / state value (BrowserTabState): url, title, progress, error, history flags
 CmuxNextBrowser	enum	BrowserNavigationEvent	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Core/BrowserTabStateMachine.swift	navigation event reducer BrowserTabStateMachine: started/committed/failed/progress rules
 CmuxNextBrowser	struct	BrowserTabStateMachine	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Core/BrowserTabStateMachine.swift	from enum BrowserNavigationEvent:5: navigation event reducer BrowserTabStateMachine: started/committed/failed/progress rules
-CmuxNextBrowser	struct	NavigationTunables	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Core/NavigationTunables.swift	debug settings store of back/forward gesture toggles
 CmuxNextBrowser	enum	PageBackground	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Core/PageBackground.swift	platform glue
 CmuxNextBrowser	struct	BrowserProfileBook	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Core/Profiles/BrowserProfileBook.swift	browser profile book: profiles, per-workspace defaults, create/rename/delete rules
 CmuxNextBrowser	actor	BrowserProfileBookFile	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Core/Profiles/BrowserProfileBookFile.swift	profile book JSON file persistence off main thread
@@ -8779,7 +8778,6 @@ CmuxNextNowPlaying	class	SystemNowPlaying	0	PLATFORM	0	0	Packages/macOS/CmuxNext
 CmuxNextNowPlaying	struct	SystemNowPlayingFeed	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextNowPlaying/SystemNowPlayingFeed.swift	parse of adapter payload into now-playing state
 CmuxNextNowPlaying	struct	SystemNowPlayingReport	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextNowPlaying/SystemNowPlayingFeed.swift	from struct SystemNowPlayingFeed:9: parse of adapter payload into now-playing state
 CmuxNextOnboarding	struct	AgentProject	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/Model/AgentProject.swift	Agent project model
-CmuxNextOnboarding	struct	BrowserImportTunables	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/Model/BrowserImportTunables.swift	Browser import debug tunables
 CmuxNextOnboarding	enum	ComputerUsePermissionPane	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/Model/ComputerUsePermissionPane.swift	TCC permission seam types
 CmuxNextOnboarding	protocol	ComputerUsePermissionSource	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/Model/ComputerUsePermissionSource.swift	from protocol ComputerUsePermissionSource:8: TCC permission seam types
 CmuxNextOnboarding	struct	ComputerUsePermissions	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/Model/ComputerUsePermissions.swift	TCC permission seam types
