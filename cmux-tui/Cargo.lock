@@ -15,6 +15,7 @@ dependencies = [
  "clap",
  "cmux-agent-pane-policy",
  "cmux-chat-index",
+ "cmux-cloud-client",
  "cmux-coderouter",
  "cmux-codex-acp",
  "cmux-git",
@@ -1064,6 +1065,25 @@ dependencies = [
 [[package]]
 name = "cmux-cloud-cli"
 version = "0.1.0"
+
+[[package]]
+name = "cmux-cloud-client"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "cmux-cloud-config",
+ "cmux-cloud-environment",
+ "cmux-cloud-wire",
+ "futures",
+ "getrandom 0.3.4",
+ "progenitor-client",
+ "regress",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tokio",
+]
 
 [[package]]
 name = "cmux-cloud-config"
