@@ -597,7 +597,14 @@ async fn exec(
 }
 
 /// The cmux API's client-session refusal codes. `known_code` prints only these, from this table.
-const KNOWN_CODES: [&str; 13] = [
+const KNOWN_CODES: [&str; 19] = [
+    // The machine exec route's refusals (cmux-platform MachineGuest.ts GUEST_REFUSAL).
+    "vm_not_found",
+    "vm_forbidden",
+    "vm_not_running",
+    "vm_unavailable",
+    "vm_busy",
+    "vm_output_too_large",
     "auth.unauthenticated",
     "auth.forbidden",
     "owner.unreachable",

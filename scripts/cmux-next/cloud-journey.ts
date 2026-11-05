@@ -282,7 +282,7 @@ function directExec(api: Api, machine: string, journey: Journey): Exec {
 function cliExec(cmux: string, api: Api, machine: string): Exec {
   return async (command, timeoutMs = 60_000) => {
     const env = { ...process.env, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer };
-    const args = ["--json", "machine", "access", "exec", "--target", `machine:${machine}`, "--timeout-ms", String(Math.min(timeoutMs, 300_000)), ...(api.team ? ["--team", api.team] : []), "--", "sh", "-c", command];
+    const args = ["--json", "machine", "access", "exec", "--target", `machine:${machine}`, "--timeout-ms", String(Math.min(timeoutMs, 300_000)), ...(api.team ? ["--team", api.team] : []), "--", command];
     const done = spawnSync(cmux, args, { env, encoding: "utf8", timeout: timeoutMs + 30_000 });
     if (done.error) throw new Error(`${cmux}: ${done.error.message}`);
     try {

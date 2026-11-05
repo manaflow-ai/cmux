@@ -527,17 +527,23 @@ fn exec_on_a_machine_without_client_sessions_runs_through_the_machine_exec_route
 
 #[test]
 fn a_refused_machine_exec_route_prints_only_a_known_code() {
-    let (origin, _requests) = fake_no_sessions(
-        409,
-        json!({ "ok": false, "error": { "code": "cloud.machine.paused", "message": "secret-ish detail" } })
-            .to_string(),
-    );
-    let command = parse(&strings(&["exec", "--target", VM, "--", "true"])).unwrap();
-    let (mut out, mut err) = (Vec::new(), Vec::new());
-    let message = run(&command, &origin, "cmux-credential", OutputMode::Human, &mut out, &mut err)
-        .unwrap_err();
-    assert!(message.ends_with("cloud.machine.paused"), "{message}");
-    assert!(!message.contains("secret-ish"), "{message}");
+    // The route's own refusal (cmux-platform GUEST_REFUSAL), then a code no table holds.
+    for (status, code, shown) in
+        [(409, "vm_not_running", "vm_not_running"), (409, "vm_made_up", "409 Conflict ")]
+    {
+        let (origin, _requests) = fake_no_sessions(
+            status,
+            json!({ "ok": false, "error": { "code": code, "message": "secret-ish detail" } })
+                .to_string(),
+        );
+        let command = parse(&strings(&["exec", "--target", VM, "--", "true"])).unwrap();
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let message =
+            run(&command, &origin, "cmux-credential", OutputMode::Human, &mut out, &mut err)
+                .unwrap_err();
+        assert!(message.ends_with(shown), "{message}");
+        assert!(!message.contains("secret-ish"), "{message}");
+    }
 }
 
 #[test]
