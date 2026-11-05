@@ -79,6 +79,9 @@ def has_strip(variant):
 
 
 DIV_TOUCH = 0              # strip-touch: no divider band at all, the two strips touch
+# m18/m14 terminal surface films (the trace's `terminal` rows): held, stale, on its pane, and the owned (frame owner) rows
+SURFACE_VARIANTS = ("strip-held", "strip-stale", "strip-surface", "strip-surface-owned", "strip-held-owned")
+HELD_SAMPLES = {"strip-held": 14, "strip-held-owned": 5}  # samples 10.. whose committed surface keeps A_REST
 
 
 def rows_of(variant):
@@ -110,6 +113,8 @@ def a_width(k, variant):
         return float(A_REST)
     if variant == "strip-view-kept":
         return float(A_REST + 80 if k < MOVE[0] else A_REST)  # a Reduce Motion shrink: one jump at sample 10
+    if variant in SURFACE_VARIANTS:
+        return float(A_REST + 2 * min(max(k - MOVE[0] + 1, 0), 14))  # grows 2 px (1 pt) per sample over samples 10-23
     if variant == "strip-grid-grows":
         return float(A_REST + 4 * min(max(k - MOVE[0] + 1, 0), MOVE[1] - MOVE[0]))  # grows 80 px over samples 10-29
     if variant.startswith("spring"):
@@ -118,7 +123,7 @@ def a_width(k, variant):
             return float(A_REST)
         g = float(jp.spring_g(t, SPRING["response"], SPRING["damping"]))
         return A_REST + 40 * (1 - g)
-    sign = -1 if variant in ("cut", "backdrop") else 1  # pane A shrinks, pane B grows
+    sign = -1 if variant in ("cut", "backdrop", "strip-page-lag2", "strip-page-lag3") else 1  # pane A shrinks, pane B grows
     return float(A_REST + sign * 2 * min(max(k - MOVE[0] + 1, 0), MOVE[1] - MOVE[0]))
 
 
@@ -200,7 +205,11 @@ def frame(k, variant):
         a_view = A_REST  # A's content keeps its rest width while its pane grows
     if variant == "strip-tui-a-late" and 11 <= k <= 30:
         a_view = a_width(max(s - 1, 0), variant)  # m14: A's view keeps the previous sample's size (m6 "late"), anchored top-left
-    if variant == "strip-view-kept" and s == MOVE[0]:
+    if variant in HELD_SAMPLES and MOVE[0] <= s < MOVE[0] + HELD_SAMPLES[variant]:
+        # m14 held: the surface keeps its old size (A_REST) while the pane grows; the host paints the terminal's ground
+        # beside it, so the pixels show A's old grid padded by its own ground up to the new pane edge (they pass)
+        draw_tui(img, 0, a_view, picture_w=A_REST, y0=y0)
+    elif variant == "strip-view-kept" and s == MOVE[0]:
         # 3e.8: the first frame after the jump keeps A's old, wider view (its old grid), cut by A's new pane edge: fill up
         # to the pane edge, then the shell (as the S4 keep path in a Reduce Motion shrink)
         draw_tui_cut(img, 0, int(round(a_view)), A_REST + 80, y0=y0)
@@ -225,6 +234,9 @@ def frame(k, variant):
         b_x = aw + DIV_PX + SLOT_PX + DIV_PX
     if variant == "lag1":
         b_x = a_width(max(k - 2, 0), variant) + DIV_PX  # B's page one frame late
+    if variant in ("strip-page-lag2", "strip-page-lag3"):
+        # m18: B grows (A shrinks); B's page shows the frame of 2 or 3 samples before: inside its pane, smaller than it
+        b_x = a_width(max(s - int(variant[-1]), 0), variant) + DIV_PX
     if variant == "hidden" and 30 <= k <= 32:
         # B's page covers A's view from the inner edge of A's ring 1 on (the cyan strip, the gap and ring 1).
         cols = (int(round(aw)) - 2 * PAD) // CW
@@ -688,8 +700,27 @@ def build(root, name, variant):
         # B's Chromium host fills its content view; d4-cover: its page window 0.5 pt left (and 0.5 pt wider) after the motion.
         shift = 0.5 if variant == "d4-cover" and k >= 30 else 0.0
         page = [bw, 150 - cy, bw + shift, 150 - cy, 0, WINDOW_X + bx, WINDOW_X + bx - shift, bw]
+        extra = {"closing": closing_key} if closing_key else {}
+        if variant in SURFACE_VARIANTS:
+            # the trace's terminal rows (TerminalSurfaceView+MotionSample): the surface layer [x, y, w, h] (window points,
+            # top-left), the shown IOSurface's w and h (device px), render counters, owned, presenter, host frame
+            owned = variant.endswith("-owned")
+            moving = MOVE[0] <= k <= MOVE[0] + 14
+            sw = aw
+            if variant == "strip-held" and MOVE[0] <= k < MOVE[0] + HELD_SAMPLES[variant]:
+                sw = A_REST / SCALE  # the surface keeps its old size while the pane grows
+            if owned and moving:
+                # an owned surface whose present request waits: the window's present pass runs after the sampler in the
+                # same turn, so the row shows the bounds the previous turn committed (the pane one sample before) ...
+                sw = a_width(k - 1, variant) / SCALE
+                if variant == "strip-held-owned" and k <= MOVE[0] + HELD_SAMPLES[variant]:
+                    sw = A_REST / SCALE  # ... or the old size it keeps (ready-or-keep: its frame is not drawn yet)
+            shown_w = A_REST if variant == "strip-stale" and MOVE[0] + 4 <= k <= MOVE[0] + 7 else sw * SCALE
+            extra["terminal"] = [[0, cy, sw, 150 - cy, shown_w, (150 - cy) * SCALE, k, k, 2, 2, 0, 0, 1 if owned else 0,
+                                  "request" if owned and moving else "-",
+                                  ("pending" if moving else "shown") if owned else "-"]]
         samples.append({"t": k * P * 1000, "window": [300, 150], "panes": [a] + closing + [b],
-                        "dividers": dividers, "page": [page], **({"closing": closing_key} if closing_key else {})})
+                        "dividers": dividers, "page": [page], **extra})
     # Sample k is taken 1 ms before refresh k is displayed.
     Path(f"{base}.trace.json").write_text(json.dumps({"t0_s": T0 - 0.001, "refresh_ms": P * 1000, "samples": samples}))
     note = {"scale": SCALE, "panes": {"pa": {"kind": "tui", "fill": "#FFFF00", "label": "p0"},
@@ -1962,6 +1993,155 @@ class ViewWiderThanPaneTests(unittest.TestCase):
         t = r["m6"]["kinds"]["terminal"]
         self.assertEqual(jp_frames(t["fail_ranges"]) & set(cut), set(), t)
         self.assertGreaterEqual(t["clipped_grid_not_judged"], len(cut), t)
+
+
+class HeldSurfaceTests(unittest.TestCase):
+    """m18 (Lead 2026-11-05, STATUS 13889) and m14 held and stale (pixel-perfect, STATUS 13764): the pixels cannot see a HELD
+    terminal surface when the host paints the terminal's ground beside it (a surface kept at its old size looks like a live
+    one padded by its own ground: the drag hold terminalDrag.holdSurface and the S4-OFF key hold pass m14 in pixels while
+    the terminal is frozen). The trace's `terminal` rows tell: per sample, the surface layer's rect and the shown
+    IOSurface's size. A terminal frame (the film's clock) is `held` when the committed surface's width or height differs
+    from its pane's area (its rect less the tab strip's header) by more than 0.5 pt, `stale` when the shown IOSurface
+    differs from the surface's size x scale by more than 1 px; both fail m18 and m14 (m6 does not change). A surface at its
+    pane's size with an old grid inside it is not held (only the surface rect and the shown IOSurface count: STATUS 13624).
+    An owned row (the frame owner) whose present request waits (host frame pending or ready) is sampled before the window's
+    present pass of the same turn: the bounds that turn commits are the next row's when the film's rows say so (the phase
+    the moving samples fit: single-3k ON x1 50 held ticks in a same-row reading, 0 committed)."""
+
+    VARIANTS = ("strip-held", "strip-stale", "strip-surface", "strip-surface-owned", "strip-held-owned")
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp(prefix="judge-pixel-held-")
+        cls.bases = {v: build(cls.tmp, v, v) for v in cls.VARIANTS}
+        cls.reports = {v: jp.judge(b, all_frames=True) for v, b in cls.bases.items()}
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def row(self, variant, contract="m18"):
+        return self.reports[variant][contract]["kinds"]["terminal"]
+
+    def test_a_held_surface_fails_while_its_pixels_pass(self):
+        held = set(range(MOVE[0] + 1, MOVE[0] + 15))  # the frames that show samples 10-23
+        for contract in ("m18", "m14"):
+            row = self.row("strip-held", contract)
+            self.assertEqual(jp_frames(row["held_ranges"]), held, (contract, row))
+            self.assertLessEqual(held, jp_frames(row["fail_ranges"]), (contract, row))
+            self.assertEqual(row["held_worst_pt"], 14.0, contract)  # 28 device px at scale 2: the growth it missed
+        self.assertEqual(self.reports["strip-held"]["m6"]["kinds"]["terminal"]["fail"], 0)  # the pixels pass (padded)
+
+    def test_a_stale_iosurface_fails(self):
+        stale = set(range(MOVE[0] + 5, MOVE[0] + 9))  # the frames that show samples 14-17
+        row = self.row("strip-stale")
+        self.assertEqual(jp_frames(row["stale_ranges"]), stale, row)
+        self.assertLessEqual(stale, jp_frames(row["fail_ranges"]), row)
+        self.assertEqual((row["held"], row["stale_worst_px"]), (0, 16.0))
+
+    def test_stale_is_not_judged_for_a_capacity_build(self):
+        # ghostty-next #81 plan B: the IOSurface is the gesture's capacity and the layer shows a sub-rect
+        row = jp.judge(self.bases["strip-stale"], stale=False)["m18"]["kinds"]["terminal"]
+        self.assertEqual((row["stale"], row["fail"], row["stale_judged"]), (0, 0, False), row)
+
+    def test_a_surface_on_its_pane_area_is_neither_held_nor_stale(self):
+        row = self.row("strip-surface")
+        self.assertEqual((row["held"], row["stale"], row["fail"]), (0, 0, 0), row)
+        self.assertGreater(row["surface_frames"], 50)
+
+    def test_an_owned_surface_sampled_before_its_present_pass_is_not_held(self):
+        # each moving row shows the pane of the sample before (its request waits; the pass after the sampler commits the
+        # new bounds): the next row holds the bounds that turn committed
+        row = self.row("strip-surface-owned")
+        self.assertEqual((row["held"], row["fail"], row["surface_phase"]), (0, 0, 1), row)
+
+    def test_an_owned_surface_that_keeps_its_old_size_is_held(self):
+        held = set(range(MOVE[0] + 1, MOVE[0] + 6))  # the frames that show samples 10-14: their next rows keep A_REST
+        row = self.row("strip-held-owned")
+        self.assertEqual((jp_frames(row["held_ranges"]), row["surface_phase"]), (held, 1), row)
+        self.assertEqual(row["held_worst_pt"], 5.0)
+
+
+class M18ContractTests(unittest.TestCase):
+    """m18 (Lead 2026-11-05, STATUS 13889): replaces m14's terminal and page rules where they differ.
+    Pages: never past their pane edge in any frame (`protrude`); a page may show its last frame for at most 2 refreshes
+    (an edge on the pane edge of one of the 2 frames before; on the hi side also that size anchored at the current lo
+    edge and clipped at the current hi edge), and may be smaller than its pane then; a longer lag fails (`lag`).
+    Terminals: the text is re-wrapped at every frame's pane size, drawn at the pane's pixel size: m14's pixel classes, the
+    trace's held and stale, and a grid its view cuts fails while its pane grows too ("grid once per gesture" is gone)."""
+
+    VARIANTS = ("strip", "strip-page-late", "strip-page-lag2", "strip-page-lag3", "strip-grid-grows")
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp(prefix="judge-pixel-m18-")
+        cls.bases = {v: build(cls.tmp, v, v) for v in cls.VARIANTS}
+        cls.reports = {v: jp.judge(b, all_frames=True) for v, b in cls.bases.items()}
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def row(self, variant, kind, contract="m18"):
+        return self.reports[variant][contract]["kinds"][kind]
+
+    def test_content_on_its_strips_passes(self):
+        for kind in ("terminal", "page"):
+            row = self.row("strip", kind)
+            self.assertGreater(row["judged"], 50, kind)
+            self.assertEqual((row["fail"], row["worst_px"]), (0, 0.0), (kind, row))
+
+    def test_a_page_past_its_pane_edge_fails_in_every_frame(self):
+        # B's page one sample late while B shrinks: its left edge 2 px left of its pane edge (m6 "page late 1")
+        m14, m18 = self.row("strip-page-late", "page", "m14"), self.row("strip-page-late", "page")
+        self.assertEqual((m18["protrude"], m18["protrude_ranges"], m18["fail_ranges"]),
+                         (m14["page_late"], m14["page_late_ranges"], m14["page_late_ranges"]))
+
+    def test_a_page_two_refreshes_late_inside_its_pane_passes(self):
+        m18 = self.row("strip-page-lag2", "page")
+        self.assertEqual(m18["fail"], 0, m18)
+        self.assertGreaterEqual(m18["lag_1_2"], 15)
+        self.assertGreater(self.row("strip-page-lag2", "page", "m14")["fail"], 0)  # m14 fails it (E2)
+
+    def test_a_page_three_refreshes_late_fails(self):
+        m18 = self.row("strip-page-lag3", "page")
+        self.assertEqual((m18["lag_ranges"], m18["fail_ranges"]), ("13-32", "13-32"), m18)
+
+    def test_a_grid_its_growing_view_cuts_fails(self):
+        cut = set(range(MOVE[0] + 1, MOVE[0] + 6))  # m14 does not judge them (one program grid per press)
+        self.assertEqual(jp_frames(self.row("strip-grid-grows", "terminal", "m14")["fail_ranges"]) & cut, set())
+        self.assertLessEqual(cut, jp_frames(self.row("strip-grid-grows", "terminal")["edge_ranges"]))
+
+    def test_the_verdict_cli_gives_m18_by_default(self):
+        import judge_m14
+        lag2 = str(self.bases["strip-page-lag2"])
+        self.assertEqual(judge_m14.main([lag2]), 0)  # m18: a page 2 refreshes late inside its pane passes
+        self.assertEqual(judge_m14.main([lag2, "--contract", "m14"]), 1)  # m14 fails it
+        out = Path(self.tmp) / "m18.json"
+        judge_m14.main([str(self.bases["strip-page-lag3"]), "--json", str(out)])
+        film = json.loads(out.read_text())["films"][0]
+        self.assertEqual((film["contract"], film["status"]), ("m18", "fail"))
+
+    def test_the_verdict_reports_missed_refreshes_from_debug_frames(self):
+        import contextlib
+        import io
+        import judge_m14
+        base = self.bases["strip"]
+        Path(f"{base}.frames.json").write_text(json.dumps({"reply": {"frames": 60, "missed": 3, "refresh_ms": 8.333,
+                                                                    "intervals_ms": [8.333] * 56 + [16.7, 16.7, 25.0]}}))
+        try:
+            buf, out = io.StringIO(), Path(self.tmp) / "smooth.json"
+            with contextlib.redirect_stdout(buf):
+                judge_m14.main([str(base), "--json", str(out)])
+            smooth = json.loads(out.read_text())["films"][0]["smooth"]
+            self.assertEqual((smooth["missed"], smooth["refreshes_skipped"], smooth["frames"]), (3, 4, 60), smooth)
+            self.assertIn("smooth: 3 missed refreshes", buf.getvalue())
+        finally:
+            Path(f"{base}.frames.json").unlink()
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            judge_m14.main([str(base)])
+        self.assertIn("smooth: no debug.frames read", buf.getvalue())
 
 
 TOL_TEST_PX = 1.0
