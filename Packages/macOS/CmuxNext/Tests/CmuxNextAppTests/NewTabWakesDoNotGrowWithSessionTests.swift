@@ -67,7 +67,7 @@ struct NewTabWakesDoNotGrowWithSessionTests {
         try await withWindow(panes: panes, tabs: tabs) { store, content in
         let pane = try #require(content.panes.values.first { $0.pane.handle == PaneID(rawValue: 1) })
         let workspace = try #require(store.workspaces.first)
-        func tabCount() -> Int { workspace.screens.flatMap(\.panes).reduce(0) { $0 + $1.tabs.count } }
+        @MainActor func tabCount() -> Int { workspace.screens.flatMap(\.panes).reduce(0) { $0 + $1.tabs.count } }
         let before = tabCount()
 
         // The key's turn of New Terminal Tab: the stand-in tab in the store's intent log
