@@ -7,7 +7,7 @@
 // (webviews/scripts/check-glass-never-opaque.ts fails one that is not).
 import {
   useCallback,
-  useRef,
+  useLayoutEffect,
   useState,
   type PointerEventHandler,
   type ReactElement,
@@ -19,7 +19,7 @@ import { usePopupHost, usePortalContainer } from "./UiProvider";
 import { useEscapingPopup } from "./popupHost";
 import { virtualAnchor, type UiAnchor } from "./Popover";
 import { cx } from "./cx";
-import { useSeeThroughBlur, type CoveredCandidates, type SeeThroughOptions } from "./glass/seeThroughBlur";
+import { attachSeeThroughBlur, type CoveredCandidates, type SeeThroughOptions } from "./glass/seeThroughBlur";
 import { HOVER_INTENT } from "./hoverIntent";
 import { UI_TOOLTIP_GAP, tooltipGap, tooltipScale } from "./tooltipTokens";
 
@@ -146,16 +146,22 @@ export function AnchoredCard({
   children,
 }: AnchoredCardProps) {
   const container = usePortalContainer();
-  const self = useRef<HTMLDivElement | null>(null);
+  // The popup mounts after this component commits (the portal places it first), so the blur keys
+  // on the popup node itself, not a ref read in this component's own commit.
+  const [popup, setPopupNode] = useState<HTMLDivElement | null>(null);
   const setPopup = useCallback(
     (node: HTMLDivElement | null) => {
-      self.current = node;
+      setPopupNode(node);
       if (typeof popupRef === "function") popupRef(node);
       else if (popupRef) popupRef.current = node;
     },
     [popupRef],
   );
-  useSeeThroughBlur(self, under !== undefined && (open ?? anchor !== null), under, underOptions);
+  const shown = open ?? anchor !== null;
+  useLayoutEffect(() => {
+    if (!popup || !under || !shown) return;
+    return attachSeeThroughBlur(popup, under, underOptions);
+  }, [popup, under, underOptions, shown]);
   return (
     <BaseTooltip.Root open={open ?? anchor !== null}>
       <BaseTooltip.Portal container={container}>
