@@ -172,12 +172,13 @@ def run_app(opts):
             failures.append({"workspaces": count, "probe": "sidebar", "exit": code,
                              "report": str(sidebar / "results.json")})
         typing = root / "typing"
-        # Seed empty rows to reach the requested topology, while keeping only ten active terminals
-        # so the 1000-workspace run never exhausts the host's PTY limit.
-        agents = min(10, max(0, count - 2))
+        # Keep the typing workload invariant across topology sizes. The typing workspace is the
+        # sole active row and all other seeded rows are empty, so a ratio reflects workspace count
+        # rather than a different number of agents or browser operations.
+        agents = 0
         code = run_probe(HERE / "automation-typing-bench.py",
                          ["--app", opts.app, "--agents", str(agents), "--workspace-count", str(count), "--layouts", "light", "--samples", "30",
-                          "--rounds", "1", *(["--no-browser"] if count == 1 else []), "--out", str(typing), "--json", str(typing / "report.json")], root)
+                          "--rounds", "1", "--no-browser", "--out", str(typing), "--json", str(typing / "report.json")], root)
         if code != 0 or not (typing / "report.json").exists():
             failures.append({"workspaces": count, "probe": "typing", "exit": code,
                              "report": str(typing / "report.json")})

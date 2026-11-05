@@ -160,9 +160,10 @@ def seed_empty_workspaces(count):
     """Fill the requested topology with empty workspaces so large runs do not exhaust PTYs."""
     if count <= 0:
         return 0
-    # The probe always adds one browser and one focused typing workspace below. Active agent
-    # workspaces are bounded by --agents; only the remainder needs empty rows.
-    empty = max(0, count - opts.agents - 2)
+    # The probe adds one focused typing workspace and, unless disabled, one browser workspace.
+    # Active agent workspaces are bounded by --agents; only the remainder needs empty rows.
+    fixed = 1 + (0 if opts.no_browser else 1)
+    empty = max(0, count - opts.agents - fixed)
     for index in range(empty):
         cli("workspace", "create", "--name", f"scale empty {index}", "--empty")
     return empty
