@@ -76,14 +76,20 @@ public func classifyInput(type: UInt32, userData: Int64, sourcePID: Int64, ownPI
     return .ignored
 }
 
-/// When the agent may act again after the person took over.
+/// When the agent may act while the person is using the Mac.
 ///
 /// - The person takes over on any deliberate input of theirs (a key, a
 ///   click, a scroll, a drag). Moving the pointer alone does not.
 /// - The agent resumes once the person has been quiet for `quiet`.
-/// - An acting call that arrives while the person is in control waits for
-///   that quiet, up to `hold`; if the person is still going, it is refused
-///   with `person_in_control` and does not run. Observing calls never wait.
+/// - While the person is in control, an acting call still runs at once when
+///   it cannot collide with them: it posts to one app in the background, and
+///   that app is neither the person's frontmost app nor the app under their
+///   pointer (`ActingFootprint`, `PersonFocus`). Both work at the same time.
+/// - An acting call that collides (the same app or window, or a route that
+///   drives the shared cursor, key focus or global input queue) waits for
+///   the person's quiet, up to `hold`; if the person is still going, it is
+///   refused with `person_in_control` and does not run. Observing calls
+///   never wait.
 /// - With no working detector (no tap, or our marker did not come back)
 ///   the gate is open, and `cua_status`-style reports say so: Computer Use
 ///   works as before rather than failing on a missing grant.
@@ -120,6 +126,90 @@ public struct PointerSample: Sendable, Equatable {
     }
 }
 
+/// What an acting call touches, read from its arguments before it runs.
+public struct ActingFootprint: Sendable, Equatable {
+    /// The apps the call sends input to.
+    public var pids: Set<Int32>
+    /// The windows it names.
+    public var windowIDs: Set<UInt32>
+    /// It drives what the person shares with the agent (the real cursor, key
+    /// focus, the global input queue: `delivery_mode: "foreground"`,
+    /// `scope: "desktop"`, a desktop `target`), or names no app at all, so it
+    /// collides with the person wherever they are.
+    public var shared: Bool
+
+    public init(pids: Set<Int32> = [], windowIDs: Set<UInt32> = [], shared: Bool = false) {
+        self.pids = pids
+        self.windowIDs = windowIDs
+        self.shared = shared
+    }
+
+    /// Collides with everything: the rule before it knew targets.
+    public static let anywhere = ActingFootprint(shared: true)
+
+    /// Tools that change what the person shares with the agent whatever app
+    /// they name: the frontmost app and key focus (`bring_to_front`,
+    /// `launch_app`, `invoke_menu`, which activates its app), or the pasteboard.
+    static let sharedTools: Set<String> = ["bring_to_front", "launch_app", "invoke_menu", "clipboard_write"]
+
+    /// Read the footprint of `tool` called with `arguments` (its JSON
+    /// object), walking into batches. A window named without its pid takes
+    /// its owner from `owner`. Arguments that do not parse collide with everything.
+    public init(tool: String, arguments: Data, owner: (UInt32) -> Int32? = { _ in nil }) {
+        guard !Self.sharedTools.contains(tool),
+              let object = try? JSONSerialization.jsonObject(with: arguments) else {
+            self = .anywhere
+            return
+        }
+        self.init()
+        walk(object, depth: 0, owner: owner)
+        if pids.isEmpty { shared = true }
+    }
+
+    private mutating func walk(_ value: Any, depth: Int, owner: (UInt32) -> Int32?) {
+        guard depth < 16 else {
+            shared = true
+            return
+        }
+        if let array = value as? [Any] {
+            for item in array { walk(item, depth: depth + 1, owner: owner) }
+            return
+        }
+        guard let object = value as? [String: Any] else { return }
+        // A batch step names its tool as `tool`, or as its only key.
+        if let tool = object["tool"] as? String, Self.sharedTools.contains(tool) { shared = true }
+        if !Self.sharedTools.isDisjoint(with: object.keys) { shared = true }
+        if object["delivery_mode"] as? String == "foreground" || object["scope"] as? String == "desktop"
+            || object["kind"] as? String == "desktop" {
+            shared = true
+        }
+        let pid = (object["pid"] as? NSNumber).flatMap { Int32(exactly: $0.int64Value) }
+        if let pid { pids.insert(pid) }
+        if let window = (object["window_id"] as? NSNumber).flatMap({ UInt32(exactly: $0.int64Value) }) {
+            windowIDs.insert(window)
+            if pid == nil, let owner = owner(window) { pids.insert(owner) }
+        }
+        for nested in object.values { walk(nested, depth: depth + 1, owner: owner) }
+    }
+}
+
+/// What the person is using right now: the apps that get their input (the
+/// frontmost app, the app under their pointer) and the window under it.
+public struct PersonFocus: Sendable, Equatable {
+    public var pids: Set<Int32>
+    public var windowIDs: Set<UInt32>
+
+    public init(pids: Set<Int32> = [], windowIDs: Set<UInt32> = []) {
+        self.pids = pids
+        self.windowIDs = windowIDs
+    }
+
+    /// Whether a call with `footprint` would act on what the person is using.
+    public func collides(with footprint: ActingFootprint) -> Bool {
+        footprint.shared || !pids.isDisjoint(with: footprint.pids) || !windowIDs.isDisjoint(with: footprint.windowIDs)
+    }
+}
+
 /// Counters for measurement, read with `TakeoverGate.snapshot()`.
 public struct TakeoverStats: Sendable, Equatable {
     public var agentEvents: UInt64 = 0
@@ -128,6 +218,8 @@ public struct TakeoverStats: Sendable, Equatable {
     public var takeovers: UInt64 = 0
     /// Acting calls that waited for the person to stop.
     public var held: UInt64 = 0
+    /// Acting calls that ran while the person was in control, on another app.
+    public var alongside: UInt64 = 0
     /// Acting calls refused with `person_in_control`.
     public var refused: UInt64 = 0
 }
@@ -140,8 +232,8 @@ public struct TakeoverRefusal: Error, Sendable, Equatable, CustomStringConvertib
     public init(tool: String) { self.tool = tool }
 
     public var description: String {
-        "\(Self.code): the person is using this Mac. `\(tool)` did not run. "
-            + "Wait until they stop, then try again."
+        "\(Self.code): the person is using this app, or this call needs the cursor they are using. "
+            + "`\(tool)` did not run. Wait until they stop, or act on another app in the background, then try again."
     }
 }
 
@@ -150,6 +242,9 @@ public struct TakeoverRefusal: Error, Sendable, Equatable, CustomStringConvertib
 public final class TakeoverGate: Sendable {
     public typealias Clock = @Sendable () -> UInt64
     public typealias Sleeper = @Sendable (Duration) async throws -> Void
+    /// What the person is using, given their last pointer position; nil when
+    /// it cannot be read, which counts as a collision.
+    public typealias FocusProvider = @Sendable (PointerSample?) -> PersonFocus?
 
     private struct State {
         var healthy = false
@@ -163,16 +258,20 @@ public final class TakeoverGate: Sendable {
     private let now: Clock
     private let sleep: Sleeper
     private let starter: (@Sendable () -> Void)?
+    private let focus: FocusProvider?
 
     /// `starter` (re)starts the detector; `admit` calls it, so a grant
     /// given after launch brings the detector up on the next acting call.
+    /// `focus` tells the gate what the person is using; without it every
+    /// acting call collides with the person.
     public init(rule: TakeoverRule = TakeoverRule(), now: @escaping Clock = TakeoverGate.uptimeNanos,
                 sleep: @escaping Sleeper = { try await Task.sleep(for: $0) },
-                starter: (@Sendable () -> Void)? = nil) {
+                starter: (@Sendable () -> Void)? = nil, focus: FocusProvider? = nil) {
         self.rule = rule
         self.now = now
         self.sleep = sleep
         self.starter = starter
+        self.focus = focus
     }
 
     public static let uptimeNanos: Clock = { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }
@@ -220,10 +319,12 @@ public final class TakeoverGate: Sendable {
 
     // MARK: The execution boundary
 
-    /// Returns when `tool` may run. Observing calls return at once; acting
-    /// calls wait while the person is driving, up to `rule.hold`, and then
-    /// throw `TakeoverRefusal`.
-    public func admit(_ tool: String, requirement: ConsentRequirement) async throws {
+    /// Returns when `tool` may run. Observing calls return at once, and so
+    /// do acting calls that do not collide with what the person is using;
+    /// colliding calls wait while the person is driving, up to `rule.hold`,
+    /// and then throw `TakeoverRefusal`.
+    public func admit(_ tool: String, requirement: ConsentRequirement,
+                      footprint: ActingFootprint = .anywhere) async throws {
         guard requirement == .act else { return }
         starter?()
         let start = now()
@@ -233,6 +334,11 @@ public final class TakeoverGate: Sendable {
             let at = now()
             guard case .person(let resumesAt) = state.withLock({ Self.holder($0, rule: rule, at: at) }) else {
                 if waited { state.withLock { $0.stats.held += 1 } }
+                return
+            }
+            // Asked again after each wait: the person may have moved to another app.
+            if !footprint.shared, let focus = focus?(personPointer()), !focus.collides(with: footprint) {
+                state.withLock { $0.stats.alongside += 1 }
                 return
             }
             if resumesAt > deadline || at >= deadline {

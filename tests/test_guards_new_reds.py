@@ -167,6 +167,34 @@ class NewReds(unittest.TestCase):
         self.assertEqual(done.returncode, 1)
 
 
+class RedStepsForTheBaseRerun(unittest.TestCase):
+    """cmux-next-guards.yml re-runs on the base only the steps red on the head (--red-steps, then
+    run_ci_guards.py --step): a step green on the head is never the change's, whatever the base says."""
+
+    def red(self, head):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "head.json"
+            if head is not None:
+                path.write_text(json.dumps(head))
+            return subprocess.run([sys.executable, str(SCRIPT), "--red-steps", str(path)], capture_output=True, text=True)
+
+    def test_each_red_step_once_with_its_checks_folded_in(self):
+        done = self.red({"lint": False, "ok": True, "wired :: a": False, "wired :: b": False, "wired": False,
+                         "fleet :: x": True})
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(done.stdout.splitlines(), ["lint", "wired"])
+        self.assertEqual(run_ci_guards.CHECK_SEPARATOR, " :: ")
+
+    def test_a_green_or_missing_head_names_nothing(self):
+        self.assertEqual((self.red({"lint": True}).stdout, self.red(None).stdout), ("", ""))
+
+    def test_steps_the_base_did_not_rerun_are_not_charged_to_the_change(self):
+        # Base results hold only the re-run steps; a head step missing from them passed on the head.
+        done = NewReds.run_it(self, {"lint": False, "ok": True}, {"lint": False})
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("0 guard steps red on this change, 1 red on the base too", done.stdout)
+
+
 class TipAndRedStepLines(unittest.TestCase):
     """A feat-cmux-next push that touches what the guards read is judged at its tip (--tip): every red step fails.
     Judged against the previous tip, a red that persists stayed green, and 18 guard steps sat red on the branch
