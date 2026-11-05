@@ -134,13 +134,14 @@ def helper_exe(root: str, name: str) -> str:
 
 HELPER = {"Contents/Resources/bin/cmux", "Contents/Resources/bin/cmux-diff-sidecar",
           "Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-computer-use"}
-JIT = {helper_exe(FW, "cmux NEXT DEV Helper (GPU)"), helper_exe(FW, "cmux NEXT DEV Helper (Renderer)"),
+JIT = {helper_exe(FW, "cmux NEXT DEV Helper"), helper_exe(FW, "cmux NEXT DEV Helper (GPU)"),
+       helper_exe(FW, "cmux NEXT DEV Helper (Renderer)"),
+       helper_exe(RBH + "Frameworks/", "cmux-remote-browser-host Helper"),
        helper_exe(RBH + "Frameworks/", "cmux-remote-browser-host Helper (GPU)"),
        helper_exe(RBH + "Frameworks/", "cmux-remote-browser-host Helper (Renderer)")}
 # Signed without entitlements, and their build signature has some: cleared.
 CLEARED = {"Contents/Resources/libexec/cmux-server-helper", FW + "Sparkle.framework/Versions/B/Autoupdate",
-           helper_exe(FW, "cmux NEXT DEV Helper"), RBH + "MacOS/cmux-remote-browser-host",
-           helper_exe(RBH + "Frameworks/", "cmux-remote-browser-host Helper"),
+           RBH + "MacOS/cmux-remote-browser-host",
            "Contents/PlugIns/Share.appex/Contents/MacOS/Share", CEF + "Libraries/libEGL.dylib"}
 # Signed without scoped entitlements: none to clear, or codesign leaves them alone.
 UNSCOPED = {"Contents/MacOS/cmux", FW + "Sparkle.framework/Versions/B/Sparkle", CEF + "Chromium Embedded Framework",

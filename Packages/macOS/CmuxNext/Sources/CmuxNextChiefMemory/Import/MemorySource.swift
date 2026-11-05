@@ -7,8 +7,10 @@ public struct MemorySource: Decodable, Equatable, Sendable {
         case claudeCode = "claude-code"
         case claudeMemory = "claude-memory"
         case codex
+        case codexSessions = "codex-sessions"
         case chatgptExport = "chatgpt-export"
         case claudeAIExport = "claude-ai-export"
+        case dotsExport = "dots-export"
         case export
     }
 
@@ -42,9 +44,10 @@ public struct MemorySource: Decodable, Equatable, Sendable {
     public var product: String {
         switch kind {
         case .claudeCode, .claudeMemory: ChiefMemoryImportStrings.productClaudeCode
-        case .codex: ChiefMemoryImportStrings.productCodex
+        case .codex, .codexSessions: ChiefMemoryImportStrings.productCodex
         case .chatgptExport: ChiefMemoryImportStrings.productChatGPT
         case .claudeAIExport: ChiefMemoryImportStrings.productClaudeAI
+        case .dotsExport: "Dot"
         case .export: ChiefMemoryImportStrings.productExport
         }
     }
@@ -54,9 +57,10 @@ public struct MemorySource: Decodable, Equatable, Sendable {
         switch kind {
         case .claudeCode: ChiefMemoryImportStrings.claudeCode(count)
         case .claudeMemory: ChiefMemoryImportStrings.claudeMemory(count)
-        case .codex: ChiefMemoryImportStrings.codex(count)
+        case .codex, .codexSessions: ChiefMemoryImportStrings.codex(count)
         case .chatgptExport: ChiefMemoryImportStrings.chatgptExport(fileName)
         case .claudeAIExport: ChiefMemoryImportStrings.claudeAIExport(fileName)
+        case .dotsExport: ChiefMemoryImportStrings.exportZip(fileName)
         case .export: ChiefMemoryImportStrings.exportZip(fileName)
         }
     }

@@ -35,21 +35,17 @@ TARGETS = {
 class RunnerSetTests(unittest.TestCase):
     def test_secret_bearing_changes_takes_ephemeral_hosted_then_measured_retry(self) -> None:
         # The router runs before any picker can, so it is a declared hosted light job
-        # (.github/runners.json hosted_light_jobs): ephemeral hosted Ubuntu on attempt 1, Blacksmith
-        # 8 vCPU or the LINUX_RUNNER mirror on a re-run, never LINUX_RUNNER first (run 41385632466 sat on its 4 vCPU queue)
-        # and never a persistent fleet label, since the job mints GLAEDA_ROUTE_APP_KEY tokens.
+        # (.github/runners.json hosted_light_jobs). Its credentialed body takes a live
+        # verified fleet Linux placement when available, then hosted/paid overflow.
         job = yaml.safe_load((WORKFLOWS / "ci.yml").read_text())["jobs"]["changes"]
         runs_on = job["runs-on"]
-        self.assertNotIn("fromJSON(vars.RUNNER_POOLS).linux ||", runs_on)
+        self.assertIn("needs.portable-placement.outputs.linux_runner", runs_on)
+        self.assertIn("needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt)", runs_on)
         self.assertIn("github.run_attempt == 1 && 'ubuntu-24.04'", runs_on)
-        # LINUX_RUNNER only after hosted Ubuntu, as the re-run's bounded ephemeral mirror.
-        hosted, retry = runs_on.split("github.run_attempt == 1 && 'ubuntu-24.04'", 1)
-        self.assertNotIn("LINUX_RUNNER", hosted)
-        self.assertIn("vars.LINUX_RUNNER) && vars.LINUX_RUNNER", retry)
         self.assertTrue(runs_on.rstrip().endswith(
             "|| vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}"), runs_on)
-        self.assertNotIn("cmux-fleet-linux-x64", runs_on)
-        self.assertNotIn("glaeda-", runs_on)
+        self.assertEqual(job["needs"], ["portable-placement"])
+        self.assertEqual(yaml.safe_load((WORKFLOWS / "ci.yml").read_text())["jobs"]["portable-placement"]["steps"][-1]["env"]["LINUX_ONLY"], "changes")
 
     def test_light_report_jobs_take_hosted_ubuntu_first(self) -> None:
         # Declared light jobs (.github/runners.json hosted_light_jobs): a few seconds of report or
@@ -79,8 +75,6 @@ class RunnerSetTests(unittest.TestCase):
                 self.assertIn(hosted, runs_on)
                 self.assertTrue(runs_on.rstrip().endswith(tail), runs_on)
                 self.assertNotIn("cmux-fleet-linux-x64", runs_on)
-                if tail == ephemeral:
-                    self.assertNotIn("fromJSON(vars.RUNNER_POOLS).linux ||", runs_on)
 
     def test_stalled_paths_use_the_live_linux_pool(self) -> None:
         for workflow, names in TARGETS.items():
@@ -97,6 +91,43 @@ class RunnerSetTests(unittest.TestCase):
                     # Past the fork branches, no Blacksmith size is written down.
                     self.assertNotIn("'blacksmith-", runs_on.split("github.repository && ")[-1].split("|| ", 1)[-1])
                     self.assertNotRegex(runs_on, r"RUNNER_POOLS\)\.linux_\d")
+
+    def test_cmux_next_pr_quiet_period_comes_before_every_check(self) -> None:
+        # A PR run sleeps until about 5 minutes after the PR's last push, so a newer push cancels a
+        # run that has spent only the sleep. Leo, 2026-11-05: "i meant can you do all of htem".
+        import json
+
+        jobs = yaml.safe_load((WORKFLOWS / "cmux-next.yml").read_text())["jobs"]
+        gate = jobs["pr-quiet-period"]
+        self.assertIn("cmux-next.yml#pr-quiet-period",
+                      json.loads((ROOT / ".github" / "runners.json").read_text())["hosted_light_jobs"])
+        self.assertNotIn("needs", gate)
+        self.assertIn("github.event_name == 'pull_request'", gate["if"])
+        self.assertIn("github.run_attempt == 1", gate["if"])
+        # landing.md: a leo-named-fix PR lands with no wait.
+        self.assertIn("!contains(github.event.pull_request.labels.*.name, 'leo-named-fix')", gate["if"])
+        self.assertIn("github.run_attempt == 1 && 'ubuntu-24.04'", gate["runs-on"])
+        self.assertTrue(gate["runs-on"].rstrip().endswith(
+            "|| vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}"))
+        self.assertEqual(gate["permissions"], {})
+        self.assertTrue(all(step.get("continue-on-error") for step in gate["steps"]))
+        # The two root jobs wait for it, and run when it is skipped (pushes, dispatches, re-runs).
+        for name in ("portable-placement", "push-head-preflight"):
+            with self.subTest(job=name):
+                self.assertEqual(jobs[name]["needs"], ["pr-quiet-period"])
+                self.assertTrue(jobs[name]["if"].startswith("${{ !cancelled() && "), jobs[name]["if"])
+        # Every other job starts after one of them: nothing heavy skips the wait.
+        roots = {"pr-quiet-period", "portable-placement", "push-head-preflight", "dev-landing-place"}
+        for name, job in jobs.items():
+            if name in roots:
+                continue
+            with self.subTest(job=name):
+                self.assertTrue(job.get("needs"), f"{name} starts before the quiet period ends")
+                # The implicit success() reads every ancestor, the skipped gate included (a push, a re-run),
+                # so each job after it says how it treats a skipped or failed need (#35871).
+                self.assertRegex(str(job.get("if", "")), r"always\(\)|cancelled\(\)|failure\(\)",
+                                 f"{name} would skip whenever pr-quiet-period skips")
+        self.assertTrue(jobs["dev-landing-place"]["if"].startswith("${{ github.event_name == 'push'"))
 
     def test_fast_checks_keeps_the_broker_overflow_set(self) -> None:
         runs_on = str((yaml.safe_load((WORKFLOWS / "fast-checks.yml").read_text()) or {})["jobs"]["checks"]["runs-on"])

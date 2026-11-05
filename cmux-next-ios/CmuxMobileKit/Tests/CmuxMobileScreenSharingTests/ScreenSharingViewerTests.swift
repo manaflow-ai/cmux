@@ -12,6 +12,14 @@ import Testing
 @MainActor @Suite(.timeLimit(.minutes(1))) struct ScreenSharingViewerTests {
     let hostID = "4f6b8a2c-1d3e-4b5a-8c7d-9e0f1a2b3c4d"
 
+    /// + › Screen Sharing names the workspace's Mac: the hub's Mac name matches it with
+    /// case, spacing and a typographic apostrophe folded.
+    @Test func aWorkspaceMacNameMatchesTheHubsName() {
+        #expect(ScreenSharingPage.normalized("Aziz\u{2019}s MacBook Pro ") == ScreenSharingPage.normalized("aziz's macbook pro"))
+        #expect(ScreenSharingPage.normalized("  ") == nil)
+        #expect(ScreenSharingPage.normalized(nil) == nil)
+    }
+
     @Test func aPendingRequestWaitsForTheMacThenItsTicketStartsTheStream() throws {
         let (service, ends) = makeService()
         let viewer = try #require(service.connect(to: mac(), scope: .full))

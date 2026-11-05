@@ -74,7 +74,13 @@ test("no rule declares a background other than transparent or the two interactio
   expect(fills.length).toBeGreaterThan(0);
   const htmlSurface = (item: { selector: string; value: string }) =>
     item.value === surface && selectors(item).every((part) => part === "html");
-  expect(fills.filter((item) => !allowedFills.has(item.value) && !htmlSurface(item))).toEqual([]);
+  // A progress bar's filled part is its value, not a surface (Settings > Updates' download bar, #33176).
+  const progressValue = (item: { selector: string; value: string }) =>
+    item.value === "var(--text)" &&
+    selectors(item).every((part) => /::-(?:webkit-progress-value|moz-progress-bar)$/.test(part));
+  expect(fills.filter((item) => !allowedFills.has(item.value) && !htmlSurface(item) && !progressValue(item))).toEqual(
+    [],
+  );
   // Containers never take a token fill; only controls and interaction states do.
   const containers =
     /^(body|#root|\.settings|\.sidebar|\.content|\.section|\.group|\.rows|\.row|\.row-main|\.result-section|\.domain-panel|\.notice|\.banner)$/;

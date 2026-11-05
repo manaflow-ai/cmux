@@ -16,6 +16,16 @@ use fake_turn::{FakeTurn, Options};
 use std::time::{Duration, Instant};
 
 fn start(role: Role, local: &KeyPair, remote: [u8; 32], turn: Vec<TurnServer>) -> Net {
+    start_with(role, local, remote, turn, false)
+}
+
+fn start_with(
+    role: Role,
+    local: &KeyPair,
+    remote: [u8; 32],
+    turn: Vec<TurnServer>,
+    relay_only: bool,
+) -> Net {
     Net::start(NetConfig {
         role,
         session: b"turn-session".to_vec(),
@@ -24,6 +34,7 @@ fn start(role: Role, local: &KeyPair, remote: [u8; 32], turn: Vec<TurnServer>) -
         stun: Vec::new(),
         bind: "127.0.0.1:0".parse().unwrap(),
         turn,
+        relay_only,
     })
     .unwrap()
 }
@@ -209,4 +220,55 @@ fn a_hostile_turn_server_cannot_bring_the_driver_down() {
     let mut at_host = Vec::new();
     let record = NetEvent::Endpoint(EndpointEvent::Link(Event::Control(b"alive".to_vec())));
     assert!(wait(&host, &mut at_host, |e| e.contains(&record)));
+}
+
+#[test]
+fn a_relay_only_side_reaches_the_peer_only_through_its_turn_allocation() {
+    // Both sides are on loopback, where a direct path would work: the viewer's
+    // "relay only" must still keep every packet on the TURN server, gather no
+    // address of its own and send none to the host.
+    let turn = FakeTurn::start(Options::default());
+    let (v, h) = (KeyPair::generate().unwrap(), KeyPair::generate().unwrap());
+    let host = start(Role::Responder, &h, v.public, Vec::new());
+    let viewer =
+        start_with(Role::Initiator, &v, h.public, vec![server(&turn, "correct horse")], true);
+
+    let (mut at_host, mut at_viewer) = (Vec::new(), Vec::new());
+    assert!(wait(&host, &mut at_host, done));
+    assert!(wait(&viewer, &mut at_viewer, |e| relay_candidate(e).is_some() && done(e)));
+    let own: Vec<Candidate> = at_viewer
+        .iter()
+        .filter_map(|e| match e {
+            NetEvent::Candidate(c) => Some(*c),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        own.iter().all(|c| c.kind == CandidateKind::Relay),
+        "only the relayed address: {own:?}"
+    );
+
+    // The host's direct address reaches the viewer (its socket is on
+    // loopback, so that is its host candidate here), which must not use it
+    // directly: its relay sends to it instead.
+    viewer.add_remote_candidate(Candidate { kind: CandidateKind::Host, addr: host.local_addr() });
+    for c in &own {
+        host.add_remote_candidate(*c);
+    }
+    viewer.send_control(b"hello".to_vec());
+    let hello = NetEvent::Endpoint(EndpointEvent::Link(Event::Control(b"hello".to_vec())));
+    assert!(wait(&host, &mut at_host, |e| e.contains(&hello)), "control record crosses the relay");
+    for i in 0..20u8 {
+        host.send_datagram(vec![i; 1000]);
+    }
+    assert!(
+        wait(&viewer, &mut at_viewer, |e| datagrams(e, 1000) >= 18),
+        "datagrams cross the relay"
+    );
+    assert!(wait(&viewer, &mut at_viewer, |e| !path_kinds(e).is_empty()));
+    assert!(wait(&host, &mut at_host, |e| !path_kinds(e).is_empty()));
+    for kinds in [path_kinds(&at_viewer), path_kinds(&at_host)] {
+        assert!(kinds.iter().all(|k| *k == PathKind::TurnRelay), "{kinds:?}");
+    }
+    assert!(turn.stats().channel_data_to_clients > 0);
 }

@@ -308,10 +308,10 @@ final class LinkOpener {
     /// `machine`: the file lives on that machine; nil or the local daemon opens this Mac’s file.
     @discardableResult
     /// `asText` (Open as Text, u9489): a page cmux renders (Markdown, HTML, SVG) opens as its source
-    /// in the code editor, placed as any open is.
+    /// in the code editor, placed as any open is. `besideChat`: on the chat's right whatever `layout.linkPlacement` says (a viewer opened on a chat).
     func openFile(_ file: URL, on machine: DaemonService? = nil, from source: PaneController?, markdown: Bool = false, asText: Bool = false,
-                  at position: FilePosition? = nil) -> Bool {
-        open(from: source) { [weak self] pane, placed in
+                  at position: FilePosition? = nil, besideChat: Bool = false) -> Bool {
+        open(from: source, besideChat: besideChat) { [weak self] pane, placed in
             // A tab that already shows the file is selected where it is and never reports to `placed`:
             // it says so, so its turn ends now (review of the #28044 carry at 1eb458cf).
             var inPlace: (@MainActor () -> Void)?
@@ -323,6 +323,37 @@ final class LinkOpener {
             return pane.services.viewers.openFile(file, in: pane, markdown: markdown, asText: asText, at: position, placed: placed,
                                                   shownInPlace: inPlace)
         }
+    }
+
+    /// An action's file open beside the chat `source` shows (``ViewerService/openFile(_:on:from:userChose:asText:)``). An open
+    /// that waits its turn behind another beside the chat runs later: in this run's scope (a script's open never takes the
+    /// focus), and a refusal then goes to `late`, as the action already answered. Returns the refusal of an open made now.
+    func openViewerFile(_ file: URL, on machine: DaemonService?, from source: PaneController, opener: FilePageOpener, userChose: Bool,
+                        asText: Bool, late: @escaping @MainActor (String) -> Void) -> String? {
+        let scope = ActionRunScope.current, answer = ViewerOpenAnswer()
+        let make: Make = { [weak self] target, placed in
+            ActionRunScope.carrying(scope) { () -> Bool in
+                var inPlace: (@MainActor () -> Void)?
+                if placed != nil { inPlace = { self?.openedInPlace() } }
+                let reason: String?
+                if let machine {
+                    reason = opener.open(file, on: machine, in: target, userChose: userChose, asText: asText, placed: placed, shownInPlace: inPlace)
+                } else {
+                    reason = opener.open(file, in: target, userChose: userChose, asText: asText, placed: placed, shownInPlace: inPlace)
+                }
+                if answer.answered, let reason { late(reason) } else { answer.refusal = reason }
+                return reason == nil
+            }
+        }
+        open(from: source, background: !ActionRunScope.viewChangeAllowed(), besideChat: true, make)
+        answer.answered = true
+        return answer.refusal
+    }
+
+    /// What ``openViewerFile(_:on:from:opener:userChose:asText:late:)``'s open answered, and whether the action had.
+    @MainActor private final class ViewerOpenAnswer {
+        var refusal: String?
+        var answered = false
     }
 
     /// A folder: a terminal there. In a new split it is the split's own terminal (Split Right with

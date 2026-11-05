@@ -293,7 +293,7 @@ struct MacScreenPageTabTests {
 
     /// Without a device hub (or signed out) the home page says how to set Mac Screen up.
     @Test func theHomePageExplainsTheSetup() {
-        #expect(MacScreenHomeSnapshot.setupNote(configured: false) != MacScreenHomeSnapshot.setupNote(configured: true))
+        #expect(MacScreenHomeSnapshot.setupDevices(configured: false).note != MacScreenHomeSnapshot.setupDevices(configured: true).note)
     }
 }
 

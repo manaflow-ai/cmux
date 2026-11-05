@@ -21,6 +21,12 @@ pub(super) enum Why {
     SymlinkOutside,
     /// A symlink to nothing.
     SymlinkBroken,
+    /// A symlink into a repository folder (`.git` under any spelling).
+    SymlinkIntoRepository,
+    /// A symlink the machine's daemon is too old to make or read.
+    SymlinkUnsupported,
+    /// A symlink whose path the other side holds something else at.
+    SymlinkTaken,
     /// A socket, FIFO or device.
     Special,
     NameTooLong,
@@ -30,6 +36,8 @@ pub(super) enum Why {
     Heavy,
     /// The name of the sync record itself.
     Reserved,
+    /// A pull's merge with conflict markers, kept on this Mac.
+    ConflictMerge,
 }
 
 impl Why {
@@ -37,11 +45,16 @@ impl Why {
     pub(super) fn kind(self) -> &'static str {
         match self {
             Self::EnvFile | Self::KeyFile => "secret",
-            Self::SymlinkInside | Self::SymlinkOutside | Self::SymlinkBroken => "symlink",
+            Self::SymlinkInside
+            | Self::SymlinkOutside
+            | Self::SymlinkBroken
+            | Self::SymlinkIntoRepository
+            | Self::SymlinkUnsupported
+            | Self::SymlinkTaken => "symlink",
             Self::Special => "special",
             Self::NameTooLong | Self::NameControl | Self::NameNotUtf8 => "name",
             Self::Heavy => "heavy",
-            Self::Reserved => "reserved",
+            Self::Reserved | Self::ConflictMerge => "reserved",
         }
     }
 
@@ -53,12 +66,16 @@ impl Why {
             Self::SymlinkInside => "a symlink (to a place inside the folder)",
             Self::SymlinkOutside => "a symlink (to a place outside the folder)",
             Self::SymlinkBroken => "a symlink (to nothing)",
+            Self::SymlinkIntoRepository => "a symlink (into the repository folder)",
+            Self::SymlinkUnsupported => "a symlink (this Cloud machine is too old to make one)",
+            Self::SymlinkTaken => "a symlink (something else is at its path on the other side)",
             Self::Special => "a socket, FIFO or device",
             Self::NameTooLong => "a name Linux can't hold (too long)",
             Self::NameControl => "a name Linux can't hold (control character)",
             Self::NameNotUtf8 => "a name Linux can't hold (not UTF-8)",
             Self::Heavy => "a heavy folder rebuilt on the machine",
             Self::Reserved => "the name of the sync record",
+            Self::ConflictMerge => "a sync conflict's merge, kept on this Mac",
         }
     }
 }
@@ -103,6 +120,11 @@ impl Skips {
             unholdable(relative)
         };
         self.note(relative, why);
+    }
+
+    /// The folder whose skips these are.
+    pub(super) fn top(&self) -> &Path {
+        &self.top
     }
 
     /// `count` more were left out without a name (`other`).

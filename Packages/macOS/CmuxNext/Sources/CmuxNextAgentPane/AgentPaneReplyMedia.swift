@@ -1,3 +1,4 @@
+import CmuxNextPages
 import CmuxNextSettings
 import Foundation
 
@@ -93,12 +94,27 @@ final class AgentPaneMediaGrants {
         await cache.store(data, ext: ext)
     }
 
-    /// The granted file a media URL names, nil for any other URL.
+    /// The origin of the agent page on the shared page host (`cmux-page://cmux.agent`), where
+    /// ``AgentPageMediaResource`` serves the same grants.
+    static let pageOrigin = "\(PageDescriptor.scheme)://\(PageDescriptor.agent.id)"
+
+    /// The granted file a media URL names, on either page origin (the pane's own or the page
+    /// host's), nil for any other URL.
     func file(for url: URL) -> URL? {
-        guard url.scheme?.lowercased() == AgentPaneSource.bundledScheme,
-              url.host?.lowercased() == AgentPaneSource.bundledHost,
+        guard let scheme = url.scheme?.lowercased(), let host = url.host?.lowercased(),
+              Self.origins.contains("\(scheme)://\(host)"),
               url.path.hasPrefix(Self.pathPrefix) else { return nil }
         return files[String(url.path.dropFirst(Self.pathPrefix.count))]
+    }
+
+    private static let origins: Set<String> = [AgentPaneSource.bundledOrigin, pageOrigin.lowercased()]
+
+    /// `src` (a grant, on the pane's own origin) as the page at `origin` plays it: the same token
+    /// under that origin, since the page's CSP plays media only from its own (`media-src 'self'`).
+    static func src(_ src: String, on origin: String) -> String {
+        let own = AgentPaneSource.bundledOrigin + pathPrefix
+        guard origin != AgentPaneSource.bundledOrigin, src.hasPrefix(own) else { return src }
+        return origin + pathPrefix + src.dropFirst(own.count)
     }
 }
 
@@ -137,9 +153,14 @@ extension AgentPaneModel {
                 await AgentPaneVideoInfo.discard(copy)
                 return Self.replyFailure(.mediaRefused)
             }
-            return AgentPaneReply.success(["src": AgentPaneMediaGrants.shared.grant(copy)])
+            return mediaReply(AgentPaneMediaGrants.shared.grant(copy))
         }
-        return AgentPaneReply.success(["src": AgentPaneMediaGrants.shared.grant(file)])
+        return mediaReply(AgentPaneMediaGrants.shared.grant(file))
+    }
+
+    /// The `media.load` answer for grant `src`, on the origin this pane's page is served from.
+    private func mediaReply(_ src: String) -> [String: Any] {
+        AgentPaneReply.success(["src": AgentPaneMediaGrants.src(src, on: mediaOrigin)])
     }
 
     /// An https video or audio link, fetched under the reply image setting and network rules
@@ -150,7 +171,7 @@ extension AgentPaneModel {
         let grants = AgentPaneMediaGrants.shared
         let setting = replyLinks.settings().remoteImages
         if setting == .never { return Self.replyFailure(.mediaRefused) }
-        if let known = grants.fetched(url) { return AgentPaneReply.success(["src": known]) }
+        if let known = grants.fetched(url) { return mediaReply(known) }
         if setting == .click, !transport.gestures.consume() { return Self.replyFailure(.gestureRequired) }
         switch await replyLinks.mediaFetcher.fetch(url) {
         case .failure(let error):
@@ -159,7 +180,7 @@ extension AgentPaneModel {
             guard let ext = AgentPaneMediaGrants.sniff(data), let file = await grants.store(data, ext: ext) else {
                 return Self.replyFailure(.mediaRefused)
             }
-            return AgentPaneReply.success(["src": grants.grant(file, for: url)])
+            return mediaReply(grants.grant(file, for: url))
         }
     }
 }

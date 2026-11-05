@@ -290,6 +290,15 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".cv-user__paste[aria-expanded='true']"));
       },
     },
+    editing: {
+      note: "Play: Edit opens the prompt in place on the bubble's own glass, 12 radius and 16 sides, at the bubble's widest, so its right edge stays put; Cancel and Send under the text.",
+      snapshot: turns(claude),
+      play: async (ctx) => {
+        await ctx.hover({ text: "Now cover it with a test that fakes two timeouts" });
+        await ctx.click({ selector: '.cv-user__actions button[aria-label="Edit"]' });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-user__edit"));
+      },
+    },
     "edit-tooltip": {
       note: "Play: hover the later prompt's pencil; the tooltip says Edit.",
       snapshot: turns(claude),

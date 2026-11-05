@@ -9,7 +9,7 @@
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
@@ -22,6 +22,7 @@ use super::mirror::{self, Effect, Mirror, Op, Origin, Record, SetOp};
 use super::storage::Storage;
 use super::timer::{TimerId, Timers};
 use crate::backoff::Backoff;
+use crate::panic_free::RecoverPoison;
 use cmux_json::JsonSet as _;
 
 /// Writes one event or response to a control client; false when it is gone.
@@ -153,6 +154,9 @@ impl MountKey {
 
 pub(super) struct Mount {
     pub host: HostKey,
+    /// The interface it renders (`cmux.section/1`), to find its export again
+    /// when the package is saved.
+    pub interface: String,
     pub export: String,
     pub context: Value,
     /// The next scene batch starts a fresh tree (after a host restart).
@@ -226,8 +230,18 @@ pub(super) struct Inner {
     /// Open tokens minted for user runs of server ops (`servers.rs`).
     pub open_tokens: HashMap<String, super::open_tokens::OpenToken>,
     pub server_crashes: HashMap<String, super::servers::Crashes>,
+    /// The kept-server count ([`Supervisor::kept_servers`]) as the last
+    /// emit read it: compared and stored under this lock, so it follows the
+    /// lock order and no stale read is stored after a newer one.
+    pub kept_servers_told: usize,
     /// Run callers and the ops they wait for (`cancel.rs`).
     pub calls: super::cancel::Calls,
+    /// The customize app's read scopes offered so far (granted by a save that
+    /// first declared them), seeded on the first reload from the catalog
+    /// read at start. Only grows (except scopes whose grant failed to save),
+    /// so within a daemon run a read the person turned off is never granted
+    /// again by a broken save or one that drops and re-adds it.
+    pub customize_reads_offered: Option<BTreeSet<String>>,
 }
 
 /// Work to do after the lock is released. Messages to hosts are not in this
@@ -258,7 +272,18 @@ pub struct Supervisor {
     pub(super) link_changed: Mutex<(bool, bool)>,
     /// Deployed instances of apps with a `deploy` block (`deploy.rs`).
     pub(super) deployments: super::deploy::Deployments,
+    /// The owner's keepers observers (`AppsSlot::add_server_observer`),
+    /// told outside the lock when [`Self::kept_servers`] changes.
+    server_observers: OnceLock<super::ServerObservers>,
+    /// Test hook: the emit on this thread runs this right after its locked
+    /// read, before it tells the observers (a race of two emits).
+    #[cfg(test)]
+    pub(super) emit_pause: Mutex<Option<EmitPause>>,
 }
+
+/// The test pause of one emit: the thread it is armed for, and what it runs.
+#[cfg(test)]
+pub(super) type EmitPause = (std::thread::ThreadId, Box<dyn FnOnce() + Send>);
 
 pub(super) fn now_ms() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or_default()
@@ -350,7 +375,9 @@ impl Supervisor {
                 servers: HashMap::new(),
                 open_tokens: HashMap::new(),
                 server_crashes: HashMap::new(),
+                kept_servers_told: 0,
                 calls: Default::default(),
+                customize_reads_offered: None,
             }),
             config,
             router,
@@ -362,6 +389,9 @@ impl Supervisor {
             transactions: AtomicU64::new(1),
             link_changed: Mutex::new((false, false)),
             deployments: super::deploy::Deployments::load(config_state_dir.as_deref()),
+            server_observers: OnceLock::new(),
+            #[cfg(test)]
+            emit_pause: Mutex::new(None),
         });
         if seeded {
             let _ = supervisor.persist(&supervisor.inner.lock().unwrap().mirror);
@@ -538,12 +568,68 @@ impl Supervisor {
             .collect()
     }
 
+    /// App servers that keep the daemon's owner (server/owner_keepers.rs):
+    /// the running ones, and each `always` server that crashed and waits for
+    /// its restart (`schedule_server_restart_locked`; it starts again with
+    /// no request).
+    pub(super) fn kept_servers(&self) -> usize {
+        Self::kept_servers_locked(&self.inner.lock().recover_poison())
+    }
+
+    fn kept_servers_locked(inner: &Inner) -> usize {
+        let restarting = inner
+            .server_crashes
+            .iter()
+            .filter(|(app, crashes)| crashes.restart.is_some() && !inner.servers.contains_key(*app))
+            .count();
+        inner.servers.len().saturating_add(restarting)
+    }
+
+    /// Hands over the owner's keepers observers (`AppsSlot`), once.
+    pub(super) fn observe_kept_servers(&self, observers: super::ServerObservers) {
+        let _ = self.server_observers.set(observers);
+    }
+
+    /// Tells the observers that the kept count changed. Every change of the
+    /// count (a start, an exit, a restart scheduled, fired or cancelled, a
+    /// disable) is made under the lock by work that ends in [`Self::emit`],
+    /// which compares it with the last one it read, under the same lock.
+    fn notify_kept_servers(&self) {
+        if let Some(observers) = self.server_observers.get() {
+            for observer in observers.lock().recover_poison().iter() {
+                observer();
+            }
+        }
+    }
+
+    /// Runs the test's pause when it is armed for this thread.
+    #[cfg(test)]
+    fn run_emit_pause(&self) {
+        let pause = {
+            let mut armed = self.emit_pause.lock().recover_poison();
+            match armed.as_ref() {
+                Some((thread, _)) if *thread == std::thread::current().id() => armed.take(),
+                _ => None,
+            }
+        };
+        if let Some((_, pause)) = pause {
+            pause();
+        }
+    }
+
     pub(super) fn emit(&self, mut outs: Vec<Out>) {
-        let sinks = {
+        let (sinks, kept_changed) = {
             let mut inner = self.inner.lock().unwrap();
             outs.extend(Self::inventory_demand_locked(&mut inner));
-            inner.sinks.clone()
+            let kept = Self::kept_servers_locked(&inner);
+            let changed = std::mem::replace(&mut inner.kept_servers_told, kept) != kept;
+            (inner.sinks.clone(), changed)
         };
+        #[cfg(test)]
+        self.run_emit_pause();
+        if kept_changed {
+            self.notify_kept_servers();
+        }
         if outs.is_empty() {
             return;
         }

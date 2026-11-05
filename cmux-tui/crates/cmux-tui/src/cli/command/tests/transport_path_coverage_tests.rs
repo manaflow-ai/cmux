@@ -57,6 +57,15 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         // Fields added since the case list last covered them: each one's CLI path.
         (vec!["notification", "clear", "--workspace", WORKSPACE], "notification.clear"),
         (
+            vec![
+                "notification",
+                "clear",
+                "--notification",
+                "notification_00000000000000000000000000000041",
+            ],
+            "notification.clear",
+        ),
+        (
             vec!["notification", "create", "--title", "t", "--body", "", "--workspace", WORKSPACE],
             "notification.create",
         ),

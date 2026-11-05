@@ -1,7 +1,8 @@
 // The owner decision of the CI production migration (prod-owner.ts, cmux-vm.yml migrate-production):
 // decided from catalog reads before anything on cmux-prod main is written.
 import { describe, expect, it } from "bun:test"
-import { decideOwner, ownersOf, productionUrl, type PsRole } from "../prod-owner.ts"
+import { decideOwner, directUrl, grantStatements, ownersOf, productionUrl, type PsRole } from "../prod-owner.ts"
+import { REQUIRED_SCHEMA } from "../../../../workers/cmux-vm/src/db/schema-requirements.ts"
 
 const owner: PsRole = { id: "own1", name: "cmux-vm-owner", pgUser: "pscale_api_owner" }
 const old: PsRole = { id: "old1", name: "cmux-vm-migrator", pgUser: "pscale_api_old" }
@@ -47,5 +48,25 @@ describe("productionUrl", () => {
     expect(() => productionUrl("postgresql://worker.qjkoajlaike8:pw@host:5432/postgres", "U")).toThrow("not for cmux-prod/main")
     expect(() => productionUrl(undefined, "U")).toThrow("U is empty")
     expect(() => productionUrl("not a url", "U")).toThrow("not a URL")
+  })
+})
+
+describe("directUrl", () => {
+  it("moves a pooler URL to the direct port", () => {
+    expect(new URL(directUrl("postgresql://w.pj68ww4tuq8x:pw@h.example:6432/postgres")).port).toBe("5432")
+  })
+})
+
+describe("grantStatements", () => {
+  it("grants USAGE and every required table privilege, all in cmux_vm", () => {
+    const s = grantStatements(REQUIRED_SCHEMA, "pscale_api_worker")
+    expect(s[0]).toBe('GRANT USAGE ON SCHEMA cmux_vm TO "pscale_api_worker"')
+    expect(s).toContain('GRANT SELECT, INSERT, UPDATE ON TABLE cmux_vm.vm_client_sessions TO "pscale_api_worker"')
+    for (const line of s.slice(1)) expect(line).toMatch(/^GRANT [A-Z, ]+ ON TABLE cmux_vm\.[a-z0-9_]+ TO "pscale_api_worker"$/)
+  })
+
+  it("refuses a table outside cmux_vm or a privilege beyond DML", () => {
+    expect(() => grantStatements([{ table: "public.users", privileges: ["SELECT"], migration: "0001" } as never], "w")).toThrow("not a plain table in cmux_vm")
+    expect(() => grantStatements([{ table: "cmux_vm.x", privileges: ["TRUNCATE"], migration: "0001" } as never], "w")).toThrow("only SELECT")
   })
 })

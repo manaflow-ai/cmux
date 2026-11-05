@@ -39,15 +39,16 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         didSet { listen() }
     }
 
-    var resources: (@MainActor (URL) async -> PageChromiumResponse)? {
+    var resources: (@MainActor (URL, String?) async -> PageChromiumResponse)? {
         didSet {
             guard let resources else {
                 tab.pageResources = nil
                 return
             }
-            tab.pageResources = { url in
-                let answer = await resources(url)
-                return CEFPageResponse(status: answer.status, mimeType: answer.mimeType, body: answer.body)
+            tab.pageResources = { url, range in
+                let answer = await resources(url, range)
+                return CEFPageResponse(status: answer.status, mimeType: answer.mimeType, body: answer.body, rangeHeaders: answer.rangeHeaders,
+                                       csp: answer.csp)
             }
         }
     }

@@ -214,8 +214,9 @@ struct AgentChatsScreen: View {
             } description: {
                 Text(message)
             } actions: {
-                Button("Try Again") { Task { await model.load() } }
-                    .buttonStyle(.borderedProminent)
+                // The load replaces this page at once (phase .loading), which would cancel a
+                // task owned by the button: the screen's model runs it unowned.
+                RetryButton("Try Again") { Task { await model.load() } }
             }
             .accessibilityIdentifier("agentChats.failed")
         case .loaded:

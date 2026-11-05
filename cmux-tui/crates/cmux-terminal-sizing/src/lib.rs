@@ -453,6 +453,27 @@ impl TerminalSizingEngine {
         self.entries.iter().map(|entry| entry.participant.id.as_str())
     }
 
+    /// The participant whose last activity is later than every other participant's, if one is. Noting activity
+    /// for it changes no decision: under every policy the newest of any set of views that holds it is still it,
+    /// and the newest of a set without it does not move. `None` while two views tie (handheld attaches, activity 0).
+    pub fn sole_latest(&self) -> Option<&str> {
+        let mut latest: Option<&Entry> = None;
+        let mut tied = false;
+        for entry in &self.entries {
+            match latest {
+                Some(current) if entry.activity < current.activity => {}
+                Some(current) if entry.activity == current.activity => tied = true,
+                _ => {
+                    latest = Some(entry);
+                    tied = false;
+                }
+            }
+        }
+        latest
+            .filter(|entry| !tied && entry.activity > 0)
+            .map(|entry| entry.participant.id.as_str())
+    }
+
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
@@ -615,6 +636,29 @@ mod tests {
             value["cols"].as_u64().unwrap() as u16,
             value["rows"].as_u64().unwrap() as u16,
         )
+    }
+
+    #[test]
+    fn the_sole_latest_participant_is_the_one_that_acted_last_and_none_on_a_tie() {
+        let mut engine = TerminalSizingEngine::new(
+            TerminalGridSize::new(80, 24),
+            TerminalSizingPolicy::default(),
+        );
+        assert_eq!(engine.sole_latest(), None, "no participant");
+        let view = |id: &str, device_kind| TerminalSizingParticipant {
+            id: id.to_owned(),
+            device_kind,
+            ..TerminalSizingParticipant::default()
+        };
+        engine.attach(view("phone-a", TerminalDeviceKind::Iphone));
+        engine.attach(view("phone-b", TerminalDeviceKind::Iphone));
+        assert_eq!(engine.sole_latest(), None, "two handheld attaches tie at activity 0");
+        engine.attach(view("mac", TerminalDeviceKind::Mac));
+        assert_eq!(engine.sole_latest(), Some("mac"));
+        engine.note_activity("phone-a");
+        assert_eq!(engine.sole_latest(), Some("phone-a"));
+        engine.detach("phone-a");
+        assert_eq!(engine.sole_latest(), Some("mac"));
     }
 
     #[test]

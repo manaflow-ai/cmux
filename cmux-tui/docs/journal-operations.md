@@ -20,7 +20,8 @@ returns, in well under a millisecond. One syncer thread
 request (SQLite syncs the WAL before each one) and flushes the drive cache
 once at close, so no request and no lock holder waits for the disk;
 `write_path.wal_commits` and `wal_synced_commits` show how many commits are
-known on disk. A sync after each reply was measured and rejected: the next
+known on disk, and `registry_wal_frame_bytes` how many bytes their WAL frames
+took (two reads around one change give that change's bytes). A sync after each reply was measured and rejected: the next
 request waited for it. A power loss or kernel panic can take back the tail of
 commits since the last checkpoint that the kernel had not yet written, and it
 also ends every terminal the tail described. Producers (agent

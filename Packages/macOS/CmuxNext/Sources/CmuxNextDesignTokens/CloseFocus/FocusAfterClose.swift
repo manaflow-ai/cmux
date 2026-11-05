@@ -1,129 +1,118 @@
-/// The focus successor rules for every close kind (plans/cmux-next/close-focus.md).
-/// One pure function per kind; tab selection and window selection call
-/// these, and the focus reducer in cmux-focus-core runs the pane rule; nothing
-/// else decides a successor.
-///
-/// Shared contract (checked by FocusAfterCloseModelCheckTests and
-/// plans/cmux-next/formal/closefocus.tla):
-/// - C1 a focus that survives stays (closing an unfocused item, or a close
-///   by another client or the daemon of an item this client did not focus,
-///   never moves focus),
-/// - C2 the successor is a surviving, shown item,
-/// - C3 the successor is nil only when no shown item survives,
-/// - C4 deterministic: the result depends only on the arguments.
+import CCmuxLayoutReducerFFI
+
+/// The focus successor rules for every close kind (plans/cmux-next/close-focus.md), run by
+/// cmux-focus-core (cmux-tui/crates/cmux-focus-core, `close_focus`) over the app FFI's typed
+/// `cmux_close_focus_*` calls: one in-process call per close, no JSON. The focus reducer runs the
+/// pane rule there too; tab selection and window selection call these. Nothing else decides a
+/// successor, and no rule is in Swift: these number the caller's ids for the call and map the
+/// answer back (the rules compare ids only by identity). The contract (C1-C4) and its model checks
+/// are in the crate's tests (`tests/focus_rules`, closefocus.tla's cases).
 public nonisolated enum FocusAfterClose {
-    /// The item in `old` order to focus after `closed` left: the next
-    /// surviving one after it, else the previous one (`preferNext`), or
-    /// the reverse. nil when `closed` was not in `old` or nothing survives.
-    public static func neighbor<ID: Hashable>(of closed: ID, in old: [ID], preferNext: Bool,
-                                              where survives: (ID) -> Bool) -> ID? {
-        guard let index = old.firstIndex(of: closed) else { return nil }
-        let after = old[(index + 1)...].first(where: survives)
-        let before = old[..<index].last(where: survives)
-        return preferNext ? (after ?? before) : (before ?? after)
-    }
-
-    /// Generic resolution: `focused` if it survives (C1), else `successor`
-    /// when that survives, else the first surviving item of `fallback`.
-    public static func resolve<ID: Hashable>(focused: ID?, survives: (ID) -> Bool, successor: ID?, fallback: [ID]) -> ID? {
-        if let focused, survives(focused) { return focused }
-        if let successor, survives(successor) { return successor }
-        return fallback.first(where: survives)
-    }
-
-    // MARK: Panes
-
-    // The pane successor rule (`pane`) lives in cmux-focus-core
-    // (cmux-tui/crates/cmux-focus-core, `close_focus::pane`): the focus
-    // reducer that runs it is there.
-
-    // MARK: Tabs
-
-    /// The tab a pane selects after `selected` closed: the
-    /// next shown tab after it, else the previous shown one. `old` is the
-    /// strip order before the close, `shown` the tabs that survive and are
-    /// not hidden (a collapsed group's members are hidden). When no shown
-    /// tab survives, the first surviving tab (its group then expands).
-    ///
-    /// `opener` maps a link tab to the tab that opened it (live relations
-    /// only, among `old`). A closed tab in that tree goes back to its
-    /// family first, in Chrome's order (`DetermineNewSelectedIndex`): its
-    /// next child, else a sibling (the next tab with its opener), else its
-    /// opener. Only shown, surviving tabs count. Tabs without relations
-    /// (terminals, agents, a browser tab after an unrelated switch) keep
-    /// next-else-previous.
-    public static func tab<ID: Hashable>(selected: ID?, old: [ID], surviving: [ID], shown: Set<ID>,
-                                         opener: [ID: ID] = [:]) -> ID? {
-        let live = Set(surviving)
-        guard let selected else { return surviving.first(where: shown.contains) ?? surviving.first }
-        if live.contains(selected) { return selected }
-        let visible = { (id: ID) in live.contains(id) && shown.contains(id) }
-        if let family = openerFamily(of: selected, in: old, opener: opener, where: visible) { return family }
-        return neighbor(of: selected, in: old, preferNext: true, where: visible)
-            ?? surviving.first(where: shown.contains)
-            ?? neighbor(of: selected, in: old, preferNext: true, where: live.contains)
-            ?? surviving.first
-    }
-
-    /// Chrome's opener step for a closed tab: the next child of `closed`,
-    /// else the next tab with the same opener, else the opener. "Next" is
-    /// Chrome's `GetIndexOfNextWebContentsOpenedBy`: the nearest after
-    /// `closed`, else the nearest before it. nil when none qualifies.
-    package static func openerFamily<ID: Hashable>(of closed: ID, in old: [ID], opener: [ID: ID],
-                                           where qualifies: (ID) -> Bool) -> ID? {
-        guard !opener.isEmpty, let index = old.firstIndex(of: closed) else { return nil }
-        func openedBy(_ parent: ID) -> ID? {
-            old[(index + 1)...].first { opener[$0] == parent && qualifies($0) }
-                ?? old[..<index].last { opener[$0] == parent && qualifies($0) }
-        }
-        if let child = openedBy(closed) { return child }
-        guard let parent = opener[closed] else { return nil }
-        if let sibling = openedBy(parent) { return sibling }
-        return qualifies(parent) ? parent : nil
-    }
-
-    /// The opener relations among `order`, from `opener` (child to opener,
-    /// possibly naming tabs that are gone). A tab whose opener is not in
-    /// `order` takes that opener's own opener, as Chrome's `FixOpeners`
-    /// does when a tab leaves the strip; a relation back to the tab
-    /// itself is dropped. Only tabs in `order` are keys.
-    public static func liveOpeners<ID: Hashable>(_ opener: [ID: ID], among order: [ID]) -> [ID: ID] {
-        let present = Set(order)
-        var result: [ID: ID] = [:]
-        for tab in order {
-            var seen: Set<ID> = [tab]
-            var parent = opener[tab]
-            while let current = parent, !present.contains(current), seen.insert(current).inserted {
-                parent = opener[current]
+    /// The tab a pane selects after `selected` closed: the next shown tab after it, else the
+    /// previous shown one. `old` is the strip order before the close, `shown` the tabs that survive
+    /// and are not hidden (a collapsed group's members are hidden). When no shown tab survives, the
+    /// first surviving tab (its group then expands). `opener` maps a link tab to the tab that opened
+    /// it (``liveOpeners(_:among:)``): a closed tab in that tree goes back to its family first, in
+    /// Chrome's order (`DetermineNewSelectedIndex`): its next child, else a sibling, else its opener.
+    public static func tab<ID: Hashable>(selected: ID?, old: [ID], surviving: [ID], shown: Set<ID>, opener: [ID: ID] = [:]) -> ID? {
+        var map = IDNumbering<ID>()
+        let selected = map.optional(selected)
+        let old = map.numbers(old)
+        let surviving = map.numbers(surviving)
+        let shown = map.numbers(shown)
+        let pairs = opener.map { ($0.key, $0.value) }
+        let children = map.numbers(pairs.map(\.0))
+        let parents = map.numbers(pairs.map(\.1))
+        let pick = old.withUnsafeBufferPointer { old in
+            surviving.withUnsafeBufferPointer { surviving in
+                shown.withUnsafeBufferPointer { shown in
+                    children.withUnsafeBufferPointer { children in
+                        parents.withUnsafeBufferPointer { parents in
+                            cmux_close_focus_tab(selected, old.baseAddress, old.count, surviving.baseAddress, surviving.count,
+                                                 shown.baseAddress, shown.count, children.baseAddress, parents.baseAddress,
+                                                 children.count)
+                        }
+                    }
+                }
             }
-            if let parent, present.contains(parent), parent != tab { result[tab] = parent }
+        }
+        return map.id(pick)
+    }
+
+    /// The opener relations among `order`, from `opener` (child to opener, possibly naming tabs
+    /// that are gone). A tab whose opener is not in `order` takes that opener's own opener, as
+    /// Chrome's `FixOpeners` does when a tab leaves the strip; a relation back to the tab itself is
+    /// dropped. Only tabs in `order` are keys.
+    public static func liveOpeners<ID: Hashable>(_ opener: [ID: ID], among order: [ID]) -> [ID: ID] {
+        guard !opener.isEmpty, !order.isEmpty else { return [:] }
+        var map = IDNumbering<ID>()
+        let pairs = opener.map { ($0.key, $0.value) }
+        let children = map.numbers(pairs.map(\.0))
+        let parents = map.numbers(pairs.map(\.1))
+        let tabs = map.numbers(order)
+        var out = [UInt32](repeating: UInt32.max, count: tabs.count)
+        let code = children.withUnsafeBufferPointer { children in
+            parents.withUnsafeBufferPointer { parents in
+                tabs.withUnsafeBufferPointer { tabs in
+                    out.withUnsafeMutableBufferPointer { out in
+                        cmux_close_focus_live_openers(children.baseAddress, parents.baseAddress, children.count,
+                                                      tabs.baseAddress, tabs.count, out.baseAddress)
+                    }
+                }
+            }
+        }
+        guard code == 0 else { return [:] }
+        var result: [ID: ID] = [:]
+        for (tab, parent) in zip(order, out) {
+            if let parent = map.id(parent) { result[tab] = parent }
         }
         return result
     }
 
-    // MARK: Workspaces
-
-    /// The workspace a window shows after `shown` left it: the next one
-    /// below in the sidebar's visual order, else the one above. `old` is
-    /// the order before (a window's members, in the order they joined it,
-    /// or the sidebar model's), `surviving` the workspaces the window still
-    /// lists. `orders`, the sidebar's row orders before the close, most
-    /// preferred first (the rows as drawn, then the model's rows), are
-    /// tried in turn: the first that lists `shown` and has a surviving
-    /// neighbor among `old` picks it. So a drawn row hands off to a drawn
-    /// row (folder sorting and a filter apply; a collapsed group's members
-    /// only when no drawn row is left), and a list row never to a
-    /// workspace no row lists (a pinned tile) while a row is left. `old`
-    /// decides last.
+    /// The workspace a window shows after `shown` left it: the next one below in the sidebar's
+    /// visual order, else the one above. `old` is the order before, `surviving` the workspaces the
+    /// window still lists, and `orders` the sidebar's row orders before the close, most preferred
+    /// first (the rows as drawn, then the model's rows): the first that lists `shown` and has a
+    /// surviving neighbor among `old` picks it. `old` decides last.
     public static func workspace<ID: Hashable>(shown: ID?, old: [ID], surviving: [ID], orders: [[ID]] = []) -> ID? {
-        let live = Set(surviving)
-        guard let shown else { return surviving.first }
-        if live.contains(shown) { return shown }
-        let members = Set(old)
-        for order in orders where order.contains(shown) {
-            let rows = order.filter { $0 == shown || members.contains($0) }
-            if let next = neighbor(of: shown, in: rows, preferNext: true, where: live.contains) { return next }
+        var map = IDNumbering<ID>()
+        let shown = map.optional(shown)
+        let old = map.numbers(old)
+        let surviving = map.numbers(surviving)
+        let flat = orders.flatMap { map.numbers($0) }
+        let lengths = orders.map { UInt32($0.count) }
+        let pick = old.withUnsafeBufferPointer { old in
+            surviving.withUnsafeBufferPointer { surviving in
+                flat.withUnsafeBufferPointer { flat in
+                    lengths.withUnsafeBufferPointer { lengths in
+                        cmux_close_focus_workspace(shown, old.baseAddress, old.count, surviving.baseAddress, surviving.count,
+                                                   flat.baseAddress, lengths.baseAddress, lengths.count)
+                    }
+                }
+            }
         }
-        return neighbor(of: shown, in: old, preferNext: true, where: live.contains) ?? surviving.first
+        return map.id(pick)
     }
+}
+
+/// The caller's ids numbered for one `cmux_close_focus_*` call (`UInt32.max` is none).
+private nonisolated struct IDNumbering<ID: Hashable> {
+    private var ids: [ID] = []
+    private var index: [ID: UInt32] = [:]
+
+    mutating func number(_ id: ID) -> UInt32 {
+        if let known = index[id] { return known }
+        let next = UInt32(ids.count)
+        ids.append(id)
+        index[id] = next
+        return next
+    }
+
+    mutating func numbers(_ list: some Sequence<ID>) -> [UInt32] { list.map { number($0) } }
+
+    func id(_ number: UInt32) -> ID? {
+        number == UInt32.max ? nil : ids.indices.contains(Int(number)) ? ids[Int(number)] : nil
+    }
+
+    mutating func optional(_ id: ID?) -> UInt32 { id.map { number($0) } ?? UInt32.max }
 }

@@ -180,10 +180,18 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
         expect(hover!.time!.opacity).toBe(1);
         expect(hover!.time!.left).toBeGreaterThanOrEqual(hover!.lastButtonRight - TOLERANCE);
         expect(hover!.buttons).toEqual(rest!.buttons);
-        // Earlier footers stay hidden at rest: only the last reply's row is in sight.
+        // Earlier footers with a reply show their buttons at rest too, as ChatGPT's (Leo, 2026-11-04:
+        // "the thing always showing at hte bottom"); their time still waits for the pointer.
         await page.mouse.move(1, 1);
-        const earlier = await footers(page, ".acpmux-turnSummary:not(.acpmux-row--final-footer)");
-        for (const footer of earlier) expect(footer.actionsOpacity).toBe(0);
+        const earlier = await footers(
+          page,
+          ".acpmux-turnSummary:not(.acpmux-row--final-footer):not(:has(.cv-turn-actions--empty))",
+        );
+        expect(earlier.length).toBeGreaterThan(0);
+        for (const footer of earlier) {
+          expect(footer.actionsOpacity).toBe(1);
+          expect(footer.time?.opacity ?? 0).toBe(0);
+        }
       } finally {
         await page.close();
       }

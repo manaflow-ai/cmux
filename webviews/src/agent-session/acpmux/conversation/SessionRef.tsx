@@ -25,13 +25,14 @@ import {
   type AgentRef,
   type SessionRefTarget,
 } from "./sessionRefs";
+import { openSessionAttributes } from "./menuParts";
 
 const noStore = () => () => {};
 const NO_PROPS: Partial<ReturnType<typeof agentLinkProps>> = {};
 
 /// The session `query` names: a listed chat's id by name at once (no ask), else the daemon's
-/// cached answer.
-function useSessionRef(query: string | undefined, byName: boolean): SessionRefTarget | null | undefined {
+/// cached answer (a received line's unlisted sender reads it too, IncomingMessageCard.tsx).
+export function useSessionRef(query: string | undefined, byName: boolean): SessionRefTarget | null | undefined {
   const store = useContext(SubsessionContext)?.store;
   const readListed = () => (byName && query ? store?.find(query) : undefined);
   const listed = useSyncExternalStore(store?.subscribeNames ?? noStore, readListed, readListed);
@@ -81,6 +82,8 @@ export function SessionRefCode({
         title={title}
         aria-label={title}
         data-session-ref=""
+        // The click opens it as a sender (`openSender`) where the page has one; the menu asks the same way.
+        {...openSessionAttributes(target.sessionId, subsessions?.openSender !== undefined)}
         onClick={() => open(target.sessionId)}
       >
         <code className="cv-code">

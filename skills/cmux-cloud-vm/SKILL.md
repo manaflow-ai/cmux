@@ -49,8 +49,9 @@ the person can read it. Without `--wait` it answers once the prompt is sent.
 - Errors say what to do next: `cloud.signed_out` (run `cmux cloud sign-in`),
   `cloud.start_pending` (the machine is still coming up: run the same command again,
   its `details.again`, to keep waiting), `chat.permission_waiting`, `chat.wait_timeout`.
-  Run from an agent chat, the app first asks the person with a card in that chat
-  (Start, Not now); `cmux agents dialog list` lists it.
+  Run from an agent chat, it starts at once, as from a terminal: nothing asks the
+  person. Only when they turned off `cloud.agentsStartWithoutAsking` does the app
+  ask first with a card in that chat (Start, Not now); `cmux agents dialog list` lists it.
 
 `cmux cloud start-chat --help` has every flag.
 

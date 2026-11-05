@@ -1,26 +1,33 @@
 public import Foundation
 import CmuxNextCompat
 
-/// The live web loop of a Debug, NIGHTLY or cmux NEXT DEV app (plans/cmux-next/web-live-reload.md): `web-dev.json`
+/// The live web loop of every cmux NEXT build (plans/cmux-next/web-live-reload.md): `web-dev.json`
 /// next to `cmux-next.json` points the app's web surfaces at a loopback Vite server (hot reload)
 /// or at an overlay folder of built bundles, with no app build and no relaunch.
 ///
 /// ```json
-/// {"server": "http://127.0.0.1:4181/", "overlay": "~/Library/Application Support/cmux-next/web-overlay"}
+/// {"server": "http://127.0.0.1:4200/", "token": "<48 hex>", "overlay": "~/Library/Application Support/cmux-next/web-overlay"}
 /// ```
 ///
 /// - `server`: the React pages and viewers (``PageDevServer``, the same paths `bun run dev`
 ///   serves) and the agent pane (`/agent-pane/`) load their files from it and keep their own
 ///   origins, so the host bridge and trust stay the shipped ones. A request the server cannot
 ///   answer falls back to the bundled file, so a stopped server leaves the bundled pages.
+///   `token` is required with it: only answers carrying it (``PageDevServer/token``) are the
+///   server's, so a process that takes over the port of a stopped server serves nothing.
 /// - `overlay`: built bundles in `pages/<resource>/`, `agent-pane/` and `webviews-app/`
 ///   (`scripts/cmux-next/web-overlay.sh install` swaps them in and then writes `manifest.json`).
 ///   A surface whose folder or entry is missing there keeps its bundled files.
+/// - `gallery`: the live gallery's server (`bun run gallery:dev`, `http://127.0.0.1:4178/` from
+///   `scripts/cmux-next/web-dev.sh`), whose stages Gallery Stage (`gallery.openStage`) shows as tabs
+///   of this app, in its own theme and backdrop (``GalleryStageTabs``). Pages ignore it.
 ///
 /// A server wins over an overlay for the files it serves. `"enabled": false`, an empty object or
 /// a deleted file restores the bundled pages. ``WebDevOverrideWatcher`` keeps ``current`` and
-/// reloads every page and agent pane on a change. Release and RC builds never read the file:
-/// ``isEnabled`` follows ``isAvailable`` (a Debug compile, a nightly bundle or cmux NEXT DEV).
+/// reloads every page and agent pane on a change, in WebKit and in Chromium. Every build reads the
+/// file (Leo, 2026-11-05: "you should be able to just change your app without going through all
+/// this hoopla"); Settings > General > Live Web Reload (`updates.liveWebReload`, on by default,
+/// ``setAllowed(_:)``) turns it off without editing it.
 public nonisolated struct WebDevOverride: Sendable, Equatable {
     /// The Vite server pages load from, nil for none.
     public var server: PageDevServer?
@@ -28,12 +35,18 @@ public nonisolated struct WebDevOverride: Sendable, Equatable {
     public var overlay: URL?
     /// The overlay's `manifest.json` bytes, so each install is a change.
     public var stamp: Data?
+    /// The live gallery's server root, nil for none (Gallery Stage then tries ``defaultGallery``).
+    public var gallery: URL?
 
-    public init(server: PageDevServer? = nil, overlay: URL? = nil, stamp: Data? = nil) {
+    public init(server: PageDevServer? = nil, overlay: URL? = nil, stamp: Data? = nil, gallery: URL? = nil) {
         self.server = server
         self.overlay = overlay
         self.stamp = stamp
+        self.gallery = gallery
     }
+
+    /// The gallery server `scripts/cmux-next/web-dev.sh` starts by default.
+    public static let defaultGallery = URL(string: "http://127.0.0.1:4178/")
 
     /// Whether pages load from a server or an overlay (an empty override serves the bundle).
     public var isActive: Bool { server != nil || overlay != nil }
@@ -43,36 +56,37 @@ public nonisolated struct WebDevOverride: Sendable, Equatable {
     /// The file an overlay install writes last.
     public static let manifestName = "manifest.json"
 
-    /// Whether `web-dev.json` is read at all: a Debug compile, a nightly bundle (tagged or not), or
-    /// cmux NEXT DEV, the daily dogfood build (a Release compile with its own id). The rule of
-    /// `DevTools.isAvailable` (CmuxNextActions, which this module does not use), plus that build.
-    public static func isAvailable(bundleID: String?, isDebugBuild: Bool) -> Bool {
-        if isDebugBuild { return true }
-        guard let bundle = bundleID?.trimmingCharacters(in: .whitespaces) else { return false }
-        let nightly = "com.cmuxterm.app.nightly"
-        return bundle == nightly || bundle.hasPrefix(nightly + ".") || bundle == nextDevBundleID
-    }
-
-    /// cmux NEXT DEV's bundle id (docs/cmux-next/dev-daily.md).
-    static let nextDevBundleID = "com.cmuxterm.app.debug.next"
-
-    /// This process: decided once from its own bundle.
-    public static let isEnabled: Bool = {
-        #if DEBUG
-        isAvailable(bundleID: Bundle.main.bundleIdentifier, isDebugBuild: true)
-        #else
-        isAvailable(bundleID: Bundle.main.bundleIdentifier, isDebugBuild: false)
-        #endif
-    }()
+    /// Whether this build reads `web-dev.json`: every build does. Kept as the one switch the watch,
+    /// the projection window and Gallery Stage ask.
+    public static let isEnabled = true
 
     private static let state = Mutex(WebDevOverride())
+    /// `updates.liveWebReload` (``setAllowed(_:)``): on until the settings say otherwise.
+    private static let allowed = Mutex(true)
 
-    /// The override in force: empty unless ``isEnabled``, the watcher read a file and the Debug
-    /// Settings toggle (``PageTunables/webDevOverride``) is on.
+    /// The override in force: what the watcher read from `web-dev.json`, or empty while
+    /// Live Web Reload is off.
     public static var current: WebDevOverride {
-        guard PageTunables.webDevOverride.value else { return WebDevOverride() }
+        guard allowed.withLock({ $0 }) else { return WebDevOverride() }
         return state.withLock { $0 }
     }
+
+    /// Follows the Live Web Reload setting (`updates.liveWebReload`): off ignores `web-dev.json`
+    /// without editing it. A change reloads every page and agent pane from where it now loads.
+    @MainActor public static func setAllowed(_ on: Bool) {
+        let changed = allowed.withLock { held in
+            guard held != on else { return false }
+            held = on
+            return true
+        }
+        guard changed else { return }
+        let active = state.withLock { $0.isActive }
+        if active { WebDevOverrideWatcher.reloadPages() }
+    }
+
+    /// The live gallery's server for Gallery Stage: web-dev.json's `gallery`, else ``defaultGallery``.
+    /// Read whatever Live Web Reload says, since no page loads from it.
+    public static var galleryServer: URL? { state.withLock { $0.gallery } ?? defaultGallery }
 
     /// Replaces ``current``; returns whether it changed. Ignored unless ``isEnabled``.
     @discardableResult
@@ -86,20 +100,30 @@ public nonisolated struct WebDevOverride: Sendable, Equatable {
     }
 
     /// The override `data` (the file's bytes) describes: nil fields for a missing or invalid
-    /// value, an empty override for invalid JSON or `"enabled": false`. `server` must pass
+    /// value, an empty override for invalid JSON or `"enabled": false`. `server` and `gallery` must pass
     /// ``PageDevServer/loopbackURL(_:)``; `overlay` is an absolute path or one under `~`.
     public static func parse(_ data: Data, home: URL) -> WebDevOverride {
         guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               (object["enabled"] as? Bool) ?? true
         else { return WebDevOverride() }
         var value = WebDevOverride()
-        if let server = object["server"] as? String, let root = PageDevServer.loopbackURL(server) {
-            value.server = PageDevServer(root: root)
+        // A server without its token is ignored: any local process could hold a port a stale file
+        // names (``PageDevServer/token``). `web-overlay.sh` writes one.
+        if let server = object["server"] as? String, let root = PageDevServer.loopbackURL(server),
+           let token = (object["token"] as? String).flatMap(validToken) {
+            value.server = PageDevServer(root: root, token: token)
         }
         if let overlay = object["overlay"] as? String, let url = overlayURL(overlay, home: home) {
             value.overlay = url
         }
+        if let gallery = object["gallery"] as? String { value.gallery = PageDevServer.loopbackURL(gallery) }
         return value
+    }
+
+    /// `raw` as a dev server token: at least 32 characters of `[A-Za-z0-9_-]`, else nil.
+    static func validToken(_ raw: String) -> String? {
+        let allowed = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
+        return raw.count >= 32 && raw.allSatisfy(allowed.contains) ? raw : nil
     }
 
     /// `path` as a folder: `~/x` under `home`, an absolute path as is, else nil.

@@ -431,10 +431,6 @@ const chatgptRunDetails = {
   local: "This chat stays on this computer",
   cloud: "Available on any device and can access your computer",
 };
-const openCloudChip: Play = async (ctx) => {
-  await ctx.click({ role: "button", name: /^Machine/ });
-  await waitRows("cloud")(ctx);
-};
 function stripVariants(arm: StripArm) {
   const props = {
     ...stripMachines,
@@ -467,20 +463,22 @@ function stripVariants(arm: StripArm) {
     [`strip-${arm}-cloud`]: {
       note: note(
         arm === "where-machine" || arm === "where-machine-always"
-          ? "Cloud picked: the third chip is which Cloud machine, New machine by default (the workspace's own new machine); its project is picked in the same Project chip."
-          : "Cloud picked: Cloud gives the workspace its own new machine; its project is picked in the same Project chip.",
+          ? "Cloud picked: two chips, Project and Where, with no machine chip and no New machine step. Send reuses the person's Cloud machine or makes one, its progress in the chat (Leo, 2026-11-04: \"after you pick Cloud, like, you shouldn't be seeing the new machine situation\")."
+          : arm === "cloud-toggle"
+            ? "Cloud picked: the machine chip says Cloud, never New machine; Send reuses the person's Cloud machine or makes one, its progress in the chat."
+            : "Cloud picked: Cloud gives the workspace its own new machine; its project is picked in the same Project chip.",
       ),
       props: { ...props, runMode: { mode: "cloud" as const, onMode: () => undefined } },
     },
-    ...(arm === "where-machine" || arm === "where-machine-always"
+    ...(arm === "where-machine"
       ? {
-          [`strip-${arm}-cloud-machines`]: {
-            height: 320,
+          [`strip-${arm}-cloud-where`]: {
+            height: 260,
             note: note(
-              "Cloud's chip open: New machine checked, the account's Cloud machines, then New Cloud Machine… and Open Cloud… under a hairline (Codex's Create and Manage environments).",
+              "Cloud picked, Where open: Cloud checked, one line, and nothing to choose after it: no New machine row, no machine chip, no create card on Send.",
             ),
             props: { ...props, runMode: { mode: "cloud" as const, onMode: () => undefined } },
-            play: openCloudChip,
+            play: whereOpen,
           },
         }
       : {}),

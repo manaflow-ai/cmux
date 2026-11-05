@@ -202,11 +202,7 @@ export const ThoughtRow = memo(function ThoughtRow({
             {thoughtPreview(text)}
           </span>
         )}
-        <ChevronRight
-          size={14}
-          strokeWidth={1.2}
-          className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
-        />
+        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
       </button>
       {fold.present && (
         <div {...fold.bodyProps}>
@@ -220,8 +216,9 @@ export const ThoughtRow = memo(function ThoughtRow({
 });
 
 /// A thought as one step of an opened group (ToolGroupRow.tsx). The thought that led into the run
-/// (`lead`) starts open, its whole text in that place with the disclosure at the top of the row's
-/// end, as Claude Code desktop lists a run's; closed, its words on one line cut with an ellipsis and
+/// (`lead`) starts open: "Thought" or "Thought for 6s" with the disclosure right after the words, its
+/// whole text under them, as Claude Code desktop lists a run's (cmux#27896 parked that disclosure at
+/// the row's far edge; gallery agent-pane.claude-desktop-organization keeps it as `lead-edge`); closed, its words on one line cut with an ellipsis and
 /// the disclosure right after them. A later thought is one quiet row like ThoughtRow's, "Thought" or
 /// "Thought for 12s" with none of its text inline, that opens to its whole text under it (Leo
 /// 2026-10-20, agent-pane-step-rows.test.ts). The reader's choice is kept by `id` with ThoughtRow's,
@@ -249,8 +246,10 @@ export function StepThought({ item, id, lead = false }: { item: AcpmuxActivity; 
     () => (open || !lead ? "" : text.split("\n").map(thoughtPreview).filter(Boolean).join(" ")),
     [open, lead, text],
   );
-  // A later thought's quiet label, as ThoughtRow's folded line reads.
-  const ms = lead || thoughtLayout.header() !== "duration" ? undefined : thoughtDuration(item);
+  // A later thought's quiet label, as ThoughtRow's folded line reads; an opened lead thought reads
+  // the same, "Thought for 6s", with its chevron right after the words (design/chat-transcript.md,
+  // the chevron after its label), never parked at the row's far edge.
+  const ms = thoughtLayout.header() !== "duration" ? undefined : thoughtDuration(item);
   const label =
     ms !== undefined && ms >= 1000 ? t("tools.thoughtFor", { time: formatDuration(ms) }) : t("tools.thought");
   return (
@@ -260,25 +259,19 @@ export function StepThought({ item, id, lead = false }: { item: AcpmuxActivity; 
         className={`cv-tool is-toggle cv-thought cv-step-thought${open && lead ? " is-open" : ""}`}
         aria-expanded={open}
         aria-controls={open ? bodyId : undefined}
-        aria-label={open && lead ? t("tools.thought") : undefined}
+        aria-label={open && lead ? label : undefined}
         onClick={() => choose(!open)}
       >
-        {!lead ? (
+        {!lead || open ? (
           <span className="cv-tool__text cv-thought__label" data-find-skip>
             {label}
           </span>
         ) : (
-          !open && (
-            <span className="cv-tool__text cv-thought__preview" dir="auto" data-find-skip>
-              {line}
-            </span>
-          )
+          <span className="cv-tool__text cv-thought__preview" dir="auto" data-find-skip>
+            {line}
+          </span>
         )}
-        <ChevronRight
-          size={14}
-          strokeWidth={1.2}
-          className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
-        />
+        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
       </button>
       {open && (
         <div id={bodyId} className="cv-thought__text cv-thought__body cv-step-thought__body selectable" dir="auto">

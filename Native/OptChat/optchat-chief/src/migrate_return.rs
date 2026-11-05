@@ -861,7 +861,7 @@ fn pull_back_steps(
     let _ = std::fs::remove_dir_all(&tmp);
     restored.map_err(thaw)?;
     let here = format!("local:{}", home.display());
-    migrate::timed(&mut report.steps, "commit", || {
+    let back = migrate::timed(&mut report.steps, "commit", || {
         migrate::ssh(
             host,
             &format!(
@@ -873,20 +873,21 @@ fn pull_back_steps(
             ),
             None,
         )?;
+        // The subagents a move handed to that host come back with the Chief, while its host
+        // here still does not start (the marker is there), so their new place is the only
+        // write. The Chief is home either way; one that does not come back stays on record.
+        let back = crate::migrate_subagents::recorded(home)
+            .map(|_| crate::migrate_subagents::bring_back(home));
         std::fs::remove_file(home.join(migrate::MOVED_FILE)).map_err(|e| e.to_string())?;
         let _ = std::fs::remove_file(home.join(migrate::SHUTDOWN_FILE));
         Ok((
-            (),
+            back,
             format!("{} answers again; {host}:{path} is retired", home.display()),
         ))
     })?;
     report.moved = true;
-    // The subagents a move handed to that host come back with the Chief. The Chief is home
-    // either way; one that does not come back stays on record for the next try.
-    if crate::migrate_subagents::recorded(home).is_some() {
-        let _ = migrate::timed(&mut report.steps, "subagents", || {
-            crate::migrate_subagents::bring_back(home).map(|d| ((), d))
-        });
+    if let Some(back) = back {
+        let _ = migrate::timed(&mut report.steps, "subagents", || back.map(|d| ((), d)));
     }
     Ok(())
 }

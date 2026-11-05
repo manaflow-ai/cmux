@@ -53,7 +53,9 @@ class MachineVaultE2EWorkflow(unittest.TestCase):
     def test_manual_dispatch_only(self) -> None:
         self.assertEqual(list(load()["on"].keys()), ["workflow_dispatch"])
         inputs = load()["on"]["workflow_dispatch"]["inputs"]
-        self.assertEqual(sorted(inputs), ["join_channel"])
+        self.assertEqual(sorted(inputs), ["join_channel", "model"])
+        # The model stub by default; the team's login only on a model: real dispatch (the canary).
+        self.assertEqual((inputs["model"]["default"], inputs["model"]["options"]), ("stub", ["stub", "real"]))
         self.assertEqual(inputs["join_channel"]["default"], "feat-cmux-next")
 
     def test_feat_cmux_next_only(self) -> None:
@@ -87,13 +89,14 @@ class MachineVaultE2EWorkflow(unittest.TestCase):
 
     def test_secrets_reach_one_step_through_env(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
-        self.assertEqual(len(re.findall(r"\$\{\{\s*secrets\.", text)), 3)
+        self.assertEqual(len(re.findall(r"\bsecrets\.[A-Z]", text)), 3)
         holders = [s for s in steps() if re.search(r"\$\{\{\s*secrets\.", str(s))]
         self.assertEqual([s["name"] for s in holders], [RUN_STEP])
         run = holders[0]
         self.assertEqual(run["env"]["CMUX_UITEST_STACK_EMAIL"], "${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}")
         self.assertEqual(run["env"]["CMUX_UITEST_STACK_PASSWORD"], "${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}")
-        self.assertEqual(run["env"]["CLAUDE_CODE_OAUTH_TOKEN"], "${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}")
+        # The subscription login reaches the run only on a model: real dispatch (the canary).
+        self.assertEqual(run["env"]["CLAUDE_CODE_OAUTH_TOKEN"], "${{ inputs.model == 'real' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}")
         self.assertNotIn("secrets", run["run"])
         self.assertNotIn("CMUX_UITEST_STACK", run["run"])
         self.assertNotIn("CLAUDE_CODE_OAUTH_TOKEN", run["run"])
@@ -112,8 +115,8 @@ class MachineVaultE2EWorkflow(unittest.TestCase):
         self.assertNotRegex(script, r'vault[^\n]*LOGIN_VAR')
         self.assertIn('export const LOGIN_VAR = "CLAUDE_CODE_OAUTH_TOKEN"', script)
         self.assertIn("hold(login)", script)
-        self.assertLess(script.index("login = env.CLAUDE_CODE_OAUTH_TOKEN"), script.index("hold(login)"))
-        self.assertIn("sshUser(AGENT_SCRIPT, `${login}\\n`", script)
+        self.assertLess(script.index("env.CLAUDE_CODE_OAUTH_TOKEN"), script.index("hold(login)"))
+        self.assertIn("sshUser(agentScript(stubUrl), `${login}\\n`", script)
         self.assertIn("IFS= read -r ${LOGIN_VAR}", script)
         self.assertIn("unset ${LOGIN_VAR}", script)
         # Cleanup confirms the processes that held it are gone; the scans count its hits.

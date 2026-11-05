@@ -70,10 +70,3 @@ extension TopPageRoute {
     static let homeAppID = "cmux/home"
     static let appStoreAppID = "cmux/app-store"
 }
-
-extension SidebarLayoutDocument {
-    /// The region of the section that holds item `id`.
-    func region(of id: LayoutItemID) -> SidebarRegion? {
-        locate(id).map { sections[$0.section].region }
-    }
-}

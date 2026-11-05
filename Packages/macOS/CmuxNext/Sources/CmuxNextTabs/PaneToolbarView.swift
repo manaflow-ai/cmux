@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextCompat
 public import CmuxNextDesign
+import CmuxNextIcons
 
 /// A pinned action's button (`tabs.toolbarButtons`): its symbol, its title and key in the tooltip.
 public struct PaneToolbarItem: Equatable, Sendable {
@@ -163,6 +164,15 @@ public final class PaneToolbarView: NSView {
         }
     }
 
+    /// A cmux pack icon name the web side sends where no SF Symbol fits (the Session Info toggle's
+    /// two-row `view.list.short`, Leo 2026-11-04: "make our session info button 2 rows too"); nil
+    /// leaves an SF Symbol name to TitlebarBandButton, so the other tools keep their symbols.
+    private static func packGlyph(_ name: String, _ side: CGFloat) -> NSImage? {
+        guard NSImage(systemSymbolName: name, accessibilityDescription: nil) == nil else { return nil }
+        let icon = IconName(name)
+        return IconPack.bundled.drawing(for: icon) == nil ? nil : NSImage.icon(icon, size: side)
+    }
+
     private func setNativeButtons(_ items: [PaneTabRowTool]) {
         nativeButtons.forEach { reveal.remove($0); $0.removeFromSuperview() }
         nativeMoreTool = items.first(where: { $0.id == "chat-menu" })
@@ -174,6 +184,7 @@ public final class PaneToolbarView: NSView {
         nativeItems = buttonItems
         nativeButtons = buttonItems.enumerated().map { index, item in
             let button = TitlebarBandButton(symbol: item.symbol, text: item.text)
+            button.customImage = Self.packGlyph
             button.tag = index
             button.setAccessibilityLabel(item.label)
             button.setAccessibilityIdentifier("cmux.pane.native-toolbar.\(item.id)")

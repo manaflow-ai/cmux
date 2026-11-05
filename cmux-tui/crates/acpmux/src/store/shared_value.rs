@@ -153,9 +153,7 @@ mod tests {
     #[test]
     fn bookkeeping_is_bounded_and_does_not_retain_catalogs() {
         let mut pool = Interner::default();
-        let live: Vec<_> = (0..INTERN_SLOTS * 2)
-            .map(|n| pool.intern(json!(n), n as u64))
-            .collect();
+        let live: Vec<_> = (0..INTERN_SLOTS * 2).map(|n| pool.intern(json!(n), n as u64)).collect();
         assert!(pool.0.len() <= INTERN_SLOTS);
         assert_eq!(*live[0], json!(0));
         let weak = Arc::downgrade(&live[0]);

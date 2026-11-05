@@ -492,7 +492,11 @@ runs job migrate-production in environment cmux-vm-production
   as an existing role); the login stays in the process, masked. After a create or reassign it waits
   7 minutes (PITR lag), then `adopt --through 0009` when untracked, then `apply --confirm-production`
   with `--allow-contract` for every contract file. The staging check reads staging through a 2 h
-  pscale read role. Receipts upload as the artifact `cmux-vm-migrate-production-receipts`.
+  pscale read role. After an adopt it waits 7 minutes again, so the apply's rehearsal copy has the
+  adopted rows. After the apply it grants the Worker role (cmux-vm-worker) USAGE on cmux_vm and every
+  table privilege schema-requirements.ts names (migrations carry no GRANT), then requires the Worker's
+  schema check to find no missing privilege. The lock session uses the direct port 5432.
+  Receipts upload as the artifact `cmux-vm-migrate-production-receipts`.
 
 Rollback: the apply receipt lists each file's Rollback section, newest first; an adopt is undone by
 deleting the adopted rows of cmux_vm.schema_migrations. The owner change is undone by

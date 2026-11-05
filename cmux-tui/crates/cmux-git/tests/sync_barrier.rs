@@ -1,5 +1,5 @@
 #![cfg(unix)]
-use cmux_git::sync_barrier::{Probe, Sync, probe};
+use cmux_git::sync_barrier::{Probe, Sync, probe, wait_ready};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -96,6 +96,25 @@ fn a_reader_never_blocks_a_sibling_repository_sync() {
     let sibling = scratch.0.join("independent-repo");
     Sync::begin(&sibling).unwrap().complete().unwrap();
     assert!(matches!(probe(&sibling).unwrap(), Probe::Ready(_)));
+}
+
+#[test]
+fn pre_tool_wait_releases_only_after_sync_completes() {
+    let scratch = Scratch::new();
+    let repo = scratch.repo();
+    let sync = Sync::begin(&repo).unwrap();
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let (finished_tx, finished_rx) = std::sync::mpsc::channel();
+    let waiter = std::thread::spawn(move || {
+        started_tx.send(()).unwrap();
+        wait_ready(&repo, std::time::Duration::from_secs(2)).unwrap();
+        finished_tx.send(()).unwrap();
+    });
+    started_rx.recv_timeout(std::time::Duration::from_secs(1)).unwrap();
+    assert!(finished_rx.recv_timeout(std::time::Duration::from_millis(50)).is_err());
+    sync.complete().unwrap();
+    finished_rx.recv_timeout(std::time::Duration::from_secs(1)).unwrap();
+    waiter.join().unwrap();
 }
 
 /// Same deterministic overlap schedule, with and without waiting. This measures

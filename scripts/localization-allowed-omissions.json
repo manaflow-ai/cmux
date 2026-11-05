@@ -7122,5 +7122,80 @@
       "fr": "Cloud is the established UI noun for cmux's Cloud product area in this locale (see sidebar.cloud.button); an explicit translated entry remains required.",
       "it": "Cloud is the established UI noun for cmux's Cloud product area in this locale (see sidebar.cloud.button); an explicit translated entry remains required."
     }
+  },
+  "sidebar.groupSort.name": {
+    "source": "Name",
+    "identityLocales": {
+      "de": "Name has the same spelling in German (as devices.nameField)."
+    }
+  },
+  "sidebar.groupSort.manual": {
+    "source": "Manual",
+    "identityLocales": {
+      "es": "Manual is the Spanish adjective for a hand-set order (as settings.terminal.resumeCommands.policy.manual).",
+      "pt-BR": "Manual is the Portuguese adjective for a hand-set order, spelled as in English."
+    }
+  },
+  "argument.value.groupSort.name": {
+    "source": "Name",
+    "identityLocales": {
+      "de": "Name has the same spelling in German (as sidebar.groupSort.name)."
+    }
+  },
+  "argument.value.groupSort.manual": {
+    "source": "Manual",
+    "identityLocales": {
+      "es": "Manual is the Spanish adjective for a hand-set order (as sidebar.groupSort.manual).",
+      "pt-BR": "Manual is the Portuguese adjective for a hand-set order, spelled as in English."
+    }
+  },
+  "remote.status.title": {
+    "class": "brand",
+    "source": "cmux Remote"
+  },
+  "settings.group.cmuxRemote": {
+    "class": "brand",
+    "source": "cmux Remote"
+  },
+  "remote.status.computerUse": {
+    "source": "Computer Use: %@",
+    "identityLocales": {
+      "de": {
+        "reason": "Computer Use is the cmux feature name (a brand, as settings.section.computerUse); %@ is the worker state.",
+        "values": [
+          "Computer Use: %@"
+        ]
+      },
+      "ar": {
+        "reason": "Computer Use is the cmux feature name (a brand, as settings.section.computerUse); %@ is the worker state.",
+        "values": [
+          "Computer Use: %@"
+        ]
+      },
+      "es": {
+        "reason": "Computer Use is the cmux feature name (a brand, as settings.section.computerUse); %@ is the worker state.",
+        "values": [
+          "Computer Use: %@"
+        ]
+      },
+      "ko": {
+        "reason": "Computer Use is the cmux feature name (a brand, as settings.section.computerUse); %@ is the worker state.",
+        "values": [
+          "Computer Use: %@"
+        ]
+      },
+      "ja": {
+        "reason": "Computer Use is the cmux feature name (a brand, as settings.section.computerUse); %@ is the worker state.",
+        "values": [
+          "Computer Use: %@"
+        ]
+      }
+    }
+  },
+  "remote.status.host": {
+    "source": "Host: %@",
+    "identityLocales": {
+      "de": "Host is the usual German term for the computer that shares its screen."
+    }
   }
 }

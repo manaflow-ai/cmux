@@ -22,7 +22,7 @@ export const filesHandlers = HttpApiBuilder.group(CmuxVmApi, "files", (handlers)
       withOwnedVm(path.vmId, "vm:files", "files", (_caller, vm, proofs) => Effect.gen(function* () {
         const upstream = yield* UpstreamClient;
         const stat = yield* upstream.statFile(vm, proofs, urlParams.path).pipe(Effect.mapError((error) =>
-          error.status === 404 ? fileNotFound() : error.status === 400 ? badRequest("The path is not readable") : unavailable(),
+          error.status === 404 ? fileNotFound() : error.status === 400 ? badRequest("The path is not readable") : unavailable(error),
         ));
         return new FileStat(stat);
       })),
@@ -37,7 +37,7 @@ export const filesHandlers = HttpApiBuilder.group(CmuxVmApi, "files", (handlers)
               if (error.status === 409) return conflict(NOT_RUNNING);
               if (error.status === 400) return badRequest("The path is not readable");
               if (error.status === 416) return badRequest("The range lies outside the file");
-              return unavailable();
+              return unavailable(error);
             }),
           );
           const responseHeaders: Record<string, string> = {};
@@ -78,7 +78,7 @@ export const filesHandlers = HttpApiBuilder.group(CmuxVmApi, "files", (handlers)
                 if (error.status === 413) {
                   return new PayloadTooLarge({ message: `Uploads are limited to ${policy.maxUploadBytes} bytes`, maxBytes: policy.maxUploadBytes });
                 }
-                return unavailable();
+                return unavailable(error);
               }),
             );
             return HttpServerResponse.empty({ status: 204 });
@@ -95,7 +95,7 @@ export const filesHandlers = HttpApiBuilder.group(CmuxVmApi, "files", (handlers)
               if (error.status === 404) return fileNotFound();
               if (error.status === 409) return conflict(NOT_RUNNING);
               if (error.status === 400) return badRequest("The path is not a readable directory");
-              return unavailable();
+              return unavailable(error);
             }),
           );
           return new FileList({

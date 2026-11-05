@@ -165,7 +165,7 @@ export const MessageRow = memo(function MessageRow({
   );
   return (
     <article
-      className={`hc-msg lg-msg${head ? " head" : ""}${mentionsMe(message, me) ? " mention" : ""}${editing ? " editing" : ""}${highlighted ? " highlighted" : ""}${focused ? " focused" : ""}${pending ? ` pending ${pending}` : ""}`}
+      className={`hc-msg lg-msg ui-reveal-host${head ? " head" : ""}${mentionsMe(message, me) ? " mention" : ""}${editing ? " editing" : ""}${highlighted ? " highlighted" : ""}${focused ? " focused" : ""}${pending ? ` pending ${pending}` : ""}`}
       aria-label={`${author?.name ?? message.author}, ${time}`}
       aria-current={focused ? "true" : undefined}
       data-depth={depth > 0 ? Math.min(depth, MAX_THREAD_INDENT) : undefined}

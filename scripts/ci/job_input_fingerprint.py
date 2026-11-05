@@ -369,6 +369,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--base-rev", help="the base commit (HEAD^1); generated-files keys its settings sources")
     parser.add_argument("--extra", action="append", default=[], help="NAME=VALUE of the toolchain or a flag (repeatable)")
     parser.add_argument("--list-inputs", action="store_true", help="print every keyed path on stderr")
+    parser.add_argument("--mirror-plan", default="", help="write a non-enforcing candidate plan (empty disables)")
     args = parser.parse_args(argv)
     if args.list_inputs and JOBS[args.job].product:
         try:
@@ -406,6 +407,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{name} {text}", file=sys.stderr)
     print(f"key=job-pass-{args.job}-{digest[:40]}")
     print(f"fingerprint={digest}")
+    if args.mirror_plan:
+        try:
+            import rebuild_mirror
+            rebuild_mirror.start(args.root, args.rev, args.job, value, Path(args.mirror_plan))
+        except Exception as why:
+            # The observer cannot change the full-tree key or fail the test job.
+            print(f"::notice title=Rebuild mirror unavailable::{why}", file=sys.stderr)
     return 0
 
 

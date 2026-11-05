@@ -13,6 +13,9 @@ final class NotificationContentModel {
     var form: PushForm?
     private(set) var snapshot: PushSnapshot?
     private(set) var outbox: PushOutbox?
+    /// A build without the App Group hands a reply over through the push keychain group
+    /// instead (`PushHandover`), which every build is signed with.
+    let handover = PushHandover.live()
     /// False with Show previews off while the phone is locked.
     private(set) var showsContent = true
     /// Photos and files "+" picked, staged for this notification's Reply.
@@ -35,7 +38,7 @@ final class NotificationContentModel {
     /// view. So the view is laid out for that space: Messages' compact header (a small
     /// avatar beside the name) and a shorter history that scrolls.
     var isCompact: Bool {
-        guard let payload, showsContent, actionable else { return false }
+        guard let payload, showsContent, actionable, form?.hasComposer == true else { return false }
         return [.completed, .failed, .chief].contains(payload.kind)
     }
 
@@ -61,12 +64,26 @@ final class NotificationContentModel {
         }
     }
 
-    /// A handover is possible: the build shares an App Group with the app.
-    var canHandOver: Bool { outbox != nil }
+    /// A handover is possible: the App Group's outbox, or the push keychain group with the
+    /// notification's request id (the app takes it when the extension opens it).
+    var canHandOver: Bool { outbox != nil || (handover != nil && requestID != nil) }
 
-    /// "+": a reply that takes attachments, in a build that can hand them to the app.
+    /// Leaves `reply` for the app: the outbox when the build has the App Group, else the push
+    /// keychain group under this notification's request id. The file or keychain write runs off
+    /// the main thread.
+    func handOver(_ reply: PushReply) async throws {
+        let (outbox, handover, requestID) = (outbox, handover, requestID)
+        try await Task.detached(priority: .userInitiated) {
+            if let outbox { return try outbox.put(reply) }
+            guard let handover, let requestID else { throw PushOutbox.Refused() }
+            try handover.put(reply, requestID: requestID)
+        }.value
+    }
+
+    /// "+": a reply that takes attachments, in a build that can hand files to the app (the
+    /// App Group's outbox; the keychain carries no files).
     var showsAttach: Bool {
-        payload != nil && showsContent && actionable && canHandOver && !attachmentKinds.isEmpty
+        payload != nil && showsContent && actionable && outbox != nil && !attachmentKinds.isEmpty && form?.hasComposer == true
     }
 
     /// The conversation up to and including the notified message.

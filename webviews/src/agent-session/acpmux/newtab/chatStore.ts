@@ -22,8 +22,19 @@ const FULL = 60;
 
 type Stored = { at: number; sessions: AcpmuxSessionEntry[] };
 
+/// How often a page writes the store while its list keeps changing. Each write serializes every
+/// chat (about 3,000 on a busy Mac) and wakes every other agent page, hidden ones too, to parse it,
+/// and a list changes on nearly every frame while agents stream (each one moves its `updatedAt`).
+/// The first change writes at once; later ones within the window write once, when it ends.
+const PUBLISH_MS = 500;
+
 let current: Stored | undefined;
 let loaded = false;
+/// The newest list this page received and has not written yet, and the window's timer: it is
+/// armed only while a write went out in the last `PUBLISH_MS`, and ends when a window passes
+/// with nothing to write. A page that hides or goes away writes what it holds first.
+let pending: { sessions: Sessions; at: number } | undefined;
+let windowTimer: ReturnType<typeof setTimeout> | undefined;
 /// The last list this page published (the direct client keeps an unchanged session's entry).
 let lastPublished: Sessions | undefined;
 let lastText: string | undefined;
@@ -56,9 +67,26 @@ function notify(): void {
   for (const listener of listeners) listener();
 }
 
+/// The `at` and the sessions' JSON of a value `encode` wrote, read without parsing the list: a
+/// write's text is `{"at":N,"sessions":[...]}`, so the list's own text is what follows the prefix.
+const WRITTEN = /^\{"at":(-?\d+(?:\.\d+)?(?:e[+-]?\d+)?),"sessions":(?=\[)/;
+function written(raw: string | null | undefined): { at: number; listed: string } | undefined {
+  const match = raw ? WRITTEN.exec(raw) : null;
+  if (!raw || !match || !raw.endsWith("]}")) return undefined;
+  return { at: Number(match[1]), listed: raw.slice(match[0].length, -1) };
+}
+
 function onStorage(event: StorageEvent): void {
   // `key: null` is a clear() of the whole store.
   if (event.key !== KEY && event.key !== null) return;
+  // Every page publishes the list it receives, so most writes hold the list this page already
+  // has: those are read from their text, without parsing thousands of chats.
+  const raw = event.key === null ? undefined : written(event.newValue);
+  if (raw && current && raw.at < current.at) return;
+  if (raw && current && raw.listed === lastText) {
+    current = { at: raw.at, sessions: current.sessions };
+    return;
+  }
   const next = event.key === null ? undefined : parse(event.newValue);
   if (next && current && next.at < current.at) return;
   const text = next ? JSON.stringify(next.sessions) : undefined;
@@ -76,6 +104,8 @@ function load(): void {
   lastText = current ? JSON.stringify(current.sessions) : undefined;
   try {
     globalThis.window?.addEventListener("storage", onStorage);
+    globalThis.window?.addEventListener("pagehide", flushPending);
+    globalThis.document?.addEventListener("visibilitychange", flushPending);
   } catch {
     // No window: this page's own writes still reach it.
   }
@@ -142,9 +172,38 @@ export function publishSessions(
   // entries (the direct client keeps an unchanged session's entry): compare entries, not the list.
   if (sameEntries(snapshot.sessions, lastPublished)) return;
   lastPublished = snapshot.sessions;
-  const text = encode(snapshot.sessions, at);
+  pending = { sessions: snapshot.sessions, at };
+  // A write went out less than `PUBLISH_MS` ago: this list goes when the window ends.
+  if (windowTimer !== undefined) return;
+  writePending();
+}
+
+function endWindow(): void {
+  windowTimer = undefined;
+  flushPending();
+}
+
+/// Writes the list held back from the last window, unless another page wrote a newer one meanwhile:
+/// a held-back list carries the `at` it arrived with, and must not replace a newer page's list.
+function flushPending(): void {
+  if (pending && current && pending.at < current.at) pending = undefined;
+  writePending();
+}
+
+/// Writes the list this page holds, if any, and starts a new window.
+function writePending(): void {
+  const next = pending;
+  if (!next) return;
+  pending = undefined;
+  if (windowTimer !== undefined) clearTimeout(windowTimer);
+  windowTimer = setTimeout(endWindow, PUBLISH_MS);
+  write(next.sessions, next.at);
+}
+
+function write(sessions: Sessions, at: number): void {
+  const text = encode(sessions, at);
   const stored = JSON.parse(text) as Stored;
-  const listed = JSON.stringify(stored.sessions);
+  const listed = written(text)?.listed ?? JSON.stringify(stored.sessions);
   // The list the store already holds (this page's or another's): no write, no event elsewhere.
   if (listed === lastText && current) return;
   try {
@@ -210,12 +269,18 @@ export function useSharedSessions(own: Sessions, enabled = true): Sessions {
 
 /// A new page's start (tests): forget this page's copy and read the store again.
 export function reloadChatStoreForTests(): void {
+  // The page that goes away writes what it holds (`pagehide`).
+  flushPending();
+  if (windowTimer !== undefined) clearTimeout(windowTimer);
+  windowTimer = undefined;
   loaded = false;
   current = undefined;
   lastPublished = undefined;
   lastText = undefined;
   try {
     globalThis.window?.removeEventListener("storage", onStorage);
+    globalThis.window?.removeEventListener("pagehide", flushPending);
+    globalThis.document?.removeEventListener("visibilitychange", flushPending);
   } catch {
     // No window.
   }

@@ -425,7 +425,8 @@ fn non_output_read_pages_every_other_kind_across_seek_windows() {
         let tx = db.unchecked_transaction().unwrap();
         for index in 0..total {
             // A long run of output in the middle: a whole window holds no other kind.
-            let kind = if (4_000..4_000 + JOURNAL_KIND_SEEK_WINDOW as usize + 500).contains(&index) {
+            let kind = if (4_000..4_000 + JOURNAL_KIND_SEEK_WINDOW as usize + 500).contains(&index)
+            {
                 "terminal.output"
             } else {
                 kinds[index % kinds.len()]
@@ -472,7 +473,9 @@ fn non_output_read_pages_every_other_kind_across_seek_windows() {
         assert!(reached > cursor, "each page makes progress");
         assert!(records.len() <= 512);
         assert!(records.iter().all(|record| record.kind != "terminal.output"));
-        assert!(records.iter().all(|record| record.sequence > cursor && record.sequence <= reached));
+        assert!(
+            records.iter().all(|record| record.sequence > cursor && record.sequence <= reached)
+        );
         seen.extend(records.iter().map(|record| record.sequence));
         cursor = reached;
     }

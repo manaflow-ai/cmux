@@ -612,7 +612,7 @@ impl Read for SnapshottingReader {
             if let Some(output) = buf.get(unnumbered..n) {
                 crate::debug_spans::output_marks(&self.terminal_id, output);
             }
-            cmux_flow_trace::hop("daemon.output.holder", 0, &self.terminal_id);
+            cmux_flow_trace::hop_on_traced("daemon.output.holder", &self.terminal_id);
         }
         Ok(n)
     }

@@ -87,6 +87,8 @@ fn fake_machine_with_files(
                     seen.files.insert(format!("{parent}/{name}"), size);
                     Ok(json!({"entry": {"revision": "renamed"}}))
                 }
+                // A machine image before `fs-write-deflate-v1`: plain writes.
+                "identify" => Ok(json!({"capabilities": ["fs-v1"]})),
                 other => panic!("the upload asked for {other}"),
             };
             let id = request["id"].clone();

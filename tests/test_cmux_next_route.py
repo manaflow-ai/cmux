@@ -21,7 +21,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
-from cmux_next_push_attribution import MAX_COMMENTED_PRS, failed_jobs, last_green, never_passed, should_comment  # noqa: E402
+from cmux_next_push_attribution import (MAX_COMMENTED_PRS, failed_jobs, bisect_history, last_green,
+                                         never_passed, should_comment)  # noqa: E402
 from cmux_next_route import MAX_PRIORITY_SUITES, outputs, route  # noqa: E402
 
 PACKAGE = "Packages/macOS/CmuxNext"
@@ -1183,6 +1184,219 @@ class RunnerAndScriptRoutes(unittest.TestCase):
 
 
 class PushAttribution(unittest.TestCase):
+    def test_bisect_history_probes_midpoints_and_names_adjacent_green_red(self):
+        commits = [f"c{i}" for i in range(1, 33)]
+        runs = [("green", {"job": "success"})] + [
+            (sha, {"job": "success" if i < 13 else "failure"}) for i, sha in enumerate(commits, 1)
+        ]
+        verdict = bisect_history(["job"], runs, "green", commits)["job"]
+        self.assertEqual((verdict["method"], verdict["green"], verdict["culprit"]), ("bisect", "c12", "c13"))
+        self.assertEqual([p["sha"] for p in verdict["probes"]], ["c16", "c8", "c12", "c14", "c13"])
+        self.assertEqual([p["conclusion"] for p in verdict["probes"]],
+                         ["failure", "success", "success", "failure", "failure"])
+
+    def test_bisect_history_rejects_non_monotonic_failure(self):
+        runs = [("green", {"job": "success"}), ("c1", {"job": "failure"}),
+                ("c2", {"job": "success"}), ("c3", {"job": "failure"})]
+        verdict = bisect_history(["job"], runs, "green", ["c1", "c2", "c3"])["job"]
+        self.assertEqual(verdict["method"], "unresolved")
+        self.assertIn("not monotonic", verdict["reason"])
+        self.assertEqual(verdict["probes"], [])
+
+    def test_bisect_history_requires_explicit_complete_consistent_verdicts(self):
+        for value in ("skipped", "cancelled", "timed_out", "startup_failure", "neutral", "", None):
+            with self.subTest(value=value):
+                runs = [("green", {"job": "success"}), ("c1", {"job": value}), ("c2", {"job": "failure"})]
+                self.assertEqual(bisect_history(["job"], runs, "green", ["c1", "c2"])["job"]["method"], "unresolved")
+        for runs in (
+            [("green", {"job": "success"}), ("c2", {"job": "failure"})],
+            [("green", {"job": "failure"}), ("c1", {"job": "success"}), ("c2", {"job": "failure"})],
+            [("green", {"job": "success"}), ("c1", {"job": "success"}),
+             ("c1", {"job": "failure"}), ("c2", {"job": "failure"})],
+        ):
+            self.assertEqual(bisect_history(["job"], runs, "green", ["c1", "c2"])["job"]["method"], "unresolved")
+
+    def test_bisect_history_never_falls_back_to_an_unvalidated_range(self):
+        verdict = bisect_history(["job"], [("green", {"job": "success"}), ("c2", {"job": "failure"})],
+                                 "green", [])["job"]
+        self.assertEqual(verdict["method"], "unresolved")
+        self.assertIsNone(verdict["culprit"])
+
+    def test_bisect_history_keeps_unresolved_when_midpoint_budget_runs_out(self):
+        runs = [("green", {"job": "success"})] + [(f"c{i}", {"job": "failure"}) for i in range(8)]
+        verdict = bisect_history(["job"], runs, "green", [f"c{i}" for i in range(8)], max_probes=1)["job"]
+        self.assertEqual(verdict["method"], "unresolved")
+        self.assertEqual(len(verdict["probes"]), 1)
+
+    def test_compare_walks_first_parents_without_reversing_github_order(self):
+        import cmux_next_push_attribution as attribution
+        a, b, c, side = (x * 40 for x in "abcd")
+        payload = {"status": "ahead", "merge_base_commit": {"sha": a}, "total_commits": 3,
+                   "commits": [{"sha": side, "parents": [{"sha": a}]},
+                               {"sha": b, "parents": [{"sha": a}, {"sha": side}]},
+                               {"sha": c, "parents": [{"sha": b}]}]}
+        with mock.patch.object(attribution, "gh_api", return_value=payload):
+            self.assertEqual(attribution.compare_commits("o/r", a, c), [b, c])
+        payload["total_commits"] = 4
+        with mock.patch.object(attribution, "gh_api", return_value=payload):
+            self.assertEqual(attribution.compare_commits("o/r", a, c), [])
+        payload.update(total_commits=3, merge_base_commit={"sha": side})
+        with mock.patch.object(attribution, "gh_api", return_value=payload):
+            self.assertEqual(attribution.compare_commits("o/r", a, c), [])
+
+    def test_range_and_culprit_come_from_first_parent_git_history(self):
+        """Squash subjects name their pull requests from local git; only commits git cannot name
+        (a rebase merge, a direct push) share one GraphQL lookup, and nothing asks compare or
+        commits/{sha}/pulls."""
+        import os
+        import subprocess
+        import tempfile
+        import cmux_next_push_attribution as attribution
+
+        with tempfile.TemporaryDirectory() as repo:
+            def git(*args):
+                return subprocess.run(["git", "-C", repo, "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
+                                      check=True, capture_output=True, text=True).stdout.strip()
+            git("init", "-q")
+            shas = []
+            for subject in ("base", "feat: one (#11)", "fix: rebased, no number", "Revert \"x (#9)\" (#12)", "two (#11)"):
+                git("commit", "-q", "--allow-empty", "-m", subject)
+                shas.append(git("rev-parse", "HEAD"))
+            git("checkout", "-q", "-b", "side", shas[1])
+            git("commit", "-q", "--allow-empty", "-m", "side (#99)")
+            git("checkout", "-q", "-")
+            git("merge", "-q", "--no-ff", "-m", "Merge pull request #13 from o/side", "side")
+            shas.append(git("rev-parse", "HEAD"))
+            base, head = shas[0], shas[-1]
+            asked = []
+            cwd = os.getcwd()
+            os.chdir(repo)
+            try:
+                with mock.patch.object(attribution, "gh_api", side_effect=lambda path: self.fail(f"REST read {path}")), \
+                     mock.patch.object(attribution, "merged_pulls_batch",
+                                       side_effect=lambda r, unnamed, b: asked.append(unnamed) or {unnamed[0]: [20]}):
+                    self.assertEqual(attribution.pull_requests("o/r", base, head, "feat-cmux-next"), [11, 20, 12, 13])
+                    self.assertEqual(asked, [[shas[2]]])
+                    self.assertEqual(attribution.compare_commits("o/r", base, head), shas[1:])
+                    self.assertEqual(attribution.pull_requests_for_commit("o/r", shas[3], "feat-cmux-next"), [12])
+                # A base off the fetched first-parent chain falls back to the API.
+                with mock.patch.object(attribution, "gh_api", return_value={"commits": []}) as api:
+                    self.assertEqual(attribution.pull_requests("o/r", "f" * 40, head, "feat-cmux-next"), [])
+                    api.assert_called_once()
+            finally:
+                os.chdir(cwd)
+
+    def test_reads_use_the_read_token_and_retry_on_the_workflow_token(self):
+        import subprocess
+        import cmux_next_push_attribution as attribution
+        calls = []
+
+        def run(args, **kwargs):
+            token = (kwargs.get("env") or {}).get("GH_TOKEN", "workflow")
+            calls.append(token)
+            if token == "app":
+                raise subprocess.CalledProcessError(1, args)
+            return subprocess.CompletedProcess(args, 0, stdout="{}")
+
+        with mock.patch.dict("os.environ", {"GH_READ_TOKEN": "app"}), \
+             mock.patch.object(attribution.subprocess, "run", side_effect=run):
+            self.assertEqual(attribution.gh_api("repos/o/r/actions/runs/1/jobs"), {})
+        self.assertEqual(calls, ["app", "workflow"])
+
+    def test_culprit_mapping_requires_the_prs_actual_merge_commit(self):
+        import cmux_next_push_attribution as attribution
+        pulls = [{"number": 7, "merged_at": "now", "base": {"ref": "feat-cmux-next"}, "merge_commit_sha": "other"}]
+        with mock.patch.object(attribution, "gh_api", return_value=pulls):
+            self.assertEqual(attribution.pull_requests_for_commit("o/r", "sha", "feat-cmux-next"), [])
+        pulls[0]["merge_commit_sha"] = "sha"
+        with mock.patch.object(attribution, "gh_api", return_value=pulls):
+            self.assertEqual(attribution.pull_requests_for_commit("o/r", "sha", "feat-cmux-next"), [7])
+
+    def test_main_includes_current_jobs_and_notifies_proved_culprit_owner(self):
+        import cmux_next_push_attribution as attribution
+        lower, culprit, head = (x * 40 for x in "abc")
+        runs = [{"id": 1, "head_sha": lower, "status": "completed"},
+                {"id": 2, "head_sha": culprit, "status": "completed"}]
+        jobs = {1: {"check": "success"}, 2: {"check": "failure"}, 3: {"check": "failure"}}
+        writes = []
+        with mock.patch.object(attribution, "run_jobs", side_effect=lambda repo, run_id: attribution.JobVerdicts(jobs[run_id], jobs[run_id])), \
+             mock.patch.object(attribution, "gh_api", side_effect=lambda path: {"user": {"login": "alice"}}
+                               if path.endswith("/pulls/7") else {"workflow_runs": runs}), \
+             mock.patch.object(attribution, "compare_commits", return_value=[culprit, head]), \
+             mock.patch.object(attribution, "pull_requests", return_value=[]), \
+             mock.patch.object(attribution, "pull_requests_for_commit", return_value=[7]), \
+             mock.patch.object(attribution.pr_status, "upsert", side_effect=lambda *args, **kwargs: writes.append(args)):
+            self.assertEqual(attribution.main(["--repo", "o/r", "--run-id", "3", "--sha", head,
+                                               "--last-known-green", lower]), 0)
+        self.assertEqual(len(writes), 1)
+        self.assertEqual(writes[0][:3], ("o/r", 7, "push-culprit"))
+        self.assertIn("@alice", writes[0][3])
+        self.assertIn("Bisected completed CI verdicts", writes[0][3])
+        self.assertIn(culprit, writes[0][3])
+
+    def test_run_jobs_refuses_ambiguous_incomplete_or_unfinished_receipts(self):
+        import cmux_next_push_attribution as attribution
+        for payload in (
+            {"total_count": 2, "jobs": [{"name": "job", "status": "completed", "conclusion": "success"}]},
+            {"jobs": [{"name": "job", "status": "completed", "conclusion": "success"},
+                      {"name": "job", "status": "completed", "conclusion": "failure"}]},
+            {"jobs": [{"name": "job", "status": "in_progress", "conclusion": "success"}]},
+        ):
+            with mock.patch.object(attribution, "gh_api", return_value=payload):
+                self.assertNotIn(attribution.run_jobs("o/r", 1).proof.get("job"), ("success", "failure"))
+
+    def test_release_compile_alternatives_preserve_the_active_failure_in_either_order(self):
+        import cmux_next_push_attribution as attribution
+        skipped = {"name": "Release compile", "status": "completed", "conclusion": "skipped"}
+        failed = {"name": "Release compile", "status": "completed", "conclusion": "failure",
+                  "steps": [{"name": "Release compile", "status": "completed", "conclusion": "failure"}]}
+        for jobs in ([skipped, failed], [failed, skipped]):
+            with mock.patch.object(attribution, "gh_api", return_value={"jobs": jobs}):
+                got = attribution.run_jobs("o/r", 1)
+                self.assertEqual(attribution.failed_jobs(got), ["Release compile"])
+                self.assertEqual(got.proof, {"Release compile": "failure"})
+
+    def test_current_head_conflicting_receipts_cannot_notify_an_exact_culprit(self):
+        import cmux_next_push_attribution as attribution
+        lower, head = "a" * 40, "b" * 40
+        jobs = {1: {"check": "success"}, 2: {"check": "success"}, 3: {"check": "failure"}}
+        runs = [{"id": 1, "head_sha": lower, "status": "completed"},
+                {"id": 2, "head_sha": head, "status": "completed"}]
+        writes = []
+        with mock.patch.object(attribution, "run_jobs", side_effect=lambda repo, run_id: attribution.JobVerdicts(jobs[run_id], jobs[run_id])), \
+             mock.patch.object(attribution, "gh_api", return_value={"workflow_runs": runs}), \
+             mock.patch.object(attribution, "compare_commits", return_value=[head]), \
+             mock.patch.object(attribution, "pull_requests", return_value=[]), \
+             mock.patch.object(attribution, "pull_requests_for_commit", return_value=[7]), \
+             mock.patch.object(attribution.pr_status, "upsert", side_effect=lambda *args, **kwargs: writes.append(args)):
+            self.assertEqual(attribution.main(["--repo", "o/r", "--run-id", "3", "--sha", head,
+                                               "--last-known-green", lower]), 0)
+        self.assertEqual(writes, [])
+
+    def test_checkout_only_failure_is_not_a_bisection_receipt(self):
+        import cmux_next_push_attribution as attribution
+        payload = {"jobs": [{"name": "job", "status": "completed", "conclusion": "failure", "steps": [
+            {"name": "Checkout", "status": "completed", "conclusion": "failure"},
+            {"name": "Run the tests", "status": "completed", "conclusion": "skipped"}]}]}
+        with mock.patch.object(attribution, "gh_api", return_value=payload):
+            self.assertEqual(attribution.run_jobs("o/r", 1).get("job"), "failure")
+            self.assertNotEqual(attribution.run_jobs("o/r", 1).proof.get("job"), "failure")
+
+    def test_only_completed_check_steps_supply_exact_receipts(self):
+        import cmux_next_push_attribution as attribution
+        for result in ("success", "failure"):
+            with self.subTest(result=result):
+                payload = {"jobs": [{"name": "job", "status": "completed", "conclusion": result,
+                                    "steps": [{"name": "Run the daemon tests", "status": "completed",
+                                               "conclusion": result}]}]}
+                with mock.patch.object(attribution, "gh_api", return_value=payload):
+                    self.assertEqual(attribution.run_jobs("o/r", 1).proof, {"job": result})
+        for name in ("Checkout", "Set up job", "Install test dependencies", "Record the Release compile admission"):
+            payload = {"jobs": [{"name": "job", "status": "completed", "conclusion": "failure",
+                                "steps": [{"name": name, "status": "completed", "conclusion": "failure"}]}]}
+            with mock.patch.object(attribution, "gh_api", return_value=payload):
+                self.assertEqual(attribution.run_jobs("o/r", 1).proof, {"job": ""})
+
     def test_repeated_push_failures_edit_the_shared_status_comment(self):
         import cmux_next_push_attribution as attribution
         import pr_status
@@ -1209,7 +1423,7 @@ class PushAttribution(unittest.TestCase):
         def upsert(*args, **kwargs):
             return real_upsert(*args, **kwargs, api=api, sleep=None)
 
-        with mock.patch.object(attribution, "run_jobs", return_value={"check": "failure"}), \
+        with mock.patch.object(attribution, "run_jobs", return_value=attribution.JobVerdicts({"check": "failure"}, {"check": "failure"})), \
              mock.patch.object(attribution, "gh_api", side_effect=lambda path: comments if "/comments" in path else {"workflow_runs": []}), \
              mock.patch.object(attribution, "never_passed", return_value=[]), \
              mock.patch.object(attribution, "last_green", return_value="good"), \
@@ -1238,7 +1452,7 @@ class PushAttribution(unittest.TestCase):
         jobs = {40: {"cmux-next daemon tests": "failure"}, 30: {"cmux-next daemon tests": "success"},
                 20: {"cmux-next daemon tests": "skipped"}}
         ranges = []
-        with mock.patch.object(attribution, "run_jobs", side_effect=lambda repo, run_id: jobs[run_id]), \
+        with mock.patch.object(attribution, "run_jobs", side_effect=lambda repo, run_id: attribution.JobVerdicts(jobs[run_id], jobs[run_id])), \
              mock.patch.object(attribution, "gh_api", return_value={"workflow_runs": runs}), \
              mock.patch.object(attribution, "pull_requests",
                                side_effect=lambda repo, good, head, branch: ranges.append((good, head)) or []):

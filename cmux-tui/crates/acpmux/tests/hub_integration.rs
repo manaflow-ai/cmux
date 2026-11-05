@@ -25,6 +25,8 @@ use tokio::sync::mpsc;
 #[path = "hub_integration/idle_census.rs"]
 mod idle_census;
 
+#[path = "hub_integration/acp_schema.rs"]
+mod acp_schema;
 #[path = "hub_integration/agent_digest.rs"]
 mod agent_digest;
 #[path = "hub_integration/agent_inbox.rs"]
@@ -486,6 +488,7 @@ async fn an_agents_bare_fork_error_names_the_harness() {
 async fn an_agent_that_fails_a_fork_while_the_chat_works_forks_from_the_chats_transcript() {
     let env = BTreeMap::from([("FAKE_FORK_ERROR".to_owned(), "1".to_owned())]);
     let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    hub.config.write().await.context_overrides.user = Some("GUIDANCE-ON-FORK".into());
     let s = c
         .request(
             method::SESSION_NEW,
@@ -511,6 +514,11 @@ async fn an_agent_that_fails_a_fork_while_the_chat_works_forks_from_the_chats_tr
         .await
         .unwrap_or_else(|e| panic!("a working chat forks, whatever its agent says: {e}"));
     let fid = f["sessionId"].as_str().unwrap().to_owned();
+    assert!(hub.resolve(&id).unwrap().meta().cmux_context_delivered);
+    assert!(
+        !hub.resolve(&fid).unwrap().meta().cmux_context_delivered,
+        "fresh reconstruction must deliver the hidden guidance to its new harness"
+    );
     let forked: Vec<Value> = hub
         .events(&fid, 0, 1000)
         .unwrap()
@@ -547,6 +555,7 @@ async fn an_agent_that_fails_a_fork_while_the_chat_works_forks_from_the_chats_tr
         .await
         .unwrap();
     assert_eq!(r["stopReason"], "end_turn", "{r}");
+    assert!(hub.resolve(&fid).unwrap().meta().cmux_context_delivered);
     let reply: String = hub
         .events(&fid, 0, 1000)
         .unwrap()

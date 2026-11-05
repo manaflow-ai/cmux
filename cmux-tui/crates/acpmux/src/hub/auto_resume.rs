@@ -1037,6 +1037,7 @@ impl Hub {
         subagent_retry: bool,
         turn: super::TurnInfo,
     ) -> Result<(), RpcError> {
+        self.resume_before_turn();
         let mut pending = session.auto_resume.lock();
         // Transfer replacement seals the old instance before staging its store. Reject before
         // installing a TurnInfo so a fired retry cannot start against the incoming journal.

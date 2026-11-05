@@ -1,8 +1,8 @@
 // A prompt's bubble, with its action row under its right edge (Leo's spec, after Claude Code
 // desktop's): the prompt's age ("3 days ago"; "Oct 18, 2026, 10:16 PM" above it on
-// hover), then Copy, Edit, Retry and Fork from here, each naming itself on hover. The ellipsis
-// is gone; its menu remains on right-click. No Pin here: an
-// answer's row has it. Fork hides where the harness cannot fork there (cx-ncc.60, Claude parity;
+// hover), then Copy, Edit, Retry, Fork from here and Bookmark, each naming itself on hover. The ellipsis
+// is gone; its menu remains on right-click. Bookmark toggles the same saved mark as the rail.
+// Fork hides where the harness cannot fork there (cx-ncc.60, Claude parity;
 // Leo, GUI push 2026-10-20/21). The row shows on hover or keyboard focus only, its height kept, so
 // nothing moves when it appears. Edit opens the prompt in place; Send forks the chat through the
 // turn before it and sends the edited text there (the App's `edit.send`), Escape or Cancel puts the
@@ -25,6 +25,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { PresentationContext } from "./PresentationContext";
 import type { AcpmuxRow, PromptContentPart, PromptImage } from "../model";
 import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
@@ -46,10 +47,13 @@ import {
   MessageCopy,
   MessageFooterRow,
   MessageTime,
+  PinButton,
   PromptRetry,
   ROW_ICON,
 } from "./MessageActions";
-import { TurnActionsContext, type QueuedActions } from "./turnActions";
+import { RetryTargetContext, TurnActionsContext, type QueuedActions } from "./turnActions";
+import { NO_RETRY_TARGET, retryPlacement } from "./turns";
+import { useTranscriptReadOnly } from "./readOnly";
 import { pickedSkillsOf, withSkillDollars, withoutSkillDollars, type SkillCatalog } from "../slashCommands";
 import { SkillWordsContext } from "./skillWords";
 import { SentVideoTile } from "./SentVideoTile";
@@ -96,7 +100,22 @@ export function UserBubble({
     [givenText, given, skills],
   );
   const t = useT();
-  const { edit, branches, fork, forkSeq, forkAny, promptTurns } = useContext(TurnActionsContext);
+  const { edit, branches, fork, forkSeq, forkAny, promptTurns, retry: canResend } = useContext(TurnActionsContext);
+  // The Messages view draws no reply footer for a turn that ended well (messagesRows.ts), so its
+  // prompts keep their own Retry there; the transcript's is the last turn's footer (TurnFooter).
+  const messagesView = useContext(PresentationContext) === "messages";
+  const retryTarget = useContext(RetryTargetContext);
+  const readOnly = useTranscriptReadOnly();
+  // In the transcript, this prompt draws the chat's one Retry when turns.ts retryPlacement puts it
+  // under the prompt: its turn's footer does not draw it (a turn of tool calls alone, history with no
+  // turn result, a turn still running).
+  const promptRetry =
+    retryTarget?.promptId === row.id &&
+    retryPlacement(retryTarget ?? NO_RETRY_TARGET, {
+      canRetry: Boolean(canResend),
+      readOnly,
+      messages: messagesView,
+    }) === "prompt";
   const branch = branches?.of.get(row.id);
   const [editing, setEditing] = useState(false);
   const through = edit?.seqs.get(row.id);
@@ -177,10 +196,16 @@ export function UserBubble({
       />
     );
   }
-  // The sent row's Retry and Fork; a waiting steer's queue row shows the same two (PendingSteer.tsx).
-  // Retry not while it is still on its way: a second send would duplicate it.
+  // Retry is the last turn's reply footer's (TurnRows.tsx TurnFooter; Leo, 2026-11-04: "Today Retry
+  // is on your prompt bubble ... Put it, with the model switch, in the last turn's footer."), so neither
+  // the sent row nor a waiting steer's queue row (PendingSteer.tsx) draws one, and the row keeps its
+  // buttons when the steer is delivered, except where that footer draws no Retry (`promptRetry`). The
+  // Messages view draws no footer for a turn that ended well (messagesRows.ts), so its prompts keep
+  // their Retry; not while one is on its way, as a second send would duplicate it.
   const retry =
-    !row.pending && row.delivery?.state !== "sending" ? <PromptRetry rowId={row.id} prompt={resend} /> : null;
+    (messagesView || promptRetry) && !row.pending && row.delivery?.state !== "sending" ? (
+      <PromptRetry rowId={row.id} prompt={resend} />
+    ) : null;
   const forkButton =
     forkThrough !== undefined ? (
       <ForkButton throughSeq={forkThrough} onFork={() => forkWithFeedback(forkThrough, () => fork!(forkThrough))} />
@@ -237,7 +262,14 @@ export function UserBubble({
         {!row.failed && (text || pending) && (
           <UserFooter
             className={branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions"}
-            pending={pending && ((actions) => pending(actions, { retry, fork: forkButton }))}
+            pending={
+              pending &&
+              ((actions) =>
+                pending(actions, {
+                  retry: retry && <PromptRetry rowId={row.id} prompt={resend} held />,
+                  fork: forkButton,
+                }))
+            }
           >
             <MessageFooterRow>
               {branch && branches && (
@@ -250,7 +282,7 @@ export function UserBubble({
                     disabled={branch.index === 0}
                     onClick={() => branches.open(branch.sessions[branch.index - 1]!)}
                   >
-                    <ChevronLeft size={12} />
+                    <ChevronLeft size={ROW_ICON} />
                   </button>
                   <span
                     className="cv-user__version-count"
@@ -270,7 +302,7 @@ export function UserBubble({
                     disabled={branch.index === branch.sessions.length - 1}
                     onClick={() => branches.open(branch.sessions[branch.index + 1]!)}
                   >
-                    <ChevronRight size={12} />
+                    <ChevronRight size={ROW_ICON} />
                   </button>
                 </span>
               )}
@@ -289,6 +321,7 @@ export function UserBubble({
               )}
               {retry}
               {forkButton}
+              <PinButton rowId={row.id} bookmark />
             </MessageFooterRow>
           </UserFooter>
         )}
@@ -500,7 +533,7 @@ export function PromptEditor({
     void onSend(value).finally(() => setSending(false));
   };
   return (
-    <div className="cv-user__edit">
+    <div className="ui-glass cv-user__edit">
       <textarea
         ref={field}
         className="cv-user__edit-field selectable"

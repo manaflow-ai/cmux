@@ -110,7 +110,7 @@ async fn ask_peer(
         return Ok(here(
             SessionAuthState::Unknown,
             format!(
-                "{} runs acpmux build {build}, which does not answer {}; `acpmux host update {}` updates it",
+                "{} runs acpmux build {build}, which does not answer {}; `acpmux machine update {}` updates it",
                 peer.name,
                 method::MUX_SESSION_AUTH,
                 peer.name

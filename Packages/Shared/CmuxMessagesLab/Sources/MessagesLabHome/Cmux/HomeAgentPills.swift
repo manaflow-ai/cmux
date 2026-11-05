@@ -1,13 +1,12 @@
-#if DEBUG
 import AppKit
 import CoreGraphics
 import CoreText
 
-/// DEBUG ONLY: a fold or notes row as one pill per agent, the ChatGPT look (user 2026-11-03, msg 19960):
-/// a status icon (a spinner while it works, a check once it reported, a cross when it stopped), its title,
-/// an unread dot for a report and a `›`. The Agent Messages Playground draws fold rows this way
-/// (``HomeAgentFoldStyle/pills`` and its siblings) and opens the pill a click lands on. One layout for
-/// drawing and hit-testing, so a click always opens the pill it is drawn on.
+/// An agents row as one pill per agent, the ChatGPT look (user 2026-11-03, msg 19960): a status icon (a
+/// spinner while it works, a check once it reported, a cross when it stopped), its title, an unread dot
+/// for a report and a `›`. The shipped look of an agents row (``HomeAgentFoldRowProvider``); the DEBUG
+/// playground's pill styles draw its other shapes. One layout for drawing and hit-testing, so a click
+/// always lands on the pill it is drawn on. Pure CoreGraphics and CoreText, any thread.
 struct HomeAgentPills {
     /// The pill shapes: stacked full pills, stacked two-line pills, or small chips in one row.
     enum Shape: Sendable { case pill, twoLine, chip }
@@ -16,6 +15,8 @@ struct HomeAgentPills {
         let peer: String
         let title: String
         let state: String
+        /// The unread dot: a report newer than the one the person last opened.
+        let unread: Bool
         let rect: CGRect
     }
 
@@ -39,7 +40,8 @@ struct HomeAgentPills {
             let w = min(max(120, Self.contentWidth(title, shape: shape)), max(120, width - 8))
             // Chips keep one row (the row's height does not depend on its width): the rest are left out.
             if shape == .chip, x > 0, x + w > width - 8 { break }
-            out.append(Pill(peer: peer, title: title, state: state, rect: CGRect(x: x, y: y, width: w, height: tall)))
+            let unread = p.unread[checked: i] ?? (state == "reported")
+            out.append(Pill(peer: peer, title: title, state: state, unread: unread, rect: CGRect(x: x, y: y, width: w, height: tall)))
             if shape == .chip { x += w + Self.gap } else { y += tall + Self.gap }
         }
         pills = out
@@ -90,11 +92,13 @@ struct HomeAgentPills {
             let right = r.maxX - side
             // The chevron, then the unread dot left of it.
             chevron(ctx, center: CGPoint(x: right - 4, y: shape == .twoLine ? r.midY : mid), color: muted)
-            let unread = pill.state == "reported"
+            let unread = pill.unread
             if unread { dot(ctx, center: CGPoint(x: right - 20, y: mid), radius: 3.5, color: NSColor.systemBlue) }
             let titleRoom = right - (unread ? 30 : 16) - textX
             let title = NSAttributedString(string: pill.title, attributes: [.font: Self.titleFont(shape), .foregroundColor: ink])
             line(ctx, title, x: textX, mid: mid, width: titleRoom)
+            #if DEBUG
+            // The two-line shape is the DEBUG playground's alone; its status words are DEV-only English.
             if shape == .twoLine {
                 let status = switch pill.state {
                 case "reported": "Reported · \(pill.peer)"
@@ -104,6 +108,7 @@ struct HomeAgentPills {
                 let sub = NSAttributedString(string: status, attributes: [.font: HomeFonts.system(ofSize: 12, weight: .regular), .foregroundColor: muted])
                 line(ctx, sub, x: textX, mid: r.minY + 35, width: titleRoom)
             }
+            #endif
         }
     }
 }
@@ -174,4 +179,3 @@ private func icon(_ ctx: CGContext, state: String, center c: CGPoint, size: CGFl
     }
     ctx.restoreGState()
 }
-#endif

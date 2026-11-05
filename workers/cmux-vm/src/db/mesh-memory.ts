@@ -223,9 +223,15 @@ export function makeMemoryMeshStore() {
           .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)),
       ),
     recordRule: (tenantId, rule) => Effect.sync(() => void rules.push({ ...rule, tenantId, deletedAt: null })),
+    recordRules: (tenantId, batch) => Effect.sync(() => void rules.push(...batch.map((rule) => ({ ...rule, tenantId, deletedAt: null })))),
     markRuleDeleted: (tenantId, meshId, key, at) =>
       Effect.sync(() => {
         for (const row of rules) if (row.tenantId === tenantId && row.meshId === meshId && row.key === key && row.deletedAt === null) row.deletedAt = at;
+      }),
+    markRulesDeleted: (tenantId, meshId, keys, at) =>
+      Effect.sync(() => {
+        const wanted = new Set(keys);
+        for (const row of rules) if (row.tenantId === tenantId && row.meshId === meshId && wanted.has(row.key) && row.deletedAt === null) row.deletedAt = at;
       }),
   });
 

@@ -20,8 +20,9 @@ public import CoreGraphics
 /// glass.tintColor = look.veil.nsColor
 /// ```
 public nonisolated struct FloatingGlassStyle: Sendable, Equatable {
-    /// The continuous corner radius.
-    public var cornerRadius: CGFloat
+    /// How many levels inside the one corner radius its corner is (0: the outer radius, a
+    /// top-level surface); ``cornerRadius`` resolves it against `Metrics.corners`.
+    public var cornerDepth: Int
     /// The veil's opacity over the glass on a dark appearance.
     public var darkVeilAlpha: Double
     /// The veil's opacity over the glass on a light appearance.
@@ -34,15 +35,15 @@ public nonisolated struct FloatingGlassStyle: Sendable, Equatable {
     public var castsShadow: Bool
 
     /// - Parameters:
-    ///   - cornerRadius: The continuous corner radius.
+    ///   - cornerDepth: The corner's level inside the one corner radius (0: the outer radius).
     ///   - darkVeilAlpha: Veil opacity on dark.
     ///   - lightVeilAlpha: Veil opacity on light.
     ///   - darkRim: Rim top/bottom opacity on dark.
     ///   - lightRim: Rim top/bottom opacity on light.
     ///   - castsShadow: Whether it casts a shadow.
-    public init(cornerRadius: CGFloat, darkVeilAlpha: Double, lightVeilAlpha: Double,
+    public init(cornerDepth: Int, darkVeilAlpha: Double, lightVeilAlpha: Double,
                 darkRim: (top: Double, bottom: Double), lightRim: (top: Double, bottom: Double), castsShadow: Bool) {
-        self.cornerRadius = cornerRadius
+        self.cornerDepth = cornerDepth
         self.darkVeilAlpha = darkVeilAlpha
         self.lightVeilAlpha = lightVeilAlpha
         self.darkRim = darkRim
@@ -51,7 +52,7 @@ public nonisolated struct FloatingGlassStyle: Sendable, Equatable {
     }
 
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.cornerRadius == rhs.cornerRadius && lhs.darkVeilAlpha == rhs.darkVeilAlpha
+        lhs.cornerDepth == rhs.cornerDepth && lhs.darkVeilAlpha == rhs.darkVeilAlpha
             && lhs.lightVeilAlpha == rhs.lightVeilAlpha && lhs.darkRim == rhs.darkRim
             && lhs.lightRim == rhs.lightRim && lhs.castsShadow == rhs.castsShadow
     }
@@ -60,8 +61,9 @@ public nonisolated struct FloatingGlassStyle: Sendable, Equatable {
     // schemas/surface-roles/surface-roles.json (scripts/cmux-next/check-surface-roles.py).
 
     /// The agent cursor's name tag and keystroke caption ("Chief · workspace"): a 22 pt capsule in
-    /// the toast's veil and rim, with a shadow, over the page the cursor floats on.
-    public static let agentTag = FloatingGlassStyle(cornerRadius: 11, darkVeilAlpha: toast.darkVeilAlpha,
+    /// the toast's veil and rim, with a shadow, over the page the cursor floats on. A capsule is a
+    /// shape, not a radius level: the cursor rounds the tag to half its height (`Metrics.capsuleRadius`).
+    public static let agentTag = FloatingGlassStyle(cornerDepth: 0, darkVeilAlpha: toast.darkVeilAlpha,
                                                     lightVeilAlpha: toast.lightVeilAlpha, darkRim: toast.darkRim,
                                                     lightRim: toast.lightRim, castsShadow: true)
 

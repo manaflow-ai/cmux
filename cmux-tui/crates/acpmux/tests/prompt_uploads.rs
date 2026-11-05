@@ -507,7 +507,7 @@ async fn a_peer_that_cannot_read_uploads_is_refused_before_anything_is_sent() {
     let p = prompt("old-1", &v7(), "see", vec![image_ref(&v7(), "a.png")]);
     let reply = ca.call(method::SESSION_PROMPT, p).await;
     assert_eq!(reply["error"]["data"]["reason"], "upload.unsupported", "{reply}");
-    assert!(reply["error"]["message"].as_str().unwrap().contains("acpmux host update old"));
+    assert!(reply["error"]["message"].as_str().unwrap().contains("acpmux machine update old"));
     assert_eq!(prompts.load(Ordering::SeqCst), 0);
 }
 

@@ -8,6 +8,7 @@ const KNOWN: Record<string, string> = {
   claude: "Claude Code",
   codex: "Codex",
   gemini: "Gemini CLI",
+  muse: "Muse Code",
   opencode: "OpenCode",
   cursor: "Cursor",
   pi: "Pi",

@@ -14,6 +14,8 @@ Total estimated runner time for the week: **3,431 hours**. `ci.yml` accounts for
 
 The required checks on `main` (ruleset "main: block force-push or delete") are `CLA Assistant`, `CLA policy guard`, `ci-status`, `Web complexity` and `web-validation`. Workflows that feed them are marked REQUIRED and must not be removed.
 
+The required check on `feat-cmux-next` (ruleset "feat-cmux-next: clippy required", from 2026-11-04) is `clippy (changed cmux-tui packages)` from `cmux-tui-spec.yml`. That workflow runs on every pull request: its `changes` job skips the jobs when the change touches none of its `push` paths, and a skipped job passes the check. Repository admins bypass the rule, which is how landq pushes. Before it, #35133 and #35149 merged with that check red.
+
 ## Flags
 
 **a. Experimental or canary workflows that have never succeeded, or have no consumer**

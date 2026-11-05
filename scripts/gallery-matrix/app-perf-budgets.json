@@ -1,0 +1,93 @@
+{
+  "cpuThrottle": 1,
+  "settleMs": 2000,
+  "idleWindowMs": 5000,
+  "scenarios": [
+    {
+      "id": "shell-landing",
+      "title": "Gallery landing (one entry)",
+      "url": "index.html#/agent-pane.composer",
+      "budget": {
+        "firstFrameMs": 500,
+        "longTaskMaxMs": 50,
+        "idleCpuPct": 1,
+        "cls": 0
+      }
+    },
+    {
+      "id": "app-scene",
+      "title": "App window scene (chat + Session Info)",
+      "url": "index.html#/app.window/chat-session-info",
+      "budget": {
+        "firstFrameMs": 500,
+        "longTaskMaxMs": 50,
+        "idleCpuPct": 1,
+        "cls": 0
+      }
+    },
+    {
+      "id": "app-scene-variants",
+      "title": "App window scene, every variant",
+      "url": "index.html#/app.window/chat-session-info?view=variants",
+      "budget": {
+        "firstFrameMs": 500,
+        "longTaskMaxMs": 50,
+        "idleCpuPct": 1,
+        "cls": 0
+      }
+    },
+    {
+      "id": "browse",
+      "title": "Whole gallery (browse, 24 live previews)",
+      "url": "index.html#/agent-pane.composer?view=browse",
+      "budget": {
+        "firstFrameMs": 500,
+        "longTaskMaxMs": 50,
+        "idleCpuPct": 1,
+        "cls": 0
+      }
+    },
+    {
+      "id": "mock-app",
+      "title": "Mock app, whole window (chat + Session Info)",
+      "url": "mock-app.html",
+      "budget": {
+        "firstFrameMs": 500,
+        "longTaskMaxMs": 50,
+        "idleCpuPct": 1,
+        "cls": 0
+      }
+    },
+    {
+      "id": "mock-app-two",
+      "title": "Mock app, two panes, compact, light",
+      "url": "mock-app.html?layout=two&density=compact&colorScheme=light",
+      "budget": {
+        "firstFrameMs": 500,
+        "longTaskMaxMs": 50,
+        "idleCpuPct": 1,
+        "cls": 0
+      }
+    },
+    {
+      "id": "mock-app-sizes",
+      "title": "Mock app, three window sizes",
+      "url": "mock-app.html?windows=pro14,air13,1280x800",
+      "budget": {
+        "firstFrameMs": 500,
+        "longTaskMaxMs": 50,
+        "idleCpuPct": 1,
+        "cls": 0
+      }
+    },
+    {
+      "id": "mock-app-streaming",
+      "title": "Mock app, streaming script (animating)",
+      "url": "mock-app.html?script=streaming",
+      "budget": {
+        "firstFrameMs": 500,
+        "cls": 0
+      }
+    }
+  ]
+}
