@@ -99,7 +99,9 @@ class Instance:
         env = {"HOME": self.home, "CFFIXED_USER_HOME": self.home, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                "CMUX_NEXT_SOCKET_PATH": self.sock, "CMUX_QUIET": "1"}
         try:
-            done = subprocess.run([self.cli, "--json", *argv], env=env, cwd=self.home or "/",
+            # --app-socket: app actions (chat new's tab) ignore CMUX_NEXT_SOCKET_PATH and look for the build's default
+            # socket under HOME ("app.unreachable", nightly 4191131679101).
+            done = subprocess.run([self.cli, "--json", "--app-socket", self.sock, *argv], env=env, cwd=self.home or "/",
                                   capture_output=True, text=True, timeout=timeout)
         except (OSError, subprocess.SubprocessError) as error:
             return {"error": str(error)}
@@ -219,7 +221,7 @@ def seed(inst: Instance, fake_agent: str, work: str) -> dict:
         raise RuntimeError(f"the chat's first turn was never answered: {json.dumps(inst.cmux('agents', 'chat', 'read', made['chat']))[:400]}")
     if not wait(lambda: chat_tab(inst.topology(), made["chat"]), 15, 0.25):
         raise RuntimeError(f"no tab is bound to chat {made['chat']} 15 s after it was made: {json.dumps(chat_tabs(inst.topology()))[:600]}; "
-                           f"chat new answered {json.dumps(chat)[:600]}; acp ls {json.dumps(inst.cmux('acp', 'ls'))[:600]}")
+                           f"chat new answered {json.dumps(chat)[:600]}")
     with open(inst.record, "w") as handle:
         json.dump(made, handle)
     return made
