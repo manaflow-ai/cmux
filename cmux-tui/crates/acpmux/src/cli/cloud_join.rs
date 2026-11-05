@@ -144,6 +144,20 @@ fn configure_mesh_relay(hub: &str) -> Result<()> {
     config.save_with_writer(|path, bytes| recovery::write_durable(path, bytes, true))
 }
 
+/// Adds the `sameUser` entry to a joined `meshRelay` that has none. True when it changed
+/// config.json. A relay that is not the join's, or none, is left alone.
+fn add_same_user_control(hub: &str) -> Result<bool> {
+    let _lock = join_lock()?;
+    let relay = crate::config::Config::load()?.mesh_relay;
+    let joined = relay.as_ref().is_some_and(|relay| relay.credential.as_deref() == Some("join"));
+    if !joined || relay.is_some_and(|relay| relay.control_from.iter().any(|entry| entry.same_user))
+    {
+        return Ok(false);
+    }
+    configure_mesh_relay(hub)?;
+    Ok(true)
+}
+
 /// The control senders a join writes: the owner's own entries kept, plus the person's own
 /// other machines (`{"sameUser": true}`) unless an entry already says what `sameUser` gets.
 fn joined_control_from(
@@ -385,6 +399,12 @@ pub async fn status(hub: Option<String>, json_out: bool) -> Result<()> {
                 if user_id.is_some() && record.user_id != user_id {
                     record_user_id(&record.credential, user_id.clone())?;
                     out["userId"] = json!(user_id);
+                }
+                // A machine joined before `sameUser` existed has `controlFrom: []`: add the
+                // person's own machines now. The daemon reads controlFrom at its start.
+                if user_id.is_some() && add_same_user_control(&record.hub_origin)? {
+                    out["controlFromAdded"] = json!("sameUser");
+                    out["restartNeeded"] = json!(true);
                 }
                 Some(200)
             }

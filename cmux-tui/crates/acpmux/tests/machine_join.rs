@@ -517,6 +517,47 @@ async fn status_is_read_only_and_persists_revocation() {
     server.join().unwrap();
 }
 #[tokio::test]
+async fn status_records_the_person_and_grants_its_own_machines_on_an_older_join() {
+    let home = tempfile::tempdir().unwrap();
+    let (origin, server) = response_server(1, |_, request, bearer, _| {
+        assert!(request.starts_with("GET /v1/machines/credentials/self "));
+        assert!(bearer == format!("Bearer {CREDENTIAL}"));
+        Some((
+            200,
+            json!({"machineId":"machine_test","teamId":"team_test","joinTokenId":"join_test","platform":"linux","hostname":"h","name":"test","wgPublicKey":"key","credentialGeneration":1,"expiresAt":"2099-01-01T00:00:00.000Z","userId":"user_1"}),
+        ))
+    });
+    // A join written before `sameUser`: no userId, and `controlFrom` has only an owner entry.
+    let path = home.path().join(FINAL);
+    std::fs::write(&path, json!({"credential":CREDENTIAL,"machine_id":"machine_test","team_id":"team_test","name":"test","hub_origin":origin,"last_heartbeat":null,"revoked":false,"wgPublicKey":"key"}).to_string()).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let config = home.path().join("config.json");
+    std::fs::write(&config, json!({"meshRelay": {"url": origin, "credential": "join", "controlFrom": [{"daemonId": "d1", "ops": ["stop"]}]}}).to_string()).unwrap();
+    std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let result = tokio::time::timeout(
+        Duration::from_secs(10),
+        cli(home.path()).args(["host", "join", "--status", "--json"]).output(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_exit(&result, 0);
+    assert_redacted(&result);
+    let body: Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(body["userId"], "user_1");
+    assert_eq!(body["controlFromAdded"], "sameUser");
+    assert_eq!(body["restartNeeded"], true);
+    assert_eq!(read_json(&path)["user_id"], "user_1");
+    let relay = &read_json(&config)["meshRelay"];
+    assert_eq!(
+        relay["controlFrom"],
+        json!([{"daemonId": "d1", "ops": ["stop"]}, {"sameUser": true, "ops": ["start", "resume", "stop"]}])
+    );
+    assert_eq!(relay["credential"], "join");
+    server.join().unwrap();
+}
+
+#[tokio::test]
 async fn cloud_argv_is_refused_even_with_status_and_hub() {
     let home = tempfile::tempdir().unwrap();
     for flags in [vec!["--status"], vec!["--hub", "https://example.com"], vec!["--replace"], vec![]]
