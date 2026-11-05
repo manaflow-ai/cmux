@@ -363,6 +363,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ComputerUseHelperDaemon.shared.follow(settings, disabledByPolicy: { [weak services] in
             services?.registry.disabledFeatures.contains(.computerUse) ?? true
         })
+        // task-owner: after settings load, Computer Use on asks for cmux Remote's grants (app life).
+        Task { [weak services] in await settings.waitForLoad(atLeast: 1); services?.onboarding.computerUseRemoteSetup.start() }
         services.computerUsePreview.follow(settings)
         services.startHibernation(settings: settings)
         services.autoArchive.start() // workspaces.autoArchive: first pass 30 s after launch

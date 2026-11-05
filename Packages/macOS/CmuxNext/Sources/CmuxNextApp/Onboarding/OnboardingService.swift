@@ -5,6 +5,7 @@ import CmuxNextBrowser
 import CmuxNextBrowserImport
 import CmuxNextDesign
 import CmuxNextImportCards
+import CmuxNextMacScreen
 import CmuxNextOnboarding
 import CmuxNextSettings
 import os
@@ -66,6 +67,9 @@ final class OnboardingService {
 
     /// Computer Use Setup: the helper's grants for the palette action, Settings and the tool window.
     private(set) lazy var computerUseSetup = ComputerUseSetup.app(services: services)
+    /// cmux Remote's Computer Use setup card: asks for cmux Remote's grants when Computer Use is on.
+    private(set) lazy var computerUseRemoteSetup = ComputerUseRemoteSetupFlow(source: computerUseSetup,
+                                                                            presenter: services.cmuxRemote.computerUseApprovals.cards)
 
     init(services: AppServices) {
         self.services = services

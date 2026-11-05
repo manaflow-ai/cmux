@@ -3,13 +3,24 @@ public import CmuxNextActions
 public import CmuxNextComputerUse
 public import CmuxNextControl
 import CmuxNextDesign
-import CmuxNextSettings
+public import CmuxNextSettings
 
 /// Computer Use approvals' palette actions and app socket methods
 /// (docs/computer-use-approvals.md, "Controls" and "Mac app wire"). Nothing here decides a
 /// question: `prompt` only shows its card again. Revoking and a lower mode apply at once;
 /// a higher mode asked from the socket waits for the person's confirmation on a cmux dialog.
 extension ComputerUseApprovalService {
+    /// The App's one `computer_use.status`: Computer Use Setup's phase and grants (`setup`: the agent
+    /// setup check, `cmux agents doctor`, `cmux setup computer-use`) with the approvals' mode, worker
+    /// and lists (`cmux computer-use status`; docs/computer-use-approvals.md, "Mac app wire"). Two
+    /// methods of that name replaced each other, so the setup fields were lost and the agent check let
+    /// every call through. The setup's fields win a shared key.
+    public func status(setup: JSONValue) -> JSONValue {
+        guard case .object(var fields) = setup else { return .object(ComputerUseApprovalActions.statusFields(self)) }
+        for (key, value) in ComputerUseApprovalActions.statusFields(self) where fields[key] == nil { fields[key] = value }
+        return .object(fields)
+    }
+
     /// Binds the palette actions (`computerUse.showStatus`, `computerUse.revokeSavedApprovals`).
     public func bindActions(into registry: ActionRegistry, window: @escaping @MainActor () -> NSWindow?) {
         ComputerUseApprovalActions.bind(into: registry, service: self, window: window)
@@ -92,7 +103,15 @@ enum ComputerUseApprovalActions {
 
     // MARK: Socket
 
-    /// `computer_use.approvals.list|revoke|pending|deny|prompt`, `computer_use.mode.set`, `computer_use.status`.
+    /// The approvals' part of `computer_use.status`: mode, phone, worker, saved apps, waiting questions.
+    static func statusFields(_ service: ComputerUseApprovalService) -> [String: JSONValue] {
+        ["mode": .string(service.mode.rawValue), "phone_always_allow": .bool(service.phoneAlwaysAllow),
+         "worker": .string(service.workerState),
+         "saved": .array(service.store.apps.map(savedValue)), "pending": .array(service.broker.pending.map(pendingValue))]
+    }
+
+    /// `computer_use.approvals.list|revoke|pending|deny|prompt`, `computer_use.mode.set`. `computer_use.status` is the
+    /// App's (SettingsControl): Computer Use Setup's fields with ``ComputerUseApprovalService/statusFields``.
     static func methods(service: ComputerUseApprovalService, window: @escaping @MainActor () -> NSWindow?) -> [ControlMethod] {
         [
             .mainActor("computer_use.approvals.list") { _ in .value(list(service)) },
@@ -117,11 +136,6 @@ enum ComputerUseApprovalActions {
                     throw ControlError(code: "not_found", message: "no waiting Computer Use question \(id)")
                 }
                 return .value(["ok": true])
-            },
-            .mainActor("computer_use.status") { _ in
-                .value(["mode": .string(service.mode.rawValue), "phone_always_allow": .bool(service.phoneAlwaysAllow),
-                        "worker": .string(service.workerState),
-                        "saved": .array(service.store.apps.map(savedValue)), "pending": .array(service.broker.pending.map(pendingValue))])
             },
             .mainActor("computer_use.mode.set") { call in
                 guard let mode = call.params["mode"]?.stringValue.flatMap(ComputerUseMode.init(rawValue:)) else {

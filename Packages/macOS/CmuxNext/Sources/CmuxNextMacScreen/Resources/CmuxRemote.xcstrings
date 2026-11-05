@@ -6550,6 +6550,1709 @@
           }
         }
       }
+    },
+    "computerUse.remoteSetup.accessibilityName": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التحكم في الجهاز والوصول إلى البيانات (إمكانية الوصول)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upravljanje uređajem i pristup podacima (Pristupačnost)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enhedsstyring og dataadgang (Tilgængelighed)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gerätesteuerung und Datenzugriff (Bedienungshilfen)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Device Control and Data Access (Accessibility)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Control del dispositivo y acceso a datos (Accesibilidad)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contrôle de l’appareil et accès aux données (Accessibilité)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controllo del dispositivo e accesso ai dati (Accessibilità)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバイスの制御とデータへのアクセス（アクセシビリティ）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការគ្រប់គ្រងឧបករណ៍ និងការចូលប្រើទិន្នន័យ (ភាពងាយស្រួល)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기기 제어 및 데이터 접근(손쉬운 사용)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enhetskontroll og datatilgang (Tilgjengelighet)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sterowanie urządzeniem i dostęp do danych (Dostępność)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controle do Dispositivo e Acesso a Dados (Acessibilidade)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Управление устройством и доступ к данным (Универсальный доступ)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การควบคุมอุปกรณ์และการเข้าถึงข้อมูล (การช่วยการเข้าถึง)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aygıt Denetimi ve Veri Erişimi (Erişilebilirlik)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Керування пристроєм і доступ до даних (Універсальний доступ)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Điều khiển thiết bị và truy cập dữ liệu (Trợ năng)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设备控制与数据访问（辅助功能）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "裝置控制與資料存取（輔助使用）"
+          }
+        }
+      }
+    },
+    "computerUse.remoteSetup.screenRecordingName": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تسجيل الشاشة وصوت النظام (تسجيل الشاشة)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snimanje ekrana i sistemskog zvuka (Snimanje ekrana)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optagelse af skærm og systemlyd (Skærmoptagelse)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildschirm- & Systemaudioaufnahme (Bildschirmaufnahme)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screen & System Audio Recording (Screen Recording)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grabación de pantalla y audio del sistema (Grabación de pantalla)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistrement de l’écran et de l’audio du système (Enregistrement de l’écran)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registrazione schermo e audio di sistema (Registrazione schermo)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画面収録とシステムオーディオ録音（画面収録）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការថតអេក្រង់ និងសំឡេងប្រព័ន្ធ (ការថតអេក្រង់)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면 및 시스템 오디오 녹음(화면 기록)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjerm- og systemlydopptak (Skjermopptak)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nagrywanie ekranu i dźwięku systemowego (Nagrywanie ekranu)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gravação de Tela e Áudio do Sistema (Gravação de Tela)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запись экрана и системного звука (Запись экрана)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การบันทึกหน้าจอและเสียงระบบ (การบันทึกหน้าจอ)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekran ve Sistem Sesi Kaydı (Ekran Kaydı)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запис екрана й системного звуку (Запис екрана)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghi màn hình và âm thanh hệ thống (Ghi màn hình)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "录屏与系统录音（屏幕录制）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "螢幕與系統錄音（螢幕錄製）"
+          }
+        }
+      }
+    },
+    "computerUse.remoteSetup.askTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السماح لـ cmux Remote باستخدام هذا الـ Mac"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dozvolite cmux Remote da koristi ovaj Mac"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillad cmux Remote at bruge denne Mac"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote die Nutzung dieses Mac erlauben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow cmux Remote to Use This Mac"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir que cmux Remote use este Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autoriser cmux Remote à utiliser ce Mac"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consenti a cmux Remote di usare questo Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote にこの Mac の使用を許可"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អនុញ្ញាតឱ្យ cmux Remote ប្រើ Mac នេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote가 이 Mac을 사용하도록 허용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillat cmux Remote å bruke denne Macen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pozwól cmux Remote używać tego Maca"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir que o cmux Remote Use Este Mac"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешить cmux Remote использовать этот Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อนุญาตให้ cmux Remote ใช้ Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote’un Bu Mac’i Kullanmasına İzin Ver"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дозволити cmux Remote використовувати цей Mac"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cho phép cmux Remote dùng máy Mac này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许 cmux Remote 使用这台 Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許 cmux Remote 使用這台 Mac"
+          }
+        }
+      }
+    },
+    "computerUse.remoteSetup.askIntro": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعمل Computer Use في cmux Remote. يحتاج macOS إلى إذنين لـ cmux Remote. يطلب «متابعة» كلًا منهما بالتتابع."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use radi u cmux Remote. macOS treba dvije dozvole za cmux Remote. Nastavi traži svaku redom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use kører i cmux Remote. macOS skal bruge to tilladelser til cmux Remote. Fortsæt beder om dem én ad gangen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use läuft in cmux Remote. macOS braucht zwei Berechtigungen für cmux Remote. Fortfahren fragt nacheinander danach."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use runs in cmux Remote. macOS needs two permissions for cmux Remote. Continue asks for each in turn."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use se ejecuta en cmux Remote. macOS necesita dos permisos para cmux Remote. Continuar los pide uno tras otro."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use s’exécute dans cmux Remote. macOS a besoin de deux autorisations pour cmux Remote. Continuer les demande l’une après l’autre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use funziona in cmux Remote. macOS ha bisogno di due permessi per cmux Remote. Continua li chiede uno alla volta."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use は cmux Remote で動作します。macOS では cmux Remote に 2 つの許可が必要です。「続ける」で順番に要求します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use ដំណើរការក្នុង cmux Remote។ macOS ត្រូវការការអនុញ្ញាតពីរសម្រាប់ cmux Remote។ បន្ត នឹងស្នើម្ដងមួយៗ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use는 cmux Remote에서 실행됩니다. macOS에서 cmux Remote에 두 가지 권한이 필요합니다. 계속을 누르면 하나씩 요청합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use kjører i cmux Remote. macOS trenger to tillatelser for cmux Remote. Fortsett ber om dem én etter én."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use działa w cmux Remote. macOS potrzebuje dwóch uprawnień dla cmux Remote. Kontynuuj prosi o nie po kolei."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Computer Use roda no cmux Remote. O macOS precisa de duas permissões para o cmux Remote. Continuar pede cada uma por vez."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use работает в cmux Remote. macOS нужны два разрешения для cmux Remote. «Продолжить» запросит их по очереди."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use ทำงานใน cmux Remote macOS ต้องการสิทธิ์สองอย่างสำหรับ cmux Remote ดำเนินการต่อจะขอทีละอย่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use, cmux Remote’ta çalışır. macOS’un cmux Remote için iki izne ihtiyacı var. Devam, bunları sırayla ister."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use працює в cmux Remote. macOS потрібні два дозволи для cmux Remote. «Продовжити» запитає їх по черзі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use chạy trong cmux Remote. macOS cần hai quyền cho cmux Remote. Tiếp tục sẽ lần lượt yêu cầu từng quyền."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use 在 cmux Remote 中运行。macOS 需要为 cmux Remote 授予两项权限。“继续”会依次请求。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use 在 cmux Remote 中執行。macOS 需要為 cmux Remote 授予兩項權限。「繼續」會依序要求。"
+          }
+        }
+      }
+    },
+    "computerUse.remoteSetup.askAccessibility": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. %@، لكي يتمكن الوكلاء من النقر والكتابة في التطبيقات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. %@, da agenti mogu klikati i kucati u aplikacijama."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. %@, så agenter kan klikke og skrive i apps."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. %@, damit Agenten in Apps klicken und tippen können."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. %@, so agents can click and type in apps."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. %@, para que los agentes puedan hacer clic y escribir en apps."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. %@, pour que les agents puissent cliquer et taper dans les apps."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. %@, così gli agenti possono fare clic e digitare nelle app."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. %@：エージェントが App でクリックや入力をするため。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. %@ ដើម្បីឱ្យភ្នាក់ងារអាចចុច និងវាយក្នុងកម្មវិធី។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. %@: 에이전트가 앱에서 클릭하고 입력할 수 있도록 합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. %@, så agenter kan klikke og skrive i apper."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. %@, aby agenci mogli klikać i pisać w aplikacjach."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. %@, para que os agentes possam clicar e digitar nos apps."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. %@, чтобы агенты могли нажимать и печатать в приложениях."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. %@ เพื่อให้เอเจนต์คลิกและพิมพ์ในแอปได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. %@, aracılar uygulamalarda tıklayıp yazabilsin diye."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. %@, щоб агенти могли натискати й друкувати в програмах."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. %@, để tác tử có thể bấm và gõ trong ứng dụng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. %@，让代理可以在 App 中点按和输入。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. %@，讓代理程式可以在 App 中點按和輸入。"
+          }
+        }
+      }
+    },
+    "computerUse.remoteSetup.askScreenRecording": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. %@، لكي يرى الوكلاء النوافذ التي يعملون فيها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. %@, da agenti vide prozore u kojima rade."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. %@, så agenter kan se de vinduer, de arbejder i."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. %@, damit Agenten die Fenster sehen, in denen sie arbeiten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. %@, so agents can see the windows they work in."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. %@, para que los agentes vean las ventanas en las que trabajan."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. %@, pour que les agents voient les fenêtres dans lesquelles ils travaillent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. %@, così gli agenti vedono le finestre in cui lavorano."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. %@：エージェントが作業中のウインドウを見るため。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. %@ ដើម្បីឱ្យភ្នាក់ងារមើលឃើញបង្អួចដែលពួកគេធ្វើការ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. %@: 에이전트가 작업 중인 윈도우를 볼 수 있도록 합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. %@, så agenter kan se vinduene de jobber i."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. %@, aby agenci widzieli okna, w których pracują."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. %@, para que os agentes vejam as janelas em que trabalham."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. %@, чтобы агенты видели окна, в которых работают."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. %@ เพื่อให้เอเจนต์เห็นหน้าต่างที่ทำงานอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. %@, aracılar çalıştıkları pencereleri görebilsin diye."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. %@, щоб агенти бачили вікна, у яких працюють."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. %@, để tác tử thấy các cửa sổ chúng làm việc."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. %@，让代理可以看到它们工作的窗口。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. %@，讓代理程式可以看到它們工作的視窗。"
+          }
+        }
+      }
+    },
+    "computerUse.remoteSetup.stepTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السماح لـ cmux Remote: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dozvolite cmux Remote: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillad cmux Remote: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote erlauben: %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow cmux Remote: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir cmux Remote: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autoriser cmux Remote : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consenti cmux Remote: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote を許可：%@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អនុញ្ញាត cmux Remote៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote 허용: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillat cmux Remote: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pozwól cmux Remote: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir cmux Remote: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешить cmux Remote: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อนุญาต cmux Remote: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Remote’a İzin Ver: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дозволити cmux Remote: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cho phép cmux Remote: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许 cmux Remote：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許 cmux Remote：%@"
+          }
+        }
+      }
+    },
+    "computerUse.remoteSetup.stepAccessibility": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الخطوة 1 من 2. عندما يطلب macOS %@، افتح إعدادات النظام وشغّل cmux Remote. تُغلق هذه البطاقة تلقائيًا بعد تشغيله."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Korak 1 od 2. Kada macOS zatraži %@, otvorite Postavke sistema i uključite cmux Remote. Ova kartica se sama zatvara kad se uključi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trin 1 af 2. Når macOS beder om %@, skal du åbne Systemindstillinger og slå cmux Remote til. Kortet lukker selv, når det er slået til."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schritt 1 von 2. Wenn macOS nach %@ fragt, öffne die Systemeinstellungen und schalte cmux Remote ein. Diese Karte schließt sich, sobald es an ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Step 1 of 2. When macOS asks for %@, open System Settings and turn on cmux Remote. This card closes by itself once it is on."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paso 1 de 2. Cuando macOS pida %@, abre Ajustes del Sistema y activa cmux Remote. Esta tarjeta se cierra sola cuando esté activado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Étape 1 sur 2. Quand macOS demande %@, ouvrez Réglages Système et activez cmux Remote. Cette carte se ferme d’elle-même une fois activé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passo 1 di 2. Quando macOS chiede %@, apri Impostazioni di Sistema e attiva cmux Remote. Questa scheda si chiude da sola quando è attivo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステップ 1/2。macOS が %@ を要求したら、システム設定を開いて cmux Remote をオンにしてください。オンになるとこのカードは自動で閉じます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជំហាន 1 នៃ 2។ ពេល macOS ស្នើ %@ សូមបើក ការកំណត់ប្រព័ន្ធ ហើយបើក cmux Remote។ កាតនេះបិទដោយខ្លួនឯងពេលវាបើក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1/2단계. macOS가 %@을(를) 요청하면 시스템 설정을 열고 cmux Remote를 켜세요. 켜지면 이 카드는 자동으로 닫힙니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trinn 1 av 2. Når macOS ber om %@, åpner du Systeminnstillinger og slår på cmux Remote. Kortet lukkes av seg selv når det er på."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Krok 1 z 2. Gdy macOS poprosi o %@, otwórz Ustawienia systemowe i włącz cmux Remote. Ta karta zamknie się sama po włączeniu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Etapa 1 de 2. Quando o macOS pedir %@, abra os Ajustes do Sistema e ative o cmux Remote. Este cartão fecha sozinho quando estiver ativado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шаг 1 из 2. Когда macOS запросит %@, откройте Системные настройки и включите cmux Remote. Карточка закроется сама, когда разрешение включится."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขั้นตอนที่ 1 จาก 2 เมื่อ macOS ขอ %@ ให้เปิดการตั้งค่าระบบแล้วเปิด cmux Remote การ์ดนี้จะปิดเองเมื่อเปิดแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adım 1/2. macOS %@ istediğinde Sistem Ayarları’nı açın ve cmux Remote’u açın. Açıldığında bu kart kendiliğinden kapanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Крок 1 з 2. Коли macOS запитає %@, відкрийте Системні параметри й увімкніть cmux Remote. Картка закриється сама, щойно дозвіл увімкнеться."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bước 1/2. Khi macOS hỏi %@, hãy mở Cài đặt hệ thống và bật cmux Remote. Thẻ này tự đóng khi quyền được bật."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第 1 步，共 2 步。macOS 请求%@时，请打开“系统设置”并开启 cmux Remote。开启后此卡片会自动关闭。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第 1 步，共 2 步。macOS 要求%@時，請打開「系統設定」並開啟 cmux Remote。開啟後此卡片會自動關閉。"
+          }
+        }
+      }
+    },
+    "computerUse.remoteSetup.stepScreenRecording": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الخطوة 2 من 2. في إعدادات النظام، شغّل cmux Remote ضمن %@. إذا عرض macOS «إنهاء وإعادة فتح»، فاختره: يظل cmux ووكلاؤك قيد التشغيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Korak 2 od 2. U Postavkama sistema uključite cmux Remote pod %@. Ako macOS ponudi Zatvori i ponovo otvori, izaberite to: cmux i vaši agenti nastavljaju raditi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trin 2 af 2. Slå cmux Remote til under %@ i Systemindstillinger. Hvis macOS tilbyder Afslut og åbn igen, så vælg det: cmux og dine agenter kører videre."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schritt 2 von 2. Schalte in den Systemeinstellungen cmux Remote unter %@ ein. Bietet macOS „Beenden & erneut öffnen“ an, wähle es: cmux und deine Agenten laufen weiter."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Step 2 of 2. In System Settings, turn on cmux Remote under %@. If macOS offers Quit & Reopen, choose it: cmux and your agents keep running."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paso 2 de 2. En Ajustes del Sistema, activa cmux Remote en %@. Si macOS ofrece Salir y volver a abrir, elígelo: cmux y tus agentes siguen funcionando."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Étape 2 sur 2. Dans Réglages Système, activez cmux Remote sous %@. Si macOS propose Quitter et rouvrir, choisissez-le : cmux et vos agents continuent de tourner."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passo 2 di 2. In Impostazioni di Sistema, attiva cmux Remote in %@. Se macOS propone Esci e riapri, sceglilo: cmux e i tuoi agenti continuano a funzionare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステップ 2/2。システム設定の %@ で cmux Remote をオンにしてください。macOS が「終了して再度開く」を表示したら選択してください。cmux とエージェントは動作し続けます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជំហាន 2 នៃ 2។ ក្នុង ការកំណត់ប្រព័ន្ធ សូមបើក cmux Remote ក្រោម %@។ បើ macOS ផ្ដល់ ចាកចេញ និងបើកឡើងវិញ សូមជ្រើសវា៖ cmux និងភ្នាក់ងាររបស់អ្នកនៅតែដំណើរការ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2/2단계. 시스템 설정의 %@에서 cmux Remote를 켜세요. macOS가 종료 후 다시 열기를 제안하면 선택하세요. cmux와 에이전트는 계속 실행됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trinn 2 av 2. Slå på cmux Remote under %@ i Systeminnstillinger. Hvis macOS tilbyr Avslutt og åpne på nytt, velg det: cmux og agentene dine fortsetter å kjøre."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Krok 2 z 2. W Ustawieniach systemowych włącz cmux Remote w sekcji %@. Jeśli macOS zaproponuje Zakończ i otwórz ponownie, wybierz to: cmux i Twoi agenci działają dalej."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Etapa 2 de 2. Nos Ajustes do Sistema, ative o cmux Remote em %@. Se o macOS oferecer Encerrar e Reabrir, escolha: o cmux e seus agentes continuam rodando."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шаг 2 из 2. В Системных настройках включите cmux Remote в разделе %@. Если macOS предложит «Завершить и открыть снова», выберите это: cmux и ваши агенты продолжат работать."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขั้นตอนที่ 2 จาก 2 ในการตั้งค่าระบบ ให้เปิด cmux Remote ใต้ %@ หาก macOS เสนอให้ออกและเปิดใหม่ ให้เลือก cmux และเอเจนต์ของคุณยังทำงานต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adım 2/2. Sistem Ayarları’nda %@ altında cmux Remote’u açın. macOS Çık ve Yeniden Aç önerirse seçin: cmux ve aracılarınız çalışmaya devam eder."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Крок 2 з 2. У Системних параметрах увімкніть cmux Remote у розділі %@. Якщо macOS запропонує «Вийти й відкрити знову», виберіть це: cmux і ваші агенти працюватимуть далі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bước 2/2. Trong Cài đặt hệ thống, bật cmux Remote trong %@. Nếu macOS đề nghị Thoát và mở lại, hãy chọn: cmux và các tác tử vẫn tiếp tục chạy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第 2 步，共 2 步。在“系统设置”的%@中开启 cmux Remote。如果 macOS 提示“退出并重新打开”，请选择它：cmux 和你的代理会继续运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第 2 步，共 2 步。在「系統設定」的%@中開啟 cmux Remote。如果 macOS 提示「結束並重新打開」，請選擇它：cmux 和你的代理程式會繼續執行。"
+          }
+        }
+      }
+    },
+    "computerUse.remoteSetup.continue": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "متابعة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nastavi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fortsæt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fortfahren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continua"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "続ける"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្ត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "계속"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fortsett"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontynuuj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Продолжить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ดำเนินการต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Devam"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Продовжити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiếp tục"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "继续"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "繼續"
+          }
+        }
+      }
+    },
+    "computerUse.remoteSetup.notNow": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ليس الآن"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ne sada"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke nu"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht jetzt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not Now"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ahora no"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas maintenant"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non ora"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今はしない"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនមែនឥឡូវ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "나중에"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke nå"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie teraz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agora Não"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не сейчас"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่ใช่ตอนนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Şimdi Değil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не зараз"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Để sau"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以后"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "稍後"
+          }
+        }
+      }
+    },
+    "computerUse.remoteSetup.close": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إغلاق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zatvori"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Luk"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schließen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerrar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fermer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiudi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閉じる"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បិទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "닫기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lukk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zamknij"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fechar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закрыть"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закрити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đóng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉"
+          }
+        }
+      }
+    },
+    "computerUse.remoteSetup.openSettings": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح إعدادات النظام"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otvori Postavke sistema"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åbn Systemindstillinger"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Systemeinstellungen öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open System Settings"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir Ajustes del Sistema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir Réglages Système"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri Impostazioni di Sistema"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システム設定を開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើក ការកំណត់ប្រព័ន្ធ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 설정 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åpne Systeminnstillinger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otwórz Ustawienia systemowe"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir Ajustes do Sistema"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть Системные настройки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดการตั้งค่าระบบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistem Ayarları’nı Aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відкрити Системні параметри"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mở Cài đặt hệ thống"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开系统设置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打開系統設定"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

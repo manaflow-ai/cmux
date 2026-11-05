@@ -1,27 +1,35 @@
-import Foundation
+public import Foundation
 
 /// One live Computer Use session on this Mac, as the File menu's Computer Use
 /// actions need it: what it drives and which terminal started it. Read from
 /// the CUA host's `activity_sessions_list` (plans/cmux-next/computer-use.md
 /// section 6a, `SessionRecord`).
-nonisolated struct ComputerUseLiveSession: Equatable, Sendable {
+public nonisolated struct ComputerUseLiveSession: Equatable, Sendable {
     /// The app window the session last acted on.
-    nonisolated struct Target: Equatable, Sendable {
-        var pid: Int32?
-        var bundleID: String?
-        var appName: String?
+    public nonisolated struct Target: Equatable, Sendable {
+        public var pid: Int32?
+        public var bundleID: String?
+        public var appName: String?
+
+        public init(pid: Int32?, bundleID: String?, appName: String?) {
+            (self.pid, self.bundleID, self.appName) = (pid, bundleID, appName)
+        }
     }
 
-    var id: String
-    var lastActionAt: Date
+    public var id: String
+    public var lastActionAt: Date
     /// The newest target (the host lists targets oldest first); nil before the first act.
-    var target: Target?
+    public var target: Target?
     /// The session host terminal the agent runs in (`agent.terminal_id`), when attributed.
-    var terminalID: String?
-    var workspaceID: String?
+    public var terminalID: String?
+    public var workspaceID: String?
+
+    public init(id: String, lastActionAt: Date, target: Target?, terminalID: String?, workspaceID: String?) {
+        (self.id, self.lastActionAt, self.target, self.terminalID, self.workspaceID) = (id, lastActionAt, target, terminalID, workspaceID)
+    }
 
     /// The live (not ended) sessions of an `activity_sessions_list` result, newest action first.
-    static func live(from result: [String: Any]) -> [ComputerUseLiveSession] {
+    public static func live(from result: [String: Any]) -> [ComputerUseLiveSession] {
         let rows = result["sessions"] as? [[String: Any]] ?? []
         return rows.compactMap(session).sorted { $0.lastActionAt > $1.lastActionAt }
     }

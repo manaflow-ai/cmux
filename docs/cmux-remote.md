@@ -91,6 +91,23 @@ or logs.
   macOS names cmux Remote in its prompt; each opens the matching System
   Settings pane when macOS will not prompt again. A permission is requested at
   most once per 30 s.
+- **Setup.** When Computer Use turns on under cmux Remote (Settings, the
+  palette, `cmux settings set computerUse.enabled true --confirm`,
+  `cmux setup computer-use`, or a launch with it on) and a grant is off, the
+  app shows its setup card (top right, never activating; only the person's
+  press answers it). It names both permissions as macOS 27 shows them, with
+  the older names in brackets: "Device Control and Data Access
+  (Accessibility)" and "Screen & System Audio Recording (Screen Recording)".
+  On macOS 27 the Accessibility prompt is titled "Device Control and Data
+  Access". Continue requests Accessibility in the host, then, once it is on,
+  Screen Recording, one request each. The card follows the refresh events
+  above and closes when both are on. Not Now stops asking until Computer Use
+  is turned off and on, or the app starts again. Computer Use Setup
+  (`computer_use.status`) then reports cmux Remote's grants
+  (`grant_holder: "cmux_remote"`), so an agent's computer use call before
+  setup asks the person on the permission card
+  (`permissions.request {kind: computer_use}`) as it does for the legacy
+  helper.
 
 ## Screen Sharing worker
 

@@ -85,7 +85,7 @@ struct ComputerUseRemoteSetupFlowTests {
                                      openURL: { legacyOpened.append($0) },
                                      notifications: notifications, distributed: distributed,
                                      remoteHost: host.remote)
-        let flow = ComputerUseRemoteSetupFlow(setup: setup, presenter: cards)
+        let flow = ComputerUseRemoteSetupFlow(source: setup, presenter: cards)
         setup.start()
         flow.start()
         return Rig(box: box, host: host, cards: cards, setup: setup, flow: flow, notifications: notifications, distributed: distributed)
@@ -106,21 +106,25 @@ struct ComputerUseRemoteSetupFlowTests {
         let ax = ComputerUsePermissions(accessibility: true, screenRecording: false)
         let both = ComputerUsePermissions(accessibility: true, screenRecording: true)
         typealias Flow = ComputerUseRemoteSetupFlow
+        /// The setup's state for these inputs, then the flow's step for it.
+        func step(remote: Bool, phase: ComputerUseSetup.Phase, permissions: ComputerUsePermissions, continued: Bool) -> Flow.Step {
+            Flow.step(ComputerUseSetup.remoteSetupState(remote: remote, phase: phase, permissions: permissions), continued: continued)
+        }
         // Not cmux Remote (the legacy helper, or the helper v2 without cmux Remote): nothing changes.
-        #expect(Flow.step(remote: false, phase: .ready, permissions: off, continued: false) == .none)
-        #expect(Flow.step(remote: false, phase: .ready, permissions: off, continued: true) == .none)
+        #expect(step(remote: false, phase: .ready, permissions: off, continued: false) == .none)
+        #expect(step(remote: false, phase: .ready, permissions: off, continued: true) == .none)
         // cmux Remote, grants not read yet.
-        #expect(Flow.step(remote: true, phase: .starting, permissions: .none, continued: false) == .reading)
+        #expect(step(remote: true, phase: .starting, permissions: .none, continued: false) == .reading)
         // Off or policy: nothing to set up.
-        #expect(Flow.step(remote: true, phase: .off, permissions: .none, continued: false) == .none)
-        #expect(Flow.step(remote: true, phase: .disabledByPolicy, permissions: .none, continued: false) == .none)
+        #expect(step(remote: true, phase: .off, permissions: .none, continued: false) == .none)
+        #expect(step(remote: true, phase: .disabledByPolicy, permissions: .none, continued: false) == .none)
         // Both off: the card asks first, then Accessibility, then Screen Recording, one at a time.
-        #expect(Flow.step(remote: true, phase: .ready, permissions: off, continued: false) == .ask)
-        #expect(Flow.step(remote: true, phase: .ready, permissions: off, continued: true) == .request(.accessibility))
-        #expect(Flow.step(remote: true, phase: .ready, permissions: ax, continued: true) == .request(.screenRecording))
+        #expect(step(remote: true, phase: .ready, permissions: off, continued: false) == .ask)
+        #expect(step(remote: true, phase: .ready, permissions: off, continued: true) == .request(.accessibility))
+        #expect(step(remote: true, phase: .ready, permissions: ax, continued: true) == .request(.screenRecording))
         // Granted: ready, with or without the card.
-        #expect(Flow.step(remote: true, phase: .ready, permissions: both, continued: false) == .ready)
-        #expect(Flow.step(remote: true, phase: .ready, permissions: both, continued: true) == .ready)
+        #expect(step(remote: true, phase: .ready, permissions: both, continued: false) == .ready)
+        #expect(step(remote: true, phase: .ready, permissions: both, continued: true) == .ready)
     }
 
     // MARK: The flow
@@ -169,7 +173,7 @@ struct ComputerUseRemoteSetupFlowTests {
         let setup = ComputerUseSetup(inputs: { box.value }, configuration: { nil }, read: { _ in .noAnswer },
                                      resolveHelper: { _ in nil }, notifications: NotificationCenter(),
                                      distributed: NotificationCenter(), remoteHost: host.remote)
-        let flow = ComputerUseRemoteSetupFlow(setup: setup, presenter: cards)
+        let flow = ComputerUseRemoteSetupFlow(source: setup, presenter: cards)
         setup.start()
         flow.start()
         for await step in ObservationStream({ flow.step }) where step == .ready { break }
@@ -196,7 +200,7 @@ struct ComputerUseRemoteSetupFlowTests {
 
     /// The legacy driver: setup reads the legacy helper as before, and the flow never shows.
     @Test func theLegacyDriverIsUnchanged() async {
-        let rig = rig(.init(disabledByPolicy: false, enabled: true, helper: .off, driver: .legacy, remote: false))
+        let rig = rig(ComputerUseSetup.Inputs(disabledByPolicy: false, enabled: true, helper: .off, driver: .legacy, remote: false))
         #expect(!rig.setup.remote)
         #expect(rig.setup.phase == .starting)
         #expect(rig.setup.pageJSON["grant_holder"] == .string("legacy_helper"))
@@ -223,8 +227,10 @@ struct ComputerUseRemoteSetupFlowTests {
         #expect(([sr.title] + sr.lines).joined().contains("Screen & System Audio Recording"))
     }
 
+    #if DEBUG
     /// The card answers only to the person: automation's `debug.dialog` presses nothing on it.
     @Test func theCardIsUserOnly() {
         #expect(DebugDialog.userOnly.contains(ComputerUseApprovalService.remoteSetupDialogIdentifier))
     }
+    #endif
 }

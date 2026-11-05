@@ -434,7 +434,10 @@ answer from any collector wins; the app then sends `cu_approval_done`.
   hex digits of the digest. `computer_use.mode.set {mode}` writes
   `computerUse.mode`: a lower mode at once, a higher one only after the person
   confirms a cmux dialog (`{ok:false, declined:true}` otherwise).
-  `computer_use.status` → `{mode, phone_always_allow, saved, pending, worker}`.
+  `computer_use.status` → `{mode, phone_always_allow, saved, pending, worker}`
+  with Computer Use Setup's fields in the same object (`phase`,
+  `accessibility`, `screen_recording`, `helper`, `driver`, `grant_holder`;
+  docs/cmux-remote.md, Permissions).
 ### How the CLI and MCP reach it
 
 Status and approvals (CLI and MCP share one code path,

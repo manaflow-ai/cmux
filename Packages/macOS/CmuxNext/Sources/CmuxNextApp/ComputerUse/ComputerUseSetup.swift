@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentActivity
 import CmuxNextCompat
+import CmuxNextMacScreen
 import CmuxNextOnboarding
 import CmuxNextSettings
 import CmuxNextWakeups
@@ -59,6 +60,15 @@ final class ComputerUseSetup {
         /// `computerUse.driver` is "upstream", but this build has no helper
         /// v2, so `driver` is the legacy helper that runs instead.
         var upstreamFallback = false
+        /// Computer Use runs in cmux Remote, which holds the grants (docs/cmux-remote.md, Permissions).
+        var remote = false
+    }
+
+    /// cmux Remote's grants over `remote-host-call`: a fresh probe, a request in the host, its pane.
+    struct RemoteHost: Sendable {
+        var read: @Sendable () async -> Read
+        var request: @Sendable (ComputerUsePermissionPane) async -> Void
+        var openSettings: @Sendable (ComputerUsePermissionPane) async -> Void
     }
 
     /// One `permissions_status` read.
@@ -85,6 +95,8 @@ final class ComputerUseSetup {
     /// Computer Use is on with driver "upstream", but this build has no
     /// helper v2: the legacy helper runs, and the status line says so.
     private(set) var upstreamFallback = false
+    /// The grants are cmux Remote's (``Inputs/remote``), not a helper's this app starts.
+    private(set) var remote = false
     /// The status note for `upstreamFallback` (`cmux setup status` shows it as is).
     nonisolated static let upstreamFallbackNote = "Upstream helper isn't in this build; using Legacy"
 
@@ -97,6 +109,7 @@ final class ComputerUseSetup {
     @ObservationIgnored private let restartHelper: @MainActor () async -> Void
     @ObservationIgnored private let requestPermission: @MainActor (ComputerUsePermissionPane) -> Void
     @ObservationIgnored private let enableSetting: @MainActor () -> Void
+    @ObservationIgnored private let remoteHost: RemoteHost?
     @ObservationIgnored private let notifications: NotificationCenter
     @ObservationIgnored private let distributed: NotificationCenter
     @ObservationIgnored private let clock: any Clock<Duration>
@@ -127,8 +140,10 @@ final class ComputerUseSetup {
          enableSetting: @escaping @MainActor () -> Void = {},
          notifications: NotificationCenter = .default,
          distributed: NotificationCenter = DistributedNotificationCenter.default(),
-         clock: any Clock<Duration> = ContinuousClock()) {
+         clock: any Clock<Duration> = ContinuousClock(),
+         remoteHost: RemoteHost? = nil) {
         self.inputs = inputs
+        self.remoteHost = remoteHost
         self.configuration = configuration
         self.read = read
         self.resolveHelper = resolveHelper
@@ -213,6 +228,11 @@ final class ComputerUseSetup {
     /// alert on top of the drag panel that already guides the person.
     /// Under the helper v2, `requestPermission` queues the grant on its control pipe instead.
     func open(_ pane: ComputerUsePermissionPane) {
+        if remote, let remoteHost {
+            // task-owner: one request in cmux Remote (macOS names it); the next read shows the answer.
+            Task { await remoteHost.request(pane) }
+            return
+        }
         if Self.asksHelper(pane, accessibility: permissions.accessibility, phase: phase, driver: driver),
            let configuration = configuration() {
             let requestGrant = requestGrant
@@ -284,6 +304,13 @@ final class ComputerUseSetup {
 
     private func apply(_ inputs: Inputs) {
         driver = inputs.driver
+        let remote = inputs.remote && inputs.driver == .upstream && remoteHost != nil
+        if remote != self.remote {
+            self.remote = remote
+            answeredBy = nil
+            resolvedFor = nil
+            helperAppURL = nil
+        }
         hostUnverified = inputs.consentHostUnverified && inputs.driver == .legacy && inputs.enabled && !inputs.disabledByPolicy
         upstreamFallback = inputs.upstreamFallback && inputs.enabled && !inputs.disabledByPolicy
         generation &+= 1
@@ -291,6 +318,10 @@ final class ComputerUseSetup {
         reading = nil
         if inputs.disabledByPolicy { return settle(.disabledByPolicy, running: nil) }
         guard inputs.enabled else { return settle(.off, running: nil) }
+        if remote, let remoteHost {
+            if phase != .ready || answeredBy != Self.remoteAnswer { settle(.starting, running: nil) }
+            return readGrants(remoteHost.read, pid: Self.remoteAnswer, generation: generation)
+        }
         switch inputs.helper {
         case .unavailable: settle(.unavailable, running: nil)
         case .failed: settle(.failed, running: nil)
@@ -300,7 +331,8 @@ final class ComputerUseSetup {
             guard let configuration = configuration() else { return settle(.starting, running: nil) }
             // Until this helper answers, the grants are being read, not off.
             if phase != .ready || answeredBy != pid { settle(.starting, running: nil) }
-            readGrants(configuration, pid: pid, generation: generation)
+            let read = read
+            readGrants({ await read(configuration) }, pid: pid, generation: generation)
         }
     }
 
@@ -309,24 +341,25 @@ final class ComputerUseSetup {
     private func settle(_ phase: Phase, running: URL?) {
         self.phase = phase
         if phase != .ready { permissions = .none }
-        resolve(running: running)
+        if !remote { resolve(running: running) }
     }
 
-    private func readGrants(_ configuration: AgentActivitySocketSource.Configuration, pid: pid_t, generation current: Int) {
-        let read = read
+    static let remoteAnswer: pid_t = -1
+
+    private func readGrants(_ read: @escaping @Sendable () async -> Read, pid: pid_t, generation current: Int) {
         let clock = clock
         // task-owner: one read (plus bounded retries while a started helper is not up yet); a newer apply cancels it.
         reading = Task { [weak self] in
             var backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(4))
             for attempt in 0..<Self.maximumRetries {
-                let result = await read(configuration)
+                let result = await read()
                 guard let self, !Task.isCancelled, self.generation == current else { return }
                 switch result {
                 case .answered(let granted, let helper):
                     phase = .ready
                     permissions = granted
                     answeredBy = pid
-                    resolve(running: helper)
+                    if remote { helperAppURL = helper ?? helperAppURL } else { resolve(running: helper) }
                     return
                 case .versionMismatch:
                     setupLogger.error("cmux Computer Use helper answered permissions_status in another protocol version")
@@ -412,7 +445,8 @@ extension ComputerUseSetup {
                               helper: helper.state,
                               driver: driver,
                               consentHostUnverified: helper.consentHostUnverified != nil,
-                              upstreamFallback: driver != chosen)
+                              upstreamFallback: driver != chosen,
+                              remote: driver == .upstream && services?.cmuxRemote.started == true)
             },
             configuration: { helper.configuration },
             restartHelper: { await helper.restartLegacy() },
@@ -444,7 +478,13 @@ extension ComputerUseSetup {
                         setupLogger.error("Computer Use could not be turned on: \(String(describing: error), privacy: .public)")
                     }
                 }
-            })
+            },
+            remoteHost: RemoteHost(read: { [weak remote = services.cmuxRemote] in
+                guard let grants = await remote?.refreshGrants() else { return .noAnswer }
+                let app = grants.hostPID.flatMap { NSRunningApplication(processIdentifier: $0)?.bundleURL }
+                return .answered(ComputerUsePermissions(accessibility: grants.accessibility, screenRecording: grants.screenRecording), helper: app)
+            }, request: { [weak remote = services.cmuxRemote] in await remote?.requestGrant(screenRecording: $0 == .screenRecording) },
+            openSettings: { [weak remote = services.cmuxRemote] in await remote?.openGrantSettings(screenRecording: $0 == .screenRecording) }))
         setup.start()
         return setup
     }
@@ -463,13 +503,38 @@ extension ComputerUseSetup {
             "phase": .string(phase.rawValue),
             "accessibility": known ? .bool(permissions.accessibility) : .null,
             "screen_recording": known ? .bool(permissions.screenRecording) : .null,
-            "helper": helperAppURL.map { .string($0.deletingPathExtension().lastPathComponent) } ?? .null,
+            "helper": helperAppURL.map { .string($0.deletingPathExtension().lastPathComponent) } ?? (remote ? .string("cmux Remote") : .null),
             "driver": .string(driver.rawValue),
+            // Whose grants these are; the agent setup check gates on cmux Remote's and the legacy helper's.
+            "grant_holder": .string(remote ? "cmux_remote" : driver == .legacy ? "legacy_helper" : "helper_v2"),
             // The status line says legacy Computer Use is off in this build (not team-signed).
             "host_unverified": .bool(hostUnverified),
             // The status line says the chosen upstream helper isn't in this build and Legacy runs.
             "upstream_fallback": .bool(upstreamFallback),
             "note": upstreamFallback ? .string(Self.upstreamFallbackNote) : .null,
         ]
+    }
+}
+
+/// The cmux Remote setup flow (``ComputerUseRemoteSetupFlow``) reads and drives this setup.
+extension ComputerUseSetup: ComputerUseRemoteGrantSource {
+    var remoteSetupState: ComputerUseRemoteSetupState { Self.remoteSetupState(remote: remote, phase: phase, permissions: permissions) }
+
+    nonisolated static func remoteSetupState(remote: Bool, phase: Phase, permissions: ComputerUsePermissions) -> ComputerUseRemoteSetupState {
+        guard remote else { return .notRemote }
+        if phase == .starting { return .reading }
+        return phase == .ready ? .granted(accessibility: permissions.accessibility, screenRecording: permissions.screenRecording) : .inactive
+    }
+
+    func requestGrant(_ grant: ComputerUseRemoteGrant) { open(grant == .accessibility ? .accessibility : .screenRecording) }
+
+    func openGrantSettings(_ grant: ComputerUseRemoteGrant) {
+        let pane: ComputerUsePermissionPane = grant == .accessibility ? .accessibility : .screenRecording
+        guard remote, let remoteHost else {
+            if let url = Self.settingsURL(pane) { openURL(url) }
+            return
+        }
+        // task-owner: one host request from the person's press.
+        Task { await remoteHost.openSettings(pane) }
     }
 }

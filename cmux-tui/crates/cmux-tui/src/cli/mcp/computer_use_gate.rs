@@ -25,8 +25,11 @@
 //! server's dispatch thread: in direct mode it holds only that call's
 //! thread, in a `cmux_exec` script it is bounded by the script's limit. An
 //! app that does not answer the status read or the request (an older app,
-//! no app) leaves the call as before. Only the legacy driver's setup is read:
-//! the helper v2 (`driver: upstream`) answers its own grants.
+//! no app) leaves the call as before. The setup is read when it reports the
+//! grants of the process that holds them: the legacy helper's, or cmux
+//! Remote's when Computer Use runs there (`grant_holder: "cmux_remote"`,
+//! docs/cmux-remote.md, Permissions). The helper v2 that this app starts
+//! itself (`driver: upstream` without cmux Remote) answers its own grants.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -138,6 +141,16 @@ pub(super) fn is_ready(status: &Value) -> bool {
         && status["screen_recording"] == true
 }
 
+/// Whether `status` reports the grants the driver's tools need: the legacy
+/// helper's (no driver, or `legacy`), or cmux Remote's. The helper v2 this
+/// app starts itself reports its own grants, which this setup does not read.
+fn reads_grants(status: &Value) -> bool {
+    match status["driver"].as_str() {
+        None | Some("legacy") => true,
+        Some(_) => status["grant_holder"] == "cmux_remote",
+    }
+}
+
 /// The app a call names (`app_name`, `name`, `app`, `bundle_id`), when it
 /// reads like an app name. The card shows it as the agent's reason, so model
 /// text that is long or not a name falls back to a plain reason.
@@ -165,8 +178,7 @@ pub(super) fn decide(
     if tool == STATUS_TOOL || !status.is_object() || is_ready(&status) {
         return Decision::Run;
     }
-    // The helper v2 reports its own grants; this setup reads the legacy helper's.
-    if status["driver"].as_str().is_some_and(|driver| driver != "legacy") {
+    if !reads_grants(&status) {
         return Decision::Run;
     }
     match status["phase"].as_str() {
@@ -363,7 +375,9 @@ mod tests {
                                    "screen_recording": screen_recording, "driver": "upstream",
                                    "grant_holder": "cmux_remote"}));
             let Decision::Wait { params, .. } = decide("click", None, status, None) else {
-                panic!("cmux Remote without {accessibility}/{screen_recording} must ask the person");
+                panic!(
+                    "cmux Remote without {accessibility}/{screen_recording} must ask the person"
+                );
             };
             assert_eq!(params["kind"], "computer_use");
         }
@@ -371,7 +385,8 @@ mod tests {
                                 "driver": "upstream", "grant_holder": "cmux_remote"}));
         assert!(matches!(decide("click", None, granted, None), Decision::Run));
         // Grants still being read: the worker's own answer decides.
-        let reading = Ok(json!({"phase": "starting", "accessibility": null, "screen_recording": null,
+        let reading =
+            Ok(json!({"phase": "starting", "accessibility": null, "screen_recording": null,
                                 "driver": "upstream", "grant_holder": "cmux_remote"}));
         assert!(matches!(decide("click", None, reading, None), Decision::Run));
         // Computer Use off under cmux Remote: the card turns it on, as under the legacy helper.
@@ -384,7 +399,8 @@ mod tests {
     /// approvals in one object) still gates on the setup fields.
     #[test]
     fn the_merged_status_with_approval_fields_still_gates() {
-        let status = Ok(json!({"phase": "ready", "accessibility": false, "screen_recording": false,
+        let status =
+            Ok(json!({"phase": "ready", "accessibility": false, "screen_recording": false,
                                "driver": "upstream", "grant_holder": "cmux_remote",
                                "mode": "standard", "phone_always_allow": false, "worker": "running",
                                "saved": [], "pending": []}));

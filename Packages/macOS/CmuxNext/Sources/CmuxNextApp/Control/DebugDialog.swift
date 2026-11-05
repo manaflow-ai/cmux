@@ -26,10 +26,10 @@ enum DebugDialog {
     /// harness sheet (a folder's program would run with the user's rights), the Cloud machine create confirmation (a spend
     /// the person approves, cx-t2rz), a browser pairing (it admits a client to the whole daemon, cx-hnmbt.2), an iPhone pairing,
     /// an ssh:// link from another app (it connects to a host a web page chose), a cmux://session link's new tab (any page
-    /// or app can open it), and what raises an agent's reach: the Computer Use mode raise and card, `settings set --confirm`, `remote.confirm`.
+    /// or app can open it), and what raises an agent's reach: the Computer Use mode raise, card and cmux Remote setup card, `settings set --confirm`, `remote.confirm`.
     static let userOnly: Set<String> = [ClipboardReadStrings.identifier, AgentPaneView.harnessEnableIdentifier, CloudPresenter.createConfirmIdentifier, CloudPresenter.environmentConfirmIdentifier, CloudPresenter.credentialRecoveryIdentifier, CloudPresenter.codexDeviceCodeIdentifier,
                                         CloudWorkspaceSetupWizard.credentialDialogIdentifier, DaemonPairingStrings.identifier, IPhoneHostService.pairDialogIdentifier, ExternalLinkGate.sshDialogIdentifier,
-                                        SessionLinkGate.dialogIdentifier, ComputerUseApprovalService.confirmModeDialogIdentifier, ComputerUseApprovalService.approvalDialogIdentifier, SettingsController.userOnlyConfirmationDialogIdentifier, CmuxRemoteActions.confirmDialogIdentifier]
+                                        SessionLinkGate.dialogIdentifier, ComputerUseApprovalService.confirmModeDialogIdentifier, ComputerUseApprovalService.approvalDialogIdentifier, ComputerUseApprovalService.remoteSetupDialogIdentifier, SettingsController.userOnlyConfirmationDialogIdentifier, CmuxRemoteActions.confirmDialogIdentifier]
     /// A user-only dialog takes no field, key or press from automation; a dismissal (it answers no, e.g. refuses a clipboard read) still works.
     static func refuses(_ id: String?, _ params: [String: JSONValue]) -> Bool { id.map(userOnly.contains) == true && (params["set"] ?? params["key"] ?? params["press"]) != nil }
 

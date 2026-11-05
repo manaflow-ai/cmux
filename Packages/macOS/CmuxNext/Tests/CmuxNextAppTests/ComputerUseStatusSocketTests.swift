@@ -4,6 +4,8 @@ import CmuxNextActions
 import CmuxNextControl
 import CmuxNextDesign
 @testable import CmuxNextSettings
+import CmuxNextComputerUse
+@testable import CmuxNextMacScreen
 import Foundation
 import Testing
 
@@ -44,5 +46,23 @@ import Testing
         #expect(object["screen_recording"] == .null, "\(status)")
         // Read-only: the status read did not change cmux.json.
         #expect(try String(contentsOf: url, encoding: .utf8) == #"{"computerUse":{"enabled":true}}"#)
+    }
+
+    /// The approvals' `computer_use.status` replaced the setup's (same method name, registered
+    /// later), so the agent setup check never saw a phase and let every call through. One status
+    /// carries both; the setup's fields win a shared key.
+    @Test func setupAndApprovalsAnswerInOneStatus() {
+        let setup: CmuxNextSettings.JSONValue = ["phase": .string("ready"), "accessibility": .bool(false),
+                                                 "driver": .string("upstream"), "grant_holder": .string("cmux_remote")]
+        let approvals = ComputerUseApprovalService(client: "com.cmuxterm.app.debug.test",
+                                                   file: ComputerUseApprovalFile(url: FileManager.default.temporaryDirectory
+                                                       .appending(path: "cu-status-\(UUID().uuidString).json"), client: "com.cmuxterm.app.debug.test"),
+                                                   cards: ComputerUseApprovalCards(panels: false))
+        let merged = approvals.status(setup: setup)
+        #expect(merged["phase"] == .string("ready"))
+        #expect(merged["grant_holder"] == .string("cmux_remote"))
+        #expect(merged["mode"] == .string("standard"))
+        #expect(merged["worker"] != nil)
+        #expect(merged["pending"] == .array([]))
     }
 }

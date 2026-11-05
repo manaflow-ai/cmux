@@ -14,6 +14,8 @@ public final class ComputerUseApprovalService {
     /// `debug.dialog` refuses to set, key or press them, `DebugDialog.userOnly`).
     public static let confirmModeDialogIdentifier = "cmux.dialog.computerUse.confirmMode"
     public static let approvalDialogIdentifier = "cmux.dialog.computerUse.approval"
+    /// Computer Use setup's card for cmux Remote's two macOS permissions (``ComputerUseRemoteSetupCard``).
+    public static let remoteSetupDialogIdentifier = "cmux.dialog.computerUse.remoteSetup"
 
     public let store: ComputerUseApprovalStore
     public let broker: ComputerUseApprovalBroker

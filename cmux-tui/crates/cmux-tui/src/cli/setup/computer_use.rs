@@ -277,12 +277,16 @@ fn next_step(status: &Value) -> Option<Value> {
             return action("app", &text, Some(SETUP_PAGE.into()), None);
         }
     }
+    // Under cmux Remote the grants are cmux Remote's, and macOS 27 titles them
+    // differently; the older names follow in brackets.
+    let remote = status["grant_holder"] == "cmux_remote";
+    let app = if remote { "cmux Remote" } else { "cmux Computer Use" };
     let grant = |key: &str, pane: &str, url: &str| {
         (status[key] != Value::Bool(true)).then(|| {
             json!({
                 "kind": "grant",
                 "text": format!(
-                    "Allow cmux Computer Use in System Settings > Privacy & Security > {pane} \
+                    "Allow {app} in System Settings > Privacy & Security > {pane} \
                      (the command opens that pane), then run `cmux setup computer-use` again"
                 ),
                 "command": format!("open '{url}'"),
@@ -290,8 +294,16 @@ fn next_step(status: &Value) -> Option<Value> {
             })
         })
     };
-    grant("accessibility", "Accessibility", ACCESSIBILITY_URL)
-        .or_else(|| grant("screen_recording", "Screen Recording", SCREEN_RECORDING_URL))
+    let (accessibility, screen_recording) = if remote {
+        (
+            "Device Control and Data Access (Accessibility)",
+            "Screen & System Audio Recording (Screen Recording)",
+        )
+    } else {
+        ("Accessibility", "Screen Recording")
+    };
+    grant("accessibility", accessibility, ACCESSIBILITY_URL)
+        .or_else(|| grant("screen_recording", screen_recording, SCREEN_RECORDING_URL))
 }
 
 /// The helper is on its way: rerun in a few seconds.

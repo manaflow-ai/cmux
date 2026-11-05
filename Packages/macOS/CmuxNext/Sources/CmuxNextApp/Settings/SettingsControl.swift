@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextControl
+import CmuxNextMacScreen
 import CmuxNextSettings
 import Foundation
 
@@ -36,7 +37,8 @@ enum SettingsControl {
             },
             // Main actor because `ComputerUseSetup` is a main-actor model; one read per doctor run.
             .mainActor("computer_use.status") { [weak services] _ in
-                .value(services?.onboarding.computerUseSetup.pageJSON ?? .null)
+                guard let services else { return .value(.null) }
+                return .value(services.cmuxRemote.computerUseApprovals.status(setup: services.onboarding.computerUseSetup.pageJSON))
             },
         ]
     }
