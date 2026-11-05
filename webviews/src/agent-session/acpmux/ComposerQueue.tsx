@@ -15,9 +15,11 @@
 // can that deletes the prompt, and a ⋯ menu with Edit message, Open in side chat (where the chat
 // can open one) and Turn off queueing (queueing.ts). Steer is the user's override: it steers the
 // prompt into the running turn and stops only its current step, so the agent reads it at once and
-// the turn runs on; to an agent that cannot steer it runs next. It never cancels a turn. Only a
-// click steers, never a key: a held or repeated key once sent row after row (claude-sr2,
-// 2026-10-20). The row's right-click menu has Steer, Edit message, the moves and Delete.
+// the turn runs on; to an agent that cannot steer it runs next. It never cancels a turn. No key on
+// a row steers it. Return on the empty prompt steers the first queued row, as the Claude app does
+// (Composer.tsx `steerQueuedOnReturn`, https://github.com/manaflow-ai/cmux/issues/34765). Each
+// press steers one row, and a held key's repeats steer none: a repeated key once sent row after row
+// (claude-sr2, 2026-10-20). The row's right-click menu has Steer, Edit message, the moves and Delete.
 //
 // Another agent's message waiting in the queue (`message`, direct.ts `queuedMessage`) is not the
 // person's prompt, and it is no row here (Leo, 2026-10-25: "I don't know why these things are queued
@@ -269,6 +271,8 @@ export function ComposerQueue({
   // A successful Send now is reflected by acpmux's next snapshot, but the action must disappear
   // immediately after the queue_edit reply so a second click cannot resend it.
   const [sentNow, setSentNow] = useState<ReadonlySet<string>>(new Set());
+  // Rows whose Steer was clicked while they were still on their way to acpmux (`sendNow`).
+  const steerWhenQueued = useRef(new Set<string>());
   const queueing = useQueueing();
   const [editing, setEditingId] = useState<string>();
   // The open edit as the latest render saw it, for a call that settles later.
@@ -513,6 +517,21 @@ export function ComposerQueue({
   // A press in the list, until its release: the focus it gives a row does not scroll the list.
   const pressing = useRef(false);
   useEffect(() => {
+    // A Steer clicked while its prompt was on its way goes once acpmux holds it; one whose prompt
+    // left meanwhile (refused, given back, or it ran) is dropped.
+    for (const id of steerWhenQueued.current) {
+      const entry = queue.find((candidate) => candidate.id === id);
+      if (entry?.sending) continue;
+      steerWhenQueued.current.delete(id);
+      if (!entry || entry.next || !onChange) continue;
+      const unmark = () =>
+        setSentNow((current) => {
+          const next = new Set(current);
+          next.delete(id);
+          return next;
+        });
+      void onChange(id, { op: "send_now" }).then((ok) => ok || unmark(), unmark);
+    }
     setSentNow((current) => {
       const next = new Set(
         [...current].filter((id) => {
@@ -537,7 +556,7 @@ export function ComposerQueue({
       editingNow.current = undefined;
       reopenRecoveredRef.current();
     }
-  }, [queue, editing, onLost]);
+  }, [queue, editing, onLost, onChange]);
   // Whole rows only: the list's height, after every draw, when its width changes, and when a row's
   // height does (a prompt opened to its whole text, its images read).
   const watched = useRef<{ list: HTMLElement; observer: ResizeObserver; rows: ResizeObserver }>(undefined);
@@ -716,10 +735,19 @@ export function ComposerQueue({
   // (`queue_order`), so its row reads Steering until it runs; to an agent that steers it leaves
   // once acpmux takes it (`dequeued`). Hiding it as leaving showed nothing until it ran (live run
   // 2026-10-14).
+  // A prompt still on its way to acpmux (`sending`: the composer sent it, acpmux has not queued it
+  // yet) has nothing to steer there: a send_now then was refused and the click did nothing
+  // (https://github.com/manaflow-ai/cmux/issues/34765). Its Steer waits, and goes once acpmux holds
+  // the prompt (the effect above).
   const sendNow =
     onChange &&
     ((entry: QueuedEntry) => {
       if (entry.next || sentNow.has(entry.id)) return;
+      if (entry.sending) {
+        steerWhenQueued.current.add(entry.id);
+        setSentNow((current) => new Set(current).add(entry.id));
+        return;
+      }
       void onChange(entry.id, { op: "send_now" })
         .then((ok) => {
           if (!ok) return;

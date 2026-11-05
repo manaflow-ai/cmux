@@ -684,6 +684,16 @@ export function Composer({
   const sending = useRef(false);
   /// The newest submit, for the handle's `send` (rendered after the trust answer lands).
   const submitNow = useRef<(force: boolean, steer?: boolean) => boolean>(() => false);
+  // Queued prompts a Return already steered (`steerQueuedOnReturn`), so the next Return steers the
+  // one after them instead of sending the same one again before acpmux's queue update arrives.
+  const steeredOnReturn = useRef(new Set<string>());
+  // Forgets the ones that left the queue, and every one when the chat changes.
+  const steerChat = snapshot.summary?.sessionId || sessionId;
+  useEffect(() => {
+    const queued = new Set(snapshot.queue.map((entry) => entry.id));
+    for (const id of steeredOnReturn.current) if (!queued.has(id)) steeredOnReturn.current.delete(id);
+  }, [snapshot.queue]);
+  useEffect(() => () => steeredOnReturn.current.clear(), [steerChat]);
   /// The newest `onOpenInWindow`, for a ⌘Return held until a screenshot's chip is ready.
   const openInWindow = useRef(onOpenInWindow);
   openInWindow.current = onOpenInWindow;
@@ -1700,6 +1710,40 @@ export function Composer({
   // chosen with the arrows, or the typed word begins its name and is not that name in full with no
   // arguments to take. A path or a word that only resembles a command is never rewritten.
   const returnSends = () => !open || !returnPicks(matches[selected], query ?? "", arrowed);
+  // The queued prompt Return on an empty prompt steers: the person's first one acpmux holds that
+  // still waits (not a teammate's, not one already sent now, held for the folder's trust or a
+  // waking machine, or still on its way to acpmux, which has nothing to steer yet). Only while
+  // the composer may send at all (`queues`), with nothing typed, staged or still being read.
+  const queuedToSteer = () =>
+    queues && onQueueChange && !hasDraft
+      ? ownQueue(snapshot.queue).find(
+          (entry) =>
+            !entry.author &&
+            !entry.next &&
+            !entry.held &&
+            !entry.sending &&
+            !entry.retry &&
+            !steeredOnReturn.current.has(entry.id),
+        )
+      : undefined;
+  const steerQueuedOnReturn = (event: { preventDefault(): void; repeat?: boolean }) => {
+    const entry = queuedToSteer();
+    if (!entry || !onQueueChange) return false;
+    event.preventDefault();
+    if (event.repeat) return true;
+    const id = entry.id;
+    steeredOnReturn.current.add(id);
+    void onQueueChange(id, { op: "send_now" })
+      .then(
+        (ok) => ok,
+        () => false,
+      )
+      .then((ok) => {
+        // Refused or gone: a later Return may try it again.
+        if (!ok) steeredOnReturn.current.delete(id);
+      });
+    return true;
+  };
   const sendOnReturn = (event: { preventDefault(): void }) => {
     if (!returnSteers) return submit(event);
     event.preventDefault();
@@ -1895,6 +1939,10 @@ export function Composer({
       sendAndOpen();
       return;
     }
+    // Return on an empty prompt while a turn runs steers the next queued prompt into it, as the
+    // Claude app does (https://github.com/manaflow-ai/cmux/issues/34765): the row's Steer, from the
+    // keyboard. One press steers one prompt; a held key's repeats steer none.
+    if (event.key === "Enter" && plain && !open && !quick && steerQueuedOnReturn(event)) return;
     if (event.key === "Enter" && plain && returnSends()) {
       sendOnReturn(event);
       return;
