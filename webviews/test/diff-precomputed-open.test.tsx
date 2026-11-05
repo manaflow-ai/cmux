@@ -61,10 +61,12 @@ function Viewer(props: {
   refresh: () => void;
   reconcile: () => void;
   generation?: number;
+  failedGeneration?: number | null;
 }) {
   const stale = useDiffFreshness(props.read, props.generation ?? 0, () => true, props.refresh, undefined, {
     fingerprint: props.fingerprint,
     reconcile: props.reconcile,
+    failedGeneration: props.failedGeneration,
   });
   return <output>{stale ? "stale" : "fresh"}</output>;
 }
@@ -72,22 +74,27 @@ function Viewer(props: {
 test("a precomputed diff older than the work tree is reconciled on the first check, not left stale", async () => {
   let refreshed = 0;
   let reconciled = 0;
-  await act(async () =>
-    root.render(
-      <Viewer
-        key="older"
-        read={async () => "now"}
-        fingerprint="when-the-turn-ended"
-        refresh={() => (refreshed += 1)}
-        reconcile={() => (reconciled += 1)}
-      />,
-    ),
-  );
+  const render = (generation: number) =>
+    act(async () =>
+      root.render(
+        <Viewer
+          key="older"
+          generation={generation}
+          read={async () => "now"}
+          fingerprint="when-the-turn-ended"
+          refresh={() => (refreshed += 1)}
+          reconcile={() => (reconciled += 1)}
+        />,
+      ),
+    );
+  await render(0);
   await settle();
   expect(reconciled).toBe(1);
   expect(refreshed).toBe(0);
   expect(host.querySelector("output")?.textContent).toBe("fresh");
-  // The reconciled diff is the baseline now: the next check finds nothing new.
+  // The reconcile's render (a new generation) is the baseline now: the next check finds nothing new.
+  await render(1);
+  await settle();
   dom.window.dispatchEvent(new dom.window.Event("focus"));
   await settle();
   expect(reconciled).toBe(1);
@@ -120,6 +127,51 @@ test("the reconcile's own load does not reconcile again while the open is in fli
   await settle();
   expect(reconciled).toBe(1);
   expect(host.querySelector("output")?.textContent).toBe("fresh");
+});
+
+test("a failed reconcile leaves the precomputed diff marked stale, not current", async () => {
+  // The reconcile bumped the generation and its render failed: the precomputed diff is still on
+  // screen, so the tree's fingerprint must not become the baseline.
+  let reconciled = 0;
+  const render = (generation: number, failedGeneration: number | null) =>
+    act(async () =>
+      root.render(
+        <Viewer
+          key="failed"
+          generation={generation}
+          failedGeneration={failedGeneration}
+          read={async () => "now"}
+          fingerprint="when-the-turn-ended"
+          refresh={() => {}}
+          reconcile={() => (reconciled += 1)}
+        />,
+      ),
+    );
+  await render(0, null);
+  await settle();
+  expect(reconciled).toBe(1);
+  await render(1, null);
+  await settle();
+  await render(1, 1);
+  await settle();
+  expect(reconciled).toBe(1);
+  expect(host.querySelector("output")?.textContent).toBe("stale");
+});
+
+test("a failed reconcile records its generation, and the reader's file that left the diff yields", () => {
+  const status = createDiffViewerStatus("", { loading: false });
+  const item = (path: string) => ({ id: path, type: "diff", version: 0, fileDiff: { name: path, hunks: [{}] } }) as never;
+  let state = initialAppState({ payload: {} } as never, status);
+  state = reducer(state, { type: "append-items", items: [item("a.ts"), item("b.ts")] });
+  state = reducer(state, { type: "reconcile" });
+  state = reducer(state, { type: "end-reconcile" });
+  expect(state.reconciling).toBe(false);
+  expect(state.reconcileFailedGeneration).toBe(state.renderGeneration);
+
+  state = reducer(state, { type: "set-active-item", itemId: "b.ts" });
+  state = reducer(state, { type: "reconcile" });
+  state = reducer(state, { type: "replace-items", items: [item("a.ts"), item("c.ts")] });
+  expect(state.activeItemId).toBe("a.ts");
 });
 
 test("a precomputed diff that is still current is kept as it is", async () => {
