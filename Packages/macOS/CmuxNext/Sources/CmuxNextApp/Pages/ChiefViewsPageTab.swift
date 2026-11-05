@@ -23,6 +23,7 @@ enum ChiefViewsPageTab {
             if let services { _ = services.pages.show(page, in: services.windows.active, focus: invocation.allowsViewChange) }
         })
         bindGalleryStage(into: registry, context: context)
+        ProjectionWindows.bind(into: registry, context: context)
     }
 
     static let galleryStage = InternalPageID(rawValue: "gallery-stage")

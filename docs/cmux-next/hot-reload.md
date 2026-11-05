@@ -10,6 +10,7 @@ Running apps can pick up edits to them without a Swift build or a relaunch, two 
 |---|---|
 | Your edits live in your app | `scripts/cmux-next/web-overlay.sh server --local` |
 | Another worktree's edits live | `scripts/cmux-next/web-overlay.sh server --local --worktree <path>` |
+| A worktree's web UI in one window of your app, the others untouched | `scripts/cmux-next/projection.sh open <worktree> [--test CMD]` ([below](#a-projection-window)) |
 | A pull request's web UI, live | `scripts/cmux-next/web-overlay.sh follow <PR>` (again after each push) |
 | Try any pull request the cheapest way | `scripts/cmux-next/try-pr.sh <PR>`: live when it can be, else it names the dev build |
 | The web UI of every merge, no checkout | Settings > Updates > Web UI Updates > **Every Merge** |
@@ -61,6 +62,24 @@ While a dev server serves, the Content Security Policy is looser. Pages also all
 (React Refresh) and that server's `ws://` and `http://` origin. The agent pane uses the dev
 server's own policy, which allows inline scripts and loopback WebSockets and frames on any port.
 An overlay keeps the shipped policy.
+
+### A projection window
+
+```sh
+scripts/cmux-next/projection.sh open ~/src/cmux-wt --test 'bun test src/settings/theme.test.ts'
+```
+
+starts the worktree's webviews dev server on a port of its own (4290-4389) and runs **Debug > Open
+Projection Window** (`debug.projection`): a new window of the running app whose pages and agent panes
+load from that server. It is a real window of your app, so it has your settings, theme, backdrop,
+keys and the live daemon's terminals; its first workspace is a terminal in the worktree. Saving a web
+file in the worktree hot-reloads that window only (Vite HMR; React Fast Refresh keeps component
+state). Your other windows keep their pages, and `web-dev.json` is not touched. Settings, theme and
+keybinding edits in `cmux-next.json` apply to every window live, the projection included.
+
+**Debug > Run Projection Test** (`debug.projection.runTest`, or `projection.sh test [CMD]`) runs the
+`--test` command in a new workspace of the projection window, in the worktree, and keeps its output.
+`projection.sh stop <worktree>` stops the server; closing the window ends the projection.
 
 ### A pull request
 
