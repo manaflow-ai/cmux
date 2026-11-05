@@ -355,9 +355,17 @@ public actor AcpmuxHost: AgentPaneHostProviding {
               let daemon = await daemonStop.daemon(environment), daemons.claimStop(daemon.pid) else { return nil }
         let pid = daemon.pid
         Self.logger.info("acpmux \(pid, privacy: .public) lacks a request the app made; restarting it on the app's build")
-        let stopped = daemonStop.terminate(daemon) ? await AgentPaneProcessExit(pid: pid).event(within: .seconds(15)) : false
+        // Gone already (it exited on its own meanwhile) counts as stopped: the bundled one starts below.
+        let stopped = daemonStop.terminate(daemon) ? await AgentPaneProcessExit(pid: pid).event(within: .seconds(15)) : !agentPaneProcessIsRunning(pid)
         daemons.endStop(pid)
-        guard stopped, (try? await endpoint(startsDaemon: true)) != nil else { return nil }
+        guard stopped else { return nil }
+        // A lookup another pane started before the stop waits on the old daemon and fails with it:
+        // let it settle, then look up again, which starts the bundled daemon.
+        if let old = inFlight[true] {
+            _ = await old.result
+            if inFlight[true] == old { inFlight[true] = nil }
+        }
+        guard (try? await endpoint(startsDaemon: true)) != nil else { return nil }
         return environment.socketPath
     }
 
