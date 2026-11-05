@@ -91,7 +91,12 @@ test("Resume sends the queue the Stop held, from its first prompt", async () => 
 });
 
 test("a Stop that held only another agent's message still says the queue was stopped", async () => {
-  const message = { id: "m1", prompt: "build is green", heldByStop: true, message: { from: "builder", text: "build is green" } };
+  const message = {
+    id: "m1",
+    prompt: "build is green",
+    heldByStop: true,
+    message: { from: "builder", text: "build is green" },
+  };
   await draw("429 rate limited", [message]);
   const note = host.querySelector(".acpmux-queue-paused");
   expect(note?.textContent).toContain("Stopped. These wait for you to send them");
