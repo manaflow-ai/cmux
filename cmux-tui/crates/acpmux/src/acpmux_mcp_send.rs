@@ -725,7 +725,11 @@ async fn relay(target: &Target, e: &anyhow::Error) -> Option<Value> {
         return None;
     }
     let relay = crate::cli::send_relay::configured()?;
-    let from = crate::cli::send_relay::sender(None, |k| std::env::var(k).ok());
+    // The session's name when its environment has one, else its id (an MCP server's environment
+    // carries ACPMUX_SESSION_ID alone), so the relay always names the sender.
+    let from = crate::cli::send_relay::sender(None, |k| std::env::var(k).ok()).or_else(|| {
+        std::env::var(SESSION_ENV).ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty())
+    });
     let (session, text) = (target.key.clone(), target.text.clone());
     let deadline = tokio::time::Instant::now() + RELAY_WAIT;
     let done = tokio::task::spawn_blocking(move || {

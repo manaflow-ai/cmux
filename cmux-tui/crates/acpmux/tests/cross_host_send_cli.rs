@@ -207,4 +207,11 @@ fn a_send_by_host_and_name_reaches_another_machines_session_listed_and_audited_o
         "{}",
         text(&unknown)
     );
+    // Audited as refused, not sent: nothing crossed machines.
+    let refused = audit(&a);
+    let line = refused.last().unwrap_or_else(|| panic!("{refused:?}"));
+    assert_eq!(
+        (&line["dir"], &line["to"], &line["exit"]),
+        (&json!("refused"), &json!("hostb/nobody"), &json!(1))
+    );
 }

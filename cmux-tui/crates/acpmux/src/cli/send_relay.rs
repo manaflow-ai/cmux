@@ -120,9 +120,9 @@ pub(crate) fn merge_rows(rows: &mut Vec<Value>, far: Vec<Value>) -> usize {
             r.get("sessionId").and_then(Value::as_str).unwrap_or_default().to_owned(),
         )
     };
-    let seen: std::collections::HashSet<_> = rows.iter().map(key).collect();
+    let mut seen: std::collections::HashSet<_> = rows.iter().map(key).collect();
     let before = rows.len();
-    rows.extend(far.into_iter().filter(|r| !seen.contains(&key(r))));
+    rows.extend(far.into_iter().filter(|r| seen.insert(key(r))));
     rows.len() - before
 }
 
@@ -180,10 +180,11 @@ pub(crate) fn sender(named: Option<&str>, env: impl Fn(&str) -> Option<String>) 
         .or_else(|| set("ACPMUX_SESSION_ID").and_then(|_| set("ACPMUX_SESSION_NAME")))
 }
 
-/// The cross-host audit line of one relayed send (`xhost_audit.rs`): never its text.
+/// The cross-host audit line of one relayed send (`xhost_audit.rs`), never its text: `sent`
+/// when the relay took it, `refused` when it exited non-zero (nothing crossed machines).
 pub(crate) fn audit_sent(session: &str, text: &str, from: Option<&str>, done: &Relayed) {
     crate::xhost_audit::record(
-        "sent",
+        if done.status == 0 { "sent" } else { "refused" },
         json!({"via": "sendRelay", "to": session, "from": from, "bytes": text.len(),
                "exit": done.status, "delivery": done.output.as_deref().map(str::trim)}),
     );
@@ -310,6 +311,15 @@ pub(crate) fn send_with_deadline(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn merged_rows_are_each_listed_once_by_machine_and_id() {
+        let row = |peer: &str, id: &str| json!({"peer": peer, "sessionId": id});
+        let mut rows = vec![row("hostb", "a")];
+        let far = vec![row("hostb", "a"), row("hostb", "b"), row("hostb", "b"), row("hostc", "b")];
+        assert_eq!(merge_rows(&mut rows, far), 2);
+        assert_eq!(rows, vec![row("hostb", "a"), row("hostb", "b"), row("hostc", "b")]);
+    }
 
     fn scratch(name: &str) -> std::path::PathBuf {
         let dir =
