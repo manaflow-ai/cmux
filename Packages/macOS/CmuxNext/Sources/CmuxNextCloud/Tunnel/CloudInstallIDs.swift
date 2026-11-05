@@ -17,6 +17,7 @@ public final class CloudInstallIDs {
     /// The selected backend's id.
     public let backend: CloudDeviceID
     private let machinePaths: CloudPaths
+    private let work: BackgroundWork
     private var others: Set<String>?
 
     /// Makes the ids; it reads nothing yet.
@@ -29,17 +30,29 @@ public final class CloudInstallIDs {
         self.machine = CloudDeviceID(paths: machine, work: work)
         self.backend = CloudDeviceID(paths: backend, work: work)
         machinePaths = machine
+        self.work = work
     }
 
-    /// Starts both reads off the main thread (Cloud start).
-    public func preload() {
+    /// Starts the reads off the main thread (Cloud start): both ids, and ``backendIDs()``'s.
+    ///
+    /// - Parameter loaded: runs on the main actor with the backends' ids once they are read.
+    public func preload(loaded: @escaping @MainActor (Set<String>) -> Void = { _ in }) {
         machine.preload()
         backend.preload()
+        guard others == nil else { return loaded(others ?? []) }
+        let paths = machinePaths, work = work
+        // task-owner: CloudInstallIDs; one bounded directory read at Cloud start.
+        Task { [weak self] in
+            let ids = (try? await work.run(.userVisible, mayBlock: .files) { Set(paths.backendDeviceIDs()) }) ?? []
+            guard let self else { return }
+            if others == nil { others = ids }
+            loaded(others ?? ids)
+        }
     }
 
-    /// The ids launches on other backends named this Mac with: a tab saved under one is this Mac's. Read once,
-    /// on the calling thread, the first time a tab names an id that is not ``machine``'s (the same accepted
-    /// one-time read as ``CloudDeviceID/loadNow()``).
+    /// Every id launches on other backends named this Mac with (#35284): a tab, a window record or a closed
+    /// item saved under one is this Mac's. The kept set once ``preload(loaded:)``'s read ended; before that a
+    /// read on the calling thread (the same accepted one-time read as ``CloudDeviceID/loadNow()``).
     ///
     /// - Returns: every `device-id` of a folder under the build's Cloud folder.
     public func backendIDs() -> Set<String> {
@@ -47,5 +60,16 @@ public final class CloudInstallIDs {
         let ids = Set(machinePaths.backendDeviceIDs())
         others = ids
         return ids
+    }
+
+    /// The window id of a window record `recorded` (`install/window`) saved under one of `installs`, else nil.
+    public static func windowID(_ recorded: String, installs: [String]) -> String? {
+        installs.first { recorded.hasPrefix($0 + "/") }.map { String(recorded.dropFirst($0.count + 1)) }
+    }
+
+    /// This Mac's ids: ``machine``'s first (when read), then every other backend's.
+    public func all() -> [String] {
+        let current = try? machine.loadNow()
+        return (current.map { [$0] } ?? []) + backendIDs().subtracting(current.map { [$0] } ?? []).sorted()
     }
 }

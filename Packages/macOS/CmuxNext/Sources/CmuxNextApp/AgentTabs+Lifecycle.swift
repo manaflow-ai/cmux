@@ -38,7 +38,7 @@ extension AgentTabStore {
             throw AgentTabRefusal(message: reason)
         }
         let record: AgentSessionRef
-        if let refusal = Self.hostRefusal(host, localHost: localHost, chiefHost: chiefHost, daemonIsLocal: daemon.isLocal) {
+        if let refusal = hostRefusal(host, daemonIsLocal: daemon.isLocal) {
             if let spare, recycle?(spare) != true { retirer.retire(spare) }
             throw AgentTabRefusal(message: refusal)
         }
@@ -314,7 +314,7 @@ extension AgentTabStore {
         guard let key = adoptions["\(adopt.harness):\(adopt.agentSessionId)"],
               let (record, store) = lookup(key), isAgentTab(key),
               case .connected = store.connectionState,
-              record.host == localHost else { return nil }
+              isLocalHost(record.host) else { return nil }
         return key
     }
 
@@ -322,7 +322,7 @@ extension AgentTabStore {
     func notice(for key: String) -> AgentTabElsewhereView? {
         let key = resolve(key)
         if let notice = notices[key] { return notice }
-        guard let localHost, let (record, store) = lookup(key), record.host != localHost else { return nil }
+        guard localHost != nil, let (record, store) = lookup(key), !isLocalHost(record.host) else { return nil }
         let notice = AgentTabElsewhereView(machine: record.hostName)
         notices[key] = notice
         track(key, in: store)

@@ -34,4 +34,10 @@ public enum AgentPaneHostKind: Equatable, Sendable {
             self = .remote
         }
     }
+
+    /// Whether `host` names this Mac's own acpmux: `localHost`, or one of `formerLocalHosts` (#35284).
+    public static func isLocal(_ host: String?, localHost: String?, formerLocalHosts: @autoclosure () -> Set<String>) -> Bool {
+        guard let host, let localHost else { return false }
+        return host == localHost || formerLocalHosts().contains(host)
+    }
 }

@@ -62,7 +62,7 @@ enum FeedControl {
             return await AcpmuxPersonLine.open(environment)
         }, tab: { [weak services] session in
             guard let services else { return nil }
-            return services.daemon.store.tab(agentSession: session, host: services.agentTabs.localHost)?.id
+            return ([services.agentTabs.localHost].compactMap { $0 } + services.agentTabs.resolveFormerLocalHosts()).lazy.compactMap { services.daemon.store.tab(agentSession: session, host: $0)?.id }.first
         }, asks: CloudAskDialogs(services: services))
     }
 

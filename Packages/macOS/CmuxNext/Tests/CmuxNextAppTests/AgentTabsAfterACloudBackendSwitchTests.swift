@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextBridge
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
@@ -79,6 +80,18 @@ import Testing
         #expect(tabs.hostKind(staging, listedHere: false) == .remote)
         let otherMac = AgentSessionRef(host: AgentSessionRef.host(installID: "mac-other"), hostName: "studio-mac")
         #expect(tabs.hostKind(otherMac, listedHere: true) == .remote)
+
+        // Every "is this chat this Mac's" check agrees with hostKind (duplicate, folder, transfer, links,
+        // subagent limits read isLocalHost; opening by host reads hostRefusal; the sidebar reads the turn store).
+        #expect(tabs.isLocalHost(staging.host) && tabs.isLocalHost(tabs.localHost) && !tabs.isLocalHost(otherMac.host))
+        #expect(tabs.hostRefusal(staging.host, daemonIsLocal: true) == nil)
+        #expect(tabs.hostRefusal(otherMac.host, daemonIsLocal: true) != nil)
+        let turns = AgentTurnStateStore()
+        turns.localHost = tabs.localHost
+        turns.formerLocalHosts = [staging.host]
+        #expect(turns.isLocal(staging.host) && !turns.isLocal(otherMac.host))
+        // Closed windows recorded under either id are this Mac's.
+        #expect(cloud.installIDs.all() == ["mac-before", "mac-staging"])
     }
 
     /// The banner a tab of another machine still shows names that machine, never "another machine".

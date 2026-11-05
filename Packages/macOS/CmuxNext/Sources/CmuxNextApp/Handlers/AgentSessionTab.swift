@@ -26,7 +26,7 @@ enum AgentSessionTab {
     /// ("Reconnecting…" forever, Leo 2026-11-05). Only for this Mac's own chats (`host` absent or
     /// this Mac's) and only once the lane watch has every session; otherwise `session` as given.
     static func localSession(_ session: String, host: String?, services: AppServices) throws -> String {
-        guard host == nil || host == services.agentTabs.localHost, AgentLaneStore.shared.live else { return session }
+        guard host == nil || services.agentTabs.isLocalHost(host), AgentLaneStore.shared.live else { return session }
         switch AgentLaneStore.shared.lanes.values.localSession(session) {
         case .session(let id): return id
         case .asGiven: return session
@@ -41,7 +41,7 @@ enum AgentSessionTab {
         let services = context.services
         session = try localSession(session, host: host, services: services)
         // A peer's chat opens as the session this Mac's acpmux mirrors (the tab binds here, never there).
-        if let peer = host, !peer.hasPrefix(ChiefHomeAcpmux.hostPrefix), peer != services.agentTabs.localHost {
+        if let peer = host, !peer.hasPrefix(ChiefHomeAcpmux.hostPrefix), !services.agentTabs.isLocalHost(peer) {
             switch AgentLaneStore.shared.lanes.values.peerSession(session, on: peer) {
             case .session(let mirrored): (session, host) = (mirrored, nil)
             case .unknownSession: throw ActionFailure(message: MiscHandlerStrings.noPeerSession(session, peer))
