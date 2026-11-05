@@ -21,6 +21,8 @@ public nonisolated struct ComputerUseSettings: Sendable, Equatable {
     public static let livePreviewPath = ["computerUse", "livePreview"]
     public var enabled = false
     public var driver: ComputerUseDriver = .upstream
+    /// Whether cmux.json names the driver (the person chose it), not the default.
+    public var driverIsSet = false
     public var livePreview = true
 
     public init() {}
@@ -29,7 +31,10 @@ public nonisolated struct ComputerUseSettings: Sendable, Equatable {
         var settings = Self()
         guard var reader = ConfigFieldReader(root, at: ["computerUse"], diagnostics: &diagnostics) else { return settings }
         if let value = reader.bool("enabled") { settings.enabled = value }
-        if let value = reader.choice("driver", ComputerUseDriver.self) { settings.driver = value }
+        if let value = reader.choice("driver", ComputerUseDriver.self) {
+            settings.driver = value
+            settings.driverIsSet = true
+        }
         if let value = reader.bool("livePreview") { settings.livePreview = value }
         diagnostics = reader.diagnostics
         return settings

@@ -405,14 +405,16 @@ extension ComputerUseSetup {
         let helper = ComputerUseHelperDaemon.shared
         let setup = ComputerUseSetup(
             inputs: { [weak services] in
-                let chosen = services?.settings?.snapshot.computerUse.driver ?? .legacy
+                let computerUse = services?.settings?.snapshot.computerUse ?? ComputerUseSettings()
+                let chosen = computerUse.driver
                 let driver = helper.effectiveDriver(chosen)
                 return Inputs(disabledByPolicy: services?.registry.disabledFeatures.contains(.computerUse) ?? true,
                               enabled: services?.settings?.snapshot.computerUse.enabled ?? false,
                               helper: helper.state,
                               driver: driver,
                               consentHostUnverified: helper.consentHostUnverified != nil,
-                              upstreamFallback: driver != chosen)
+                              // Only a driver the person chose: the default falls back to Legacy quietly.
+                              upstreamFallback: driver != chosen && computerUse.driverIsSet)
             },
             configuration: { helper.configuration },
             restartHelper: { await helper.restartLegacy() },
