@@ -160,7 +160,8 @@ test("a failed reconcile leaves the precomputed diff marked stale, not current",
 
 test("a failed reconcile records its generation, and the reader's file that left the diff yields", () => {
   const status = createDiffViewerStatus("", { loading: false });
-  const item = (path: string) => ({ id: path, type: "diff", version: 0, fileDiff: { name: path, hunks: [{}] } }) as never;
+  const item = (path: string) =>
+    ({ id: path, type: "diff", version: 0, fileDiff: { name: path, hunks: [{}] } }) as never;
   let state = initialAppState({ payload: {} } as never, status);
   state = reducer(state, { type: "append-items", items: [item("a.ts"), item("b.ts")] });
   state = reducer(state, { type: "reconcile" });
