@@ -28,7 +28,12 @@ live_code_targets() {
 live_code_xcodebuild_args() { # CONFIG [LIST]
   local config="$1" list="${2:-}" mode=wholemodule target
   [[ "$config" == "Debug" ]] && mode=singlefile
-  local ldflags='$(inherited) -Xlinker -no_fixup_chains'
+  # -no_deduplicate: ld folds functions with identical code into one (Xcode turns that off only in
+  # Debug). A fold leaves a private symbol at the address of another function, and references to it
+  # then bind by name through dyld, which finds no such export and stops the launch (a Release live
+  # code build bound hundreds: two private classes' deinits at one address). Live code also needs
+  # every function at its own address, or a patch to one repoints all the code folded with it.
+  local ldflags='$(inherited) -Xlinker -no_fixup_chains -Xlinker -no_deduplicate'
   # Quoted: Xcode splits OTHER_LDFLAGS on spaces, and a fleet checkout sits under
   # "/Library/Application Support".
   [[ -n "$list" ]] && ldflags+=" -Xlinker -interposable_list -Xlinker \"$list\""
