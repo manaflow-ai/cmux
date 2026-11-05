@@ -12,6 +12,7 @@ import { GALLERY_NOW } from "../../gallery/clock";
 import { agentPaneEntry } from "../../gallery/format";
 import type { PlayContext } from "../../gallery/play";
 import { assistant, chat, CWD, manySessions, noChat, user } from "../../gallery/fixtures/acpmux";
+import wallpaper from "../../gallery/fixtures/assets/liquid-glass-wallpaper.jpg?inline";
 import { setComposerLook, type ComposerLook } from "./composerLook";
 import type { TaskGoal } from "./goal";
 
@@ -177,6 +178,44 @@ async function glassLevel(ctx: PlayContext, which: ComposerLook, level: Composer
   `;
   ctx.document.head.append(style);
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-composer-box"));
+}
+
+type MaterialStage = "plain" | "lens" | "reduce";
+/// The shared glass material (glass.css, "GLASS MATERIAL"; Leo 2026-11-05 on the Dock beside our
+/// composer: "the glass is a pretty big deal"), on a see-through window over the colorful wallpaper
+/// fixture, as a window over art draws it: the picture and a light window wash behind a clear page,
+/// and the same still sent to the glass lens. Plain is what ships; Lens is the opt-in Debug choice
+/// that bends the picture at the rim; Reduce Transparency is the solid fallback. A capture's "before"
+/// removes .ui-glass-material from the card (scripts/agent-pane/capture-composer-material.mjs).
+async function materialStage(ctx: PlayContext, mode: MaterialStage) {
+  await look(ctx, "claude");
+  ctx.document.getElementById("composer-material-gallery")?.remove();
+  const root = ctx.document.documentElement;
+  root.setAttribute("data-cmux-see-through", "");
+  root.setAttribute("data-glass", mode === "reduce" ? "plain" : mode);
+  root.toggleAttribute("data-reduce-transparency", mode === "reduce");
+  root.style.setProperty("--cmux-surface-background", "transparent");
+  root.style.setProperty("--agent-page-bg", "transparent");
+  const style = ctx.document.createElement("style");
+  style.id = "composer-material-gallery";
+  style.textContent = `
+    html {
+      background:
+        linear-gradient(light-dark(rgb(255 255 255 / 0.16), rgb(0 0 0 / 0.18))),
+        url("${wallpaper}") center / cover no-repeat fixed !important;
+    }
+    body, .acpmux-shell { background: transparent !important; }
+  `;
+  ctx.document.head.append(style);
+  const host = ctx.document.defaultView as unknown as { cmuxTheme?: { backdrop?: (value: unknown) => void } };
+  host.cmuxTheme?.backdrop?.({
+    image: wallpaper,
+    key: "gallery-composer-material",
+    rect: { x: 0, y: 0, width: root.clientWidth, height: root.clientHeight },
+    blur: 0,
+    tint: "transparent",
+  });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-composer-box.ui-glass-material"));
 }
 
 /// Alternate B: the strip stays plain text over the box, as Claude's look draws it; only the row moves.
@@ -391,6 +430,21 @@ export default agentPaneEntry({
       note: "The recommended 70% tint and 24px blur in Codex's look, over the same busy backdrop.",
       snapshot: startedChat(),
       play: (ctx) => glassLevel(ctx, "codex", "balanced"),
+    },
+    "composer-material-plain": {
+      note: "The shared glass material (Plain, what ships) over the colorful wallpaper on a see-through window: the specular rim lit from above-left, the sheen under the top edge, the soft shadow, and a frost that keeps the colors vivid.",
+      snapshot: startedChat(),
+      play: (ctx) => materialStage(ctx, "plain"),
+    },
+    "composer-material-lens": {
+      note: "The same card in the opt-in Lens (Debug choice glass.lens): the lens bends the wallpaper at the rim and draws its own specular light; the material adds the depth.",
+      snapshot: startedChat(),
+      play: (ctx) => materialStage(ctx, "lens"),
+    },
+    "composer-material-reduce-transparency": {
+      note: "Reduce Transparency over the same wallpaper: the solid card with its hairline ring, no frost and no specular band.",
+      snapshot: startedChat(),
+      play: (ctx) => materialStage(ctx, "reduce"),
     },
     "codex-new-chat": {
       note: "Codex's look on a new chat (the pick): the folder and computer strip a tray tucked under the box's top edge, as Codex's.",

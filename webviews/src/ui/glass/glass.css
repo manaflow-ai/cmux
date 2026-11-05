@@ -143,6 +143,53 @@
   background: var(--glass-tint);
 }
 
+/* GLASS MATERIAL (Leo 2026-11-05, the Dock beside our composer: "the glass is a pretty big deal ...
+   Ours is not f***ing pretty"). The one look web glass takes to read as macOS's own Liquid Glass,
+   which native surfaces draw with NSGlassEffectView on macOS 26 (Glass.swift): a frost that keeps
+   the colors behind it vivid, a specular rim lit from above and a little left (a crisp top line and
+   a soft band that rounds the top corners), a fainter return of that light along the bottom and
+   right, a soft sheen inside the top edge for the glass's thickness, and a soft two-step shadow for
+   its depth. A surface adopts it with .ui-glass-material next to .ui-glass (the composer first,
+   composerStates.css); a surface that draws its own box-shadow (the composer's card ring) reads
+   --glass-material-rim and --glass-material-depth instead. The tint stays the surface's own, so
+   its text keeps the contrast its tests pin. Plain glass only: Lens and Spectrum keep the lens's own
+   rim. Reduce Transparency keeps the opaque fill and the hairline rim (below), and
+   appearance.borders none clears the rim and the sheen (--glass-rim 0); the shadow stays. */
+:root {
+  --glass-material-blur: 24px;
+  --glass-material-saturate: 1.8;
+  --glass-material-backdrop: blur(var(--glass-material-blur)) saturate(var(--glass-material-saturate));
+}
+:root,
+.ui-glass {
+  --glass-material-specular: light-dark(
+    color-mix(in srgb, var(--cmux-tone-light, #fff) calc(95% * var(--glass-rim)), transparent),
+    color-mix(in srgb, var(--cmux-tone-light, #fff) calc(48% * var(--glass-rim)), transparent)
+  );
+  --glass-material-return: light-dark(
+    color-mix(in srgb, var(--cmux-tone-light, #fff) calc(60% * var(--glass-rim)), transparent),
+    color-mix(in srgb, var(--cmux-tone-light, #fff) calc(16% * var(--glass-rim)), transparent)
+  );
+  --glass-material-sheen: light-dark(
+    color-mix(in srgb, var(--cmux-tone-light, #fff) calc(34% * var(--glass-rim)), transparent),
+    color-mix(in srgb, var(--cmux-tone-light, #fff) calc(7% * var(--glass-rim)), transparent)
+  );
+  --glass-material-rim:
+    inset 0 var(--cmux-hairline, 0.5px) 0 0 var(--glass-material-specular),
+    inset 1px 1.5px 1px -1px var(--glass-material-specular),
+    inset -1px -1px 1px -1px var(--glass-material-return),
+    inset 0 calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--glass-material-return),
+    inset 0 16px 20px -16px var(--glass-material-sheen);
+  --glass-material-depth:
+    0 12px 32px -12px light-dark(color-mix(in srgb, black 22%, transparent), color-mix(in srgb, black 55%, transparent)),
+    0 2px 6px -2px light-dark(color-mix(in srgb, black 12%, transparent), color-mix(in srgb, black 35%, transparent));
+}
+:root:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency]) .ui-glass.ui-glass-material {
+  --glass-rim-shadow: var(--glass-material-rim), inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge);
+  --glass-elevation: var(--glass-material-depth);
+  --glass-backdrop: var(--glass-material-backdrop);
+}
+
 /* SVG REFRACTION (svgRefraction.ts; the gallery's and the latency harness's comparison, never set by a
    shipped page): Chromium runs the SVG filter as the backdrop, bending the page's own pixels. */
 @media not (prefers-reduced-transparency: reduce) {

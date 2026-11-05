@@ -239,6 +239,24 @@
 :root[data-theme="dark"] .acpmux-shell {
   --acpmux-composer-shadow: 0 0 transparent;
 }
+/* The input box in the shared glass material (glass.css, "GLASS MATERIAL"; Leo 2026-11-05 on the
+   Dock beside it: "the glass is a pretty big deal"). Its rim and depth stand in for the composer's
+   own: the specular rim lit from above-left inside the card ring, the sheen under its top edge, and
+   the soft two-step shadow, dark themes too (over art a dark page is no longer a flat slab). Over art
+   or a see-through window under Plain glass its frost keeps the art's colors vivid. The tint stays
+   the card's own (above), so the prompt's contrast is unchanged. Lens and Spectrum over art keep the
+   lens's rim; Reduce Transparency keeps the solid card (glass.css). */
+.acpmux-composer > .acpmux-composer-box.ui-glass-material {
+  --acpmux-composer-shadow: var(--glass-material-depth);
+}
+:root:not([data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"]))
+  .acpmux-composer > .acpmux-composer-box.ui-glass-material {
+  --acpmux-composer-rim: var(--glass-material-rim);
+}
+:root[data-cmux-see-through]:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency])
+  .acpmux-composer > .acpmux-composer-box.ui-glass-material {
+  --glass-backdrop: var(--glass-material-backdrop);
+}
 
 /* Composer chips: Plan, the mode, model and effort pickers, +, the mic and Steer. A press keeps the
    hover's pill, with no brighter or tinted tone, and no shrink or dip (Leo 2026-10-19: no mousedown
