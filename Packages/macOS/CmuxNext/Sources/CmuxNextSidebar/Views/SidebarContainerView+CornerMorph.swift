@@ -41,14 +41,15 @@ public extension SidebarContainerView {
         return morph.isEmpty ? (alpha, nil) : (variant.shade(alpha, isDark: isDark), morph)
     }
 
-    /// The selected row's pill in `view`'s coordinates: the list's selected workspace row, else the active row of a
-    /// band (Home or a pin, above or below the list). Nil when none is realized or most of it is scrolled out (a sliver
+    /// The selected row's pill in `view`'s coordinates: the list's selected workspace row, else the active item of a
+    /// band (Home or a pin, in a block row of the list or a band above or below it). Nil when none is realized or most of it is scrolled out (a sliver
     /// would join as a thin spike); a band row the titlebar row clips at its top (Home at comfortable density) joins whole.
     private func selectedRowRect(in view: NSView) -> NSRect? {
         let list = sidebarView.list
-        let listRow = list.selectedRowKey.flatMap { list.rowViews[$0] }
-        let bandRow = listRow == nil ? [sidebarView.aboveRegion, sidebarView.belowRegion].lazy.compactMap(Self.activeBandRow(in:)).first : nil
-        guard let row = listRow ?? bandRow, !row.isHiddenOrHasHiddenAncestor, row.alphaValue > 0,
+        // A block row (the pinned band drawn in the list, Home included) is a whole region: its active item is the row.
+        var found: NSView? = list.selectedRowKey.flatMap { list.rowViews[$0] }
+        if found == nil || found is SidebarBlockRowView { found = Self.activeBandRow(in: found ?? sidebarView) }
+        guard let row = found, !row.isHiddenOrHasHiddenAncestor, row.alphaValue > 0,
               row.visibleRect.height >= row.bounds.height / 2 else { return nil }
         return view.convert(row.convert(row.bounds, to: nil), from: nil)
     }
