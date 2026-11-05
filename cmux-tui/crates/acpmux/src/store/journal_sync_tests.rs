@@ -152,3 +152,75 @@ fn a_failed_sync_of_a_rewrite_record_folder_freezes_the_store() {
     let store = open(home.path(), &killed);
     assert_eq!(seqs(store.as_ref(), CHAT), vec![1, 2], "the restart lost a line");
 }
+
+fn meta(id: &str, name: &str) -> SessionMeta {
+    serde_json::from_value(json!({
+        "schema": META_SCHEMA,
+        "id": id,
+        "name": name,
+        "harness": "claude",
+        "family": "claude",
+        "cwd": "/tmp",
+        "status": "idle",
+        "createdAt": 1,
+        "updatedAt": 1,
+        "lastSeq": 0,
+    }))
+    .unwrap_or_else(|e| panic!("a test meta: {e}"))
+}
+
+/// The names in `journal-unapplied/`.
+fn kept(home: &Path) -> Vec<String> {
+    std::fs::read_dir(home.join("journal-unapplied"))
+        .map(|entries| {
+            entries
+                .flatten()
+                .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// A checkpoint keeps aside the metadata image of a chat whose folder code outside the store
+/// replaced (a transfer's swap), and the sync of `journal-unapplied/` fails: the kept file's
+/// entry may be lost, and a later sync of that folder may report success without it. The
+/// checkpoint must not retire the image's record, and the store freezes; the restart keeps the
+/// image aside again.
+#[test]
+fn a_failed_sync_of_a_kept_aside_image_freezes_the_store() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(203);
+    let store = open(home.path(), &journal);
+    store.save(&meta(CHAT, "old")).unwrap_or_else(|e| panic!("{e:#}"));
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    store.save(&meta(CHAT, "old-renamed")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    // A transfer's swap: the live folder aside, another chat's folder in its place.
+    let sessions = home.path().join("sessions");
+    std::fs::rename(sessions.join(CHAT), sessions.join(format!(".{CHAT}.replacement-backup")))
+        .unwrap_or_else(|e| panic!("{e}"));
+    std::fs::create_dir(sessions.join(CHAT)).unwrap_or_else(|e| panic!("{e}"));
+    let unapplied = home.path().join("journal-unapplied");
+    super::log_sync::FAIL_DIR_SYNC.with(|fail| *fail.borrow_mut() = Some(unapplied));
+    let checkpointed = store.flush();
+    super::log_sync::FAIL_DIR_SYNC.with(|fail| *fail.borrow_mut() = None);
+    assert!(
+        checkpointed.is_err(),
+        "a checkpoint went past a failed sync of the folder that keeps an image aside"
+    );
+    assert!(stop_asked(store.as_ref()), "the store did not ask the daemon to stop");
+    // The kept file's entry is lost (an OS crash after the failed sync); the restart must keep
+    // the image aside again from the journal.
+    for name in kept(home.path()) {
+        std::fs::remove_file(home.path().join("journal-unapplied").join(name))
+            .unwrap_or_else(|e| panic!("{e}"));
+    }
+    let killed = journal.restart(Crash::Process);
+    drop(store);
+    let _store = open(home.path(), &killed);
+    assert!(
+        kept(home.path()).iter().any(|name| name.ends_with(".session.json")),
+        "the restart lost the kept-aside image: {:?}",
+        kept(home.path())
+    );
+}
