@@ -278,7 +278,7 @@ describe("cmux-tui remote state on the reserved filesystem", () => {
 
   async function withEnsure(
     scenario: Scenario,
-    check: (paths: { status: number | null; stderr: string; bound: boolean; remote: string; reserved: string; tmp: string; pgrepPattern: string }) => void,
+    check: (paths: { status: number | null; stderr: string; bound: boolean; remote: string; reserved: string; tmp: string; pgrepPattern: string; chowned: string }) => void,
   ): Promise<void> {
     const root = mkdtempSync(path.join(tmpdir(), "cmux-tui-remote-state-"));
     try {
@@ -312,7 +312,8 @@ describe("cmux-tui remote state on the reserved filesystem", () => {
       stub(bin, "mount", `if [ "$1" = --bind ]; then ${bindMount}; else ${loopMount}; fi`);
       const pgrepArgs = path.join(root, "pgrep-args");
       stub(bin, "pgrep", `echo "$*" > ${JSON.stringify(pgrepArgs)}\n${scenario.daemonRunning ? "exit 0" : "exit 1"}`);
-      stub(bin, "chown", "exit 0");
+      const chownArgs = path.join(root, "chown-args");
+      stub(bin, "chown", `echo "$*" >> ${JSON.stringify(chownArgs)}`);
       stub(bin, "flock", "exit 0");
       stub(bin, "id", "echo 1000");
       if (scenario.tmpMkdirFails) {
@@ -332,7 +333,8 @@ describe("cmux-tui remote state on the reserved filesystem", () => {
       });
       if (result.error) throw result.error;
       const pgrepPattern = existsSync(pgrepArgs) ? readFileSync(pgrepArgs, "utf8") : "";
-      check({ status: result.status, stderr: result.stderr, bound: existsSync(bound), remote, reserved, tmp, pgrepPattern });
+      const chowned = existsSync(chownArgs) ? readFileSync(chownArgs, "utf8") : "";
+      check({ status: result.status, stderr: result.stderr, bound: existsSync(bound), remote, reserved, tmp, pgrepPattern, chowned });
       if (existsSync(bound) && !scenario.alreadyBound) {
         expect(readFileSync(bound, "utf8").trim()).toBe(`${reserved} ${remote}`);
       }
@@ -352,6 +354,12 @@ describe("cmux-tui remote state on the reserved filesystem", () => {
       expect(existsSync(`${reserved}.new`)).toBe(false);
       // Nothing a fork could later uncover: the identity lives in one place.
       expect(existsSync(path.join(remote, "sessions"))).toBe(false);
+    });
+  }, TEST_TIMEOUT_MS);
+
+  test("the owner record belongs to the daemon's user, since the image requires every file under home to", async () => {
+    await withEnsure({ instanceId: "i-a" }, ({ reserved, chowned }) => {
+      expect(chowned).toContain(`cmux:cmux ${reserved}/.instance-id.new`);
     });
   }, TEST_TIMEOUT_MS);
 
