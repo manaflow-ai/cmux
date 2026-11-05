@@ -1,6 +1,14 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
 import { settingsPageEntry, type PageFixtureStep, type SettingsPageVariant } from "../../gallery/format";
-import type { AccountsCmux, AccountsRow, AccountsState, CloudEnvironmentsState, HostLists } from "./ops";
+import type {
+  AccountsCmux,
+  AccountsRow,
+  AccountsState,
+  CloudEnvironmentsState,
+  HostLists,
+  ProviderAccount,
+} from "./ops";
+import { minutesAgo } from "../../gallery/clock";
 import { categories, homes } from "./categories";
 import { MockTeams } from "./mockTeams";
 import { mockThemeColors } from "./mockThemes";
@@ -286,15 +294,75 @@ const longProfiles = longRows.map((r, i) => ({
   source: "Imported sample browser profile",
 }));
 
+// Synthetic accounts only (example.com addresses): the CLI logins and one added Codex account.
+const providerAccounts: ProviderAccount[] = [
+  {
+    id: "codex-login",
+    family: "codex",
+    name: "ChatGPT",
+    home: null,
+    defaultHome: "~/.codex",
+    shadowOf: null,
+    signedIn: true,
+    plan: "pro",
+    email: "alex@example.com",
+    enabled: true,
+    builtin: true,
+  },
+  {
+    id: "codex-2",
+    family: "codex",
+    name: "ChatGPT 2",
+    home: "~/.cmux/accounts/codex-2",
+    defaultHome: "~/.codex",
+    shadowOf: "~/.codex",
+    signedIn: true,
+    plan: "plus",
+    email: "sam@example.com",
+    enabled: false,
+    builtin: false,
+  },
+  {
+    id: "claude-login",
+    family: "claude",
+    name: "Claude",
+    home: null,
+    defaultHome: "~/.claude",
+    shadowOf: null,
+    signedIn: true,
+    plan: "max",
+    email: "alex@example.com",
+    enabled: true,
+    builtin: true,
+  },
+];
+
 Object.assign(variants, {
   "agents-harnesses-registry": variant("agents", {
-    note: "Harnesses: found on PATH, a profile file, an installed ACP Registry agent, a terminal-only harness, and acpmux's problem text.",
+    note: "Harnesses: found on PATH, a profile file, an installed ACP Registry agent, a terminal-only harness, and acpmux's problem text. Codex and Claude Code say whose login they use and its plan, list every account routing may use with its switch, and Codex offers Add account.",
     harnesses: {
       loading: false,
       problem: null,
+      accounts: providerAccounts,
       harnesses: [
-        { id: "claude", name: null, kind: "claude-stdio", source: "path", problem: null },
-        { id: "codex", name: null, kind: "acp", source: "path", problem: null },
+        {
+          id: "claude",
+          name: null,
+          kind: "claude-stdio",
+          source: "path",
+          problem: null,
+          version: "2.0.9",
+          checkedAt: minutesAgo(54),
+        },
+        {
+          id: "codex",
+          name: null,
+          kind: "acp",
+          source: "path",
+          problem: null,
+          version: "0.164.0",
+          checkedAt: minutesAgo(54),
+        },
         { id: "cursor", name: null, kind: "acp", source: "path", problem: null },
         { id: "github-copilot-cli", name: "GitHub Copilot", kind: "acp", source: "user-file", problem: null },
         { id: "goose", name: null, kind: "acp", source: "registry", problem: null },
@@ -313,6 +381,40 @@ Object.assign(variants, {
     note: "Agent integrations in a build without the cmux CLI: it says so and gives the command.",
     focus: "agents.integrations",
     integrations: { loading: false, problem: "unavailable", command: "cmux agent hook install", providers: [] },
+  }),
+  "agents-harnesses-account-added": variant("agents", {
+    note: "Codex right after Add account: ChatGPT 3 has a shadow home of its own, waits for its sign-in, and is on for routing.",
+    harnesses: {
+      loading: false,
+      problem: null,
+      accounts: [
+        ...providerAccounts,
+        {
+          id: "codex-3",
+          family: "codex",
+          name: "ChatGPT 3",
+          home: "~/.cmux/accounts/codex-3",
+          defaultHome: "~/.codex",
+          shadowOf: "~/.codex",
+          signedIn: false,
+          plan: null,
+          email: null,
+          enabled: true,
+          builtin: false,
+        },
+      ],
+      harnesses: [
+        {
+          id: "codex",
+          name: null,
+          kind: "acp",
+          source: "path",
+          problem: null,
+          version: "0.164.0",
+          checkedAt: minutesAgo(2),
+        },
+      ],
+    },
   }),
   "agents-harnesses-unreachable": variant("agents", {
     note: "Harnesses when the acpmux daemon did not answer.",

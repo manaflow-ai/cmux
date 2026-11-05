@@ -1,0 +1,123 @@
+name: cu driver eval
+
+# The Computer Use driver eval (HQ#7146 G3a; scripts/measure/cu-driver-eval/README.md): every input
+# route and Cua Driver build sends the same click, key and scroll to an AppKit, a WebKit and an
+# Electron window, behind the user's window and in front of it, every day at the feat-cmux-next tip.
+# It runs in a macOS 26 VM on a fleet Mac (cu-driver-bench.sh suite=input-ab), the one place its
+# executables can hold Accessibility and event posting; no fleet worker's step does. Report only, no gate: the run uploads results.json and a summary.md that
+# compares each rate with the last successful run. Scheduled workflows run only from the default
+# branch, so a dispatcher on main (cu-driver-eval-dispatch.yml) starts this one on feat-cmux-next
+# once a day; it has no cron of its own. It goes through the build-fleet
+# gateway runner, which only hands the step to the controller with `cmux-ci run`.
+
+on:
+  workflow_dispatch:
+    inputs:
+      drivers:
+        description: "Cua Driver builds (cmux-cua is the shipped pin; others from scripts/measure/cu-driver-eval/pins.json)"
+        default: "cmux-cua,cua-driver-0.38.0"
+      reps:
+        description: "trials per arm, target, gesture and condition"
+        default: "3"
+      worker:
+        description: "fleet worker (empty: vars.CU_DRIVER_EVAL_WORKER, else any idle macOS 26 measure worker)"
+        default: ""
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: cu-driver-eval
+  cancel-in-progress: false
+
+jobs:
+  eval:
+    if: github.repository_owner == 'manaflow-ai' && vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY != ''
+    runs-on: ${{ vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY }}
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: feat-cmux-next
+          fetch-depth: 1
+          submodules: false
+      - name: the last successful run
+        id: previous
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'EOF' >> "$GITHUB_OUTPUT"
+          import json, os, urllib.request
+          url = f"{os.environ['GITHUB_API_URL']}/repos/{os.environ['GITHUB_REPOSITORY']}/actions/workflows/cu-driver-eval.yml/runs?branch=feat-cmux-next&status=success&per_page=1"
+          request = urllib.request.Request(url, headers={"Authorization": f"Bearer {os.environ['GH_TOKEN']}", "Accept": "application/vnd.github+json"})
+          try:
+              runs = json.load(urllib.request.urlopen(request, timeout=30)).get("workflow_runs") or []
+          except Exception as error:
+              print(f"::warning::could not list earlier runs: {error}", file=__import__("sys").stderr)
+              runs = []
+          print(f"run={runs[0]['id'] if runs else ''}")
+          EOF
+      - name: earlier results
+        if: steps.previous.outputs.run != ''
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cu-driver-eval
+          path: ${{ runner.temp }}/previous
+          run-id: ${{ steps.previous.outputs.run }}
+          github-token: ${{ github.token }}
+      - name: eval on a fleet Mac
+        env:
+          DRIVERS: ${{ inputs.drivers || 'cmux-cua,cua-driver-0.38.0' }}
+          REPS: ${{ inputs.reps || '3' }}
+          WORKER: ${{ inputs.worker || vars.CU_DRIVER_EVAL_WORKER || '' }}
+        run: |
+          set -uo pipefail
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! [[ -x "$client" ]]; then
+            echo "::error title=Build fleet client missing::$client is not installed on runner $RUNNER_NAME; the eval did not run."
+            exit 127
+          fi
+          sha="$(git rev-parse HEAD)"
+          log="$RUNNER_TEMP/eval.log"
+          status=0
+          # A macOS 26 worker boots the pinned VM image and runs the A/B in it (the VM's display is 1920x1080).
+          target=()
+          [ -n "$WORKER" ] && target=(--target-worker "$WORKER")
+          "$client" run --class exclusive --measurement --label measure --label macos-26 ${target[@]+"${target[@]}"} \
+            --script scripts/measure/cu-driver-bench.sh --ref "$sha" --timeout 7200 \
+            --artifact artifacts/cu-driver-eval.tgz \
+            --arg=suite=input-ab --arg="drivers=$DRIVERS" --arg="reps=$REPS" 2>&1 | tee "$log" || status=${PIPESTATUS[0]}
+          mkdir -p artifacts
+          step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2)"
+          if [[ -n "$step" ]]; then
+            "$client" artifact "$step" artifacts/cu-driver-eval.tgz || "$client" artifact --failed "$step" artifacts/cu-driver-eval.tgz || true
+          fi
+          out=artifacts/cu-driver-eval
+          if [[ -s artifacts/cu-driver-eval.tgz ]] && tar -xzf artifacts/cu-driver-eval.tgz -C artifacts && [[ -s "$out/results.json" ]]; then
+            previous=()
+            [[ -s "$RUNNER_TEMP/previous/results.json" ]] && previous=(--previous "$RUNNER_TEMP/previous/results.json")
+            python3 scripts/measure/cu-driver-eval/eval.py summary "$out/results.json" "$out/summary.md" ${previous[@]+"${previous[@]}"}
+            cat "$out/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            blocked=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get("blocked", ""))' "$out/vm.json" 2>/dev/null || true)
+            echo "::error title=cu driver eval::no results came back (step ${step:-none}, exit $status)${blocked:+: $blocked}"
+            # A run with no report is never green, whatever the step's own exit.
+            [[ $status == 0 ]] && status=1
+          fi
+          exit "$status"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: cu-driver-eval
+          path: |
+            artifacts/cu-driver-eval/results.json
+            artifacts/cu-driver-eval/summary.md
+            artifacts/cu-driver-eval/input-ab/trials.jsonl
+            artifacts/cu-driver-eval/vm.json
+            artifacts/cu-driver-eval/eval.log
+          if-no-files-found: ignore
+          # The next daily run reads this one (the last successful run) for its comparison, so 3
+          # days covers it; the repo keeps uploads at 3 days or less (tests/test_ci_upload_artifact_retention.py).
+          retention-days: 3

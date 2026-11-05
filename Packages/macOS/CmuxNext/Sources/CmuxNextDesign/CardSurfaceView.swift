@@ -27,7 +27,7 @@ public final class CardSurfaceView: NSView {
         didSet { if takesThemeTint != oldValue { needsDisplay = true } }
     }
 
-    public init(cornerRadius: CGFloat = Metrics.space3, reduceTransparency: ReduceTransparency = .shared) {
+    public init(cornerRadius: CGFloat = Metrics.surfaceCornerRadius, reduceTransparency: ReduceTransparency = .shared) {
         self.reduceTransparency = reduceTransparency
         super.init(frame: .zero)
         wantsLayer = true

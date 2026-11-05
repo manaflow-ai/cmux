@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Xcode "Embed Computer Use helper (dev)" phase of the cmux-next target. DEV
-# builds only: copies the pinned, Apple Development signed
+# builds only: copies the pinned, team-signed (the pin's "signing" field)
 # "cmux Computer Use (dev).app" (cua-helper-dev.pin.json) to
 #   Contents/Library/cmux Computer Use (dev).app
 # where ComputerUseHelperV2 starts it for computerUse.driver = "upstream".
@@ -12,6 +12,9 @@
 # a sha256 mismatch fails the build. CMUX_NEXT_SKIP_CUA_HELPER=1 embeds nothing.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# cmux Remote (docs/cmux-remote.md) is embedded by the same phase, first: the
+# helper's own early exits below must not skip it.
+"$SCRIPT_DIR/embed-cmux-remote-dev.sh"
 app="${TARGET_BUILD_DIR:?}/${WRAPPER_NAME:?}"
 name="cmux Computer Use (dev).app"
 dest="$app/Contents/Library/$name"

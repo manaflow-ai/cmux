@@ -346,7 +346,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     private func endpoint(startsDaemon asked: Bool) async throws -> AcpmuxWebEndpoint {
         if environment == nil { environment = resolveEnvironment() }
         guard var environment else {
-            Self.logger.error("acpmux environment unresolved startsDaemon=\(asked && startsDaemons, privacy: .public)")
+            // The chat's line says only that the service is missing; the folders searched are said here.
+            Self.logger.error("acpmux environment unresolved startsDaemon=\(asked && startsDaemons, privacy: .public) searched=PATH,\(AcpmuxEnvironment.installDirectories.joined(separator: ","), privacy: .public)")
             throw AgentPaneHostError.acpmuxNotFound
         }
         // An attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) is another app's: only look, as the Chief's tabs do.

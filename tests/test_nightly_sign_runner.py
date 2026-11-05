@@ -14,6 +14,7 @@ import contextlib
 import datetime as dt
 import io
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -47,18 +48,26 @@ SIGNING_JOBS = {
 # Jobs that never take Blacksmith (Lawrence, 2026-10-30: nightlies never use Blacksmith): an owned
 # pick where one exists, then the owned nightly slot variable, the owned side lane, then the owned std pool
 # literal, so the chain never ends on a reserved lane variable (test_ci_runs_on_fallback.py).
-OWNED_ONLY_JOBS = ("sign-nightly-identity-legacy", "verify-nightly-identity-legacy", "generate-nightly-deltas",
+OWNED_ONLY_JOBS = ("generate-nightly-deltas",
                    "build-sign-notarize-nightly", "recover-nightly-next-notarization", "verify-signed-nightly",
                    "verify-final-dmg-nightly", "verify-recovered-nightly-next")
 OWNED_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}"
 # The notarization recovery's own owned pick (find-nightly-next-recovery), then the nightly build pool.
 RECOVERY_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}"
 RECOVERY_JOBS = {"recover-nightly-next-notarization", "verify-recovered-nightly-next"}
+# The secret-bearing jobs end on the signer's label alone (a trusted-only mini that runs no pull request job), never a
+# label they share with nightly builds or PR side lanes.
+SIGNING_FALLBACK = "|| 'glaeda-trusted-next-signing' }}"
+SECRET_JOBS = {"sign-nightly-identity-legacy", "generate-nightly-deltas", "build-sign-notarize-nightly",
+               "recover-nightly-next-notarization"}
+
+
+def owned_fallback(name: str) -> str:
+    return SIGNING_FALLBACK if name in SECRET_JOBS else RECOVERY_FALLBACK if name in RECOVERY_JOBS else OWNED_FALLBACK
 # Each picker's re-run label, the other Blacksmith macOS 26 size.
 ALTERNATES = {
     "needs.pick-nightly-sign-runner.outputs.runner": "needs.pick-nightly-sign-runner.outputs.alternate",
     "needs.find-nightly-next-recovery.outputs.sign_runner": "needs.find-nightly-next-recovery.outputs.sign_alternate",
-    "needs.legacy-identity-target.outputs.sign_runner": "needs.legacy-identity-target.outputs.sign_alternate",
 }
 # macOS jobs that still read vars.MACOS_RUNNER_26 directly: they build (no signing material)
 # and have owned-pool routes of their own.
@@ -74,6 +83,14 @@ def snapshot(waits: dict[str, int], age_minutes: int = 2) -> dict:
 def linux_snapshot(waits: dict[str, int], age_minutes: int = 2) -> dict:
     return snapshot({**{label: 0 for label in picker.LINUX_LABELS}, **waits}, age_minutes)
 
+
+
+def job_limit(job: dict) -> int:
+    """The job's timeout-minutes with one-mini mode off: the smaller limit, the one that must hold.
+
+    One-mini mode adds room for glaeda's capacity wait on cmux15 (tests/test_nightly_mini_gate_timeouts.py)."""
+    value = job["timeout-minutes"]
+    return min(int(n) for n in re.findall(r"\b\d+\b", value)) if isinstance(value, str) else int(value)
 
 class Pick(unittest.TestCase):
     def test_the_variable_comes_first_while_it_moves(self) -> None:
@@ -455,7 +472,7 @@ class Workflow(unittest.TestCase):
                 runs_on = str(jobs[name]["runs-on"])
                 self.assertNotIn(picked, runs_on)
                 self.assertNotIn(ALTERNATES[picked], runs_on)
-                self.assertTrue(runs_on.endswith(RECOVERY_FALLBACK if name in RECOVERY_JOBS else OWNED_FALLBACK), runs_on)
+                self.assertTrue(runs_on.endswith(owned_fallback(name)), runs_on)
                 self.assertIn(name, OWNED_ONLY_JOBS)
 
     def test_owned_only_jobs_never_name_blacksmith(self) -> None:
@@ -463,7 +480,7 @@ class Workflow(unittest.TestCase):
         for name in OWNED_ONLY_JOBS:
             with self.subTest(job=name):
                 runs_on = str(jobs[name]["runs-on"])
-                self.assertTrue(runs_on.endswith(RECOVERY_FALLBACK if name in RECOVERY_JOBS else OWNED_FALLBACK), runs_on)
+                self.assertTrue(runs_on.endswith(owned_fallback(name)), runs_on)
                 self.assertNotIn("blacksmith", runs_on)
                 self.assertNotIn("RUNNER_POOLS", runs_on)
                 self.assertNotIn("MACOS_RUNNER", runs_on)
@@ -490,11 +507,6 @@ class OwnedVerify(unittest.TestCase):
     """
 
     OWNED_JOBS = ("verify-signed-nightly", "verify-final-dmg-nightly")
-    # The cmux NIGHTLY-identity verify, also secret-free, keeps its own picker's Blacksmith labels after
-    # the owned pick: on 2026-10-28 it queued 20+ min on blacksmith-6vcpu-macos-26 while 12 vCPU was stalled.
-    # The cmux NIGHTLY-identity copy's secret-free Mac jobs: the macOS signer's verify, and the release
-    # signer pool's image job and verify.
-    LEGACY_OWNED_JOBS = ("verify-nightly-identity-legacy",)
     OWNED = "needs.pick-nightly-sign-runner.outputs.owned"
 
     def test_verify_jobs_read_the_owned_pick_only_for_the_attempt_it_was_made_for(self) -> None:
@@ -566,29 +578,12 @@ class OwnedVerify(unittest.TestCase):
                         self.assertEqual(resolve(job["env"]["CMUX_CI_XCODE_APP"]),
                                          f"/Applications/Xcode-{xcode}.app")
 
-    def test_the_legacy_verify_reads_the_owned_pick_then_its_own_labels(self) -> None:
-        jobs = WORKFLOW["jobs"]
-        for name in self.LEGACY_OWNED_JOBS:
-            with self.subTest(job=name):
-                job = jobs[name]
-                self.assertNotIn("environment", job)
-                self.assertNotIn("secrets.", yaml.safe_dump(job))
-                self.assertIn("pick-nightly-sign-runner", job["needs"])
-                # A skipped or failed pick must not skip the verify.
-                self.assertTrue(job["if"].startswith("!cancelled()"))
-                self.assertIn(f"|| needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && {self.OWNED} "
-                              + OWNED_FALLBACK, str(job["runs-on"]))
-                xcode = job["env"]["CMUX_CI_XCODE_APP"]
-                self.assertIn(f"needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && {self.OWNED} != '' "
-                              "&& vars.CMUX_CI_XCODE_APP_PR", xcode)
-                self.assertIn("|| vars.CMUX_CI_XCODE_APP_MACOS_26", xcode)
-
     def test_no_job_that_holds_a_secret_reads_the_owned_pick(self) -> None:
         for name, job in WORKFLOW["jobs"].items():
             if self.OWNED not in str(job.get("runs-on", "")):
                 continue
             with self.subTest(job=name):
-                self.assertIn(name, self.OWNED_JOBS + self.LEGACY_OWNED_JOBS)
+                self.assertIn(name, self.OWNED_JOBS)
                 self.assertFalse(job.get("environment"))
                 self.assertNotIn("secrets.", yaml.safe_dump(job))
 
@@ -631,7 +626,7 @@ class OwnedVerify(unittest.TestCase):
         # The job outlives its step budgets, so a slow App API never cancels it before its outputs are written.
         budget = sum(int(s.get("timeout-minutes", 0)) for s in job["steps"])
         self.assertTrue(all("timeout-minutes" in s for s in job["steps"] if s.get("id")))
-        self.assertGreaterEqual(int(job["timeout-minutes"]), budget + 2)
+        self.assertGreaterEqual(job_limit(job), budget + 2)
 
 
 class SnapshotReadToken(unittest.TestCase):
@@ -692,7 +687,7 @@ class SnapshotReadToken(unittest.TestCase):
                 self.assertEqual(job["permissions"], {"actions": "read", "contents": "read"})
                 self.assertEqual(job["environment"], "ci-routing-agent")
                 budget = sum(int(step.get("timeout-minutes", 0)) for step in job["steps"])
-                self.assertGreaterEqual(int(job["timeout-minutes"]), budget)
+                self.assertGreaterEqual(job_limit(job), budget)
 
     def test_no_other_job_gains_the_routing_app_key(self) -> None:
         keyed = {name for name, job in WORKFLOW["jobs"].items() if self.KEY in yaml.safe_dump(job)}

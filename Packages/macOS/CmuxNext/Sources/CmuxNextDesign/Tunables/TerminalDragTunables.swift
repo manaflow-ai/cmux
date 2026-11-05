@@ -7,14 +7,15 @@ public nonisolated struct TerminalDragTunables {
     public nonisolated init() {}
     public static let section = TunableSection(id: "terminalDrag", title: "Terminal Drag", symbol: "rectangle.split.2x1", order: 51)
 
-    /// On (the default): through a divider drag the terminal keeps its surface size and its text, clipped where the
+    /// Off (the default since cmux-ad m19, 2026-11-05: perf paths ship on, no switches): when on, through a divider
+    /// drag the terminal keeps its surface size and its text, clipped where the
     /// pane is narrower and beside the terminal background where it is wider, and reflows once when the drag lands
     /// (RESIZE VIDEOS A3: the text wrapped again on every drag frame). Off: the terminal draws its text reflowed to the
     /// pane on every drag frame (the PTY still resizes once, at the landing).
     public static let holdsSurfaceDuringDrag = Tunable<Bool>.toggle(
         "terminalDrag.holdSurface", section, "Hold terminal text during a divider drag",
         help: "While a divider is dragged, each terminal keeps its size and text (clipped or padded) and reflows once when the drag lands. Off: the text reflows to the pane on every frame of the drag.",
-        default: true, code: "TerminalDragTunables.holdsSurfaceDuringDrag")
+        default: false, code: "TerminalDragTunables.holdsSurfaceDuringDrag")
 
     /// On (the default, cmux-ad m18): a resized terminal's view takes its new bounds at once, and the window's commit
     /// shows the frame Ghostty drew at that size with them when it is drawn by that commit; one drawn later shows in the

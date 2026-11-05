@@ -89,6 +89,13 @@ export default agentPaneEntry({
         "agent process closed\nstderr: Error: ENOSPC: no space left on device, write '/Users/me/.claude/projects/x.jsonl'",
       ),
     },
+    "codex-config": {
+      note: 'Lucas\'s fresh Codex chat: "failed to load workspace requirements" names the settings to check, with the raw words under Details.',
+      snapshot: failed("failed to load workspace requirements: invalid input parameter", undefined, {
+        harness: "codex",
+        model: "gpt-6-astra",
+      }),
+    },
     tailscale: {
       note: "A chat on another machine that the tailnet no longer reaches.",
       snapshot: failed("peer build-box unreachable: dial tcp build-box.tail0e5a.ts.net:4717: i/o timeout"),

@@ -79,6 +79,23 @@
     "needsYou.jumpToWorkspace": {"comment":"Agent pane Needs you: switches to the workspace whose tab already shows the chat an ask is in","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"الانتقال إلى مساحة العمل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Idi na radni prostor"}},"da":{"stringUnit":{"state":"needs_review","value":"Gå til arbejdsområde"}},"de":{"stringUnit":{"state":"needs_review","value":"Zum Workspace wechseln"}},"en":{"stringUnit":{"state":"translated","value":"Jump to workspace"}},"es":{"stringUnit":{"state":"needs_review","value":"Ir al espacio de trabajo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Aller à l’espace de travail"}},"it":{"stringUnit":{"state":"needs_review","value":"Vai allo spazio di lavoro"}},"ja":{"stringUnit":{"state":"needs_review","value":"ワークスペースへ移動"}},"km":{"stringUnit":{"state":"needs_review","value":"លោតទៅកន្លែងធ្វើការ"}},"ko":{"stringUnit":{"state":"needs_review","value":"작업 공간으로 이동"}},"nb":{"stringUnit":{"state":"needs_review","value":"Gå til arbeidsområde"}},"pl":{"stringUnit":{"state":"needs_review","value":"Przejdź do obszaru roboczego"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Ir para o espaço de trabalho"}},"ru":{"stringUnit":{"state":"needs_review","value":"Перейти в рабочее пространство"}},"th":{"stringUnit":{"state":"needs_review","value":"ไปที่พื้นที่ทำงาน"}},"tr":{"stringUnit":{"state":"needs_review","value":"Çalışma alanına git"}},"uk":{"stringUnit":{"state":"needs_review","value":"Перейти до робочого простору"}},"vi":{"stringUnit":{"state":"needs_review","value":"Chuyển đến không gian làm việc"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"跳转到工作区"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"跳至工作區"}}}},
     "needsYou.openNewWorkspace": {"comment":"Agent pane Needs you: opens the chat an ask is in, in a new workspace","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"فتح في مساحة عمل جديدة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Otvori u novom radnom prostoru"}},"da":{"stringUnit":{"state":"needs_review","value":"Åbn i nyt arbejdsområde"}},"de":{"stringUnit":{"state":"needs_review","value":"In neuem Workspace öffnen"}},"en":{"stringUnit":{"state":"translated","value":"Open in new workspace"}},"es":{"stringUnit":{"state":"needs_review","value":"Abrir en un espacio de trabajo nuevo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Ouvrir dans un nouvel espace de travail"}},"it":{"stringUnit":{"state":"needs_review","value":"Apri in un nuovo spazio di lavoro"}},"ja":{"stringUnit":{"state":"needs_review","value":"新しいワークスペースで開く"}},"km":{"stringUnit":{"state":"needs_review","value":"បើកក្នុងកន្លែងធ្វើការថ្មី"}},"ko":{"stringUnit":{"state":"needs_review","value":"새 작업 공간에서 열기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Åpne i nytt arbeidsområde"}},"pl":{"stringUnit":{"state":"needs_review","value":"Otwórz w nowym obszarze roboczym"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Abrir em um novo espaço de trabalho"}},"ru":{"stringUnit":{"state":"needs_review","value":"Открыть в новом рабочем пространстве"}},"th":{"stringUnit":{"state":"needs_review","value":"เปิดในพื้นที่ทำงานใหม่"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yeni çalışma alanında aç"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відкрити в новому робочому просторі"}},"vi":{"stringUnit":{"state":"needs_review","value":"Mở trong không gian làm việc mới"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"在新工作区中打开"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"在新工作區中開啟"}}}},
     "picker.addAccount": {"comment":"Local account route form in the model picker. Reference syntax remains literal.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Add account"}},"ar":{"stringUnit":{"state":"translated","value":"إضافة حساب"}},"bs":{"stringUnit":{"state":"translated","value":"Dodaj račun"}},"da":{"stringUnit":{"state":"translated","value":"Tilføj konto"}},"de":{"stringUnit":{"state":"translated","value":"Konto hinzufügen"}},"es":{"stringUnit":{"state":"translated","value":"Añadir cuenta"}},"fr":{"stringUnit":{"state":"translated","value":"Ajouter un compte"}},"it":{"stringUnit":{"state":"translated","value":"Aggiungi account"}},"ja":{"stringUnit":{"state":"translated","value":"アカウントを追加"}},"km":{"stringUnit":{"state":"translated","value":"បន្ថែមគណនី"}},"ko":{"stringUnit":{"state":"translated","value":"계정 추가"}},"nb":{"stringUnit":{"state":"translated","value":"Legg til konto"}},"pl":{"stringUnit":{"state":"translated","value":"Dodaj konto"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Adicionar conta"}},"ru":{"stringUnit":{"state":"translated","value":"Добавить аккаунт"}},"th":{"stringUnit":{"state":"translated","value":"เพิ่มบัญชี"}},"tr":{"stringUnit":{"state":"translated","value":"Hesap ekle"}},"uk":{"stringUnit":{"state":"translated","value":"Додати обліковий запис"}},"vi":{"stringUnit":{"state":"translated","value":"Thêm tài khoản"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"添加账户"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"新增帳戶"}}}},
+    "picker.addTitle": {"comment":"Model picker, Add account sheet.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"إضافة حساب {brand}"}},"bs":{"stringUnit":{"state":"translated","value":"Dodaj {brand} račun"}},"da":{"stringUnit":{"state":"translated","value":"Tilføj en {brand}-konto"}},"de":{"stringUnit":{"state":"translated","value":"{brand}-Konto hinzufügen"}},"en":{"stringUnit":{"state":"translated","value":"Add a {brand} account"}},"es":{"stringUnit":{"state":"translated","value":"Añadir una cuenta de {brand}"}},"fr":{"stringUnit":{"state":"translated","value":"Ajouter un compte {brand}"}},"it":{"stringUnit":{"state":"translated","value":"Aggiungi un account {brand}"}},"ja":{"stringUnit":{"state":"translated","value":"{brand} アカウントを追加"}},"km":{"stringUnit":{"state":"translated","value":"បន្ថែមគណនី {brand}"}},"ko":{"stringUnit":{"state":"translated","value":"{brand} 계정 추가"}},"nb":{"stringUnit":{"state":"translated","value":"Legg til en {brand}-konto"}},"pl":{"stringUnit":{"state":"translated","value":"Dodaj konto {brand}"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Adicionar uma conta {brand}"}},"ru":{"stringUnit":{"state":"translated","value":"Добавить аккаунт {brand}"}},"th":{"stringUnit":{"state":"translated","value":"เพิ่มบัญชี {brand}"}},"tr":{"stringUnit":{"state":"translated","value":"{brand} hesabı ekle"}},"uk":{"stringUnit":{"state":"translated","value":"Додати обліковий запис {brand}"}},"vi":{"stringUnit":{"state":"translated","value":"Thêm tài khoản {brand}"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"添加 {brand} 账户"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"新增 {brand} 帳號"}}}},
+    "picker.addLead": {"comment":"Model picker, Add account sheet.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"لكل حساب تسجيل دخول خاص به، لذا يمكن للمحادثات التبديل بينها."}},"bs":{"stringUnit":{"state":"translated","value":"Svaki račun ima svoju prijavu, pa razgovori mogu prelaziti između njih."}},"da":{"stringUnit":{"state":"translated","value":"Hver konto har sit eget login, så chats kan skifte mellem dem."}},"de":{"stringUnit":{"state":"translated","value":"Jedes Konto hat seine eigene Anmeldung, sodass Chats zwischen ihnen wechseln können."}},"en":{"stringUnit":{"state":"translated","value":"Each account keeps its own sign-in, so chats can switch between them."}},"es":{"stringUnit":{"state":"translated","value":"Cada cuenta conserva su propio inicio de sesión, así los chats pueden cambiar entre ellas."}},"fr":{"stringUnit":{"state":"translated","value":"Chaque compte garde sa propre connexion, les discussions peuvent donc passer de l’un à l’autre."}},"it":{"stringUnit":{"state":"translated","value":"Ogni account ha il proprio accesso, così le chat possono passare dall’uno all’altro."}},"ja":{"stringUnit":{"state":"translated","value":"アカウントごとにサインインが分かれているので、チャットで切り替えられます。"}},"km":{"stringUnit":{"state":"translated","value":"គណនីនីមួយៗមានការចូលផ្ទាល់ខ្លួន ដូច្នេះការជជែកអាចប្ដូររវាងពួកវាបាន។"}},"ko":{"stringUnit":{"state":"translated","value":"계정마다 로그인이 따로 있어 채팅에서 계정을 바꿀 수 있습니다."}},"nb":{"stringUnit":{"state":"translated","value":"Hver konto har sin egen innlogging, så chatter kan bytte mellom dem."}},"pl":{"stringUnit":{"state":"translated","value":"Każde konto ma własne logowanie, więc czaty mogą się między nimi przełączać."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Cada conta mantém seu próprio login, para que os chats possam alternar entre elas."}},"ru":{"stringUnit":{"state":"translated","value":"У каждого аккаунта свой вход, поэтому чаты могут переключаться между ними."}},"th":{"stringUnit":{"state":"translated","value":"แต่ละบัญชีมีการลงชื่อเข้าใช้ของตัวเอง แชตจึงสลับระหว่างบัญชีได้"}},"tr":{"stringUnit":{"state":"translated","value":"Her hesabın kendi oturumu vardır; sohbetler aralarında geçiş yapabilir."}},"uk":{"stringUnit":{"state":"translated","value":"Кожен обліковий запис має власний вхід, тож чати можуть перемикатися між ними."}},"vi":{"stringUnit":{"state":"translated","value":"Mỗi tài khoản giữ phiên đăng nhập riêng, nên các cuộc trò chuyện có thể chuyển qua lại."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"每个账户各自保留登录，聊天可以在它们之间切换。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"每個帳號各自保留登入，聊天可在它們之間切換。"}}}},
+    "picker.addBrand.claude": {"comment":"Model picker, Add account sheet.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"Claude"}},"bs":{"stringUnit":{"state":"translated","value":"Claude"}},"da":{"stringUnit":{"state":"translated","value":"Claude"}},"de":{"stringUnit":{"state":"translated","value":"Claude"}},"en":{"stringUnit":{"state":"translated","value":"Claude"}},"es":{"stringUnit":{"state":"translated","value":"Claude"}},"fr":{"stringUnit":{"state":"translated","value":"Claude"}},"it":{"stringUnit":{"state":"translated","value":"Claude"}},"ja":{"stringUnit":{"state":"translated","value":"Claude"}},"km":{"stringUnit":{"state":"translated","value":"Claude"}},"ko":{"stringUnit":{"state":"translated","value":"Claude"}},"nb":{"stringUnit":{"state":"translated","value":"Claude"}},"pl":{"stringUnit":{"state":"translated","value":"Claude"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Claude"}},"ru":{"stringUnit":{"state":"translated","value":"Claude"}},"th":{"stringUnit":{"state":"translated","value":"Claude"}},"tr":{"stringUnit":{"state":"translated","value":"Claude"}},"uk":{"stringUnit":{"state":"translated","value":"Claude"}},"vi":{"stringUnit":{"state":"translated","value":"Claude"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"Claude"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"Claude"}}}},
+    "picker.addBrand.codex": {"comment":"Model picker, Add account sheet.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"ChatGPT"}},"bs":{"stringUnit":{"state":"translated","value":"ChatGPT"}},"da":{"stringUnit":{"state":"translated","value":"ChatGPT"}},"de":{"stringUnit":{"state":"translated","value":"ChatGPT"}},"en":{"stringUnit":{"state":"translated","value":"ChatGPT"}},"es":{"stringUnit":{"state":"translated","value":"ChatGPT"}},"fr":{"stringUnit":{"state":"translated","value":"ChatGPT"}},"it":{"stringUnit":{"state":"translated","value":"ChatGPT"}},"ja":{"stringUnit":{"state":"translated","value":"ChatGPT"}},"km":{"stringUnit":{"state":"translated","value":"ChatGPT"}},"ko":{"stringUnit":{"state":"translated","value":"ChatGPT"}},"nb":{"stringUnit":{"state":"translated","value":"ChatGPT"}},"pl":{"stringUnit":{"state":"translated","value":"ChatGPT"}},"pt-BR":{"stringUnit":{"state":"translated","value":"ChatGPT"}},"ru":{"stringUnit":{"state":"translated","value":"ChatGPT"}},"th":{"stringUnit":{"state":"translated","value":"ChatGPT"}},"tr":{"stringUnit":{"state":"translated","value":"ChatGPT"}},"uk":{"stringUnit":{"state":"translated","value":"ChatGPT"}},"vi":{"stringUnit":{"state":"translated","value":"ChatGPT"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"ChatGPT"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"ChatGPT"}}}},
+    "picker.addCli.claude": {"comment":"Model picker, Add account sheet.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"Claude Code"}},"bs":{"stringUnit":{"state":"translated","value":"Claude Code"}},"da":{"stringUnit":{"state":"translated","value":"Claude Code"}},"de":{"stringUnit":{"state":"translated","value":"Claude Code"}},"en":{"stringUnit":{"state":"translated","value":"Claude Code"}},"es":{"stringUnit":{"state":"translated","value":"Claude Code"}},"fr":{"stringUnit":{"state":"translated","value":"Claude Code"}},"it":{"stringUnit":{"state":"translated","value":"Claude Code"}},"ja":{"stringUnit":{"state":"translated","value":"Claude Code"}},"km":{"stringUnit":{"state":"translated","value":"Claude Code"}},"ko":{"stringUnit":{"state":"translated","value":"Claude Code"}},"nb":{"stringUnit":{"state":"translated","value":"Claude Code"}},"pl":{"stringUnit":{"state":"translated","value":"Claude Code"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Claude Code"}},"ru":{"stringUnit":{"state":"translated","value":"Claude Code"}},"th":{"stringUnit":{"state":"translated","value":"Claude Code"}},"tr":{"stringUnit":{"state":"translated","value":"Claude Code"}},"uk":{"stringUnit":{"state":"translated","value":"Claude Code"}},"vi":{"stringUnit":{"state":"translated","value":"Claude Code"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"Claude Code"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"Claude Code"}}}},
+    "picker.addCli.codex": {"comment":"Model picker, Add account sheet.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"Codex CLI"}},"bs":{"stringUnit":{"state":"translated","value":"Codex CLI"}},"da":{"stringUnit":{"state":"translated","value":"Codex CLI"}},"de":{"stringUnit":{"state":"translated","value":"Codex CLI"}},"en":{"stringUnit":{"state":"translated","value":"Codex CLI"}},"es":{"stringUnit":{"state":"translated","value":"Codex CLI"}},"fr":{"stringUnit":{"state":"translated","value":"Codex CLI"}},"it":{"stringUnit":{"state":"translated","value":"Codex CLI"}},"ja":{"stringUnit":{"state":"translated","value":"Codex CLI"}},"km":{"stringUnit":{"state":"translated","value":"Codex CLI"}},"ko":{"stringUnit":{"state":"translated","value":"Codex CLI"}},"nb":{"stringUnit":{"state":"translated","value":"Codex CLI"}},"pl":{"stringUnit":{"state":"translated","value":"Codex CLI"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Codex CLI"}},"ru":{"stringUnit":{"state":"translated","value":"Codex CLI"}},"th":{"stringUnit":{"state":"translated","value":"Codex CLI"}},"tr":{"stringUnit":{"state":"translated","value":"Codex CLI"}},"uk":{"stringUnit":{"state":"translated","value":"Codex CLI"}},"vi":{"stringUnit":{"state":"translated","value":"Codex CLI"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"Codex CLI"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"Codex CLI"}}}},
+    "picker.addWay.new": {"comment":"Model picker, Add account sheet.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"تسجيل الدخول باستخدام {brand}"}},"bs":{"stringUnit":{"state":"translated","value":"Prijavi se putem {brand}"}},"da":{"stringUnit":{"state":"translated","value":"Log ind med {brand}"}},"de":{"stringUnit":{"state":"translated","value":"Mit {brand} anmelden"}},"en":{"stringUnit":{"state":"translated","value":"Sign in with {brand}"}},"es":{"stringUnit":{"state":"translated","value":"Iniciar sesión con {brand}"}},"fr":{"stringUnit":{"state":"translated","value":"Se connecter avec {brand}"}},"it":{"stringUnit":{"state":"translated","value":"Accedi con {brand}"}},"ja":{"stringUnit":{"state":"translated","value":"{brand} でサインイン"}},"km":{"stringUnit":{"state":"translated","value":"ចូលដោយប្រើ {brand}"}},"ko":{"stringUnit":{"state":"translated","value":"{brand}(으)로 로그인"}},"nb":{"stringUnit":{"state":"translated","value":"Logg inn med {brand}"}},"pl":{"stringUnit":{"state":"translated","value":"Zaloguj się przez {brand}"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Entrar com {brand}"}},"ru":{"stringUnit":{"state":"translated","value":"Войти через {brand}"}},"th":{"stringUnit":{"state":"translated","value":"ลงชื่อเข้าใช้ด้วย {brand}"}},"tr":{"stringUnit":{"state":"translated","value":"{brand} ile oturum aç"}},"uk":{"stringUnit":{"state":"translated","value":"Увійти через {brand}"}},"vi":{"stringUnit":{"state":"translated","value":"Đăng nhập bằng {brand}"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"使用 {brand} 登录"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"使用 {brand} 登入"}}}},
+    "picker.addWay.newDetail": {"comment":"Model picker, Add account sheet.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"حساب آخر، بتسجيل دخول خاص في {folder}"}},"bs":{"stringUnit":{"state":"translated","value":"Drugi račun, sa svojom prijavom u {folder}"}},"da":{"stringUnit":{"state":"translated","value":"En anden konto med sit eget login i {folder}"}},"de":{"stringUnit":{"state":"translated","value":"Ein weiteres Konto mit eigener Anmeldung in {folder}"}},"en":{"stringUnit":{"state":"translated","value":"Another account, with its own login in {folder}"}},"es":{"stringUnit":{"state":"translated","value":"Otra cuenta, con su propio inicio de sesión en {folder}"}},"fr":{"stringUnit":{"state":"translated","value":"Un autre compte, avec sa propre connexion dans {folder}"}},"it":{"stringUnit":{"state":"translated","value":"Un altro account, con il proprio accesso in {folder}"}},"ja":{"stringUnit":{"state":"translated","value":"別のアカウント。サインイン情報は {folder} に保存"}},"km":{"stringUnit":{"state":"translated","value":"គណនីមួយទៀត ដែលមានការចូលផ្ទាល់ខ្លួននៅក្នុង {folder}"}},"ko":{"stringUnit":{"state":"translated","value":"별도 계정, 로그인은 {folder}에 보관"}},"nb":{"stringUnit":{"state":"translated","value":"En annen konto, med egen innlogging i {folder}"}},"pl":{"stringUnit":{"state":"translated","value":"Kolejne konto z własnym logowaniem w {folder}"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Outra conta, com login próprio em {folder}"}},"ru":{"stringUnit":{"state":"translated","value":"Другой аккаунт со своим входом в {folder}"}},"th":{"stringUnit":{"state":"translated","value":"บัญชีอื่นที่มีการลงชื่อเข้าใช้ของตัวเองใน {folder}"}},"tr":{"stringUnit":{"state":"translated","value":"{folder} içinde kendi oturumu olan başka bir hesap"}},"uk":{"stringUnit":{"state":"translated","value":"Інший обліковий запис із власним входом у {folder}"}},"vi":{"stringUnit":{"state":"translated","value":"Một tài khoản khác, với phiên đăng nhập riêng trong {folder}"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"另一个账户，登录保存在 {folder}"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"另一個帳號，登入保存在 {folder}"}}}},
+    "picker.addWay.cli": {"comment":"Model picker, Add account sheet.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"استخدام تسجيل دخول {cli} على هذا الـ Mac"}},"bs":{"stringUnit":{"state":"translated","value":"Koristi {cli} prijavu na ovom Macu"}},"da":{"stringUnit":{"state":"translated","value":"Brug {cli}-login på denne Mac"}},"de":{"stringUnit":{"state":"translated","value":"{cli}-Anmeldung auf diesem Mac verwenden"}},"en":{"stringUnit":{"state":"translated","value":"Use the {cli} login on this Mac"}},"es":{"stringUnit":{"state":"translated","value":"Usar el inicio de sesión de {cli} en este Mac"}},"fr":{"stringUnit":{"state":"translated","value":"Utiliser la connexion {cli} de ce Mac"}},"it":{"stringUnit":{"state":"translated","value":"Usa l’accesso di {cli} su questo Mac"}},"ja":{"stringUnit":{"state":"translated","value":"この Mac の {cli} のログインを使う"}},"km":{"stringUnit":{"state":"translated","value":"ប្រើការចូល {cli} នៅលើ Mac នេះ"}},"ko":{"stringUnit":{"state":"translated","value":"이 Mac의 {cli} 로그인 사용"}},"nb":{"stringUnit":{"state":"translated","value":"Bruk {cli}-innloggingen på denne Macen"}},"pl":{"stringUnit":{"state":"translated","value":"Użyj logowania {cli} na tym Macu"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Usar o login do {cli} neste Mac"}},"ru":{"stringUnit":{"state":"translated","value":"Использовать вход {cli} на этом Mac"}},"th":{"stringUnit":{"state":"translated","value":"ใช้การลงชื่อเข้าใช้ {cli} บน Mac เครื่องนี้"}},"tr":{"stringUnit":{"state":"translated","value":"Bu Mac’teki {cli} oturumunu kullan"}},"uk":{"stringUnit":{"state":"translated","value":"Використати вхід {cli} на цьому Mac"}},"vi":{"stringUnit":{"state":"translated","value":"Dùng phiên đăng nhập {cli} trên máy Mac này"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"使用这台 Mac 上的 {cli} 登录"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"使用這台 Mac 上的 {cli} 登入"}}}},
+    "picker.addWay.cliDetail": {"comment":"Model picker, Add account sheet.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"موجود في {folder}"}},"bs":{"stringUnit":{"state":"translated","value":"Pronađeno u {folder}"}},"da":{"stringUnit":{"state":"translated","value":"Fundet i {folder}"}},"de":{"stringUnit":{"state":"translated","value":"Gefunden in {folder}"}},"en":{"stringUnit":{"state":"translated","value":"Found in {folder}"}},"es":{"stringUnit":{"state":"translated","value":"Encontrado en {folder}"}},"fr":{"stringUnit":{"state":"translated","value":"Trouvée dans {folder}"}},"it":{"stringUnit":{"state":"translated","value":"Trovato in {folder}"}},"ja":{"stringUnit":{"state":"translated","value":"{folder} で検出"}},"km":{"stringUnit":{"state":"translated","value":"បានរកឃើញក្នុង {folder}"}},"ko":{"stringUnit":{"state":"translated","value":"{folder}에서 찾음"}},"nb":{"stringUnit":{"state":"translated","value":"Funnet i {folder}"}},"pl":{"stringUnit":{"state":"translated","value":"Znaleziono w {folder}"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Encontrado em {folder}"}},"ru":{"stringUnit":{"state":"translated","value":"Найден в {folder}"}},"th":{"stringUnit":{"state":"translated","value":"พบใน {folder}"}},"tr":{"stringUnit":{"state":"translated","value":"{folder} içinde bulundu"}},"uk":{"stringUnit":{"state":"translated","value":"Знайдено в {folder}"}},"vi":{"stringUnit":{"state":"translated","value":"Tìm thấy trong {folder}"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"在 {folder} 中找到"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"在 {folder} 中找到"}}}},
+    "picker.addWay.cliDetailAny": {"comment":"Model picker, Add account sheet.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"تسجيل الدخول الموجود في الأداة"}},"bs":{"stringUnit":{"state":"translated","value":"Prijava koju CLI već ima"}},"da":{"stringUnit":{"state":"translated","value":"Det login, CLI’en allerede har"}},"de":{"stringUnit":{"state":"translated","value":"Die Anmeldung, die das CLI schon hat"}},"en":{"stringUnit":{"state":"translated","value":"The login the CLI already has"}},"es":{"stringUnit":{"state":"translated","value":"El inicio de sesión que ya tiene la CLI"}},"fr":{"stringUnit":{"state":"translated","value":"La connexion que la CLI a déjà"}},"it":{"stringUnit":{"state":"translated","value":"L’accesso che la CLI ha già"}},"ja":{"stringUnit":{"state":"translated","value":"CLI に既にあるログイン"}},"km":{"stringUnit":{"state":"translated","value":"ការចូលដែល CLI មានរួចហើយ"}},"ko":{"stringUnit":{"state":"translated","value":"CLI에 이미 있는 로그인"}},"nb":{"stringUnit":{"state":"translated","value":"Innloggingen CLI-en allerede har"}},"pl":{"stringUnit":{"state":"translated","value":"Logowanie, które CLI już ma"}},"pt-BR":{"stringUnit":{"state":"translated","value":"O login que a CLI já tem"}},"ru":{"stringUnit":{"state":"translated","value":"Вход, который уже есть у CLI"}},"th":{"stringUnit":{"state":"translated","value":"การลงชื่อเข้าใช้ที่ CLI มีอยู่แล้ว"}},"tr":{"stringUnit":{"state":"translated","value":"CLI’nin zaten sahip olduğu oturum"}},"uk":{"stringUnit":{"state":"translated","value":"Вхід, який уже має CLI"}},"vi":{"stringUnit":{"state":"translated","value":"Phiên đăng nhập CLI đã có"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"CLI 已有的登录"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"CLI 已有的登入"}}}},
+    "picker.addWay.key": {"comment":"Model picker, Add account sheet.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"استخدام مفتاح API"}},"bs":{"stringUnit":{"state":"translated","value":"Koristi API ključ"}},"da":{"stringUnit":{"state":"translated","value":"Brug en API-nøgle"}},"de":{"stringUnit":{"state":"translated","value":"API-Schlüssel verwenden"}},"en":{"stringUnit":{"state":"translated","value":"Use an API key"}},"es":{"stringUnit":{"state":"translated","value":"Usar una clave de API"}},"fr":{"stringUnit":{"state":"translated","value":"Utiliser une clé d’API"}},"it":{"stringUnit":{"state":"translated","value":"Usa una chiave API"}},"ja":{"stringUnit":{"state":"translated","value":"API キーを使う"}},"km":{"stringUnit":{"state":"translated","value":"ប្រើសោ API"}},"ko":{"stringUnit":{"state":"translated","value":"API 키 사용"}},"nb":{"stringUnit":{"state":"translated","value":"Bruk en API-nøkkel"}},"pl":{"stringUnit":{"state":"translated","value":"Użyj klucza API"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Usar uma chave de API"}},"ru":{"stringUnit":{"state":"translated","value":"Использовать ключ API"}},"th":{"stringUnit":{"state":"translated","value":"ใช้คีย์ API"}},"tr":{"stringUnit":{"state":"translated","value":"API anahtarı kullan"}},"uk":{"stringUnit":{"state":"translated","value":"Використати ключ API"}},"vi":{"stringUnit":{"state":"translated","value":"Dùng khóa API"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"使用 API 密钥"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"使用 API 金鑰"}}}},
+    "picker.addWay.keyDetail": {"comment":"Model picker, Add account sheet.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"تُحتسب التكلفة على حساب المفتاح"}},"bs":{"stringUnit":{"state":"translated","value":"Naplaćuje se računu ključa"}},"da":{"stringUnit":{"state":"translated","value":"Faktureres nøglens egen konto"}},"de":{"stringUnit":{"state":"translated","value":"Wird dem Konto des Schlüssels berechnet"}},"en":{"stringUnit":{"state":"translated","value":"Billed to the key’s own account"}},"es":{"stringUnit":{"state":"translated","value":"Se factura a la cuenta de la clave"}},"fr":{"stringUnit":{"state":"translated","value":"Facturé au compte de la clé"}},"it":{"stringUnit":{"state":"translated","value":"Addebitato all’account della chiave"}},"ja":{"stringUnit":{"state":"translated","value":"キーのアカウントに課金"}},"km":{"stringUnit":{"state":"translated","value":"គិតថ្លៃទៅគណនីរបស់សោ"}},"ko":{"stringUnit":{"state":"translated","value":"키의 계정으로 청구"}},"nb":{"stringUnit":{"state":"translated","value":"Faktureres nøkkelens egen konto"}},"pl":{"stringUnit":{"state":"translated","value":"Rozliczane na koncie klucza"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Cobrado na conta da chave"}},"ru":{"stringUnit":{"state":"translated","value":"Оплата со счёта ключа"}},"th":{"stringUnit":{"state":"translated","value":"เรียกเก็บเงินจากบัญชีของคีย์"}},"tr":{"stringUnit":{"state":"translated","value":"Anahtarın kendi hesabına faturalanır"}},"uk":{"stringUnit":{"state":"translated","value":"Оплата з облікового запису ключа"}},"vi":{"stringUnit":{"state":"translated","value":"Tính phí vào tài khoản của khóa"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"费用记入该密钥的账户"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"費用記入該金鑰的帳號"}}}},
+    "picker.addName.new": {"comment":"Model picker, Add account sheet.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"{brand} {n}"}},"bs":{"stringUnit":{"state":"translated","value":"{brand} {n}"}},"da":{"stringUnit":{"state":"translated","value":"{brand} {n}"}},"de":{"stringUnit":{"state":"translated","value":"{brand} {n}"}},"en":{"stringUnit":{"state":"translated","value":"{brand} {n}"}},"es":{"stringUnit":{"state":"translated","value":"{brand} {n}"}},"fr":{"stringUnit":{"state":"translated","value":"{brand} {n}"}},"it":{"stringUnit":{"state":"translated","value":"{brand} {n}"}},"ja":{"stringUnit":{"state":"translated","value":"{brand} {n}"}},"km":{"stringUnit":{"state":"translated","value":"{brand} {n}"}},"ko":{"stringUnit":{"state":"translated","value":"{brand} {n}"}},"nb":{"stringUnit":{"state":"translated","value":"{brand} {n}"}},"pl":{"stringUnit":{"state":"translated","value":"{brand} {n}"}},"pt-BR":{"stringUnit":{"state":"translated","value":"{brand} {n}"}},"ru":{"stringUnit":{"state":"translated","value":"{brand} {n}"}},"th":{"stringUnit":{"state":"translated","value":"{brand} {n}"}},"tr":{"stringUnit":{"state":"translated","value":"{brand} {n}"}},"uk":{"stringUnit":{"state":"translated","value":"{brand} {n}"}},"vi":{"stringUnit":{"state":"translated","value":"{brand} {n}"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"{brand} {n}"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"{brand} {n}"}}}},
+    "picker.addName.cli": {"comment":"Model picker, Add account sheet.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"تسجيل دخول {cli}"}},"bs":{"stringUnit":{"state":"translated","value":"{cli} prijava"}},"da":{"stringUnit":{"state":"translated","value":"{cli}-login"}},"de":{"stringUnit":{"state":"translated","value":"{cli}-Anmeldung"}},"en":{"stringUnit":{"state":"translated","value":"{cli} login"}},"es":{"stringUnit":{"state":"translated","value":"Inicio de sesión de {cli}"}},"fr":{"stringUnit":{"state":"translated","value":"Connexion {cli}"}},"it":{"stringUnit":{"state":"translated","value":"Accesso {cli}"}},"ja":{"stringUnit":{"state":"translated","value":"{cli} のログイン"}},"km":{"stringUnit":{"state":"translated","value":"ការចូល {cli}"}},"ko":{"stringUnit":{"state":"translated","value":"{cli} 로그인"}},"nb":{"stringUnit":{"state":"translated","value":"{cli}-innlogging"}},"pl":{"stringUnit":{"state":"translated","value":"Logowanie {cli}"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Login do {cli}"}},"ru":{"stringUnit":{"state":"translated","value":"Вход {cli}"}},"th":{"stringUnit":{"state":"translated","value":"การลงชื่อเข้าใช้ {cli}"}},"tr":{"stringUnit":{"state":"translated","value":"{cli} oturumu"}},"uk":{"stringUnit":{"state":"translated","value":"Вхід {cli}"}},"vi":{"stringUnit":{"state":"translated","value":"Đăng nhập {cli}"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"{cli} 登录"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"{cli} 登入"}}}},
+    "picker.addName.key": {"comment":"Model picker, Add account sheet.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"مفتاح API لـ {brand}"}},"bs":{"stringUnit":{"state":"translated","value":"{brand} API ključ"}},"da":{"stringUnit":{"state":"translated","value":"{brand} API-nøgle"}},"de":{"stringUnit":{"state":"translated","value":"{brand}-API-Schlüssel"}},"en":{"stringUnit":{"state":"translated","value":"{brand} API key"}},"es":{"stringUnit":{"state":"translated","value":"Clave de API de {brand}"}},"fr":{"stringUnit":{"state":"translated","value":"Clé d’API {brand}"}},"it":{"stringUnit":{"state":"translated","value":"Chiave API {brand}"}},"ja":{"stringUnit":{"state":"translated","value":"{brand} API キー"}},"km":{"stringUnit":{"state":"translated","value":"សោ API {brand}"}},"ko":{"stringUnit":{"state":"translated","value":"{brand} API 키"}},"nb":{"stringUnit":{"state":"translated","value":"{brand} API-nøkkel"}},"pl":{"stringUnit":{"state":"translated","value":"Klucz API {brand}"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Chave de API {brand}"}},"ru":{"stringUnit":{"state":"translated","value":"Ключ API {brand}"}},"th":{"stringUnit":{"state":"translated","value":"คีย์ API {brand}"}},"tr":{"stringUnit":{"state":"translated","value":"{brand} API anahtarı"}},"uk":{"stringUnit":{"state":"translated","value":"Ключ API {brand}"}},"vi":{"stringUnit":{"state":"translated","value":"Khóa API {brand}"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"{brand} API 密钥"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"{brand} API 金鑰"}}}},
+    "picker.addNote.new": {"comment":"Model picker, Add account sheet.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"ستسجّل الدخول باستخدام {brand} أول مرة تستخدم فيها محادثة هذا الحساب."}},"bs":{"stringUnit":{"state":"translated","value":"Prijavljujete se putem {brand} kada razgovor prvi put koristi ovaj račun."}},"da":{"stringUnit":{"state":"translated","value":"Du logger ind med {brand}, første gang en chat bruger kontoen."}},"de":{"stringUnit":{"state":"translated","value":"Sie melden sich mit {brand} an, wenn ein Chat dieses Konto zum ersten Mal nutzt."}},"en":{"stringUnit":{"state":"translated","value":"You sign in with {brand} the first time a chat uses this account."}},"es":{"stringUnit":{"state":"translated","value":"Inicias sesión con {brand} la primera vez que un chat usa esta cuenta."}},"fr":{"stringUnit":{"state":"translated","value":"Vous vous connectez avec {brand} la première fois qu’une discussion utilise ce compte."}},"it":{"stringUnit":{"state":"translated","value":"Accedi con {brand} la prima volta che una chat usa questo account."}},"ja":{"stringUnit":{"state":"translated","value":"チャットがこのアカウントを初めて使うときに {brand} でサインインします。"}},"km":{"stringUnit":{"state":"translated","value":"អ្នកចូលដោយប្រើ {brand} នៅពេលការជជែកប្រើគណនីនេះលើកដំបូង។"}},"ko":{"stringUnit":{"state":"translated","value":"채팅이 이 계정을 처음 사용할 때 {brand}(으)로 로그인합니다."}},"nb":{"stringUnit":{"state":"translated","value":"Du logger inn med {brand} første gang en chat bruker kontoen."}},"pl":{"stringUnit":{"state":"translated","value":"Zalogujesz się przez {brand}, gdy czat pierwszy raz użyje tego konta."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Você entra com {brand} na primeira vez que um chat usar esta conta."}},"ru":{"stringUnit":{"state":"translated","value":"Вы войдёте через {brand}, когда чат впервые использует этот аккаунт."}},"th":{"stringUnit":{"state":"translated","value":"คุณจะลงชื่อเข้าใช้ด้วย {brand} เมื่อแชตใช้บัญชีนี้ครั้งแรก"}},"tr":{"stringUnit":{"state":"translated","value":"Bir sohbet bu hesabı ilk kez kullandığında {brand} ile oturum açarsınız."}},"uk":{"stringUnit":{"state":"translated","value":"Ви ввійдете через {brand}, коли чат уперше використає цей обліковий запис."}},"vi":{"stringUnit":{"state":"translated","value":"Bạn đăng nhập bằng {brand} lần đầu một cuộc trò chuyện dùng tài khoản này."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"聊天第一次使用此账户时，你将使用 {brand} 登录。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"聊天第一次使用此帳號時，你將使用 {brand} 登入。"}}}},
     "picker.accountId": {"comment":"Local account route form in the model picker. Reference syntax remains literal.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Account ID"}},"ar":{"stringUnit":{"state":"translated","value":"معرّف الحساب"}},"bs":{"stringUnit":{"state":"translated","value":"ID računa"}},"da":{"stringUnit":{"state":"translated","value":"Konto-id"}},"de":{"stringUnit":{"state":"translated","value":"Konto-ID"}},"es":{"stringUnit":{"state":"translated","value":"ID de cuenta"}},"fr":{"stringUnit":{"state":"translated","value":"Identifiant du compte"}},"it":{"stringUnit":{"state":"translated","value":"ID account"}},"ja":{"stringUnit":{"state":"translated","value":"アカウントID"}},"km":{"stringUnit":{"state":"translated","value":"លេខសម្គាល់គណនី"}},"ko":{"stringUnit":{"state":"translated","value":"계정 ID"}},"nb":{"stringUnit":{"state":"translated","value":"Konto-ID"}},"pl":{"stringUnit":{"state":"translated","value":"Identyfikator konta"}},"pt-BR":{"stringUnit":{"state":"translated","value":"ID da conta"}},"ru":{"stringUnit":{"state":"translated","value":"Идентификатор аккаунта"}},"th":{"stringUnit":{"state":"translated","value":"รหัสบัญชี"}},"tr":{"stringUnit":{"state":"translated","value":"Hesap kimliği"}},"uk":{"stringUnit":{"state":"translated","value":"Ідентифікатор облікового запису"}},"vi":{"stringUnit":{"state":"translated","value":"Mã tài khoản"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"账户 ID"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"帳戶 ID"}}}},
     "picker.accountKind": {"comment":"Local account route form in the model picker. Reference syntax remains literal.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Account type"}},"ar":{"stringUnit":{"state":"translated","value":"نوع الحساب"}},"bs":{"stringUnit":{"state":"translated","value":"Vrsta računa"}},"da":{"stringUnit":{"state":"translated","value":"Kontotype"}},"de":{"stringUnit":{"state":"translated","value":"Kontotyp"}},"es":{"stringUnit":{"state":"translated","value":"Tipo de cuenta"}},"fr":{"stringUnit":{"state":"translated","value":"Type de compte"}},"it":{"stringUnit":{"state":"translated","value":"Tipo di account"}},"ja":{"stringUnit":{"state":"translated","value":"アカウントの種類"}},"km":{"stringUnit":{"state":"translated","value":"ប្រភេទគណនី"}},"ko":{"stringUnit":{"state":"translated","value":"계정 유형"}},"nb":{"stringUnit":{"state":"translated","value":"Kontotype"}},"pl":{"stringUnit":{"state":"translated","value":"Typ konta"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Tipo de conta"}},"ru":{"stringUnit":{"state":"translated","value":"Тип аккаунта"}},"th":{"stringUnit":{"state":"translated","value":"ประเภทบัญชี"}},"tr":{"stringUnit":{"state":"translated","value":"Hesap türü"}},"uk":{"stringUnit":{"state":"translated","value":"Тип облікового запису"}},"vi":{"stringUnit":{"state":"translated","value":"Loại tài khoản"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"账户类型"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"帳戶類型"}}}},
     "picker.accountHome": {"comment":"Local account route form in the model picker. Reference syntax remains literal.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Login folder"}},"ar":{"stringUnit":{"state":"translated","value":"مجلد تسجيل الدخول"}},"bs":{"stringUnit":{"state":"translated","value":"Mapa za prijavu"}},"da":{"stringUnit":{"state":"translated","value":"Loginmappe"}},"de":{"stringUnit":{"state":"translated","value":"Anmeldeordner"}},"es":{"stringUnit":{"state":"translated","value":"Carpeta de inicio de sesión"}},"fr":{"stringUnit":{"state":"translated","value":"Dossier de connexion"}},"it":{"stringUnit":{"state":"translated","value":"Cartella di accesso"}},"ja":{"stringUnit":{"state":"translated","value":"ログインフォルダ"}},"km":{"stringUnit":{"state":"translated","value":"ថតចូលគណនី"}},"ko":{"stringUnit":{"state":"translated","value":"로그인 폴더"}},"nb":{"stringUnit":{"state":"translated","value":"Innloggingsmappe"}},"pl":{"stringUnit":{"state":"translated","value":"Folder logowania"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Pasta de login"}},"ru":{"stringUnit":{"state":"translated","value":"Папка входа"}},"th":{"stringUnit":{"state":"translated","value":"โฟลเดอร์เข้าสู่ระบบ"}},"tr":{"stringUnit":{"state":"translated","value":"Giriş klasörü"}},"uk":{"stringUnit":{"state":"translated","value":"Папка входу"}},"vi":{"stringUnit":{"state":"translated","value":"Thư mục đăng nhập"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"登录文件夹"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"登入資料夾"}}}},
@@ -363,8 +380,10 @@
     "queue.held.review": {"comment":"Agent pane: Needs you button on a guest's held message; it opens the message's card in the chat, where the owner reads it whole and approves or declines it","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"مراجعة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pregledaj"}},"da":{"stringUnit":{"state":"needs_review","value":"Gennemse"}},"de":{"stringUnit":{"state":"needs_review","value":"Ansehen"}},"en":{"stringUnit":{"state":"translated","value":"Review"}},"es":{"stringUnit":{"state":"needs_review","value":"Revisar"}},"fr":{"stringUnit":{"state":"needs_review","value":"Examiner"}},"it":{"stringUnit":{"state":"needs_review","value":"Esamina"}},"ja":{"stringUnit":{"state":"needs_review","value":"確認"}},"km":{"stringUnit":{"state":"needs_review","value":"ពិនិត្យ"}},"ko":{"stringUnit":{"state":"needs_review","value":"검토"}},"nb":{"stringUnit":{"state":"needs_review","value":"Se gjennom"}},"pl":{"stringUnit":{"state":"needs_review","value":"Przejrzyj"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Revisar"}},"ru":{"stringUnit":{"state":"needs_review","value":"Просмотреть"}},"th":{"stringUnit":{"state":"needs_review","value":"ตรวจดู"}},"tr":{"stringUnit":{"state":"needs_review","value":"İncele"}},"uk":{"stringUnit":{"state":"needs_review","value":"Переглянути"}},"vi":{"stringUnit":{"state":"needs_review","value":"Xem lại"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"查看"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"查看"}}}},
     "sessionInfo.usage.showSubagents": {"comment":"Agent pane: Session Info's Usage","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Show"}},"ar":{"stringUnit":{"state":"translated","value":"إظهار"}},"bs":{"stringUnit":{"state":"translated","value":"Prikaži"}},"da":{"stringUnit":{"state":"translated","value":"Vis"}},"de":{"stringUnit":{"state":"translated","value":"Anzeigen"}},"es":{"stringUnit":{"state":"translated","value":"Mostrar"}},"fr":{"stringUnit":{"state":"translated","value":"Afficher"}},"it":{"stringUnit":{"state":"translated","value":"Mostra"}},"ja":{"stringUnit":{"state":"translated","value":"表示"}},"km":{"stringUnit":{"state":"translated","value":"បង្ហាញ"}},"ko":{"stringUnit":{"state":"translated","value":"보기"}},"nb":{"stringUnit":{"state":"translated","value":"Vis"}},"pl":{"stringUnit":{"state":"translated","value":"Pokaż"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Mostrar"}},"ru":{"stringUnit":{"state":"translated","value":"Показать"}},"th":{"stringUnit":{"state":"translated","value":"แสดง"}},"tr":{"stringUnit":{"state":"translated","value":"Göster"}},"uk":{"stringUnit":{"state":"translated","value":"Показати"}},"vi":{"stringUnit":{"state":"translated","value":"Hiện"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"显示"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"顯示"}}}},
     "sessionInfo.usage.restartWithCap": {"comment":"Agent pane: Session Info's Usage","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Restart with cap"}},"ar":{"stringUnit":{"state":"translated","value":"إعادة التشغيل مع حد"}},"bs":{"stringUnit":{"state":"translated","value":"Ponovo pokreni s ograničenjem"}},"da":{"stringUnit":{"state":"translated","value":"Genstart med grænse"}},"de":{"stringUnit":{"state":"translated","value":"Mit Grenze neu starten"}},"es":{"stringUnit":{"state":"translated","value":"Reiniciar con límite"}},"fr":{"stringUnit":{"state":"translated","value":"Redémarrer avec limite"}},"it":{"stringUnit":{"state":"translated","value":"Riavvia con limite"}},"ja":{"stringUnit":{"state":"translated","value":"上限付きで再起動"}},"km":{"stringUnit":{"state":"translated","value":"ចាប់ផ្ដើមឡើងវិញដោយមានកំណត់"}},"ko":{"stringUnit":{"state":"translated","value":"제한을 두고 다시 시작"}},"nb":{"stringUnit":{"state":"translated","value":"Start på nytt med grense"}},"pl":{"stringUnit":{"state":"translated","value":"Uruchom ponownie z limitem"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Reiniciar com limite"}},"ru":{"stringUnit":{"state":"translated","value":"Перезапустить с ограничением"}},"th":{"stringUnit":{"state":"translated","value":"เริ่มใหม่พร้อมขีดจำกัด"}},"tr":{"stringUnit":{"state":"translated","value":"Sınırla yeniden başlat"}},"uk":{"stringUnit":{"state":"translated","value":"Перезапустити з обмеженням"}},"vi":{"stringUnit":{"state":"translated","value":"Khởi động lại có giới hạn"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"设上限后重启"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"設上限後重新啟動"}}}},
-    "sessionInfo.usage.restartWithCapSoon": {"comment":"Agent pane: Session Info's Usage","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"acpmux cannot restart a session with an autocompact cap yet"}},"ar":{"stringUnit":{"state":"translated","value":"لا يستطيع acpmux بعد إعادة تشغيل جلسة مع حد للضغط التلقائي"}},"bs":{"stringUnit":{"state":"translated","value":"acpmux još ne može ponovo pokrenuti sesiju s ograničenjem automatskog sažimanja"}},"da":{"stringUnit":{"state":"translated","value":"acpmux kan endnu ikke genstarte en session med en grænse for automatisk komprimering"}},"de":{"stringUnit":{"state":"translated","value":"acpmux kann eine Sitzung noch nicht mit einer Grenze für automatisches Komprimieren neu starten"}},"es":{"stringUnit":{"state":"translated","value":"acpmux aún no puede reiniciar una sesión con un límite de compactación automática"}},"fr":{"stringUnit":{"state":"translated","value":"acpmux ne peut pas encore redémarrer une session avec une limite de compaction auto"}},"it":{"stringUnit":{"state":"translated","value":"acpmux non può ancora riavviare una sessione con un limite di compattazione automatica"}},"ja":{"stringUnit":{"state":"translated","value":"acpmux はまだ自動圧縮の上限付きでセッションを再起動できません"}},"km":{"stringUnit":{"state":"translated","value":"acpmux មិនទាន់អាចចាប់ផ្ដើមវគ្គឡើងវិញដោយមានកំណត់បង្រួមស្វ័យប្រវត្តិទេ"}},"ko":{"stringUnit":{"state":"translated","value":"acpmux는 아직 자동 압축 제한을 두고 세션을 다시 시작할 수 없습니다"}},"nb":{"stringUnit":{"state":"translated","value":"acpmux kan ennå ikke starte en økt på nytt med en grense for automatisk komprimering"}},"pl":{"stringUnit":{"state":"translated","value":"acpmux nie może jeszcze uruchomić sesji ponownie z limitem automatycznego kompaktowania"}},"pt-BR":{"stringUnit":{"state":"translated","value":"O acpmux ainda não consegue reiniciar uma sessão com limite de compactação automática"}},"ru":{"stringUnit":{"state":"translated","value":"acpmux пока не умеет перезапускать сеанс с ограничением автосжатия"}},"th":{"stringUnit":{"state":"translated","value":"acpmux ยังเริ่มเซสชันใหม่พร้อมขีดจำกัดการบีบอัดอัตโนมัติไม่ได้"}},"tr":{"stringUnit":{"state":"translated","value":"acpmux bir oturumu henüz otomatik sıkıştırma sınırıyla yeniden başlatamıyor"}},"uk":{"stringUnit":{"state":"translated","value":"acpmux поки не вміє перезапускати сеанс з обмеженням автостиснення"}},"vi":{"stringUnit":{"state":"translated","value":"acpmux chưa thể khởi động lại phiên với giới hạn tự động nén"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"acpmux 暂时无法以自动压缩上限重启会话"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"acpmux 暫時無法以自動壓縮上限重新啟動工作階段"}}}},
+    "sessionInfo.usage.restartWithCapSoon": {"comment":"Agent pane: Session Info's Usage","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Restarting a chat with an autocompact cap isn't available yet"}},"ar":{"stringUnit":{"state":"translated","value":"إعادة تشغيل محادثة مع حد للضغط التلقائي غير متاحة بعد"}},"bs":{"stringUnit":{"state":"translated","value":"Ponovno pokretanje chata s ograničenjem automatskog sažimanja još nije dostupno"}},"da":{"stringUnit":{"state":"translated","value":"Genstart af en chat med en grænse for automatisk komprimering er ikke tilgængelig endnu"}},"de":{"stringUnit":{"state":"translated","value":"Einen Chat mit einer Autokomprimierungs-Grenze neu zu starten, ist noch nicht verfügbar"}},"es":{"stringUnit":{"state":"translated","value":"Aún no se puede reiniciar un chat con un límite de compactación automática"}},"fr":{"stringUnit":{"state":"translated","value":"Redémarrer une discussion avec un plafond de compactage automatique n’est pas encore disponible"}},"it":{"stringUnit":{"state":"translated","value":"Riavviare una chat con un limite di compattazione automatica non è ancora disponibile"}},"ja":{"stringUnit":{"state":"translated","value":"自動コンパクトの上限付きでチャットを再起動する機能はまだ使えません"}},"km":{"stringUnit":{"state":"translated","value":"ការចាប់ផ្តើមការជជែកឡើងវិញជាមួយដែនកំណត់បង្រួមស្វ័យប្រវត្តិមិនទាន់មានទេ"}},"ko":{"stringUnit":{"state":"translated","value":"자동 압축 한도를 둔 채팅 재시작은 아직 지원되지 않습니다"}},"nb":{"stringUnit":{"state":"translated","value":"Å starte en chat på nytt med en grense for automatisk komprimering er ikke tilgjengelig ennå"}},"pl":{"stringUnit":{"state":"translated","value":"Ponowne uruchomienie czatu z limitem automatycznego kompaktowania nie jest jeszcze dostępne"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Reiniciar um chat com limite de compactação automática ainda não está disponível"}},"ru":{"stringUnit":{"state":"translated","value":"Перезапуск чата с пределом автосжатия пока недоступен"}},"th":{"stringUnit":{"state":"translated","value":"ยังรีสตาร์ตแชทพร้อมขีดจำกัดการบีบอัดอัตโนมัติไม่ได้"}},"tr":{"stringUnit":{"state":"translated","value":"Otomatik sıkıştırma sınırıyla bir sohbeti yeniden başlatmak henüz kullanılamıyor"}},"uk":{"stringUnit":{"state":"translated","value":"Перезапуск чату з лімітом автостиснення поки недоступний"}},"vi":{"stringUnit":{"state":"translated","value":"Chưa thể khởi động lại cuộc trò chuyện với giới hạn tự động nén"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"暂不支持以自动压缩上限重启聊天"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"暫不支援以自動壓縮上限重新啟動聊天"}}}},
     "sessionInfo.usage": {"comment":"Agent pane: Session Info's Usage","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Usage"}},"ar":{"stringUnit":{"state":"translated","value":"الاستخدام"}},"bs":{"stringUnit":{"state":"translated","value":"Potrošnja"}},"da":{"stringUnit":{"state":"translated","value":"Forbrug"}},"de":{"stringUnit":{"state":"translated","value":"Nutzung"}},"es":{"stringUnit":{"state":"translated","value":"Uso"}},"fr":{"stringUnit":{"state":"translated","value":"Utilisation"}},"it":{"stringUnit":{"state":"translated","value":"Utilizzo"}},"ja":{"stringUnit":{"state":"translated","value":"使用量"}},"km":{"stringUnit":{"state":"translated","value":"ការប្រើប្រាស់"}},"ko":{"stringUnit":{"state":"translated","value":"사용량"}},"nb":{"stringUnit":{"state":"translated","value":"Forbruk"}},"pl":{"stringUnit":{"state":"translated","value":"Użycie"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Uso"}},"ru":{"stringUnit":{"state":"translated","value":"Расход"}},"th":{"stringUnit":{"state":"translated","value":"การใช้งาน"}},"tr":{"stringUnit":{"state":"translated","value":"Kullanım"}},"uk":{"stringUnit":{"state":"translated","value":"Витрати"}},"vi":{"stringUnit":{"state":"translated","value":"Mức dùng"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"用量"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"用量"}}}},
+    "sessionInfo.progress": {"comment":"Agent pane: title of Session Info's Progress section, the agent's live plan (its todo list)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Progress"}},"ar":{"stringUnit":{"state":"needs_review","value":"التقدّم"}},"bs":{"stringUnit":{"state":"needs_review","value":"Napredak"}},"da":{"stringUnit":{"state":"needs_review","value":"Fremskridt"}},"de":{"stringUnit":{"state":"needs_review","value":"Fortschritt"}},"es":{"stringUnit":{"state":"needs_review","value":"Progreso"}},"fr":{"stringUnit":{"state":"needs_review","value":"Progression"}},"it":{"stringUnit":{"state":"needs_review","value":"Avanzamento"}},"ja":{"stringUnit":{"state":"needs_review","value":"進捗"}},"km":{"stringUnit":{"state":"needs_review","value":"វឌ្ឍនភាព"}},"ko":{"stringUnit":{"state":"needs_review","value":"진행 상황"}},"nb":{"stringUnit":{"state":"needs_review","value":"Fremdrift"}},"pl":{"stringUnit":{"state":"needs_review","value":"Postęp"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Progresso"}},"ru":{"stringUnit":{"state":"needs_review","value":"Прогресс"}},"th":{"stringUnit":{"state":"needs_review","value":"ความคืบหน้า"}},"tr":{"stringUnit":{"state":"needs_review","value":"İlerleme"}},"uk":{"stringUnit":{"state":"needs_review","value":"Прогрес"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tiến độ"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"进度"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"進度"}}}},
+    "sessionInfo.progress.count": {"comment":"Agent pane: Session Info's Progress head, the plan's steps done of its steps; {done} and {total} are numbers","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"{done} of {total}"}},"ar":{"stringUnit":{"state":"needs_review","value":"{done} من {total}"}},"bs":{"stringUnit":{"state":"needs_review","value":"{done} od {total}"}},"da":{"stringUnit":{"state":"needs_review","value":"{done} af {total}"}},"de":{"stringUnit":{"state":"needs_review","value":"{done} von {total}"}},"es":{"stringUnit":{"state":"needs_review","value":"{done} de {total}"}},"fr":{"stringUnit":{"state":"needs_review","value":"{done} sur {total}"}},"it":{"stringUnit":{"state":"needs_review","value":"{done} di {total}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{done}/{total}"}},"km":{"stringUnit":{"state":"needs_review","value":"{done}/{total}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{done}/{total}"}},"nb":{"stringUnit":{"state":"needs_review","value":"{done} av {total}"}},"pl":{"stringUnit":{"state":"needs_review","value":"{done} z {total}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{done} de {total}"}},"ru":{"stringUnit":{"state":"needs_review","value":"{done} из {total}"}},"th":{"stringUnit":{"state":"needs_review","value":"{done}/{total}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{done}/{total}"}},"uk":{"stringUnit":{"state":"needs_review","value":"{done} з {total}"}},"vi":{"stringUnit":{"state":"needs_review","value":"{done}/{total}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{done}/{total}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{done}/{total}"}}}},
     "sessionInfo.usage.cost24hValue": {"comment":"Agent pane: Session Info's Usage","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"{cost} · 24h"}},"ar":{"stringUnit":{"state":"translated","value":"{cost} · 24 س"}},"bs":{"stringUnit":{"state":"translated","value":"{cost} · 24 h"}},"da":{"stringUnit":{"state":"translated","value":"{cost} · 24 t"}},"de":{"stringUnit":{"state":"translated","value":"{cost} · 24 Std."}},"es":{"stringUnit":{"state":"translated","value":"{cost} · 24 h"}},"fr":{"stringUnit":{"state":"translated","value":"{cost} · 24 h"}},"it":{"stringUnit":{"state":"translated","value":"{cost} · 24 h"}},"ja":{"stringUnit":{"state":"translated","value":"{cost} · 24時間"}},"km":{"stringUnit":{"state":"translated","value":"{cost} · 24 ម៉ោង"}},"ko":{"stringUnit":{"state":"translated","value":"{cost} · 24시간"}},"nb":{"stringUnit":{"state":"translated","value":"{cost} · 24 t"}},"pl":{"stringUnit":{"state":"translated","value":"{cost} · 24 godz."}},"pt-BR":{"stringUnit":{"state":"translated","value":"{cost} · 24 h"}},"ru":{"stringUnit":{"state":"translated","value":"{cost} · 24 ч"}},"th":{"stringUnit":{"state":"translated","value":"{cost} · 24 ชม."}},"tr":{"stringUnit":{"state":"translated","value":"{cost} · 24 sa"}},"uk":{"stringUnit":{"state":"translated","value":"{cost} · 24 год"}},"vi":{"stringUnit":{"state":"translated","value":"{cost} · 24 giờ"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"{cost} · 24 小时"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"{cost} · 24 小時"}}}},
     "sessionInfo.usage.tokens24hValue": {"comment":"Agent pane: Session Info's Usage","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"{tokens} tokens · 24h"}},"ar":{"stringUnit":{"state":"translated","value":"{tokens} رمز · 24 س"}},"bs":{"stringUnit":{"state":"translated","value":"{tokens} tokena · 24 h"}},"da":{"stringUnit":{"state":"translated","value":"{tokens} tokens · 24 t"}},"de":{"stringUnit":{"state":"translated","value":"{tokens} Tokens · 24 Std."}},"es":{"stringUnit":{"state":"translated","value":"{tokens} tokens · 24 h"}},"fr":{"stringUnit":{"state":"translated","value":"{tokens} jetons · 24 h"}},"it":{"stringUnit":{"state":"translated","value":"{tokens} token · 24 h"}},"ja":{"stringUnit":{"state":"translated","value":"{tokens} トークン · 24時間"}},"km":{"stringUnit":{"state":"translated","value":"{tokens} តូខឹន · 24 ម៉ោង"}},"ko":{"stringUnit":{"state":"translated","value":"{tokens} 토큰 · 24시간"}},"nb":{"stringUnit":{"state":"translated","value":"{tokens} tokens · 24 t"}},"pl":{"stringUnit":{"state":"translated","value":"{tokens} tokenów · 24 godz."}},"pt-BR":{"stringUnit":{"state":"translated","value":"{tokens} tokens · 24 h"}},"ru":{"stringUnit":{"state":"translated","value":"{tokens} токенов · 24 ч"}},"th":{"stringUnit":{"state":"translated","value":"{tokens} โทเค็น · 24 ชม."}},"tr":{"stringUnit":{"state":"translated","value":"{tokens} token · 24 sa"}},"uk":{"stringUnit":{"state":"translated","value":"{tokens} токенів · 24 год"}},"vi":{"stringUnit":{"state":"translated","value":"{tokens} token · 24 giờ"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"{tokens} 个 token · 24 小时"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"{tokens} 個 token · 24 小時"}}}},
     "sessionInfo.usage.cost24h": {"comment":"Agent pane: Session Info's Usage","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cost, last 24h"}},"ar":{"stringUnit":{"state":"translated","value":"التكلفة، آخر 24 ساعة"}},"bs":{"stringUnit":{"state":"translated","value":"Trošak, zadnja 24 h"}},"da":{"stringUnit":{"state":"translated","value":"Pris, seneste 24 t"}},"de":{"stringUnit":{"state":"translated","value":"Kosten, letzte 24 Std."}},"es":{"stringUnit":{"state":"translated","value":"Coste, últimas 24 h"}},"fr":{"stringUnit":{"state":"translated","value":"Coût, dernières 24 h"}},"it":{"stringUnit":{"state":"translated","value":"Costo, ultime 24 h"}},"ja":{"stringUnit":{"state":"translated","value":"費用(過去24時間)"}},"km":{"stringUnit":{"state":"translated","value":"ថ្លៃ ២៤ ម៉ោងចុងក្រោយ"}},"ko":{"stringUnit":{"state":"translated","value":"비용(최근 24시간)"}},"nb":{"stringUnit":{"state":"translated","value":"Kostnad, siste 24 t"}},"pl":{"stringUnit":{"state":"translated","value":"Koszt, ostatnie 24 godz."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Custo, últimas 24 h"}},"ru":{"stringUnit":{"state":"translated","value":"Стоимость за 24 ч"}},"th":{"stringUnit":{"state":"translated","value":"ค่าใช้จ่าย 24 ชม. ล่าสุด"}},"tr":{"stringUnit":{"state":"translated","value":"Maliyet, son 24 sa"}},"uk":{"stringUnit":{"state":"translated","value":"Вартість за 24 год"}},"vi":{"stringUnit":{"state":"translated","value":"Chi phí 24 giờ qua"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"费用(最近 24 小时)"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"費用(最近 24 小時)"}}}},
@@ -1620,7 +1639,7 @@
     "host.details": {"comment":"Agent pane: a quiet button on the line above the composer that shows the agent service's own error text","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"التفاصيل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Detalji"}},"da":{"stringUnit":{"state":"needs_review","value":"Detaljer"}},"de":{"stringUnit":{"state":"needs_review","value":"Details"}},"en":{"stringUnit":{"state":"translated","value":"Details"}},"es":{"stringUnit":{"state":"needs_review","value":"Detalles"}},"fr":{"stringUnit":{"state":"needs_review","value":"Détails"}},"it":{"stringUnit":{"state":"needs_review","value":"Dettagli"}},"ja":{"stringUnit":{"state":"needs_review","value":"詳細"}},"km":{"stringUnit":{"state":"needs_review","value":"ព័ត៌មានលម្អិត"}},"ko":{"stringUnit":{"state":"needs_review","value":"세부 정보"}},"nb":{"stringUnit":{"state":"needs_review","value":"Detaljer"}},"pl":{"stringUnit":{"state":"needs_review","value":"Szczegóły"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Detalhes"}},"ru":{"stringUnit":{"state":"needs_review","value":"Подробности"}},"th":{"stringUnit":{"state":"needs_review","value":"รายละเอียด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Ayrıntılar"}},"uk":{"stringUnit":{"state":"needs_review","value":"Подробиці"}},"vi":{"stringUnit":{"state":"needs_review","value":"Chi tiết"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"详细信息"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"詳細資料"}}}},
     "prompt.failure.tooLarge": {"comment":"Agent pane: under a prompt refused because it was larger than one message can carry (inline attachments); Retry is not offered, Edit is","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Not sent: this message is too large to send at once. Take out an attachment with Edit, or send the attachments in separate messages."}},"ar":{"stringUnit":{"state":"needs_review","value":"لم تُرسَل: هذه الرسالة أكبر من أن تُرسَل دفعة واحدة. أزِل مرفقًا عبر «تعديل»، أو أرسل المرفقات في رسائل منفصلة."}},"bs":{"stringUnit":{"state":"needs_review","value":"Nije poslano: ova poruka je prevelika da bi se poslala odjednom. Uklonite prilog pomoću Uredi ili pošaljite priloge u zasebnim porukama."}},"da":{"stringUnit":{"state":"needs_review","value":"Ikke sendt: denne besked er for stor til at blive sendt på én gang. Fjern en vedhæftning med Rediger, eller send vedhæftningerne i separate beskeder."}},"de":{"stringUnit":{"state":"needs_review","value":"Nicht gesendet: Diese Nachricht ist zu groß, um auf einmal gesendet zu werden. Entferne mit Bearbeiten einen Anhang oder sende die Anhänge in getrennten Nachrichten."}},"es":{"stringUnit":{"state":"needs_review","value":"No enviado: este mensaje es demasiado grande para enviarlo de una vez. Quita un adjunto con Editar o envía los adjuntos en mensajes separados."}},"fr":{"stringUnit":{"state":"needs_review","value":"Non envoyé : ce message est trop volumineux pour être envoyé en une fois. Retirez une pièce jointe avec Modifier, ou envoyez les pièces jointes dans des messages séparés."}},"it":{"stringUnit":{"state":"needs_review","value":"Non inviato: questo messaggio è troppo grande per essere inviato in una volta. Rimuovi un allegato con Modifica o invia gli allegati in messaggi separati."}},"ja":{"stringUnit":{"state":"needs_review","value":"未送信：このメッセージは一度に送信するには大きすぎます。「編集」で添付ファイルを外すか、添付ファイルを別々のメッセージで送信してください。"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនបានផ្ញើ៖ សារនេះធំពេកមិនអាចផ្ញើក្នុងពេលតែមួយបានទេ។ ដកឯកសារភ្ជាប់មួយចេញដោយប្រើ កែសម្រួល ឬផ្ញើឯកសារភ្ជាប់ក្នុងសារដាច់ដោយឡែក។"}},"ko":{"stringUnit":{"state":"needs_review","value":"보내지 않음: 이 메시지는 한 번에 보내기에 너무 큽니다. 편집으로 첨부 파일을 빼거나 첨부 파일을 별도의 메시지로 보내세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Ikke sendt: denne meldingen er for stor til å sendes på én gang. Fjern et vedlegg med Rediger, eller send vedleggene i separate meldinger."}},"pl":{"stringUnit":{"state":"needs_review","value":"Nie wysłano: ta wiadomość jest za duża, by wysłać ją naraz. Usuń załącznik przez Edytuj albo wyślij załączniki w osobnych wiadomościach."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Não enviada: esta mensagem é grande demais para ser enviada de uma vez. Remova um anexo com Editar ou envie os anexos em mensagens separadas."}},"ru":{"stringUnit":{"state":"needs_review","value":"Не отправлено: это сообщение слишком велико, чтобы отправить его за раз. Уберите вложение через «Изменить» или отправьте вложения отдельными сообщениями."}},"th":{"stringUnit":{"state":"needs_review","value":"ไม่ได้ส่ง: ข้อความนี้ใหญ่เกินกว่าจะส่งในครั้งเดียว นำไฟล์แนบออกด้วย แก้ไข หรือส่งไฟล์แนบแยกเป็นหลายข้อความ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Gönderilmedi: bu ileti tek seferde gönderilemeyecek kadar büyük. Düzenle ile bir eki çıkarın ya da ekleri ayrı iletilerde gönderin."}},"uk":{"stringUnit":{"state":"needs_review","value":"Не надіслано: це повідомлення завелике, щоб надіслати його за раз. Приберіть вкладення через «Редагувати» або надішліть вкладення окремими повідомленнями."}},"vi":{"stringUnit":{"state":"needs_review","value":"Chưa gửi: tin nhắn này quá lớn để gửi một lần. Gỡ một tệp đính kèm bằng Sửa, hoặc gửi các tệp đính kèm trong các tin nhắn riêng."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"未发送：此消息太大，无法一次发送。请用“编辑”移除一个附件，或将附件分成多条消息发送。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"未傳送：此訊息太大，無法一次傳送。請用「編輯」移除一個附件，或將附件分成多則訊息傳送。"}}}},
     "prompt.failure.tooLargeFile": {"comment":"Agent pane: under a prompt refused because it was larger than one message can carry; {name} is the attachment that takes the most of it. Retry is not offered, Edit is","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Not sent: this message is too large to send at once. Take out {name} with Edit, or send it in a message of its own."}},"ar":{"stringUnit":{"state":"needs_review","value":"لم تُرسَل: هذه الرسالة أكبر من أن تُرسَل دفعة واحدة. أزِل {name} عبر «تعديل»، أو أرسله في رسالة مستقلة."}},"bs":{"stringUnit":{"state":"needs_review","value":"Nije poslano: ova poruka je prevelika da bi se poslala odjednom. Uklonite {name} pomoću Uredi ili ga pošaljite u zasebnoj poruci."}},"da":{"stringUnit":{"state":"needs_review","value":"Ikke sendt: denne besked er for stor til at blive sendt på én gang. Fjern {name} med Rediger, eller send den i en besked for sig."}},"de":{"stringUnit":{"state":"needs_review","value":"Nicht gesendet: Diese Nachricht ist zu groß, um auf einmal gesendet zu werden. Entferne {name} mit Bearbeiten oder sende es in einer eigenen Nachricht."}},"es":{"stringUnit":{"state":"needs_review","value":"No enviado: este mensaje es demasiado grande para enviarlo de una vez. Quita {name} con Editar o envíalo en un mensaje aparte."}},"fr":{"stringUnit":{"state":"needs_review","value":"Non envoyé : ce message est trop volumineux pour être envoyé en une fois. Retirez {name} avec Modifier, ou envoyez-le dans un message à part."}},"it":{"stringUnit":{"state":"needs_review","value":"Non inviato: questo messaggio è troppo grande per essere inviato in una volta. Rimuovi {name} con Modifica o invialo in un messaggio a parte."}},"ja":{"stringUnit":{"state":"needs_review","value":"未送信：このメッセージは一度に送信するには大きすぎます。「編集」で {name} を外すか、別のメッセージで送信してください。"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនបានផ្ញើ៖ សារនេះធំពេកមិនអាចផ្ញើក្នុងពេលតែមួយបានទេ។ ដក {name} ចេញដោយប្រើ កែសម្រួល ឬផ្ញើវាក្នុងសារដាច់ដោយឡែក។"}},"ko":{"stringUnit":{"state":"needs_review","value":"보내지 않음: 이 메시지는 한 번에 보내기에 너무 큽니다. 편집으로 {name}을(를) 빼거나 별도의 메시지로 보내세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Ikke sendt: denne meldingen er for stor til å sendes på én gang. Fjern {name} med Rediger, eller send den i en egen melding."}},"pl":{"stringUnit":{"state":"needs_review","value":"Nie wysłano: ta wiadomość jest za duża, by wysłać ją naraz. Usuń {name} przez Edytuj albo wyślij to w osobnej wiadomości."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Não enviada: esta mensagem é grande demais para ser enviada de uma vez. Remova {name} com Editar ou envie em uma mensagem separada."}},"ru":{"stringUnit":{"state":"needs_review","value":"Не отправлено: это сообщение слишком велико, чтобы отправить его за раз. Уберите {name} через «Изменить» или отправьте отдельным сообщением."}},"th":{"stringUnit":{"state":"needs_review","value":"ไม่ได้ส่ง: ข้อความนี้ใหญ่เกินกว่าจะส่งในครั้งเดียว นำ {name} ออกด้วย แก้ไข หรือส่งแยกเป็นข้อความของมันเอง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Gönderilmedi: bu ileti tek seferde gönderilemeyecek kadar büyük. Düzenle ile {name} ögesini çıkarın ya da ayrı bir iletide gönderin."}},"uk":{"stringUnit":{"state":"needs_review","value":"Не надіслано: це повідомлення завелике, щоб надіслати його за раз. Приберіть {name} через «Редагувати» або надішліть окремим повідомленням."}},"vi":{"stringUnit":{"state":"needs_review","value":"Chưa gửi: tin nhắn này quá lớn để gửi một lần. Gỡ {name} bằng Sửa, hoặc gửi nó trong một tin nhắn riêng."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"未发送：此消息太大，无法一次发送。请用“编辑”移除 {name}，或单独发送它。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"未傳送：此訊息太大，無法一次傳送。請用「編輯」移除 {name}，或單獨傳送它。"}}}},
-    "host.tooLarge": {"comment":"Agent pane: the line above the composer when a chat could not be opened because acpmux's reply was larger than one message; the pane no longer retries on its own, the line's Retry does","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This chat is too large to open. Update acpmux, then Retry."}},"ar":{"stringUnit":{"state":"needs_review","value":"هذه المحادثة أكبر من أن تُفتح. حدّث acpmux، ثم أعد المحاولة."}},"bs":{"stringUnit":{"state":"needs_review","value":"Ovaj chat je prevelik za otvaranje. Ažurirajte acpmux, pa pokušajte ponovo."}},"da":{"stringUnit":{"state":"needs_review","value":"Denne chat er for stor til at åbne. Opdater acpmux, og prøv igen."}},"de":{"stringUnit":{"state":"needs_review","value":"Dieser Chat ist zu groß zum Öffnen. Aktualisiere acpmux und versuche es erneut."}},"es":{"stringUnit":{"state":"needs_review","value":"Este chat es demasiado grande para abrirlo. Actualiza acpmux y vuelve a intentarlo."}},"fr":{"stringUnit":{"state":"needs_review","value":"Cette discussion est trop volumineuse pour s’ouvrir. Mettez à jour acpmux, puis réessayez."}},"it":{"stringUnit":{"state":"needs_review","value":"Questa chat è troppo grande per essere aperta. Aggiorna acpmux, poi riprova."}},"ja":{"stringUnit":{"state":"needs_review","value":"このチャットは大きすぎて開けません。acpmux を更新してから再試行してください。"}},"km":{"stringUnit":{"state":"needs_review","value":"ការជជែកនេះធំពេកមិនអាចបើកបានទេ។ ធ្វើបច្ចុប្បន្នភាព acpmux រួចព្យាយាមម្ដងទៀត។"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 채팅은 너무 커서 열 수 없습니다. acpmux를 업데이트한 다음 다시 시도하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Denne chatten er for stor til å åpnes. Oppdater acpmux, og prøv igjen."}},"pl":{"stringUnit":{"state":"needs_review","value":"Ten czat jest za duży, by go otworzyć. Zaktualizuj acpmux, a potem spróbuj ponownie."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Este chat é grande demais para abrir. Atualize o acpmux e tente novamente."}},"ru":{"stringUnit":{"state":"needs_review","value":"Этот чат слишком велик, чтобы его открыть. Обновите acpmux и повторите попытку."}},"th":{"stringUnit":{"state":"needs_review","value":"แชทนี้ใหญ่เกินกว่าจะเปิดได้ อัปเดต acpmux แล้วลองอีกครั้ง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu sohbet açılamayacak kadar büyük. acpmux'u güncelleyip yeniden deneyin."}},"uk":{"stringUnit":{"state":"needs_review","value":"Цей чат завеликий, щоб його відкрити. Оновіть acpmux, а тоді повторіть спробу."}},"vi":{"stringUnit":{"state":"needs_review","value":"Cuộc trò chuyện này quá lớn để mở. Hãy cập nhật acpmux rồi thử lại."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"此聊天太大，无法打开。请更新 acpmux，然后重试。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"此聊天太大，無法開啟。請更新 acpmux，然後重試。"}}}},
+    "host.tooLarge": {"comment":"Agent pane: the line above the composer when a chat could not be opened because acpmux's reply was larger than one message; the pane no longer retries on its own, the line's Retry does","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This chat is too large for this version of cmux to open. Update cmux, then Retry."}},"ar":{"stringUnit":{"state":"needs_review","value":"هذه المحادثة أكبر من أن يفتحها هذا الإصدار من cmux. حدّث cmux، ثم أعد المحاولة."}},"bs":{"stringUnit":{"state":"needs_review","value":"Ovaj chat je prevelik da ga ova verzija cmuxa otvori. Ažurirajte cmux, pa pokušajte ponovo."}},"da":{"stringUnit":{"state":"needs_review","value":"Denne chat er for stor til, at denne version af cmux kan åbne den. Opdater cmux, og prøv igen."}},"de":{"stringUnit":{"state":"needs_review","value":"Dieser Chat ist zu groß für diese cmux-Version. Aktualisiere cmux und versuche es erneut."}},"es":{"stringUnit":{"state":"needs_review","value":"Este chat es demasiado grande para esta versión de cmux. Actualiza cmux y vuelve a intentarlo."}},"fr":{"stringUnit":{"state":"needs_review","value":"Cette discussion est trop volumineuse pour cette version de cmux. Mettez cmux à jour, puis réessayez."}},"it":{"stringUnit":{"state":"needs_review","value":"Questa chat è troppo grande per questa versione di cmux. Aggiorna cmux, poi riprova."}},"ja":{"stringUnit":{"state":"needs_review","value":"このチャットはこのバージョンの cmux では大きすぎて開けません。cmux をアップデートしてから再試行してください。"}},"km":{"stringUnit":{"state":"needs_review","value":"ការជជែកនេះធំពេកសម្រាប់កំណែ cmux នេះដើម្បីបើក។ អាប់ដេត cmux រួចព្យាយាមម្តងទៀត។"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 채팅은 이 버전의 cmux에서 열기에는 너무 큽니다. cmux를 업데이트한 다음 다시 시도하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Denne chatten er for stor til at denne versjonen av cmux kan åpne den. Oppdater cmux, og prøv igjen."}},"pl":{"stringUnit":{"state":"needs_review","value":"Ten czat jest za duży, by ta wersja cmux mogła go otworzyć. Zaktualizuj cmux, a potem spróbuj ponownie."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Este chat é grande demais para esta versão do cmux abrir. Atualize o cmux e tente de novo."}},"ru":{"stringUnit":{"state":"needs_review","value":"Этот чат слишком велик для этой версии cmux. Обновите cmux и повторите попытку."}},"th":{"stringUnit":{"state":"needs_review","value":"แชทนี้ใหญ่เกินกว่าที่ cmux เวอร์ชันนี้จะเปิดได้ อัปเดต cmux แล้วลองอีกครั้ง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu sohbet, cmux'un bu sürümünün açamayacağı kadar büyük. cmux'u güncelleyin, sonra yeniden deneyin."}},"uk":{"stringUnit":{"state":"needs_review","value":"Цей чат завеликий для цієї версії cmux. Оновіть cmux і спробуйте ще раз."}},"vi":{"stringUnit":{"state":"needs_review","value":"Cuộc trò chuyện này quá lớn để phiên bản cmux này mở. Hãy cập nhật cmux rồi thử lại."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"此聊天太大，此版本的 cmux 无法打开。请更新 cmux，然后重试。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"此聊天太大，此版本的 cmux 無法開啟。請更新 cmux，然後重試。"}}}},
     "featureTip.new": {"comment":"Agent pane feature tip: the pill beside a new feature's title","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"New"}},"ar":{"stringUnit":{"state":"needs_review","value":"جديد"}},"bs":{"stringUnit":{"state":"needs_review","value":"Novo"}},"da":{"stringUnit":{"state":"needs_review","value":"Ny"}},"de":{"stringUnit":{"state":"needs_review","value":"Neu"}},"es":{"stringUnit":{"state":"needs_review","value":"Nuevo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Nouveau"}},"it":{"stringUnit":{"state":"needs_review","value":"Novità"}},"ja":{"stringUnit":{"state":"needs_review","value":"新機能"}},"km":{"stringUnit":{"state":"needs_review","value":"ថ្មី"}},"ko":{"stringUnit":{"state":"needs_review","value":"새 기능"}},"nb":{"stringUnit":{"state":"needs_review","value":"Ny"}},"pl":{"stringUnit":{"state":"needs_review","value":"Nowość"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Novo"}},"ru":{"stringUnit":{"state":"needs_review","value":"Новое"}},"th":{"stringUnit":{"state":"needs_review","value":"ใหม่"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yeni"}},"uk":{"stringUnit":{"state":"needs_review","value":"Нове"}},"vi":{"stringUnit":{"state":"needs_review","value":"Mới"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"新"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"新"}}}},
     "featureTip.close": {"comment":"Agent pane feature tip: the close button's accessible name","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Close tip"}},"ar":{"stringUnit":{"state":"needs_review","value":"إغلاق التلميح"}},"bs":{"stringUnit":{"state":"needs_review","value":"Zatvori savjet"}},"da":{"stringUnit":{"state":"needs_review","value":"Luk tip"}},"de":{"stringUnit":{"state":"needs_review","value":"Tipp schließen"}},"es":{"stringUnit":{"state":"needs_review","value":"Cerrar consejo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Fermer l’astuce"}},"it":{"stringUnit":{"state":"needs_review","value":"Chiudi suggerimento"}},"ja":{"stringUnit":{"state":"needs_review","value":"ヒントを閉じる"}},"km":{"stringUnit":{"state":"needs_review","value":"បិទគន្លឹះ"}},"ko":{"stringUnit":{"state":"needs_review","value":"팁 닫기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Lukk tips"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zamknij wskazówkę"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Fechar dica"}},"ru":{"stringUnit":{"state":"needs_review","value":"Закрыть подсказку"}},"th":{"stringUnit":{"state":"needs_review","value":"ปิดเคล็ดลับ"}},"tr":{"stringUnit":{"state":"needs_review","value":"İpucunu kapat"}},"uk":{"stringUnit":{"state":"needs_review","value":"Закрити підказку"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đóng mẹo"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"关闭提示"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"關閉提示"}}}},
     "access.addCredits": {"comment":"Agent pane: a failed turn's action that opens the cmux paid-plan Checkout (cmux credits), when the cmux model router refused the turn for want of credits or a plan","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Add Credits…"}},"ar":{"stringUnit":{"state":"needs_review","value":"إضافة رصيد…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Dodaj kredite…"}},"da":{"stringUnit":{"state":"needs_review","value":"Tilføj kreditter…"}},"de":{"stringUnit":{"state":"needs_review","value":"Guthaben hinzufügen…"}},"es":{"stringUnit":{"state":"needs_review","value":"Añadir créditos…"}},"fr":{"stringUnit":{"state":"needs_review","value":"Ajouter des crédits…"}},"it":{"stringUnit":{"state":"needs_review","value":"Aggiungi crediti…"}},"ja":{"stringUnit":{"state":"needs_review","value":"クレジットを追加…"}},"km":{"stringUnit":{"state":"needs_review","value":"បន្ថែមឥណទាន…"}},"ko":{"stringUnit":{"state":"needs_review","value":"크레딧 추가…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Legg til kreditter…"}},"pl":{"stringUnit":{"state":"needs_review","value":"Dodaj kredyty…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Adicionar créditos…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Добавить кредиты…"}},"th":{"stringUnit":{"state":"needs_review","value":"เพิ่มเครดิต…"}},"tr":{"stringUnit":{"state":"needs_review","value":"Kredi ekle…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Додати кредити…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Thêm tín dụng…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"添加额度…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"新增額度…"}}}},
@@ -27118,127 +27137,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "إعادة تشغيل acpmux"
+            "value": "إعادة تشغيل خدمة الوكيل"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ponovo pokreni acpmux"
+            "value": "Ponovo pokreni servis agenta"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Genstart acpmux"
+            "value": "Genstart agenttjenesten"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux neu starten"
+            "value": "Agentendienst neu starten"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Restart acpmux"
+            "value": "Restart agent service"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Reiniciar acpmux"
+            "value": "Reiniciar el servicio de agentes"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Redémarrer acpmux"
+            "value": "Redémarrer le service d’agents"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Riavvia acpmux"
+            "value": "Riavvia il servizio agenti"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux を再起動"
+            "value": "エージェントサービスを再起動"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ចាប់ផ្ដើម acpmux ឡើងវិញ"
+            "value": "ចាប់ផ្ដើមសេវាភ្នាក់ងារឡើងវិញ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux 다시 시작"
+            "value": "에이전트 서비스 다시 시작"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Start acpmux på nytt"
+            "value": "Start agenttjenesten på nytt"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Uruchom ponownie acpmux"
+            "value": "Uruchom ponownie usługę agentów"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Reiniciar o acpmux"
+            "value": "Reiniciar o serviço de agentes"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Перезапустить acpmux"
+            "value": "Перезапустить службу агентов"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "รีสตาร์ต acpmux"
+            "value": "รีสตาร์ตบริการเอเจนต์"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux'u yeniden başlat"
+            "value": "Ajan hizmetini yeniden başlat"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Перезапустити acpmux"
+            "value": "Перезапустити службу агентів"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Khởi động lại acpmux"
+            "value": "Khởi động lại dịch vụ tác tử"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "重启 acpmux"
+            "value": "重启代理服务"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "重新啟動 acpmux"
+            "value": "重新啟動代理服務"
           }
         }
       }
@@ -27250,127 +27269,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "جارٍ إعادة تشغيل acpmux…"
+            "value": "جارٍ إعادة تشغيل خدمة الوكيل…"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ponovno pokretanje acpmuxa…"
+            "value": "Ponovno pokretanje servisa agenta…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Genstarter acpmux…"
+            "value": "Genstarter agenttjenesten…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux wird neu gestartet …"
+            "value": "Agentendienst wird neu gestartet …"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Restarting acpmux…"
+            "value": "Restarting agent service…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Reiniciando acpmux…"
+            "value": "Reiniciando el servicio de agentes…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Redémarrage d'acpmux…"
+            "value": "Redémarrage du service d’agents…"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Riavvio di acpmux…"
+            "value": "Riavvio del servizio agenti…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux を再起動中…"
+            "value": "エージェントサービスを再起動中…"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "កំពុងចាប់ផ្ដើម acpmux ឡើងវិញ…"
+            "value": "កំពុងចាប់ផ្ដើមសេវាភ្នាក់ងារឡើងវិញ…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux 다시 시작 중…"
+            "value": "에이전트 서비스 다시 시작 중…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Starter acpmux på nytt …"
+            "value": "Starter agenttjenesten på nytt …"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ponowne uruchamianie acpmux…"
+            "value": "Ponowne uruchamianie usługi agentów…"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Reiniciando o acpmux…"
+            "value": "Reiniciando o serviço de agentes…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Перезапуск acpmux…"
+            "value": "Перезапуск службы агентов…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "กำลังรีสตาร์ต acpmux…"
+            "value": "กำลังรีสตาร์ตบริการเอเจนต์…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux yeniden başlatılıyor…"
+            "value": "Ajan hizmeti yeniden başlatılıyor…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Перезапуск acpmux…"
+            "value": "Перезапуск служби агентів…"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Đang khởi động lại acpmux…"
+            "value": "Đang khởi động lại dịch vụ tác tử…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "正在重启 acpmux…"
+            "value": "正在重启代理服务…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "正在重新啟動 acpmux…"
+            "value": "正在重新啟動代理服務…"
           }
         }
       }
@@ -58238,127 +58257,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لا يمكن لـ acpmux هذا استئناف الدردشات"
+            "value": "لا يستطيع هذا الإصدار من cmux استئناف الدردشات"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ovaj acpmux ne može nastaviti chatove"
+            "value": "ova verzija cmuxa ne može nastaviti chatove"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "denne acpmux kan ikke genoptage chats"
+            "value": "denne version af cmux kan ikke genoptage chats"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "dieses acpmux kann keine Chats fortsetzen"
+            "value": "diese cmux-Version kann keine Chats fortsetzen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "this acpmux can't resume chats"
+            "value": "this version of cmux can't resume chats"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "este acpmux no puede reanudar chats"
+            "value": "esta versión de cmux no puede reanudar chats"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cet acpmux ne peut pas reprendre les chats"
+            "value": "cette version de cmux ne peut pas reprendre les discussions"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "questo acpmux non può riprendere le chat"
+            "value": "questa versione di cmux non può riprendere le chat"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "この acpmux はチャットを再開できません"
+            "value": "このバージョンの cmux はチャットを再開できません"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux នេះមិនអាចបន្តការជជែកបានទេ"
+            "value": "កំណែ cmux នេះមិនអាចបន្តការជជែកបានទេ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이 acpmux는 채팅을 재개할 수 없습니다"
+            "value": "이 버전의 cmux는 채팅을 다시 시작할 수 없습니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "denne acpmux kan ikke gjenoppta chatter"
+            "value": "denne versjonen av cmux kan ikke gjenoppta chatter"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ten acpmux nie może wznawiać czatów"
+            "value": "ta wersja cmux nie może wznawiać czatów"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "este acpmux não pode retomar chats"
+            "value": "esta versão do cmux não consegue retomar chats"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "этот acpmux не умеет возобновлять чаты"
+            "value": "эта версия cmux не умеет возобновлять чаты"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux นี้ไม่สามารถดำเนินแชตต่อได้"
+            "value": "cmux เวอร์ชันนี้กลับมาทำแชทต่อไม่ได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "bu acpmux sohbetleri sürdüremez"
+            "value": "cmux'un bu sürümü sohbetleri sürdüremez"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "цей acpmux не може відновлювати чати"
+            "value": "ця версія cmux не може відновлювати чати"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux này không thể tiếp tục các cuộc trò chuyện"
+            "value": "phiên bản cmux này không thể tiếp tục cuộc trò chuyện"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此 acpmux 无法恢复聊天"
+            "value": "此版本的 cmux 无法恢复聊天"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此 acpmux 無法繼續聊天"
+            "value": "此版本的 cmux 無法恢復聊天"
           }
         }
       }
@@ -70543,6 +70562,7 @@
         }
       }
     },
+    "composer.pastedChars": {"comment":"Agent pane: on a pasted text chip in the composer, the paste's size in characters, after its line count. {count} is the number as the reader's language writes it, shortened (1.8K)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"{count} حرف"}},"bs":{"stringUnit":{"state":"needs_review","value":"{count} znakova"}},"da":{"stringUnit":{"state":"needs_review","value":"{count} tegn"}},"de":{"stringUnit":{"state":"needs_review","value":"{count} Zeichen"}},"en":{"stringUnit":{"state":"translated","value":"{count} characters"}},"es":{"stringUnit":{"state":"needs_review","value":"{count} caracteres"}},"fr":{"stringUnit":{"state":"needs_review","value":"{count} caractères"}},"it":{"stringUnit":{"state":"needs_review","value":"{count} caratteri"}},"ja":{"stringUnit":{"state":"needs_review","value":"{count} 文字"}},"km":{"stringUnit":{"state":"needs_review","value":"{count} តួអក្សរ"}},"ko":{"stringUnit":{"state":"needs_review","value":"{count}자"}},"nb":{"stringUnit":{"state":"needs_review","value":"{count} tegn"}},"pl":{"stringUnit":{"state":"needs_review","value":"{count} znaków"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{count} caracteres"}},"ru":{"stringUnit":{"state":"needs_review","value":"{count} символов"}},"th":{"stringUnit":{"state":"needs_review","value":"{count} อักขระ"}},"tr":{"stringUnit":{"state":"needs_review","value":"{count} karakter"}},"uk":{"stringUnit":{"state":"needs_review","value":"{count} символів"}},"vi":{"stringUnit":{"state":"needs_review","value":"{count} ký tự"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{count} 个字符"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{count} 個字元"}}}},
     "composer.pastedText": {
       "comment": "Agent pane: the name of a composer chip that holds a long paste (shown with its line count, and in its Remove label)",
       "extractionState": "manual",
@@ -140248,6 +140268,8 @@
         }
       }
     },
+    "turn.failure.codexConfig": {"comment":"Agent pane: a failed turn's error card when Codex could not load its own settings (config.toml, requirements.toml); {harness} is the agent's name. Keep the file names, [permissions] and default_permissions as they are","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تعذّر على {harness} تحميل إعداداته لهذه المحادثة. تحقّق من ‎~/.codex/config.toml وأي ملف requirements.toml: يحتاج ملف تعريف [permissions] إلى تعيين default_permissions. ثم أعد المحاولة."}},"bs":{"stringUnit":{"state":"needs_review","value":"{harness} nije mogao učitati svoje postavke za ovaj chat. Provjerite ~/.codex/config.toml i svaki requirements.toml: profil [permissions] treba postavljen default_permissions. Zatim pokušajte ponovo."}},"da":{"stringUnit":{"state":"needs_review","value":"{harness} kunne ikke indlæse sine indstillinger til denne chat. Tjek ~/.codex/config.toml og eventuelle requirements.toml: en [permissions]-profil kræver, at default_permissions er sat. Prøv så igen."}},"de":{"stringUnit":{"state":"needs_review","value":"{harness} konnte seine Einstellungen für diesen Chat nicht laden. Prüfe ~/.codex/config.toml und jede requirements.toml: Ein [permissions]-Profil braucht ein gesetztes default_permissions. Versuche es dann erneut."}},"en":{"stringUnit":{"state":"translated","value":"{harness} couldn’t load its settings for this chat. Check ~/.codex/config.toml and any requirements.toml: a [permissions] profile needs default_permissions set. Then retry."}},"es":{"stringUnit":{"state":"needs_review","value":"{harness} no pudo cargar su configuración para este chat. Revisa ~/.codex/config.toml y cualquier requirements.toml: un perfil [permissions] necesita default_permissions. Luego vuelve a intentarlo."}},"fr":{"stringUnit":{"state":"needs_review","value":"{harness} n’a pas pu charger ses réglages pour cette discussion. Vérifiez ~/.codex/config.toml et tout requirements.toml : un profil [permissions] doit définir default_permissions. Puis réessayez."}},"it":{"stringUnit":{"state":"needs_review","value":"{harness} non è riuscito a caricare le sue impostazioni per questa chat. Controlla ~/.codex/config.toml ed eventuali requirements.toml: un profilo [permissions] richiede default_permissions. Poi riprova."}},"ja":{"stringUnit":{"state":"needs_review","value":"{harness} はこのチャットの設定を読み込めませんでした。~/.codex/config.toml と requirements.toml を確認してください。[permissions] プロファイルには default_permissions の設定が必要です。その後、再試行してください。"}},"km":{"stringUnit":{"state":"needs_review","value":"{harness} មិនអាចផ្ទុកការកំណត់របស់វាសម្រាប់ការជជែកនេះបានទេ។ ពិនិត្យ ~/.codex/config.toml និង requirements.toml ណាមួយ៖ ប្រវត្តិរូប [permissions] ត្រូវការកំណត់ default_permissions។ បន្ទាប់មកព្យាយាមម្តងទៀត។"}},"ko":{"stringUnit":{"state":"needs_review","value":"{harness}이(가) 이 채팅의 설정을 불러오지 못했습니다. ~/.codex/config.toml과 requirements.toml을 확인하세요. [permissions] 프로필에는 default_permissions 설정이 필요합니다. 그런 다음 다시 시도하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"{harness} kunne ikke laste inn innstillingene sine for denne chatten. Sjekk ~/.codex/config.toml og eventuelle requirements.toml: en [permissions]-profil trenger at default_permissions er satt. Prøv så igjen."}},"pl":{"stringUnit":{"state":"needs_review","value":"{harness} nie mógł wczytać swoich ustawień dla tego czatu. Sprawdź ~/.codex/config.toml i każdy requirements.toml: profil [permissions] wymaga ustawienia default_permissions. Potem spróbuj ponownie."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{harness} não conseguiu carregar as configurações deste chat. Verifique ~/.codex/config.toml e qualquer requirements.toml: um perfil [permissions] precisa de default_permissions definido. Depois tente de novo."}},"ru":{"stringUnit":{"state":"needs_review","value":"{harness} не удалось загрузить настройки для этого чата. Проверьте ~/.codex/config.toml и все requirements.toml: профилю [permissions] нужен заданный default_permissions. Затем повторите попытку."}},"th":{"stringUnit":{"state":"needs_review","value":"{harness} โหลดการตั้งค่าสำหรับแชทนี้ไม่ได้ ตรวจสอบ ~/.codex/config.toml และ requirements.toml ทุกไฟล์: โปรไฟล์ [permissions] ต้องตั้งค่า default_permissions จากนั้นลองอีกครั้ง"}},"tr":{"stringUnit":{"state":"needs_review","value":"{harness} bu sohbet için ayarlarını yükleyemedi. ~/.codex/config.toml dosyasını ve varsa requirements.toml dosyalarını kontrol edin: bir [permissions] profili için default_permissions ayarlanmalıdır. Sonra yeniden deneyin."}},"uk":{"stringUnit":{"state":"needs_review","value":"{harness} не вдалося завантажити налаштування для цього чату. Перевірте ~/.codex/config.toml і всі requirements.toml: профілю [permissions] потрібен заданий default_permissions. Потім спробуйте ще раз."}},"vi":{"stringUnit":{"state":"needs_review","value":"{harness} không tải được cài đặt cho cuộc trò chuyện này. Kiểm tra ~/.codex/config.toml và mọi requirements.toml: hồ sơ [permissions] cần đặt default_permissions. Sau đó thử lại."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{harness} 无法加载此聊天的设置。请检查 ~/.codex/config.toml 和所有 requirements.toml：[permissions] 配置需要设置 default_permissions。然后重试。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{harness} 無法載入此聊天的設定。請檢查 ~/.codex/config.toml 和所有 requirements.toml：[permissions] 設定檔需要設定 default_permissions。然後重試。"}}}},
+    "turn.failure.codexConfigAt": {"comment":"Agent pane: a failed turn's error card when Codex named the settings file it could not load; {harness} is the agent's name, {path} the file's path","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تعذّر على {harness} تحميل إعداداته: الملف {path} غير صالح. أصلحه ثم أعد المحاولة."}},"bs":{"stringUnit":{"state":"needs_review","value":"{harness} nije mogao učitati svoje postavke: {path} nije ispravan. Popravite tu datoteku, pa pokušajte ponovo."}},"da":{"stringUnit":{"state":"needs_review","value":"{harness} kunne ikke indlæse sine indstillinger: {path} er ugyldig. Ret filen, og prøv igen."}},"de":{"stringUnit":{"state":"needs_review","value":"{harness} konnte seine Einstellungen nicht laden: {path} ist ungültig. Korrigiere diese Datei und versuche es erneut."}},"en":{"stringUnit":{"state":"translated","value":"{harness} couldn’t load its settings: {path} is invalid. Fix that file, then retry."}},"es":{"stringUnit":{"state":"needs_review","value":"{harness} no pudo cargar su configuración: {path} no es válido. Corrige ese archivo y vuelve a intentarlo."}},"fr":{"stringUnit":{"state":"needs_review","value":"{harness} n’a pas pu charger ses réglages : {path} n’est pas valide. Corrigez ce fichier, puis réessayez."}},"it":{"stringUnit":{"state":"needs_review","value":"{harness} non è riuscito a caricare le sue impostazioni: {path} non è valido. Correggi quel file, poi riprova."}},"ja":{"stringUnit":{"state":"needs_review","value":"{harness} は設定を読み込めませんでした: {path} が無効です。このファイルを修正してから再試行してください。"}},"km":{"stringUnit":{"state":"needs_review","value":"{harness} មិនអាចផ្ទុកការកំណត់របស់វាបានទេ៖ {path} មិនត្រឹមត្រូវ។ កែឯកសារនោះ បន្ទាប់មកព្យាយាមម្តងទៀត។"}},"ko":{"stringUnit":{"state":"needs_review","value":"{harness}이(가) 설정을 불러오지 못했습니다: {path}이(가) 잘못되었습니다. 이 파일을 고친 다음 다시 시도하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"{harness} kunne ikke laste inn innstillingene sine: {path} er ugyldig. Rett filen, og prøv igjen."}},"pl":{"stringUnit":{"state":"needs_review","value":"{harness} nie mógł wczytać swoich ustawień: {path} jest nieprawidłowy. Popraw ten plik, potem spróbuj ponownie."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{harness} não conseguiu carregar as configurações: {path} é inválido. Corrija esse arquivo e tente de novo."}},"ru":{"stringUnit":{"state":"needs_review","value":"{harness} не удалось загрузить настройки: файл {path} содержит ошибку. Исправьте его и повторите попытку."}},"th":{"stringUnit":{"state":"needs_review","value":"{harness} โหลดการตั้งค่าไม่ได้: {path} ไม่ถูกต้อง แก้ไขไฟล์นั้น แล้วลองอีกครั้ง"}},"tr":{"stringUnit":{"state":"needs_review","value":"{harness} ayarlarını yükleyemedi: {path} geçersiz. Bu dosyayı düzeltin, sonra yeniden deneyin."}},"uk":{"stringUnit":{"state":"needs_review","value":"{harness} не вдалося завантажити налаштування: файл {path} містить помилку. Виправте його й спробуйте ще раз."}},"vi":{"stringUnit":{"state":"needs_review","value":"{harness} không tải được cài đặt: {path} không hợp lệ. Sửa tệp đó rồi thử lại."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{harness} 无法加载其设置：{path} 无效。请修正该文件，然后重试。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{harness} 無法載入其設定：{path} 無效。請修正該檔案，然後重試。"}}}},
     "turn.failure.diskFull": {
       "comment": "Agent pane: a failed turn's error card (the cause in one line); {harness} is the agent's name",
       "extractionState": "manual",
@@ -187316,138 +187338,6 @@
         }
       }
     },
-    "recap.label" : {
-      "comment" : "Agent pane: accessible name of the card above the composer when the agent's last turn ended by asking the person a question (RecapCard.tsx)",
-      "extractionState" : "manual",
-      "localizations" : {
-        "ar" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "سؤال من الوكيل"
-          }
-        },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Pitanje od agenta"
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Spørgsmål fra agenten"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Frage des Agenten"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Question from the agent"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Pregunta del agente"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Question de l'agent"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Domanda dell'agente"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "エージェントからの質問"
-          }
-        },
-        "km" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "សំណួរពីភ្នាក់ងារ"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "에이전트의 질문"
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Spørsmål fra agenten"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Pytanie od agenta"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Pergunta do agente"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Вопрос от агента"
-          }
-        },
-        "th" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "คำถามจากเอเจนต์"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ajandan soru"
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Запитання від агента"
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Câu hỏi từ tác tử"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "来自智能体的问题"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "來自代理程式的問題"
-          }
-        }
-      }
-    },
     "recap.yes" : {
       "comment" : "Agent pane: the recap card's primary button when the agent's closing question offers no short action; it answers yes (RecapCard.tsx)",
       "extractionState" : "manual",
@@ -187580,138 +187470,6 @@
         }
       }
     },
-    "recap.yesAction" : {
-      "comment" : "Agent pane: the recap card's primary button, agreeing to what the agent offered; {action} is the agent's own words from its question, such as \"open PR\" (RecapCard.tsx)",
-      "extractionState" : "manual",
-      "localizations" : {
-        "ar" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "نعم، {action}"
-          }
-        },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Da, {action}"
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ja, {action}"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ja, {action}"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Yes, {action}"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Sí, {action}"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Oui, {action}"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Sì, {action}"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "はい、{action}"
-          }
-        },
-        "km" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "បាទ/ចាស, {action}"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "예, {action}"
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ja, {action}"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Tak, {action}"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Sim, {action}"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Да, {action}"
-          }
-        },
-        "th" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ใช่ {action}"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Evet, {action}"
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Так, {action}"
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Có, {action}"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "是，{action}"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "是，{action}"
-          }
-        }
-      }
-    },
     "recap.notNow" : {
       "comment" : "Agent pane: the recap card's secondary button, which hides the card for this turn without answering (RecapCard.tsx)",
       "extractionState" : "manual",
@@ -187840,270 +187598,6 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "暫不"
-          }
-        }
-      }
-    },
-    "recap.dismiss" : {
-      "comment" : "Agent pane: accessible name of the × that hides the recap card for this turn (RecapCard.tsx)",
-      "extractionState" : "manual",
-      "localizations" : {
-        "ar" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "تجاهل"
-          }
-        },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Odbaci"
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Afvis"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ausblenden"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dismiss"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Descartar"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ignorer"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ignora"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "閉じる"
-          }
-        },
-        "km" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "បិទ"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "닫기"
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Lukk"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ukryj"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Dispensar"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Скрыть"
-          }
-        },
-        "th" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ปิด"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Kapat"
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Приховати"
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Bỏ qua"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "关闭"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "關閉"
-          }
-        }
-      }
-    },
-    "recap.sendFailed" : {
-      "comment" : "Agent pane: a note on the recap card when its yes could not be sent to the agent; the card is back so the person can try again (RecapCard.tsx)",
-      "extractionState" : "manual",
-      "localizations" : {
-        "ar" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "لم يُرسل ردك. حاول مرة أخرى."
-          }
-        },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Vaš odgovor nije poslan. Pokušajte ponovo."
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Dit svar blev ikke sendt. Prøv igen."
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Deine Antwort wurde nicht gesendet. Versuche es erneut."
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Your reply wasn’t sent. Try again."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Tu respuesta no se envió. Inténtalo de nuevo."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Votre réponse n’a pas été envoyée. Réessayez."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "La tua risposta non è stata inviata. Riprova."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "返信を送信できませんでした。もう一度お試しください。"
-          }
-        },
-        "km" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ការឆ្លើយតបរបស់អ្នកមិនត្រូវបានផ្ញើទេ។ សូមព្យាយាមម្តងទៀត។"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "답장을 보내지 못했습니다. 다시 시도하세요."
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Svaret ditt ble ikke sendt. Prøv igjen."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Twoja odpowiedź nie została wysłana. Spróbuj ponownie."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Sua resposta não foi enviada. Tente novamente."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ваш ответ не отправлен. Попробуйте ещё раз."
-          }
-        },
-        "th" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ส่งคำตอบของคุณไม่สำเร็จ ลองอีกครั้ง"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Yanıtınız gönderilmedi. Yeniden deneyin."
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Вашу відповідь не надіслано. Спробуйте ще раз."
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Chưa gửi được câu trả lời của bạn. Hãy thử lại."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "你的回复未发送。请重试。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "你的回覆未送出。請再試一次。"
           }
         }
       }
@@ -196279,6 +195773,7 @@
         }
       }
     },
+    "dictation.cancel": {"comment":"Agent pane: the × before the dictation waveform in Codex's composer look; ends the session and drops its words, as Esc does","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إلغاء الإملاء"}},"bs":{"stringUnit":{"state":"needs_review","value":"Otkaži diktiranje"}},"da":{"stringUnit":{"state":"needs_review","value":"Annuller diktering"}},"de":{"stringUnit":{"state":"needs_review","value":"Diktat abbrechen"}},"en":{"stringUnit":{"state":"translated","value":"Cancel dictation"}},"es":{"stringUnit":{"state":"needs_review","value":"Cancelar dictado"}},"fr":{"stringUnit":{"state":"needs_review","value":"Annuler la dictée"}},"it":{"stringUnit":{"state":"needs_review","value":"Annulla dettatura"}},"ja":{"stringUnit":{"state":"needs_review","value":"音声入力をキャンセル"}},"km":{"stringUnit":{"state":"needs_review","value":"បោះបង់ការសរសេរតាមសំឡេង"}},"ko":{"stringUnit":{"state":"needs_review","value":"받아쓰기 취소"}},"nb":{"stringUnit":{"state":"needs_review","value":"Avbryt diktering"}},"pl":{"stringUnit":{"state":"needs_review","value":"Anuluj dyktowanie"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Cancelar ditado"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отменить диктовку"}},"th":{"stringUnit":{"state":"needs_review","value":"ยกเลิกการป้อนตามคำบอก"}},"tr":{"stringUnit":{"state":"needs_review","value":"Dikteyi iptal et"}},"uk":{"stringUnit":{"state":"needs_review","value":"Скасувати диктування"}},"vi":{"stringUnit":{"state":"needs_review","value":"Hủy đọc chính tả"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"取消听写"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"取消聽寫"}}}},
     "dictation.finish": {
       "comment": "Agent pane: the Return-key button beside the dictation waveform; ends the session and keeps its words",
       "extractionState": "manual",
@@ -245067,6 +244562,7 @@
     "computerUse.preview.runningLabel": {"comment":"Agent pane: accessibility label of the live preview card while the agent uses the app; {app} is the app's name (computerUse/ComputerUsePreviewCard.tsx)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"{app}، مباشر. فتح في نشاط الوكيل"}},"bs":{"stringUnit":{"state":"needs_review","value":"{app}, uživo. Otvori u Aktivnosti agenta"}},"da":{"stringUnit":{"state":"needs_review","value":"{app}, live. Åbn i Agentaktivitet"}},"de":{"stringUnit":{"state":"needs_review","value":"{app}, live. In Agentenaktivität öffnen"}},"en":{"stringUnit":{"state":"translated","value":"{app}, live. Open in Agent Activity"}},"es":{"stringUnit":{"state":"needs_review","value":"{app}, en directo. Abrir en Actividad de agentes"}},"fr":{"stringUnit":{"state":"needs_review","value":"{app}, en direct. Ouvrir dans Activité des agents"}},"it":{"stringUnit":{"state":"needs_review","value":"{app}, dal vivo. Apri in Attività degli agenti"}},"ja":{"stringUnit":{"state":"translated","value":"{app}、ライブ。エージェントのアクティビティで開く"}},"km":{"stringUnit":{"state":"needs_review","value":"{app} ផ្ទាល់។ បើកក្នុងសកម្មភាពភ្នាក់ងារ"}},"ko":{"stringUnit":{"state":"needs_review","value":"{app}, 실시간. 에이전트 활동에서 열기"}},"nb":{"stringUnit":{"state":"needs_review","value":"{app}, direkte. Åpne i Agentaktivitet"}},"pl":{"stringUnit":{"state":"needs_review","value":"{app}, na żywo. Otwórz w Aktywności agentów"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{app}, ao vivo. Abrir em Atividade de agentes"}},"ru":{"stringUnit":{"state":"needs_review","value":"{app}, в реальном времени. Открыть в Активности агентов"}},"th":{"stringUnit":{"state":"needs_review","value":"{app} สด เปิดในกิจกรรมของเอเจนต์"}},"tr":{"stringUnit":{"state":"needs_review","value":"{app}, canlı. Ajan etkinliğinde aç"}},"uk":{"stringUnit":{"state":"needs_review","value":"{app}, наживо. Відкрити в Активності агентів"}},"vi":{"stringUnit":{"state":"needs_review","value":"{app}, trực tiếp. Mở trong Hoạt động của tác tử"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{app}，实时。在代理活动中打开"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{app}，即時。在代理活動中開啟"}}}},
     "computerUse.preview.doneLabel": {"comment":"Agent pane: accessibility label of the live preview card after the agent's session ended; {app} is the app's name (computerUse/ComputerUsePreviewCard.tsx)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"{app}، انتهى. فتح في نشاط الوكيل"}},"bs":{"stringUnit":{"state":"needs_review","value":"{app}, završeno. Otvori u Aktivnosti agenta"}},"da":{"stringUnit":{"state":"needs_review","value":"{app}, færdig. Åbn i Agentaktivitet"}},"de":{"stringUnit":{"state":"needs_review","value":"{app}, fertig. In Agentenaktivität öffnen"}},"en":{"stringUnit":{"state":"translated","value":"{app}, done. Open in Agent Activity"}},"es":{"stringUnit":{"state":"needs_review","value":"{app}, terminado. Abrir en Actividad de agentes"}},"fr":{"stringUnit":{"state":"needs_review","value":"{app}, terminé. Ouvrir dans Activité des agents"}},"it":{"stringUnit":{"state":"needs_review","value":"{app}, completato. Apri in Attività degli agenti"}},"ja":{"stringUnit":{"state":"translated","value":"{app}、完了。エージェントのアクティビティで開く"}},"km":{"stringUnit":{"state":"needs_review","value":"{app} រួចរាល់។ បើកក្នុងសកម្មភាពភ្នាក់ងារ"}},"ko":{"stringUnit":{"state":"needs_review","value":"{app}, 완료. 에이전트 활동에서 열기"}},"nb":{"stringUnit":{"state":"needs_review","value":"{app}, ferdig. Åpne i Agentaktivitet"}},"pl":{"stringUnit":{"state":"needs_review","value":"{app}, gotowe. Otwórz w Aktywności agentów"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{app}, concluído. Abrir em Atividade de agentes"}},"ru":{"stringUnit":{"state":"needs_review","value":"{app}, готово. Открыть в Активности агентов"}},"th":{"stringUnit":{"state":"needs_review","value":"{app} เสร็จแล้ว เปิดในกิจกรรมของเอเจนต์"}},"tr":{"stringUnit":{"state":"needs_review","value":"{app}, bitti. Ajan etkinliğinde aç"}},"uk":{"stringUnit":{"state":"needs_review","value":"{app}, готово. Відкрити в Активності агентів"}},"vi":{"stringUnit":{"state":"needs_review","value":"{app}, đã xong. Mở trong Hoạt động của tác tử"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{app}，已完成。在代理活动中打开"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{app}，已完成。在代理活動中開啟"}}}},
     "computerUse.preview.close": {"comment":"Agent pane: accessibility label of the live preview card's close button, which hides the card for that session (computerUse/ComputerUsePreviewCard.tsx)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إخفاء المعاينة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Sakrij pregled"}},"da":{"stringUnit":{"state":"needs_review","value":"Skjul forhåndsvisning"}},"de":{"stringUnit":{"state":"needs_review","value":"Vorschau ausblenden"}},"en":{"stringUnit":{"state":"translated","value":"Hide Preview"}},"es":{"stringUnit":{"state":"needs_review","value":"Ocultar vista previa"}},"fr":{"stringUnit":{"state":"needs_review","value":"Masquer l'aperçu"}},"it":{"stringUnit":{"state":"needs_review","value":"Nascondi anteprima"}},"ja":{"stringUnit":{"state":"translated","value":"プレビューを隠す"}},"km":{"stringUnit":{"state":"needs_review","value":"លាក់ការមើលជាមុន"}},"ko":{"stringUnit":{"state":"needs_review","value":"미리보기 숨기기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Skjul forhåndsvisning"}},"pl":{"stringUnit":{"state":"needs_review","value":"Ukryj podgląd"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Ocultar prévia"}},"ru":{"stringUnit":{"state":"needs_review","value":"Скрыть просмотр"}},"th":{"stringUnit":{"state":"needs_review","value":"ซ่อนตัวอย่าง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Önizlemeyi gizle"}},"uk":{"stringUnit":{"state":"needs_review","value":"Сховати перегляд"}},"vi":{"stringUnit":{"state":"needs_review","value":"Ẩn bản xem trước"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"隐藏预览"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"隱藏預覽"}}}},
+    "computerUse.preview.you": {"comment":"Agent pane: the label beside the person's own pointer in the computer use live preview card, which also shows the agent's cursor (computerUse/cursorArt.tsx). Short: one word.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"أنت"}},"bs":{"stringUnit":{"state":"needs_review","value":"Vi"}},"da":{"stringUnit":{"state":"needs_review","value":"Dig"}},"de":{"stringUnit":{"state":"needs_review","value":"Du"}},"en":{"stringUnit":{"state":"translated","value":"You"}},"es":{"stringUnit":{"state":"needs_review","value":"Tú"}},"fr":{"stringUnit":{"state":"needs_review","value":"Vous"}},"it":{"stringUnit":{"state":"needs_review","value":"Tu"}},"ja":{"stringUnit":{"state":"needs_review","value":"あなた"}},"km":{"stringUnit":{"state":"needs_review","value":"អ្នក"}},"ko":{"stringUnit":{"state":"needs_review","value":"나"}},"nb":{"stringUnit":{"state":"needs_review","value":"Deg"}},"pl":{"stringUnit":{"state":"needs_review","value":"Ty"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Você"}},"ru":{"stringUnit":{"state":"needs_review","value":"Вы"}},"th":{"stringUnit":{"state":"needs_review","value":"คุณ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Siz"}},"uk":{"stringUnit":{"state":"needs_review","value":"Ви"}},"vi":{"stringUnit":{"state":"needs_review","value":"Bạn"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"你"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"你"}}}},
     "composer.sandboxed": {"comment":"Environment picker: run the first message once on a throwaway Cloud VM (preview)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Sandboxed"}},"de":{"stringUnit":{"state":"translated","value":"Sandbox"}},"fr":{"stringUnit":{"state":"translated","value":"Isolé"}},"ar":{"stringUnit":{"state":"translated","value":"معزول"}},"es":{"stringUnit":{"state":"translated","value":"Aislado"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"沙箱"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"沙箱"}},"ko":{"stringUnit":{"state":"translated","value":"샌드박스"}},"ja":{"stringUnit":{"state":"translated","value":"サンドボックス"}},"bs":{"stringUnit":{"state":"needs_review","value":"Izolovano"}},"da":{"stringUnit":{"state":"needs_review","value":"Sandkasse"}},"it":{"stringUnit":{"state":"needs_review","value":"Sandbox"}},"km":{"stringUnit":{"state":"needs_review","value":"ប្រអប់ខ្សាច់"}},"nb":{"stringUnit":{"state":"needs_review","value":"Sandkasse"}},"pl":{"stringUnit":{"state":"needs_review","value":"Piaskownica"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Isolado"}},"ru":{"stringUnit":{"state":"needs_review","value":"Песочница"}},"th":{"stringUnit":{"state":"needs_review","value":"แซนด์บ็อกซ์"}},"tr":{"stringUnit":{"state":"needs_review","value":"Korumalı alan"}},"uk":{"stringUnit":{"state":"needs_review","value":"Пісочниця"}},"vi":{"stringUnit":{"state":"needs_review","value":"Hộp cát"}}}},
     "composer.sandboxedDetail": {"comment":"Environment picker: one line under Sandboxed (New Cloud Machine's alternate, preview): what a Sandboxed send does and costs","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Runs this message once on a throwaway Cloud VM, then destroys it. VM time is billed and shown on the receipt."}},"de":{"stringUnit":{"state":"translated","value":"Führt diese Nachricht einmal auf einer Wegwerf-Cloud-VM aus und löscht sie danach. Die VM-Zeit wird berechnet und auf dem Beleg angezeigt."}},"fr":{"stringUnit":{"state":"translated","value":"Exécute ce message une fois sur une VM Cloud jetable, puis la détruit. Le temps de VM est facturé et indiqué sur le reçu."}},"ar":{"stringUnit":{"state":"translated","value":"يشغّل هذه الرسالة مرة واحدة على جهاز Cloud افتراضي مؤقت ثم يحذفه. يُحتسب وقت الجهاز الافتراضي ويظهر في الإيصال."}},"es":{"stringUnit":{"state":"translated","value":"Ejecuta este mensaje una vez en una VM de Cloud desechable y luego la destruye. El tiempo de VM se factura y aparece en el recibo."}},"zh-Hant":{"stringUnit":{"state":"translated","value":"在一次性的 Cloud 虛擬機上執行這則訊息一次，之後將其銷毀。虛擬機時間會計費，並顯示在收據上。"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"在一次性的 Cloud 虚拟机上运行这条消息一次，之后将其销毁。虚拟机时间会计费，并显示在回执上。"}},"ko":{"stringUnit":{"state":"translated","value":"이 메시지를 일회용 Cloud VM에서 한 번 실행한 뒤 VM을 삭제합니다. VM 시간은 청구되며 영수증에 표시됩니다."}},"ja":{"stringUnit":{"state":"translated","value":"このメッセージを使い捨ての Cloud VM で一度だけ実行し、その後 VM を破棄します。VM の利用時間は課金され、レシートに表示されます。"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pokreće ovu poruku jednom na privremenoj Cloud VM, zatim je uništava. Vrijeme VM-a se naplaćuje i prikazuje na potvrdi."}},"da":{"stringUnit":{"state":"needs_review","value":"Kører denne besked én gang på en engangs-Cloud-VM og sletter den bagefter. VM-tiden faktureres og vises på kvitteringen."}},"it":{"stringUnit":{"state":"needs_review","value":"Esegue questo messaggio una volta su una VM Cloud usa e getta, poi la distrugge. Il tempo della VM viene addebitato e mostrato nella ricevuta."}},"km":{"stringUnit":{"state":"needs_review","value":"ដំណើរការសារនេះម្តងលើ Cloud VM ប្រើតែម្តង រួចលុបវាចោល។ ពេលវេលា VM ត្រូវគិតថ្លៃ ហើយបង្ហាញនៅលើបង្កាន់ដៃ។"}},"nb":{"stringUnit":{"state":"needs_review","value":"Kjører denne meldingen én gang på en engangs-Cloud-VM og sletter den etterpå. VM-tiden faktureres og vises på kvitteringen."}},"pl":{"stringUnit":{"state":"needs_review","value":"Uruchamia tę wiadomość raz na jednorazowej maszynie wirtualnej Cloud, a potem ją usuwa. Czas maszyny jest naliczany i widoczny na potwierdzeniu."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Executa esta mensagem uma vez em uma VM Cloud descartável e depois a destrói. O tempo de VM é cobrado e aparece no recibo."}},"ru":{"stringUnit":{"state":"needs_review","value":"Выполняет это сообщение один раз на одноразовой Cloud VM, затем удаляет её. Время VM оплачивается и указывается в квитанции."}},"th":{"stringUnit":{"state":"needs_review","value":"รันข้อความนี้หนึ่งครั้งบน Cloud VM แบบใช้แล้วทิ้ง แล้วลบ VM นั้น เวลาของ VM มีค่าใช้จ่ายและแสดงในใบเสร็จ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu mesajı tek kullanımlık bir Cloud VM'de bir kez çalıştırır, ardından VM'i yok eder. VM süresi ücretlendirilir ve makbuzda gösterilir."}},"uk":{"stringUnit":{"state":"needs_review","value":"Виконує це повідомлення один раз на одноразовій Cloud VM, потім видаляє її. Час VM оплачується й показується в квитанції."}},"vi":{"stringUnit":{"state":"needs_review","value":"Chạy tin nhắn này một lần trên một Cloud VM dùng một lần, rồi hủy nó. Thời gian VM được tính phí và hiện trên biên nhận."}}}},
     "sandbox.running": {"comment":"Chat: a Sandboxed message is running on its throwaway VM","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Running in a sandbox…"}},"de":{"stringUnit":{"state":"translated","value":"Läuft in einer Sandbox…"}},"fr":{"stringUnit":{"state":"translated","value":"Exécution dans un bac à sable…"}},"ar":{"stringUnit":{"state":"translated","value":"يعمل في صندوق معزول…"}},"es":{"stringUnit":{"state":"translated","value":"Ejecutándose en un sandbox…"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"正在沙箱中執行…"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"正在沙箱中运行…"}},"ko":{"stringUnit":{"state":"translated","value":"샌드박스에서 실행 중…"}},"ja":{"stringUnit":{"state":"translated","value":"サンドボックスで実行中…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pokreće se u sandboxu…"}},"da":{"stringUnit":{"state":"needs_review","value":"Kører i en sandkasse…"}},"it":{"stringUnit":{"state":"needs_review","value":"In esecuzione in un sandbox…"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងដំណើរការក្នុងប្រអប់ខ្សាច់…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Kjører i en sandkasse…"}},"pl":{"stringUnit":{"state":"needs_review","value":"Działa w piaskownicy…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Executando em um sandbox…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Выполняется в песочнице…"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังทำงานในแซนด์บ็อกซ์…"}},"tr":{"stringUnit":{"state":"needs_review","value":"Korumalı alanda çalışıyor…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Виконується в пісочниці…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang chạy trong hộp cát…"}}}},
@@ -249403,6 +248899,7 @@
     "subagents.state.ownWork": {"comment":"Agent pane: a subagent's state word when it stopped to wait on background work of its own (subagents/subagentFold.ts awaitsOwnWork)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"ينتظر عمله في الخلفية"}},"bs":{"stringUnit":{"state":"needs_review","value":"Čeka svoj posao u pozadini"}},"da":{"stringUnit":{"state":"needs_review","value":"Venter på sit baggrundsarbejde"}},"de":{"stringUnit":{"state":"needs_review","value":"Wartet auf eigene Hintergrundarbeit"}},"en":{"stringUnit":{"state":"translated","value":"Waiting on its background work"}},"es":{"stringUnit":{"state":"needs_review","value":"Esperando su trabajo en segundo plano"}},"fr":{"stringUnit":{"state":"needs_review","value":"Attend son travail en arrière-plan"}},"it":{"stringUnit":{"state":"needs_review","value":"In attesa del suo lavoro in background"}},"ja":{"stringUnit":{"state":"needs_review","value":"バックグラウンド処理を待機中"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងរង់ចាំការងារផ្ទៃខាងក្រោយរបស់វា"}},"ko":{"stringUnit":{"state":"needs_review","value":"백그라운드 작업 대기 중"}},"nb":{"stringUnit":{"state":"needs_review","value":"Venter på sitt bakgrunnsarbeid"}},"pl":{"stringUnit":{"state":"needs_review","value":"Czeka na swoją pracę w tle"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Aguardando seu trabalho em segundo plano"}},"ru":{"stringUnit":{"state":"needs_review","value":"Ждёт свою фоновую работу"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังรองานเบื้องหลังของตัวเอง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Arka plan işini bekliyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Очікує свою фонову роботу"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang chờ việc chạy nền của nó"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"等待其后台工作"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"等待其背景工作"}}}},
     "subagents.report.show": {"comment":"Agent pane: the disclosure chevron after a finished subagent's line in the transcript, which opens its final report under the line (accessible name)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"عرض التقرير"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prikaži izvještaj"}},"da":{"stringUnit":{"state":"needs_review","value":"Vis rapport"}},"de":{"stringUnit":{"state":"needs_review","value":"Bericht anzeigen"}},"en":{"stringUnit":{"state":"translated","value":"Show report"}},"es":{"stringUnit":{"state":"needs_review","value":"Mostrar informe"}},"fr":{"stringUnit":{"state":"needs_review","value":"Afficher le rapport"}},"it":{"stringUnit":{"state":"needs_review","value":"Mostra resoconto"}},"ja":{"stringUnit":{"state":"needs_review","value":"レポートを表示"}},"km":{"stringUnit":{"state":"needs_review","value":"បង្ហាញរបាយការណ៍"}},"ko":{"stringUnit":{"state":"needs_review","value":"보고서 보기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Vis rapport"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pokaż raport"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Mostrar relatório"}},"ru":{"stringUnit":{"state":"needs_review","value":"Показать отчёт"}},"th":{"stringUnit":{"state":"needs_review","value":"แสดงรายงาน"}},"tr":{"stringUnit":{"state":"needs_review","value":"Raporu göster"}},"uk":{"stringUnit":{"state":"needs_review","value":"Показати звіт"}},"vi":{"stringUnit":{"state":"needs_review","value":"Hiện báo cáo"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"显示报告"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"顯示報告"}}}},
     "subagents.report.hide": {"comment":"Agent pane: the disclosure chevron after a finished subagent's line in the transcript while its final report is open under the line (accessible name)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إخفاء التقرير"}},"bs":{"stringUnit":{"state":"needs_review","value":"Sakrij izvještaj"}},"da":{"stringUnit":{"state":"needs_review","value":"Skjul rapport"}},"de":{"stringUnit":{"state":"needs_review","value":"Bericht ausblenden"}},"en":{"stringUnit":{"state":"translated","value":"Hide report"}},"es":{"stringUnit":{"state":"needs_review","value":"Ocultar informe"}},"fr":{"stringUnit":{"state":"needs_review","value":"Masquer le rapport"}},"it":{"stringUnit":{"state":"needs_review","value":"Nascondi resoconto"}},"ja":{"stringUnit":{"state":"needs_review","value":"レポートを隠す"}},"km":{"stringUnit":{"state":"needs_review","value":"លាក់របាយការណ៍"}},"ko":{"stringUnit":{"state":"needs_review","value":"보고서 숨기기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Skjul rapport"}},"pl":{"stringUnit":{"state":"needs_review","value":"Ukryj raport"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Ocultar relatório"}},"ru":{"stringUnit":{"state":"needs_review","value":"Скрыть отчёт"}},"th":{"stringUnit":{"state":"needs_review","value":"ซ่อนรายงาน"}},"tr":{"stringUnit":{"state":"needs_review","value":"Raporu gizle"}},"uk":{"stringUnit":{"state":"needs_review","value":"Сховати звіт"}},"vi":{"stringUnit":{"state":"needs_review","value":"Ẩn báo cáo"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"隐藏报告"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"隱藏報告"}}}},
+    "subagents.report.from": {"comment":"Agent pane: the line under a finished subagent's 'Subagent finished' line for the report it sent its chat when it ended (Claude Code's task notification), which opens to that report (subagents/SubagentReportLine.tsx); {name} is the subagent's task or name","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Report from {name}"}},"ar":{"stringUnit":{"state":"needs_review","value":"تقرير من {name}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Izvještaj od {name}"}},"da":{"stringUnit":{"state":"needs_review","value":"Rapport fra {name}"}},"de":{"stringUnit":{"state":"needs_review","value":"Bericht von {name}"}},"es":{"stringUnit":{"state":"needs_review","value":"Informe de {name}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Rapport de {name}"}},"it":{"stringUnit":{"state":"needs_review","value":"Resoconto da {name}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{name} からのレポート"}},"km":{"stringUnit":{"state":"needs_review","value":"របាយការណ៍ពី {name}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{name}의 보고서"}},"nb":{"stringUnit":{"state":"needs_review","value":"Rapport fra {name}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Raport od {name}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Relatório de {name}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отчёт от {name}"}},"th":{"stringUnit":{"state":"needs_review","value":"รายงานจาก {name}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{name} raporu"}},"uk":{"stringUnit":{"state":"needs_review","value":"Звіт від {name}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Báo cáo từ {name}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"来自 {name} 的报告"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"來自 {name} 的報告"}}}},
     "summary.subagents.idle": {"comment":"Agent pane: Session Info's Subagents head, how many subagents are idle (running, but quiet and waiting on background work of their own); {n} is the count","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"خامل {n}"}},"bs":{"stringUnit":{"state":"needs_review","value":"{n} neaktivno"}},"da":{"stringUnit":{"state":"needs_review","value":"{n} inaktive"}},"de":{"stringUnit":{"state":"needs_review","value":"{n} untätig"}},"en":{"stringUnit":{"state":"translated","value":"{n} idle"}},"es":{"stringUnit":{"state":"needs_review","value":"{n} inactivos"}},"fr":{"stringUnit":{"state":"needs_review","value":"{n} inactifs"}},"it":{"stringUnit":{"state":"needs_review","value":"{n} inattivi"}},"ja":{"stringUnit":{"state":"needs_review","value":"{n} 件待機中"}},"km":{"stringUnit":{"state":"needs_review","value":"{n} ទំនេរ"}},"ko":{"stringUnit":{"state":"needs_review","value":"{n}개 유휴"}},"nb":{"stringUnit":{"state":"needs_review","value":"{n} inaktive"}},"pl":{"stringUnit":{"state":"needs_review","value":"Bezczynne: {n}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{n} ociosos"}},"ru":{"stringUnit":{"state":"needs_review","value":"Простаивает: {n}"}},"th":{"stringUnit":{"state":"needs_review","value":"ว่าง {n}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{n} boşta"}},"uk":{"stringUnit":{"state":"needs_review","value":"Простоює: {n}"}},"vi":{"stringUnit":{"state":"needs_review","value":"{n} đang rảnh"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{n} 个空闲"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{n} 個閒置"}}}},
     "sessionInfo.subagents.limit.startedChats": {"comment":"Agent pane: Session Info's Subagents, the limit line for the chats this chat's agent started with start_session (not its own Agent subagents): {running} of them run a turn now, at most {max} at once","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"المحادثات المبدوءة: {running} من {max} في آن واحد"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pokrenuti chatovi: {running} od {max} odjednom"}},"da":{"stringUnit":{"state":"needs_review","value":"Startede chats: {running} af {max} ad gangen"}},"de":{"stringUnit":{"state":"needs_review","value":"Gestartete Chats: {running} von {max} gleichzeitig"}},"en":{"stringUnit":{"state":"translated","value":"Started chats: {running} of {max} at once"}},"es":{"stringUnit":{"state":"needs_review","value":"Chats iniciados: {running} de {max} a la vez"}},"fr":{"stringUnit":{"state":"needs_review","value":"Chats lancés : {running} sur {max} à la fois"}},"it":{"stringUnit":{"state":"needs_review","value":"Chat avviate: {running} di {max} alla volta"}},"ja":{"stringUnit":{"state":"needs_review","value":"開始したチャット: 同時に {max} 件中 {running} 件"}},"km":{"stringUnit":{"state":"needs_review","value":"ការជជែកដែលបានចាប់ផ្តើម: {running} ក្នុងចំណោម {max} ក្នុងពេលតែមួយ"}},"ko":{"stringUnit":{"state":"needs_review","value":"시작한 채팅: 동시에 {max}개 중 {running}개"}},"nb":{"stringUnit":{"state":"needs_review","value":"Startede chatter: {running} av {max} om gangen"}},"pl":{"stringUnit":{"state":"needs_review","value":"Uruchomione czaty: {running} z {max} naraz"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Chats iniciados: {running} de {max} por vez"}},"ru":{"stringUnit":{"state":"needs_review","value":"Запущенные чаты: {running} из {max} одновременно"}},"th":{"stringUnit":{"state":"needs_review","value":"แชทที่เริ่ม: {running} จาก {max} พร้อมกัน"}},"tr":{"stringUnit":{"state":"needs_review","value":"Başlatılan sohbetler: aynı anda {max} içinden {running}"}},"uk":{"stringUnit":{"state":"needs_review","value":"Запущені чати: {running} з {max} одночасно"}},"vi":{"stringUnit":{"state":"needs_review","value":"Cuộc trò chuyện đã bắt đầu: {running} / {max} cùng lúc"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"已启动的聊天：同时 {running} / {max}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"已啟動的聊天：同時 {running} / {max}"}}}},
     "tools.mcp.using": {"comment":"Agent pane: an MCP call in flight, as Claude Code words it (Using repo: repo grep); {server} is the MCP server, {tool} the tool's name in words and what it acts on","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Using {server}: {tool}"}},"ar":{"stringUnit":{"state":"needs_review","value":"جارٍ استخدام {server}: {tool}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Koristi se {server}: {tool}"}},"da":{"stringUnit":{"state":"needs_review","value":"Bruger {server}: {tool}"}},"de":{"stringUnit":{"state":"needs_review","value":"Verwende {server}: {tool}"}},"es":{"stringUnit":{"state":"needs_review","value":"Usando {server}: {tool}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Utilisation de {server} : {tool}"}},"it":{"stringUnit":{"state":"needs_review","value":"Uso di {server}: {tool}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{server} を使用中: {tool}"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងប្រើ {server}: {tool}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{server} 사용 중: {tool}"}},"nb":{"stringUnit":{"state":"needs_review","value":"Bruker {server}: {tool}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Używanie {server}: {tool}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Usando {server}: {tool}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Используется {server}: {tool}"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังใช้ {server}: {tool}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{server} kullanılıyor: {tool}"}},"uk":{"stringUnit":{"state":"needs_review","value":"Використовується {server}: {tool}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang dùng {server}: {tool}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在使用 {server}：{tool}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在使用 {server}：{tool}"}}}},

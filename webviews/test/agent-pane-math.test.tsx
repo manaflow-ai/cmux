@@ -166,9 +166,10 @@ test("a selection copies its equations as their TeX", async () => {
   selection.addRange(range);
   expect(copySelection()).toBe("$\\pi r^2$ here.");
 
-  // Text with no math copies as the page would copy it.
+  // Text with no math is the reply's rich copy (selectionCopy.ts): its text, and clean HTML.
   range.selectNodeContents(paragraphs[1]!);
   selection.removeAllRanges();
   selection.addRange(range);
-  expect(copySelection()).toBeUndefined();
+  expect(copySelection()).toBe("Done.");
+  expect(copiedHtml).toBe("Done.");
 });
