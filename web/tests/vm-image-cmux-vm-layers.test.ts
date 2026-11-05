@@ -153,6 +153,13 @@ describe("layer snapshot GC", () => {
     expect(later.remove.map((s) => s.id).sort()).toEqual(["sh-sys1", "sh-sys2"]);
   });
 
+  test("a layer made inside the window stays even without lastUsedAt", async () => {
+    const { planLayerGc } = await import("../scripts/cmux-vm-image/gc-layers");
+    const fresh = { ...sys("9", 0), createdAt: new Date(now - 60_000).toISOString() };
+    const all = [sys("1", 1), sys("2", 2), fresh];
+    expect(planLayerGc(all, new Set(), { keep: 1, recentMs: 3600_000, now }).remove.map((s) => s.id)).toEqual(["sh-sys1"]);
+  });
+
   test("a referenced snapshot and a recently booted layer stay", async () => {
     const { planLayerGc } = await import("../scripts/cmux-vm-image/gc-layers");
     const all = [sys("1", 1), { ...sys("2", 2), lastUsedAt: new Date(now - 60_000).toISOString() }, sys("3", 3), sys("4", 4)];

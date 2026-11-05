@@ -55,8 +55,9 @@ export function planLayerGc(all: readonly GcSnapshot[], refs: ReadonlySet<string
   }
   for (const s of all) {
     if (refs.has(s.id) || (s.slug && refs.has(s.slug))) mark(s.id, "referenced");
-    const used = s.lastUsedAt ? Date.parse(s.lastUsedAt) : Number.NaN;
-    if (layerOf(s) && options.now - used < options.recentMs) mark(s.id, "booted recently");
+    // The list may not carry lastUsedAt; a layer made inside the window counts as in use too (a bake in flight).
+    const used = Math.max(s.lastUsedAt ? Date.parse(s.lastUsedAt) : Number.NEGATIVE_INFINITY, Date.parse(s.createdAt));
+    if (layerOf(s) && options.now - used < options.recentMs) mark(s.id, "booted or made recently");
   }
   // Every ancestor of a kept snapshot, and of every image still on the account: deleting a layer under a live
   // image is never this tool's call. A label names the parent layer by slug (layers.ts layerLabel). A snapshot
