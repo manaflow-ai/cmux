@@ -434,3 +434,64 @@ fn ordinary_registry_writers_progress_while_personal_writes_stay_queued() {
     eprintln!("{line}");
     assert!(p95 < P95_ORDINARY_BUDGET_MS, "an ordinary writer waited too long: {line}");
 }
+
+/// DIAG (not for merge): tab cost as the session grows elsewhere vs as the probed pane grows.
+#[test]
+fn diag_tab_cost_split() {
+    let spans_path =
+        std::env::temp_dir().join(format!("brs-split-spans-{}.jsonl", std::process::id()));
+    // SAFETY: set before any thread of this test reads the environment (the sink reads it once).
+    unsafe { std::env::set_var("CMUX_TUI_DEBUG_SPANS", &spans_path) };
+    let session = Session::new("diag-tab-split");
+    let mux = session.open();
+    let sidebar = sidebar(&mux);
+    let others: Vec<_> = sidebar.loose[1..9].iter().map(|w| workspace_slot(&mux, w)).collect();
+    let pane_grow = workspace_slot(&mux, &sidebar.loose[0]);
+    let mut lines = Vec::new();
+    let probe = |mux: &Arc<Mux>, target: crate::WorkspaceId, tag: String| {
+        let mut costs = Vec::new();
+        for i in 0..5 {
+            let started = Instant::now();
+            crate::debug_spans::install(crate::debug_spans::Trace::start("probe", started));
+            crate::mux::resource_content::scoped_projection::without_crosscheck(|| {
+                open_chat_tab(mux, target, format!("{tag}-{i}"));
+            });
+            crate::debug_spans::finish(crate::debug_spans::take());
+            costs.push(started.elapsed().as_secs_f64() * 1000.0);
+        }
+        costs.sort_by(f64::total_cmp);
+        costs[2]
+    };
+    for round in 0..10 {
+        // Series A: the session grows in other workspaces; the probe goes to a fresh workspace.
+        crate::mux::resource_content::scoped_projection::without_crosscheck(|| {
+            for i in 0..40 {
+                open_chat_tab(&mux, others[i % others.len()], format!("grow-{round}-{i}"));
+            }
+        });
+        let fresh = workspace_slot(&mux, &empty_workspace(&mux, &format!("fresh-{round}")));
+        let a = probe(&mux, fresh, format!("a-{round}"));
+        // Series B: only the probed pane grows (it keeps its own tabs; nothing else is added).
+        crate::mux::resource_content::scoped_projection::without_crosscheck(|| {
+            for i in 0..35 {
+                open_chat_tab(&mux, pane_grow, format!("pane-{round}-{i}"));
+            }
+        });
+        let b = probe(&mux, pane_grow, format!("b-{round}"));
+        let (surfaces, pane_tabs) = mux.with_state(|state| {
+            let ws = state.workspaces.iter().find(|w| w.id == pane_grow).unwrap();
+            let pane = ws.screens[0].active_pane;
+            (state.surfaces.len(), state.panes.get(&pane).map_or(0, |p| p.tabs.len()))
+        });
+        lines.push(format!(
+            "DIAGSPLIT round={round} surfaces={surfaces} probed_pane_tabs={pane_tabs} fresh_ws_median={a:.2}ms grown_pane_median={b:.2}ms"
+        ));
+    }
+    let stats = mux.resource_projection_stats();
+    mux.shutdown();
+    panic!(
+        "DIAG end:\n{}\nSTATS {}",
+        lines.join("\n"),
+        serde_json::to_string(&stats).unwrap_or_default()
+    );
+}

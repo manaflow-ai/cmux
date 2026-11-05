@@ -267,7 +267,7 @@ pub use provider_authority::{
 use provider_authority::{constant_time_eq, validate_mux_generation};
 mod public_projections;
 mod registry_viewport;
-mod resource_content;
+pub(crate) mod resource_content;
 mod resource_effects;
 mod resource_tab_deltas;
 #[cfg(test)]
