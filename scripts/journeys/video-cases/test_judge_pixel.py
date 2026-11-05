@@ -154,7 +154,7 @@ def a_width(k, variant):
         return float(A_REST + 80 if k < MOVE[0] else A_REST)  # a Reduce Motion shrink: one jump at sample 10
     if variant in SURFACE_VARIANTS:
         return float(A_REST + 2 * min(max(k - MOVE[0] + 1, 0), 14))  # grows 2 px (1 pt) per sample over samples 10-23
-    if variant == "strip-grid-grows":
+    if variant in ("strip-grid-grows", "strip-tui-band"):
         return float(A_REST + 4 * min(max(k - MOVE[0] + 1, 0), MOVE[1] - MOVE[0]))  # grows 80 px over samples 10-29
     if variant.startswith("spring"):
         t = (k - MOVE[0] + 1) * P
@@ -259,6 +259,11 @@ def frame(k, variant):
         # 3e.8: the first frame after the jump keeps A's old, wider view (its old grid), cut by A's new pane edge: fill up
         # to the pane edge, then the shell (as the S4 keep path in a Reduce Motion shrink)
         draw_tui_cut(img, 0, int(round(a_view)), A_REST + 80, y0=y0)
+    elif variant == "strip-tui-band" and MOVE[0] <= s < MOVE[1] + 10:
+        # m18 band (pixel-perfect, STATUS 14660): A's surface is at its pane's size, but its alternate-screen program has
+        # not redrawn: its grid keeps the rest width and the terminal's ground runs from ring 1 to the pane edge (frames
+        # 11-40: the program redraws at sample 39)
+        draw_tui(img, 0, a_view, picture_w=A_REST, y0=y0)
     elif variant == "strip-grid-grows" and MOVE[0] <= s < MOVE[1]:
         draw_tui_cut(img, 0, int(round(a_view)), A_REST + 80, y0=y0)  # the press's final grid, cut by the growing view
     else:
@@ -2179,6 +2184,44 @@ class WrapTests(unittest.TestCase):
         want = {s + 1 for s in range(MOVE[0], MOVE[1]) if wrap_cols(a_width(s, "strip-wrap-narrow")) != wrap_cols(A_REST)}
         self.assertTrue(want)
         self.assertEqual(jp_frames(self.row("strip-wrap-narrow")["wrap_ranges"]), want)
+
+
+class TerminalBandTests(unittest.TestCase):
+    """m18/m20 band (pixel-perfect, STATUS 14660; m29 item 1, a film the judge passed while a person sees it broken): in a
+    slow column drag the terminal surface is at its pane size but the alternate-screen program has not redrawn, so the
+    terminal's ground runs from the program's ring 1 to the pane edge, up to 308 px (ab-m28c2 px-col-drag-2-s1r-s1, build
+    6443b2e9, frames 215-360). find_side finds no ring near the pane edge and returns "not found", and the m18 rows skipped
+    the side with no count. A ground run that ends (hi side) or starts (lo side) within 24 px of the pane edge and is wider
+    than padding + one cell - 1 + 2 px fails as `band`, its width the frame's offset; a side found at rest and not found
+    while its pane moves is counted as not judged (never dropped)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp(prefix="judge-pixel-band-")
+        cls.reports = {v: jp.judge(build(cls.tmp, v, v), all_frames=True) for v in ("strip-tui-band", "strip")}
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_a_ground_band_at_the_pane_edge_fails(self):
+        band = set(range(MOVE[0] + 3, MOVE[1] + 11))  # the frames whose band is wider than 25 px (from sample 12 on)
+        for contract in ("m18", "m20"):
+            row = self.reports["strip-tui-band"][contract]["kinds"]["terminal"]
+            self.assertEqual(jp_frames(row["band_ranges"]), band, (contract, row.get("band_ranges")))
+            self.assertLessEqual(band, jp_frames(row["fail_ranges"]), contract)
+            self.assertEqual(row["worst_px"], 80.0 + 24.0, contract)  # the 80 px growth and the rest ground (pad + remainder)
+        self.assertEqual(self.reports["strip-tui-band"]["m14"]["kinds"]["terminal"]["fail"], 0)  # m14 does not change
+
+    def test_a_terminal_at_rest_has_no_band(self):
+        for contract in ("m18", "m20"):
+            row = self.reports["strip"][contract]["kinds"]["terminal"]
+            self.assertEqual((row["band"], row["fail"]), (0, 0), contract)
+
+    def test_a_side_found_at_rest_and_lost_in_motion_is_counted(self):
+        row = self.reports["strip-tui-band"]["m18"]["kinds"]["terminal"]
+        self.assertGreater(row["lost_sides"], 0, row)
+        self.assertTrue(row["lost_sides_ranges"], row)
 
 
 class M20ContractTests(unittest.TestCase):
