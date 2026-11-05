@@ -105,12 +105,22 @@ impl MeshHub for FakeHub {
 }
 
 fn setup(enabled: bool) -> (Arc<Hub>, Arc<FakeHub>) {
+    setup_with(enabled, |config| {
+        crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap()
+    })
+}
+
+/// [`setup`] on the store `open` makes for the hub's config.
+fn setup_with(
+    enabled: bool,
+    open: impl FnOnce(&Config) -> Box<dyn crate::store::Store>,
+) -> (Arc<Hub>, Arc<FakeHub>) {
     let mut config: Config = serde_json::from_value(json!({"meshRelay": {
         "url": "https://hub.invalid", "tokenCommand": ["unused"], "teamMessaging": enabled
     }}))
     .unwrap();
     config.store.mode = StoreMode::Memory;
-    let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+    let store = open(&config);
     for id in [OWN, OTHER] {
         let meta = serde_json::from_value(json!({
             "schema": crate::store::META_SCHEMA, "id": id, "name": id,
@@ -202,6 +212,24 @@ async fn team_send_checks_labs_and_uses_proven_sender_without_start_work() {
         wire["from"].get("teamAddress").is_none(),
         "the hub derives the canonical sender from the proven session id"
     );
+}
+
+/// A team send records its sender (`remember_sender`): the outbox's record and a line in the
+/// sender's log, both synced to disk before the reply. Not on the runtime's worker (#35971).
+#[test]
+fn a_team_send_records_its_sender_off_the_runtime_worker() {
+    use crate::test_store_seam::{Call, SeamStore, assert_off_worker, one_worker};
+    let runtime = one_worker();
+    let (store, seam) = SeamStore::new();
+    let (hub, _) = runtime.block_on(async { setup_with(true, |_| Box::new(store)) });
+    let owner = hub.clone();
+    let send = async move {
+        let mut caller = Rpc::connect(&owner, Origin::Local, Some((OWN, true))).await;
+        caller.call(method::MUX_TEAM_SEND, json!({"to": "@team/reviewer", "body": "hi"})).await
+    };
+    let (held, sent) = assert_off_worker(&runtime, &seam, Call::Flush, 0, "remember_sender", send);
+    assert_eq!(held, OWN);
+    assert!(sent.get("error").is_none(), "{sent}");
 }
 
 #[tokio::test]
