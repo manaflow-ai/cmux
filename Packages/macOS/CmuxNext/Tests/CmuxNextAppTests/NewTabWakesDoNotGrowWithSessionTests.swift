@@ -14,12 +14,33 @@ import Testing
 /// browser badge, Home, the browser tab list, the app services' watches, the workspace namer) makes the second larger.
 @MainActor @Suite(.serialized)
 struct NewTabWakesDoNotGrowWithSessionTests {
-    private static func tree(panes: Int, tabs: Int) -> DaemonTree {
+    /// Tab kinds of the STRESS session's panes (perf-stress-session.py: 2 terminals, 2 Chromium pages, 1 WebKit page,
+    /// 1 agent chat): every kind of strip item is in the fixture, not terminals only.
+    enum Mix { case terminals, stress }
+
+    private static func tab(_ surface: UInt64, _ index: Int, mix: Mix) -> TabSnapshot {
+        let id = SurfaceID(rawValue: surface)
+        guard mix == .stress else { return TabSnapshot(surface: id, title: "~") }
+        switch index % 6 {
+        case 2, 3:
+            return TabSnapshot(surface: id, kind: .browser, url: "http://127.0.0.1:9/\(surface)", browserRenderer: "frontend", browserEngine: "cef")
+        case 4:
+            return TabSnapshot(surface: id, kind: .browser, url: "http://127.0.0.1:9/\(surface)", browserRenderer: "frontend", browserEngine: "webkit")
+        case 5:
+            var chat = TabSnapshot(surface: id, kind: .conversation, title: "chat", browserRenderer: "frontend")
+            chat.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: "install:test", session: nil, harness: nil))
+            return chat
+        default:
+            return TabSnapshot(surface: id, title: "~")
+        }
+    }
+
+    private static func tree(panes: Int, tabs: Int, mix: Mix = .terminals) -> DaemonTree {
         var surface: UInt64 = 0
         let snapshots = (1...panes).map { pane in
-            PaneSnapshot(id: PaneID(rawValue: UInt64(pane)), tabs: (0..<tabs).map { _ in
+            PaneSnapshot(id: PaneID(rawValue: UInt64(pane)), tabs: (0..<tabs).map { index in
                 surface += 1
-                return TabSnapshot(surface: SurfaceID(rawValue: surface), title: "~")
+                return tab(surface, index, mix: mix)
             })
         }
         // A chain of splits to the right: every pane is shown on the one screen.
@@ -40,7 +61,7 @@ struct NewTabWakesDoNotGrowWithSessionTests {
     }
 
     /// Runs `body` on a whole window showing `panes` panes of `tabs` tabs (its store and its content), then closes it.
-    private static func withWindow<T>(panes: Int, tabs: Int,
+    private static func withWindow<T>(panes: Int, tabs: Int, mix: Mix = .terminals,
                                       _ body: @MainActor (DaemonStore, WorkspaceContentController) async throws -> T) async throws -> T {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
@@ -50,7 +71,7 @@ struct NewTabWakesDoNotGrowWithSessionTests {
         let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(#"{"app":"cmux-tui","protocol":1,"session":"s-local","generation":"g1"}"#.utf8))
         store.noteHandshake(identity)
         store.connectionState = .connected(identity)
-        store.apply(snapshot: tree(panes: panes, tabs: tabs))
+        store.apply(snapshot: tree(panes: panes, tabs: tabs, mix: mix))
         let controller = try #require(services.windows.openWindow(workspaces: ["wakes-ws"], frame: CGRect(x: 200, y: 200, width: 1600, height: 900)))
         defer { controller.teardown(); controller.window?.close() }
         for _ in 0..<50 where controller.workspaceContent?.panes.count != panes { await drainMain() }
@@ -104,8 +125,8 @@ struct NewTabWakesDoNotGrowWithSessionTests {
     /// How many panes' tab lists each woken observer reads, by site: every pane gets one stand-in tab (the key's intent
     /// of New Terminal Tab), in turn, and each one counts for every observer instance it wakes. An observer's count is the
     /// number of panes whose new tab wakes it; the largest instance of each site is kept.
-    private static func panesReadPerObserver(panes: Int, tabs: Int) async throws -> [String: Int] {
-        try await withWindow(panes: panes, tabs: tabs) { store, _ in
+    private static func panesReadPerObserver(panes: Int, tabs: Int, mix: Mix = .terminals) async throws -> [String: Int] {
+        try await withWindow(panes: panes, tabs: tabs, mix: mix) { store, _ in
             let models = try #require(store.workspaces.first).screens.flatMap(\.panes)
             try #require(models.count == panes, "fixture: \(models.count) panes, not \(panes)")
             var reads: [ObjectIdentifier: (site: String, panes: Int)] = [:]
@@ -160,6 +181,36 @@ struct NewTabWakesDoNotGrowWithSessionTests {
             .map { "\($0.key) \(small[$0.key, default: 0]) -> \($0.value)" }
         #expect(!small.isEmpty, "fixture: no observer read a pane (the counter is not wired)")
         #expect(grew.isEmpty, "observers that a new tab in any of 14 panes wakes, against 2 (they read every pane's tabs): \(grew)")
+    }
+
+    /// The STRESS bench (09f3dcc4, cmux19): one New Terminal Tab woke 56 strip items (PaneController.swift:46), 62 browser
+    /// record writers and 62 emulation watches: one per browser or chat tab of the session. A new tab in one pane must wake
+    /// no observer of another pane's tabs, whatever their kind: per site, the observer instances one new tab wakes are as
+    /// many with 14 panes as with 2.
+    @Test(.timeLimit(.minutes(3)))
+    func aNewTabWakesNoPerTabObserverOfOtherPanesInAMixedSession() async throws {
+        let small = try await Self.instancesWokenByOneNewTab(panes: 2, tabs: 6, mix: .stress)
+        let stress = try await Self.instancesWokenByOneNewTab(panes: 14, tabs: 6, mix: .stress)
+        for site in Set(small.keys).union(stress.keys).sorted() {
+            print("instances woken \(site): 2x6 \(small[site, default: 0]), 14x6 \(stress[site, default: 0])")
+        }
+        let grew = stress.filter { $0.value > small[$0.key, default: 0] }.sorted { $0.value > $1.value }
+            .map { "\($0.key) \(small[$0.key, default: 0]) -> \($0.value)" }
+        #expect(!small.isEmpty, "fixture: the new tab woke no observer (the counter is not wired)")
+        #expect(grew.isEmpty, "per-site observer instances one new tab wakes, 2 x 6 against 14 x 6 (mixed tabs): \(grew)")
+    }
+
+    /// The observer instances one New Terminal Tab (the key's intent) in pane 1 wakes, counted per site.
+    private static func instancesWokenByOneNewTab(panes: Int, tabs: Int, mix: Mix) async throws -> [String: Int] {
+        try await withWindow(panes: panes, tabs: tabs, mix: mix) { store, content in
+            let pane = try #require(content.panes.values.first { $0.pane.handle == PaneID(rawValue: 1) })
+            let wakes = ObservationWakes()
+            ObservationWakes.$current.withValue(wakes) {
+                store.intend(.createTab(pane: pane.pane.handle, provisional: ProvisionalTab().terminal(TerminalID.generate(), cwd: nil)),
+                             transaction: ClientTransactionID.generate())
+            }
+            return wakes.woken.values.reduce(into: [:]) { $0[$1, default: 0] += 1 }
+        }
     }
 
     @Test(.timeLimit(.minutes(3)))
