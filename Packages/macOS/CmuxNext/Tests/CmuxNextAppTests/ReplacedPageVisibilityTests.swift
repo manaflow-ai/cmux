@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextBrowser
+@testable import CmuxNextDaemon
 import Testing
 
 /// A page that replaces a tab's page takes the tab's visibility: hidden when the tab is not on
