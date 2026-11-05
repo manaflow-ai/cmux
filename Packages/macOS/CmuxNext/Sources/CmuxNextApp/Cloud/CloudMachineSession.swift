@@ -379,22 +379,17 @@ final class CloudMachineSession {
         return .running
     }
 
-    /// Retry after a failure (the progress view's Retry or Resume, a user
-    /// gesture): a paused legacy machine resumes (``attach(origin:)``); an
-    /// ended app link connects again; a legacy link's daemon retries now
-    /// instead of waiting for its next wake.
+    /// Retry after a failure (the progress view's Retry or Resume, a user gesture): the record is read first (the idle
+    /// auto-pause may have parked the machine behind it), then a paused machine resumes (``attach(origin:)``), an ended
+    /// app link connects again, and a legacy link's daemon retries now instead of waiting for its next wake.
     func retry() {
         dropRedial.cancel()
-        if appLink == nil, daemon.connection == nil, machine.status != .paused, refresher != nil {
-            // The record may be stale: read it, then retry on what it says.
-            // task-owner: one list read before the retry; the retry itself is synchronous
-            Task {
-                await refreshIfMaybePaused()
-                retryNow()
-            }
-            return
+        guard daemon.connection == nil, machine.status != .paused, refresher != nil else { return retryNow() }
+        // task-owner: one list read before the retry; the retry itself is synchronous
+        Task {
+            await refreshIfMaybePaused()
+            retryNow()
         }
-        retryNow()
     }
 
     /// A start's or a move's wait: true once the daemon answers or a resume failed; a dropped
@@ -408,6 +403,9 @@ final class CloudMachineSession {
             self.resumeFailure != nil || (daemon.connection != nil && AgentTabStore.registryHost(of: daemon) != nil)
         }
     }
+
+    /// The link a wait brought up holds: a live daemon and no failed resume (``linkUp(within:)`` also ends on one).
+    func linkHeld() -> Bool { resumeFailure == nil && daemon.connection != nil }
 
     /// Retry on the record as it stands (the caller just read it): connect the link again, or resume a paused app-link machine first (``attach(origin:)``; the platform refuses its link).
     func retryNow() {
