@@ -1141,22 +1141,24 @@ impl WorkspaceRegistry {
         after: u64,
         max_bytes: u64,
     ) -> anyhow::Result<TerminalOutputRecordsWindow> {
+        // Drive the terminal's subject index before fetching journal rows. A
+        // global kind scan can starve the registry writer on sparse terminals.
         let mut statement = self.connection.prepare(
-            "SELECT sequence, event_id, schema_version, kind, class, replay_policy,
-                    occurred_at_ms, committed_at_ms, producer_json, authority_json,
-                    causation_id, correlation_id, causation_depth, subjects_json,
-                    sensitivity, payload_json, content, resource_revision,
-                    previous_resource_revision
-             FROM session_journal
-             WHERE kind = 'terminal.output'
-               AND EXISTS (
-                 SELECT 1 FROM journal_subject_index AS subject
-                 WHERE subject.sequence = session_journal.sequence
-                   AND subject.kind = 'terminal' AND subject.id = ?1
-               )
-               AND json_extract(authority_json, '$.generation') = ?2
-               AND CAST(json_extract(payload_json, '$.stream_offset_end') AS INTEGER) > ?3
-             ORDER BY sequence ASC",
+            "SELECT journal.sequence, journal.event_id, journal.schema_version,
+                    journal.kind, journal.class, journal.replay_policy,
+                    journal.occurred_at_ms, journal.committed_at_ms,
+                    journal.producer_json, journal.authority_json,
+                    journal.causation_id, journal.correlation_id,
+                    journal.causation_depth, journal.subjects_json,
+                    journal.sensitivity, journal.payload_json, journal.content,
+                    journal.resource_revision, journal.previous_resource_revision
+             FROM journal_subject_index AS subject
+             CROSS JOIN session_journal AS journal ON journal.sequence = subject.sequence
+             WHERE subject.kind = 'terminal' AND subject.id = ?1
+               AND journal.kind = 'terminal.output'
+               AND json_extract(journal.authority_json, '$.generation') = ?2
+               AND CAST(json_extract(journal.payload_json, '$.stream_offset_end') AS INTEGER) > ?3
+             ORDER BY subject.sequence ASC",
         )?;
         let rows = statement.query_map(
             params![

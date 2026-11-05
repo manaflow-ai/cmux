@@ -5495,6 +5495,85 @@ fn terminal_output_window_resumes_exactly_and_honors_record_boundaries() {
 }
 
 #[test]
+fn terminal_output_window_keeps_sparse_subjects_and_generations_separate() {
+    let mut registry = WorkspaceRegistry::in_memory("terminal-output-sparse").unwrap();
+    commit_terminal_topology(&mut registry, "terminal-output-sparse-seed");
+    let terminal = terminal_resource(TERMINAL_ONE);
+    let unrelated = terminal_resource(TERMINAL_TWO);
+    let generation = "20000000000040008000000000000001";
+    append_terminal_output_for_test(&mut registry, &terminal, INCARNATION_ONE, &[b"old"]);
+    append_terminal_output_for_test(&mut registry, &unrelated, INCARNATION_ONE, &[b"noise"; 512]);
+    append_terminal_output_for_test(&mut registry, &terminal, generation, &[b"first"]);
+    append_terminal_output_for_test(&mut registry, &unrelated, generation, &[b"other"; 512]);
+    append_terminal_output_for_test(&mut registry, &terminal, generation, &[b"second"]);
+
+    let first = registry
+        .terminal_output_records_after(terminal.as_str(), generation, 0, 1)
+        .unwrap();
+    assert!(first.truncated);
+    assert_eq!(first.chunks.len(), 1);
+    assert_eq!(first.chunks[0].bytes.as_ref(), b"first");
+    assert_eq!((first.chunks[0].stream_offset_start, first.chunks[0].stream_offset_end), (0, 5));
+    let second = registry
+        .terminal_output_records_after(terminal.as_str(), generation, 5, 1)
+        .unwrap();
+    assert!(!second.truncated);
+    assert_eq!(second.chunks.len(), 1);
+    assert_eq!(second.chunks[0].bytes.as_ref(), b"second");
+    assert_eq!((second.chunks[0].stream_offset_start, second.chunks[0].stream_offset_end), (5, 11));
+    let drained = registry
+        .terminal_output_records_after(terminal.as_str(), generation, 11, 1)
+        .unwrap();
+    assert!(drained.chunks.is_empty() && !drained.truncated);
+    let old = registry
+        .terminal_output_records_after(terminal.as_str(), INCARNATION_ONE, 0, 1)
+        .unwrap();
+    assert!(!old.truncated);
+    assert_eq!(old.chunks.len(), 1);
+    assert_eq!(old.chunks[0].bytes.as_ref(), b"old");
+}
+
+#[test]
+fn terminal_output_window_refuses_missing_content_and_offset_gaps() {
+    let mut registry = WorkspaceRegistry::in_memory("terminal-output-corrupt").unwrap();
+    commit_terminal_topology(&mut registry, "terminal-output-corrupt-seed");
+    let terminal = terminal_resource(TERMINAL_ONE);
+    append_terminal_output_for_test(
+        &mut registry,
+        &terminal,
+        INCARNATION_ONE,
+        &[b"first", b"second", b"third"],
+    );
+    registry
+        .connection
+        .execute(
+            "DELETE FROM session_journal WHERE kind = 'terminal.output'
+             AND json_extract(payload_json, '$.stream_offset_start') = '5'",
+            [],
+        )
+        .unwrap();
+    assert!(
+        registry
+            .terminal_output_records_after(terminal.as_str(), INCARNATION_ONE, 0, 1024)
+            .is_err()
+    );
+    registry
+        .connection
+        .execute("UPDATE session_journal SET content = NULL WHERE kind = 'terminal.output'", [])
+        .unwrap();
+    assert!(
+        registry
+            .terminal_output_records_after(terminal.as_str(), INCARNATION_ONE, 0, 1024)
+            .is_err()
+    );
+    assert!(
+        registry
+            .terminal_output_records_after(terminal.as_str(), INCARNATION_ONE, u64::MAX, 1)
+            .is_err()
+    );
+}
+
+#[test]
 fn terminal_exit_snapshot_round_trips_and_records_journal_coverage() {
     let mut registry = WorkspaceRegistry::in_memory("terminal-exit-snapshot").unwrap();
     commit_terminal_topology(&mut registry, "terminal-exit-snapshot-seed");
