@@ -4,7 +4,7 @@ on:
   # This workflow is evaluated from the default branch, so a pull request
   # cannot remove or weaken the guard it is asking us to run.
   pull_request_target:
-    types: [opened, synchronize, reopened, labeled, unlabeled]
+    types: [opened, synchronize, reopened]
   push:
     branches: [main]
 
@@ -18,10 +18,6 @@ concurrency:
 jobs:
   deleted-or-weakened-tests:
     name: deleted-or-weakened-tests
-    # Label churn unrelated to integrity must not replace the authoritative
-    # result with a new strict run. Approval-label add/remove events do run so
-    # a maintainer can grant or revoke the one-head override.
-    if: ${{ github.event_name != 'pull_request_target' || github.event.action == 'opened' || github.event.action == 'synchronize' || github.event.action == 'reopened' || ((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name == 'test-integrity-approved') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
@@ -36,10 +32,6 @@ jobs:
       - name: Flag deleted or weakened tests
         env:
           TEST_INTEGRITY_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
-          # Only the maintainer's approval-label event can grant an override.
-          # Other label events and later synchronize events stay strict, so an
-          # approval cannot carry over to a new head.
-          TEST_INTEGRITY_APPROVED: ${{ github.event.action == 'labeled' && github.event.label.name == 'test-integrity-approved' }}
         run: |
           set -euo pipefail
           base="${TEST_INTEGRITY_BASE_SHA:-HEAD^1}"
@@ -59,16 +51,10 @@ jobs:
           merge_base="$(git merge-base "$base" HEAD)"
           git show "$base:scripts/ci/test_integrity.py" > "$RUNNER_TEMP/test_integrity.py"
           args=(--base "$merge_base")
-          # pull_request_target is the authoritative PR gate. Only the
-          # maintainer-added approval-label event is a one-head override; every
-          # other event returns to strict so approval cannot silently cover later
-          # test changes. Pushes to main stay report-only so an intended,
-          # already-reviewed retirement cannot strand main.
-          if [[ "${{ github.event_name }}" == "pull_request_target" && "$TEST_INTEGRITY_APPROVED" != "true" ]]; then
+          # pull_request_target is the authoritative PR gate. Pushes to main
+          # stay report-only so an intended, already-reviewed retirement cannot
+          # strand main.
+          if [[ "${{ github.event_name }}" == "pull_request_target" ]]; then
             args+=(--strict)
-          fi
-          if [[ "$TEST_INTEGRITY_APPROVED" == "true" ]]; then
-            args+=(--allow-all)
-            echo "test-integrity: trusted test-integrity-approved label; recording findings without blocking"
           fi
           python3 "$RUNNER_TEMP/test_integrity.py" "${args[@]}"

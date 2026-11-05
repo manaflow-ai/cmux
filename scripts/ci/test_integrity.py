@@ -22,13 +22,15 @@ from pathlib import Path
 TEST_FILE = re.compile(
     r"(?:^|/)(?:tests?|cmuxTests?)(?:/|$)|"
     r"(?:^|/)(?:test_[^/]+|[^/]+_test|[^/]+\.(?:test|spec)|test(?:[-.]|$)[^/]*)\.[^/]+$|"
-    r"(?:^|/)[^/]*Tests?(?:/|\.[^/]+$)",
+    # Keep the conventional `FooTests/` form case-sensitive so names such as
+    # `latest/` and `contest.json` do not become test paths.
+    r"(?:(?-i:^)|/)(?-i:(?:test|[^/]*Tests?))(?:/|\.[^/]+$)",
     re.IGNORECASE,
 )
 ASSERTION = re.compile(
-    r"\b(?:assert\w*|"
-    r"expect|require|check|XCTAssert\w*|assert_(?:eq|ne|same|is|in|false|true)|"
-    r"pytest\.raises|pytest\.fail|self\.fail)\b|\b(?:toBe|toEqual|toHave\w*)\s*\(",
+    r"(?:\bassert\w*|expect|check|XCTAssert\w*|"
+    r"assert_(?:eq|ne|same|is|in|false|true)|pytest\.(?:raises|fail)|self\.fail)\s*\(|"
+    r"\bassert\b(?!\w)",
     re.IGNORECASE,
 )
 SKIP = re.compile(
@@ -54,21 +56,35 @@ def is_guard_path(path: str) -> bool:
     return path == "scripts/ci/test_integrity.py"
 
 
+def _assertion_count(lines: list[str]) -> int:
+    count = 0
+    for line in lines:
+        stripped = line.lstrip()
+        if stripped.startswith(("#", "//", "/*", "*", "--")):
+            continue
+        count += len(ASSERTION.findall(line))
+    return count
+
+
 def _sections(diff: str) -> list[tuple[str, list[str], list[str]]]:
     """Return (path, removed, added) for each unified-diff file section."""
     sections: list[tuple[str, list[str], list[str]]] = []
     path = ""
     removed: list[str] = []
     added: list[str] = []
+    in_hunk = False
     for line in diff.splitlines():
         if line.startswith("diff --git "):
             if path:
                 sections.append((path, removed, added))
             path = ""
             removed, added = [], []
-        elif line.startswith("+++ b/"):
+            in_hunk = False
+        elif line.startswith("@@"):
+            in_hunk = True
+        elif not in_hunk and line.startswith("+++ b/"):
             path = line[6:]
-        elif line.startswith("--- ") or line.startswith("@@") or line.startswith("index "):
+        elif not in_hunk and (line.startswith("--- ") or line.startswith("index ")):
             continue
         elif line.startswith("-"):
             removed.append(line[1:])
@@ -95,8 +111,8 @@ def analyze(name_status: str, diff: str) -> list[Finding]:
     for path, removed, added in _sections(diff):
         if is_guard_path(path) or not is_test_path(path):
             continue
-        old_assertions = sum(len(ASSERTION.findall(line)) for line in removed)
-        new_assertions = sum(len(ASSERTION.findall(line)) for line in added)
+        old_assertions = _assertion_count(removed)
+        new_assertions = _assertion_count(added)
         if old_assertions > new_assertions:
             findings.append(Finding(
                 "weakened-assertions", path,
@@ -137,8 +153,9 @@ def resolve_base(explicit: str | None) -> str:
 
 
 def run(base: str) -> list[Finding]:
-    name_status = _git("diff", "--name-status", "--find-renames", base, "HEAD", "--")
-    diff = _git("diff", "--unified=0", "--find-renames", base, "HEAD", "--")
+    safe_diff = ("--text", "--no-ext-diff", "--no-textconv")
+    name_status = _git("diff", "--name-status", "--find-renames", *safe_diff, base, "HEAD", "--")
+    diff = _git("diff", "--unified=0", "--find-renames", *safe_diff, base, "HEAD", "--")
     return analyze(name_status, diff)
 
 

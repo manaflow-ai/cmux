@@ -71,6 +71,8 @@ class TestIntegrity(unittest.TestCase):
         self.assertTrue(module.is_test_path("Examples/FooTests/Bar.swift"))
         self.assertTrue(module.is_test_path("tools/freestyle-workflow/test.mjs"))
         self.assertTrue(module.is_test_path("tools/test.sh"))
+        self.assertFalse(module.is_test_path("latest/fetchLatest.ts"))
+        self.assertFalse(module.is_test_path("src/contest.json"))
 
     def test_same_line_assertion_removal_is_detected(self):
         diff = """diff --git a/tests/test_x.py b/tests/test_x.py
@@ -82,6 +84,42 @@ class TestIntegrity(unittest.TestCase):
 """
         findings = module.analyze("M\ttests/test_x.py\n", diff)
         self.assertTrue(any(f.kind == "weakened-assertions" for f in findings))
+
+    def test_comment_text_is_not_counted_as_an_assertion(self):
+        diff = """diff --git a/tests/test_x.py b/tests/test_x.py
+--- a/tests/test_x.py
++++ b/tests/test_x.py
+@@ -1 +1 @@
+-# assert this fixture is documented
++# fixture is documented
+"""
+        findings = module.analyze("M\ttests/test_x.py\n", diff)
+        self.assertFalse(any(f.kind == "weakened-assertions" for f in findings))
+
+    def test_hunk_content_cannot_fake_a_new_file_header(self):
+        diff = """diff --git a/tests/test_x.py b/tests/test_x.py
+--- a/tests/test_x.py
++++ b/tests/test_x.py
+@@ -1,3 +1,2 @@
+-assert value
+-assert other
++text = \"+++ b/src/not-a-file.py\"
+"""
+        findings = module.analyze("M\ttests/test_x.py\n", diff)
+        self.assertTrue(any(f.kind == "weakened-assertions" for f in findings))
+
+    def test_diff_commands_disable_attributes_and_text_conversion(self):
+        calls = []
+
+        def fake_git(*args):
+            calls.append(args)
+            return "" if args[1] == "--name-status" else "HEAD"
+
+        with mock.patch.object(module, "_git", side_effect=fake_git):
+            module.run("base")
+        self.assertEqual(calls[0][0:4], ("diff", "--name-status", "--find-renames", "--text"))
+        self.assertIn("--no-ext-diff", calls[0])
+        self.assertIn("--no-textconv", calls[0])
 
     def test_skip_reason_update_is_not_new_skip(self):
         diff = """diff --git a/tests/test_x.py b/tests/test_x.py
@@ -99,16 +137,11 @@ class TestIntegrity(unittest.TestCase):
                 mock.patch.object(module, "_git", return_value="head"):
             self.assertEqual(module.main(["--base", "base", "--allow-all"]), 0)
 
-    def test_workflow_approval_is_only_for_the_approval_label_event(self):
+    def test_workflow_enforces_strict_pr_checks_without_label_overrides(self):
         workflow = (ROOT / ".github/workflows/test-integrity.yml").read_text(encoding="utf-8")
-        self.assertIn("github.event.action == 'labeled'", workflow)
-        self.assertIn("github.event.label.name == 'test-integrity-approved'", workflow)
-        self.assertIn("github.event.action == 'unlabeled'", workflow)
-        self.assertIn("github.event.action == 'opened'", workflow)
-        self.assertIn("github.event.action == 'synchronize'", workflow)
-        self.assertIn("github.event.action == 'reopened'", workflow)
-        self.assertNotIn("github.event.action != 'synchronize'", workflow)
-        self.assertNotIn("contains(github.event.pull_request.labels.*.name, 'test-integrity-approved')", workflow)
+        self.assertIn("types: [opened, synchronize, reopened]", workflow)
+        self.assertIn('args+=(--strict)', workflow)
+        self.assertNotIn('test-integrity-approved', workflow)
 
 
 if __name__ == "__main__":
