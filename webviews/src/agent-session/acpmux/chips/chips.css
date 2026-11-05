@@ -433,34 +433,19 @@ button.cv-thumb {
   appearance: none;
   cursor: zoom-in;
 }
-/* A shown image is no frame: the thumbnail is the whole image in its own shape, as wide as the column
- * or the image allows and at most 360px tall, never larger than the image, under a hairline ring.
- * A wide screenshot is a strip, a phone shot a narrow column, never a thin strip in an empty card
- * (Leo, 2026-11-05: "I don't think we have good enough looking previews for these"). Only the waiting
- * and placeholder frames keep the fixed shape. */
-button.cv-thumb--open {
-  width: auto;
-  max-width: 100%;
-  aspect-ratio: auto;
+/* A shown image is no frame: once it loads (ReplyImage.tsx sets its natural size) the thumbnail is the
+ * whole image in its own shape, as wide as the column, the image, or 360px of height allows, whichever
+ * is least, under a hairline ring. A wide screenshot is a strip, a phone shot a narrow column, never a
+ * thin strip in an empty card (Leo, 2026-11-05: "I don't think we have good enough looking previews for
+ * these"). Until then it keeps the fixed frame, so a slow or lazy image holds its place. */
+.cv-thumb--sized {
+  width: min(100%, calc(var(--thumb-w) * 1px), calc(360px * var(--thumb-w) / var(--thumb-h)));
+  aspect-ratio: var(--thumb-w) / var(--thumb-h);
   padding: 0;
   background: none;
   box-shadow: none;
 }
-/* Once the image loads (ReplyImage.tsx sets its natural size): the frame is the image's shape, as wide
- * as the column, the image, or 360px of height allows, whichever is least. */
-button.cv-thumb--sized {
-  width: min(100%, calc(var(--thumb-w) * 1px), calc(360px * var(--thumb-w) / var(--thumb-h)));
-  aspect-ratio: var(--thumb-w) / var(--thumb-h);
-}
-button.cv-thumb--sized .cv-thumb__img {
-  width: 100%;
-  height: 100%;
-}
-.cv-thumb--open .cv-thumb__img {
-  width: auto;
-  height: auto;
-  max-width: 100%;
-  max-height: 360px;
+.cv-thumb--sized .cv-thumb__img {
   border-radius: var(--cv-media-radius);
   outline: 1px solid color-mix(in srgb, var(--cv-fg) 12%, transparent);
   outline-offset: -1px;
@@ -510,7 +495,7 @@ button.cv-thumb:focus-visible {
 }
 /* A shown image in a row keeps its own shape inside its share, centred over its caption: never a
    frame as wide as the share with the image capped inside it. */
-.cv-thumbs.is-row button.cv-thumb--sized {
+.cv-thumbs.is-row .cv-thumb--sized {
   width: min(100%, calc(var(--thumb-w) * 1px), calc(360px * var(--thumb-w) / var(--thumb-h)));
   align-self: center;
 }

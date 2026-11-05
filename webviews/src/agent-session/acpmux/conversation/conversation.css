@@ -2950,16 +2950,16 @@ button.cv-worked:focus-visible {
   gap: 8px;
   margin: 4px 0 8px;
 }
-/* A call's images: the reply's thumbnail (chips.css .cv-thumb), narrower. Its waiting frame keeps the
- * fixed shape, so its height is held before the image loads; a shown image takes its own shape
- * (.cv-thumb--open, --sized), at most 320px wide here and 360px tall. */
+/* A call's images: the reply's thumbnail (chips.css .cv-thumb), narrower. Its frame keeps the fixed
+ * shape until the image loads, so its height is held; a loaded image takes its own shape
+ * (.cv-thumb--sized), at most 320px wide here and 360px tall. */
 .cv-tool-images .cv-thumb {
   margin: 0;
 }
-.cv-tool-images .cv-thumb:not(.cv-thumb--open) {
+.cv-tool-images .cv-thumb:not(.cv-thumb--sized) {
   width: min(100%, 320px);
 }
-.cv-tool-images .cv-thumb--open {
+.cv-tool-images .cv-thumb--sized {
   max-width: min(100%, 320px);
 }
 .cv-tool-images .cv-img {

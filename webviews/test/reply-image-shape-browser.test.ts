@@ -1,7 +1,7 @@
 // l10n-allow-file: browser fixture labels and diagnostics, not shipped UI.
 // cmux-web-test-timeout: 240
 // A chat image's thumbnail is the whole image in its own shape (Leo, 2026-11-05: "I don't think we
-// have good enough looking previews for these"): a reply's image path (chips.css .cv-thumb--open) is
+// have good enough looking previews for these"): a reply's image path (chips.css .cv-thumb--sized) is
 // no fixed 16:10 card with the image a thin strip in its middle, and a sent image (UserBubble.tsx
 // sentImageSize) is no magnified crop of a wide screenshot's middle. Neither draws an image larger
 // than it is. Gallery entries agent-pane.reply-thumbs and agent-pane.sent-images, in Chromium.
@@ -116,7 +116,7 @@ await requireBrowserLane("reply-image-shape-browser.test.ts", async () => {
             expect(Math.abs(box.height - drawn.height), label).toBeLessThan(2);
             // Never larger than the image: no magnified, blurry crop.
             expect(drawn.width, label).toBeLessThanOrEqual(natural.width + 0.5);
-            // At most 360px tall (chips.css .cv-thumb--open): a phone shot never stretches the transcript.
+            // At most 360px tall (chips.css .cv-thumb--sized): a phone shot never stretches the transcript.
             expect(box.height, label).toBeLessThanOrEqual(360.5);
             // Inside the prompt's bubble or image band: never past its edge in a narrow chat.
             if (bound) expect(drawn.right, label).toBeLessThanOrEqual(bound.right + 0.5);
