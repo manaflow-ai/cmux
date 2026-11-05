@@ -64,9 +64,13 @@
 }
 
 /* The action row: What's New circled, the arrow, "have a look" over "got it". */
+/* One row when the card is wide enough; in a narrow sidebar (160 pt) the arrow and its words wrap
+   under the circled button as one group, so nothing runs past the card. */
 .wn-doodle-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  row-gap: 4px;
   margin-top: 4px;
   padding-left: 8px;
 }
@@ -80,6 +84,11 @@
   inset: -4px -8px;
   overflow: visible;
   pointer-events: none;
+}
+.wn-doodle-pointer {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
 }
 .wn-doodle-arrow {
   flex: none;

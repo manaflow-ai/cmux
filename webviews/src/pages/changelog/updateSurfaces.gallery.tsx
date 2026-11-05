@@ -61,6 +61,8 @@ type Props = {
   decoration?: string | null;
   /** The doodle draws on (false: drawn from the start). */
   animate?: boolean;
+  /** The stage's width (the sidebar's), default 260. */
+  width?: number;
 };
 
 // Three themes as WebTheme sends them (the page's --page-* and the glass's surface), each over its
@@ -209,6 +211,7 @@ function UpdateSurfacesGallery({
   briefLayout,
   decoration = null,
   animate = false,
+  width,
 }: Props) {
   const [strings] = useState(() => createStrings(table));
   const noop = () => undefined;
@@ -216,7 +219,7 @@ function UpdateSurfacesGallery({
     <div
       className="wn-gallery-stage"
       style={{
-        width: surface === "card" ? 260 : 360,
+        width: width ?? (surface === "card" ? 260 : 360),
         padding: 10,
         ...(onWallpaper ? { backgroundImage: wallpaper } : {}),
         ...(theme ? themeStyle(theme) : {}),
@@ -324,6 +327,19 @@ export default componentEntry<Props>({
         await ctx.waitFor(() => doodleFontLoaded(ctx.document));
       },
       props: { surface: "card", data: base, decoration: "doodle", theme: "dark" },
+    },
+    "card-doodle-narrow": {
+      note: "The doodle in the narrowest sidebar (160 pt: the card is 136 wide): the arrow and its words wrap under the circled What's New, so nothing runs past the card.",
+      play: async (ctx) => {
+        await ctx.waitFor(() => doodleFontLoaded(ctx.document));
+        const card = ctx.document.querySelector(".wn-card")!.getBoundingClientRect();
+        for (const part of ctx.document.querySelectorAll(".wn-doodle-circled, .wn-doodle-pointer, .wn-doodle-words")) {
+          const box = part.getBoundingClientRect();
+          if (box.right > card.right + 0.5)
+            throw new Error(`${part.className} runs past the card (${box.right} > ${card.right})`);
+        }
+      },
+      props: { surface: "card", data: base, decoration: "doodle", theme: "light", width: 160 },
     },
     "card-doodle-draw": {
       note: "The doodle drawing on, as it does when the card first shows (about a second and a quarter; under Reduce Motion it is simply there).",

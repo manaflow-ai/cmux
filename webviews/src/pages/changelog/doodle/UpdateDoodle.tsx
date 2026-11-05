@@ -159,19 +159,22 @@ export function DoodleActions({
           </g>
         </svg>
       </span>
-      <svg className="wn-doodle-arrow" viewBox="0 0 40 30" aria-hidden="true" focusable="false">
-        <g filter={`url(#${MARKER})`}>
-          <Stroke d="M37 6 C27 2.5 15 5 8.5 18.5" at={720} />
-          <Stroke d="M3.6 12.6 C5.6 15.4 7.1 17.6 8.3 19.6 C10.7 18.2 13.4 17.1 16.4 16.4" at={900} />
-        </g>
-      </svg>
-      <span className="wn-doodle-aside">
-        <Words at={560}>{strings.t("updates.doodle.haveALook")}</Words>
-        {onGotIt && (
-          <button type="button" className="wn-doodle-got-it" onClick={onGotIt}>
-            <Words at={1300}>{strings.t("updates.doodle.gotIt")}</Words>
-          </button>
-        )}
+      {/* The arrow and its words wrap under the button together in a narrow sidebar. */}
+      <span className="wn-doodle-pointer">
+        <svg className="wn-doodle-arrow" viewBox="0 0 40 30" aria-hidden="true" focusable="false">
+          <g filter={`url(#${MARKER})`}>
+            <Stroke d="M37 6 C27 2.5 15 5 8.5 18.5" at={720} />
+            <Stroke d="M3.6 12.6 C5.6 15.4 7.1 17.6 8.3 19.6 C10.7 18.2 13.4 17.1 16.4 16.4" at={900} />
+          </g>
+        </svg>
+        <span className="wn-doodle-aside">
+          <Words at={560}>{strings.t("updates.doodle.haveALook")}</Words>
+          {onGotIt && (
+            <button type="button" className="wn-doodle-got-it" onClick={onGotIt}>
+              <Words at={1300}>{strings.t("updates.doodle.gotIt")}</Words>
+            </button>
+          )}
+        </span>
       </span>
     </div>
   );
