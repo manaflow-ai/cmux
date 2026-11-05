@@ -1595,6 +1595,30 @@ class HoldStartAtTests(unittest.TestCase):
         self.assertAlmostEqual(schedule[0][0] - before, 0.05, delta=0.02)
 
 
+class FramesReadTests(unittest.TestCase):
+    """m20 (STATUS 14130; judge_m14.py): a film with no debug.frames read is "smooth not judged" and cannot pass, so every
+    px film starts debug.frames before its movie and stops it raw (kept as <film>.frames.json) after its play, before
+    video_stop (m20 item 8, kit side)."""
+
+    def test_every_film_reads_debug_frames(self):
+        sys.path.insert(0, str(HERE / "video-cases"))
+        import gen_pixel
+        films = 0
+        for j in gen_pixel.journeys():
+            jid = j["id"]
+            for st in j["steps"]:
+                if st.get("do") != "px_film":
+                    continue
+                films += 1
+                rpcs = [s for s in st["steps"] if s.get("do") == "rpc" and s.get("method") == "debug.frames"]
+                self.assertEqual([r["params"]["action"] for r in rpcs], ["start", "stop"], (jid, st["name"]))
+                self.assertEqual(rpcs[1].get("keep"), "frames", (jid, st["name"]))
+                dos = [s["do"] for s in st["steps"]]
+                self.assertLess(dos.index("rpc"), dos.index("px_record_start"), (jid, st["name"]))
+                self.assertEqual(dos[-2:], ["rpc", "video_stop"], (jid, st["name"]))
+        self.assertGreater(films, 50)
+
+
 class TabCloseCaseTests(unittest.TestCase):
     """gen_pixel.py px-keys-held-2-tabclose (stage S1B 1b): px-keys-held-2's panes (p0 terminal | p1 page) with p0 in 3
     terminal tabs, each the TUI fixture, and every tab outlined (motion.frameOwner.tabOutline, required, set again in
@@ -1604,8 +1628,9 @@ class TabCloseCaseTests(unittest.TestCase):
 
     CID = "px-keys-held-2-tabclose"
     # rk_focus, equalizeSplits and its settle: every held film starts with p0 at half the pane area (gen_pixel held_start).
-    FILM = ["rk_focus", "px_equalize", "wait", "px_tunable", "wait", "px_record_start", "px_hold_tab_close", "wait", "rk_press", "wait",
-            "video_stop"]
+    # debug.frames start before the movie and stop before video_stop (the `rpc` steps; m20: every film has its missed refreshes).
+    FILM = ["rk_focus", "px_equalize", "wait", "px_tunable", "wait", "rpc", "px_record_start", "px_hold_tab_close", "wait", "rk_press",
+            "wait", "rpc", "video_stop"]
     REBUILD = ["rk_focus", "px_tab_new", "neutral_prompt", "type", "expect", "wait"]
 
     def specs(self, *extra):
@@ -2154,8 +2179,8 @@ class SharedEdgeCaseTests(unittest.TestCase):
         for n, f in enumerate(films):
             self.assertEqual(f.get("speed"), 0.25, f["name"])
             dos = [st["do"] for st in f["steps"]]
-            want = ["rk_focus"] + (["px_tunable"] if hit_width else []) + ["wait", "px_record_start", "px_key_then_drag", "wait",
-                                                                           "video_stop"]
+            want = ["rk_focus"] + (["px_tunable"] if hit_width else []) + ["wait", "rpc", "px_record_start", "px_key_then_drag", "wait",
+                                                                           "rpc", "video_stop"]  # debug.frames start/stop (m20)
             self.assertEqual(dos, want, f["name"])
             if hit_width:
                 tun = f["steps"][1]

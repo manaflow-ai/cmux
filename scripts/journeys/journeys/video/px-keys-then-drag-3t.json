@@ -247,6 +247,14 @@
      "title": "the layout and the load settle (nothing observable to wait on)"
     },
     {
+     "do": "rpc",
+     "method": "debug.frames",
+     "params": {
+      "action": "start"
+     },
+     "title": "debug.frames start (main ms per frame)"
+    },
+    {
      "do": "px_record_start",
      "name": "px-keys-then-drag-3t-s0125",
      "seconds": 10.7,
@@ -304,6 +312,16 @@
      "do": "wait",
      "seconds": 2.15,
      "title": "the key's spring and the drag land and rest"
+    },
+    {
+     "do": "rpc",
+     "method": "debug.frames",
+     "params": {
+      "action": "stop",
+      "raw": true
+     },
+     "keep": "frames",
+     "title": "debug.frames stop raw (main ms per frame; <film>.frames.json)"
     },
     {
      "do": "video_stop",

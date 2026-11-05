@@ -277,6 +277,14 @@
      "title": "the layout and the load settle (nothing observable to wait on)"
     },
     {
+     "do": "rpc",
+     "method": "debug.frames",
+     "params": {
+      "action": "start"
+     },
+     "title": "debug.frames start (main ms per frame)"
+    },
+    {
      "do": "px_record_start",
      "name": "px-keys-held-2-tabclose-narrow-s025",
      "seconds": 13.6,
@@ -333,6 +341,16 @@
      "do": "wait",
      "seconds": 1.25,
      "title": "the motion lands and rests"
+    },
+    {
+     "do": "rpc",
+     "method": "debug.frames",
+     "params": {
+      "action": "stop",
+      "raw": true
+     },
+     "keep": "frames",
+     "title": "debug.frames stop raw (main ms per frame; <film>.frames.json)"
     },
     {
      "do": "video_stop",
@@ -433,6 +451,14 @@
      "title": "the layout and the load settle (nothing observable to wait on)"
     },
     {
+     "do": "rpc",
+     "method": "debug.frames",
+     "params": {
+      "action": "start"
+     },
+     "title": "debug.frames start (main ms per frame)"
+    },
+    {
      "do": "px_record_start",
      "name": "px-keys-held-2-tabclose-narrow-s05",
      "seconds": 12.3,
@@ -489,6 +515,16 @@
      "do": "wait",
      "seconds": 0.8,
      "title": "the motion lands and rests"
+    },
+    {
+     "do": "rpc",
+     "method": "debug.frames",
+     "params": {
+      "action": "stop",
+      "raw": true
+     },
+     "keep": "frames",
+     "title": "debug.frames stop raw (main ms per frame; <film>.frames.json)"
     },
     {
      "do": "video_stop",
@@ -589,6 +625,14 @@
      "title": "the layout and the load settle (nothing observable to wait on)"
     },
     {
+     "do": "rpc",
+     "method": "debug.frames",
+     "params": {
+      "action": "start"
+     },
+     "title": "debug.frames start (main ms per frame)"
+    },
+    {
      "do": "px_record_start",
      "name": "px-keys-held-2-tabclose-narrow-s1",
      "seconds": 11.6,
@@ -645,6 +689,16 @@
      "do": "wait",
      "seconds": 0.57,
      "title": "the motion lands and rests"
+    },
+    {
+     "do": "rpc",
+     "method": "debug.frames",
+     "params": {
+      "action": "stop",
+      "raw": true
+     },
+     "keep": "frames",
+     "title": "debug.frames stop raw (main ms per frame; <film>.frames.json)"
     },
     {
      "do": "video_stop",
@@ -745,6 +799,14 @@
      "title": "the layout and the load settle (nothing observable to wait on)"
     },
     {
+     "do": "rpc",
+     "method": "debug.frames",
+     "params": {
+      "action": "start"
+     },
+     "title": "debug.frames start (main ms per frame)"
+    },
+    {
      "do": "px_record_start",
      "name": "px-keys-held-2-tabclose-narrow-s2",
      "seconds": 11.3,
@@ -801,6 +863,16 @@
      "do": "wait",
      "seconds": 0.46,
      "title": "the motion lands and rests"
+    },
+    {
+     "do": "rpc",
+     "method": "debug.frames",
+     "params": {
+      "action": "stop",
+      "raw": true
+     },
+     "keep": "frames",
+     "title": "debug.frames stop raw (main ms per frame; <film>.frames.json)"
     },
     {
      "do": "video_stop",
@@ -901,6 +973,14 @@
      "title": "the layout and the load settle (nothing observable to wait on)"
     },
     {
+     "do": "rpc",
+     "method": "debug.frames",
+     "params": {
+      "action": "start"
+     },
+     "title": "debug.frames start (main ms per frame)"
+    },
+    {
      "do": "px_record_start",
      "name": "px-keys-held-2-tabclose-narrow-s4",
      "seconds": 11.1,
@@ -957,6 +1037,16 @@
      "do": "wait",
      "seconds": 0.41,
      "title": "the motion lands and rests"
+    },
+    {
+     "do": "rpc",
+     "method": "debug.frames",
+     "params": {
+      "action": "stop",
+      "raw": true
+     },
+     "keep": "frames",
+     "title": "debug.frames stop raw (main ms per frame; <film>.frames.json)"
     },
     {
      "do": "video_stop",
@@ -1057,6 +1147,14 @@
      "title": "the layout and the load settle (nothing observable to wait on)"
     },
     {
+     "do": "rpc",
+     "method": "debug.frames",
+     "params": {
+      "action": "start"
+     },
+     "title": "debug.frames start (main ms per frame)"
+    },
+    {
      "do": "px_record_start",
      "name": "px-keys-held-2-tabclose-narrow-reduce",
      "seconds": 11.4,
@@ -1113,6 +1211,16 @@
      "do": "wait",
      "seconds": 0.5,
      "title": "the motion lands and rests"
+    },
+    {
+     "do": "rpc",
+     "method": "debug.frames",
+     "params": {
+      "action": "stop",
+      "raw": true
+     },
+     "keep": "frames",
+     "title": "debug.frames stop raw (main ms per frame; <film>.frames.json)"
     },
     {
      "do": "video_stop",

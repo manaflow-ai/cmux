@@ -248,6 +248,14 @@
      "title": "the layout and the load settle (nothing observable to wait on)"
     },
     {
+     "do": "rpc",
+     "method": "debug.frames",
+     "params": {
+      "action": "start"
+     },
+     "title": "debug.frames start (main ms per frame)"
+    },
+    {
      "do": "px_record_start",
      "name": "px-cmd-col-edge-3t-s1",
      "seconds": 9.6,
@@ -292,6 +300,16 @@
      "do": "wait",
      "seconds": 1.17,
      "title": "the columns land and rest"
+    },
+    {
+     "do": "rpc",
+     "method": "debug.frames",
+     "params": {
+      "action": "stop",
+      "raw": true
+     },
+     "keep": "frames",
+     "title": "debug.frames stop raw (main ms per frame; <film>.frames.json)"
     },
     {
      "do": "video_stop",
@@ -367,6 +385,14 @@
      "title": "the layout and the load settle (nothing observable to wait on)"
     },
     {
+     "do": "rpc",
+     "method": "debug.frames",
+     "params": {
+      "action": "start"
+     },
+     "title": "debug.frames start (main ms per frame)"
+    },
+    {
      "do": "px_record_start",
      "name": "px-cmd-col-edge-3t-reduce",
      "seconds": 9.4,
@@ -411,6 +437,16 @@
      "do": "wait",
      "seconds": 1.1,
      "title": "the columns land and rest"
+    },
+    {
+     "do": "rpc",
+     "method": "debug.frames",
+     "params": {
+      "action": "stop",
+      "raw": true
+     },
+     "keep": "frames",
+     "title": "debug.frames stop raw (main ms per frame; <film>.frames.json)"
     },
     {
      "do": "video_stop",

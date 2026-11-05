@@ -177,6 +177,14 @@
      "title": "the layout and the load settle (nothing observable to wait on)"
     },
     {
+     "do": "rpc",
+     "method": "debug.frames",
+     "params": {
+      "action": "start"
+     },
+     "title": "debug.frames start (main ms per frame)"
+    },
+    {
      "do": "px_record_start",
      "name": "px-new-column-c2-s025",
      "seconds": 13.4,
@@ -231,6 +239,16 @@
      "title": "the motion lands and rests"
     },
     {
+     "do": "rpc",
+     "method": "debug.frames",
+     "params": {
+      "action": "stop",
+      "raw": true
+     },
+     "keep": "frames",
+     "title": "debug.frames stop raw (main ms per frame; <film>.frames.json)"
+    },
+    {
      "do": "video_stop",
      "name": "px-new-column-c2-s025",
      "tail": 0.4,
@@ -254,6 +272,14 @@
      "do": "wait",
      "seconds": 0.8,
      "title": "the layout and the load settle (nothing observable to wait on)"
+    },
+    {
+     "do": "rpc",
+     "method": "debug.frames",
+     "params": {
+      "action": "start"
+     },
+     "title": "debug.frames start (main ms per frame)"
     },
     {
      "do": "px_record_start",
@@ -310,6 +336,16 @@
      "title": "the motion lands and rests"
     },
     {
+     "do": "rpc",
+     "method": "debug.frames",
+     "params": {
+      "action": "stop",
+      "raw": true
+     },
+     "keep": "frames",
+     "title": "debug.frames stop raw (main ms per frame; <film>.frames.json)"
+    },
+    {
      "do": "video_stop",
      "name": "px-new-column-c2-s05",
      "tail": 0.4,
@@ -333,6 +369,14 @@
      "do": "wait",
      "seconds": 0.8,
      "title": "the layout and the load settle (nothing observable to wait on)"
+    },
+    {
+     "do": "rpc",
+     "method": "debug.frames",
+     "params": {
+      "action": "start"
+     },
+     "title": "debug.frames start (main ms per frame)"
     },
     {
      "do": "px_record_start",
@@ -389,6 +433,16 @@
      "title": "the motion lands and rests"
     },
     {
+     "do": "rpc",
+     "method": "debug.frames",
+     "params": {
+      "action": "stop",
+      "raw": true
+     },
+     "keep": "frames",
+     "title": "debug.frames stop raw (main ms per frame; <film>.frames.json)"
+    },
+    {
      "do": "video_stop",
      "name": "px-new-column-c2-s1",
      "tail": 0.4,
@@ -412,6 +466,14 @@
      "do": "wait",
      "seconds": 0.8,
      "title": "the layout and the load settle (nothing observable to wait on)"
+    },
+    {
+     "do": "rpc",
+     "method": "debug.frames",
+     "params": {
+      "action": "start"
+     },
+     "title": "debug.frames start (main ms per frame)"
     },
     {
      "do": "px_record_start",
@@ -468,6 +530,16 @@
      "title": "the motion lands and rests"
     },
     {
+     "do": "rpc",
+     "method": "debug.frames",
+     "params": {
+      "action": "stop",
+      "raw": true
+     },
+     "keep": "frames",
+     "title": "debug.frames stop raw (main ms per frame; <film>.frames.json)"
+    },
+    {
      "do": "video_stop",
      "name": "px-new-column-c2-s2",
      "tail": 0.4,
@@ -491,6 +563,14 @@
      "do": "wait",
      "seconds": 0.8,
      "title": "the layout and the load settle (nothing observable to wait on)"
+    },
+    {
+     "do": "rpc",
+     "method": "debug.frames",
+     "params": {
+      "action": "start"
+     },
+     "title": "debug.frames start (main ms per frame)"
     },
     {
      "do": "px_record_start",
@@ -547,6 +627,16 @@
      "title": "the motion lands and rests"
     },
     {
+     "do": "rpc",
+     "method": "debug.frames",
+     "params": {
+      "action": "stop",
+      "raw": true
+     },
+     "keep": "frames",
+     "title": "debug.frames stop raw (main ms per frame; <film>.frames.json)"
+    },
+    {
      "do": "video_stop",
      "name": "px-new-column-c2-s4",
      "tail": 0.4,
@@ -570,6 +660,14 @@
      "do": "wait",
      "seconds": 0.8,
      "title": "the layout and the load settle (nothing observable to wait on)"
+    },
+    {
+     "do": "rpc",
+     "method": "debug.frames",
+     "params": {
+      "action": "start"
+     },
+     "title": "debug.frames start (main ms per frame)"
     },
     {
      "do": "px_record_start",
@@ -624,6 +722,16 @@
      "do": "wait",
      "seconds": 0.5,
      "title": "the motion lands and rests"
+    },
+    {
+     "do": "rpc",
+     "method": "debug.frames",
+     "params": {
+      "action": "stop",
+      "raw": true
+     },
+     "keep": "frames",
+     "title": "debug.frames stop raw (main ms per frame; <film>.frames.json)"
     },
     {
      "do": "video_stop",

@@ -442,7 +442,7 @@ class Case:
     drives it, so no curve is declared), and its rebuild after the recording (a close)."""
 
     def __init__(self, cid, title, layout, play, spring, input_kind, before=None, rebuild=None, play_seconds=None,
-                 fixture_tunables=(), speeds=None, setup=None, frames=False, lines=None):
+                 fixture_tunables=(), speeds=None, setup=None, frames=True, lines=None):
         self.cid, self.title, self.layout, self.play, self.spring = cid, title, layout, play, spring
         self.input, self.before, self.rebuild = input_kind, before or [], rebuild or []
         self.play_seconds = play_seconds
@@ -453,7 +453,9 @@ class Case:
         self.fixture_tunables = list(fixture_tunables)
         # Steps after the layout is built, once per journey (docked DevTools on a page, S5 m16 item 5).
         self.setup = list(setup or [])
-        # debug.frames per film (main ms per frame, raw; <film>.frames.json): the main-thread time of every motion frame.
+        # debug.frames per film (main ms per frame, raw; <film>.frames.json): the main-thread time of every motion frame, and the
+        # missed refreshes the m20 verdict (judge_m14.py) needs: a film with no read is "smooth not judged" and cannot pass. On by
+        # default for every case (m20 item 8, kit side).
         self.frames = frames
         # The scan rows per pane, as fractions of its height (None: px_record_start's own, 0.3 and 0.7).
         self.lines = tuple(lines) if lines else None
