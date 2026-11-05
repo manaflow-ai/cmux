@@ -610,6 +610,16 @@
   -webkit-mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-line-height)), transparent);
   mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-line-height)), transparent);
 }
+/* While the card slides shut (fold.ts playResize marks it data-fold-clip), its preview fills the
+   height the card has left, so the label rides the card's bottom edge up instead of jumping to its
+   closed place over empty space. */
+.cv-user__paste-card[data-fold-clip] {
+  box-sizing: border-box;
+}
+.cv-user__paste-card[data-fold-clip]:not([data-open]) .cv-user__paste-text {
+  flex: 1 1 0;
+  max-height: none;
+}
 .cv-user__paste {
   display: flex;
   flex: none;

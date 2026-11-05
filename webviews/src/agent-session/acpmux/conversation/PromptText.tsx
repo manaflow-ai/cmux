@@ -15,6 +15,7 @@ import {
   hasHugeTypedPart,
   isHugePrompt,
   looksLongPrompt,
+  pasteName,
   pastePreview,
   headParts,
   promptParts,
@@ -367,6 +368,7 @@ export function PasteChip({
     };
   }, []);
   const preview = useMemo(() => (open ? text : pastePreview(text)), [open, text]);
+  const size = pastedSize(t, language, text);
   return (
     <span className="cv-user__paste-block">
       <span ref={card} className="cv-user__paste-card" data-open={open ? "" : undefined}>
@@ -390,12 +392,15 @@ export function PasteChip({
           className="cv-user__paste"
           // Its name and size are labels, not the prompt's text: Find paints none here.
           data-find-skip=""
+          // The preview is hidden from screen readers, so the name says whose paste it is, as the
+          // composer's card does.
+          aria-label={`${pasteName(text)}, ${t("composer.pastedText")} · ${size}`}
           aria-expanded={open}
           aria-controls={id}
           onClick={toggle}
         >
           <span className="cv-user__paste-name">{t("composer.pastedText")}</span>
-          <span className="cv-user__paste-lines">{pastedSize(t, language, text)}</span>
+          <span className="cv-user__paste-lines">{size}</span>
           <ChevronDown size={12} className="cv-user__paste-chevron" />
         </button>
       </span>
