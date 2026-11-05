@@ -28,7 +28,7 @@ public final class TerminalDisplayProbe {
         public var followFrames: Int?
         public var terminalsFollowed: [String: TerminalPaneFollowTally]?
 
-        enum CodingKeys: String, CodingKey {
+        nonisolated enum CodingKeys: String, CodingKey {
             case armed, calls, passes
             case totalMs = "total_ms", maxCallMs = "max_call_ms", passP50Ms = "pass_p50_ms", passP95Ms = "pass_p95_ms"
             case passMaxMs = "pass_max_ms", followFrames = "follow_frames", terminalsFollowed = "terminals_followed"

@@ -30,7 +30,7 @@ public nonisolated struct TerminalPaneFollowTally: Sendable, Equatable, Encodabl
         public var frame: Int
         public var sizes: TerminalPaneFollowSizes
 
-        enum CodingKeys: String, CodingKey { case frame, area, asked, shown }
+        nonisolated enum CodingKeys: String, CodingKey { case frame, area, asked, shown }
 
         public func encode(to encoder: any Encoder) throws {
             var container = encoder.container(keyedBy: CodingKeys.self)
@@ -52,7 +52,7 @@ public nonisolated struct TerminalPaneFollowTally: Sendable, Equatable, Encodabl
     public private(set) var firstHeld: [Mismatch] = []
     public private(set) var firstLagging: [Mismatch] = []
 
-    enum CodingKeys: String, CodingKey {
+    nonisolated enum CodingKeys: String, CodingKey {
         case frames, held, lagging, firstHeld = "first_held", firstLagging = "first_lagging"
     }
 
