@@ -1,42 +1,43 @@
+public import AppKit
 public import CmuxNextDesign
-import SwiftUI
 
 /// Colors and type for the Automations page, from the theme tokens of the surface that hosts it.
+///
+/// The colors are kept as theme values, so two palettes compare equal when they draw the same.
 public struct AutomationsPalette: Sendable, Equatable {
-    var text: Color
-    var secondary: Color
-    var tertiary: Color
-    var background: Color
-    var card: Color
-    var hover: Color
-    var selection: Color
-    var separator: Color
-    var danger: Color
-    var success: Color
-    var attention: Color
+    private let tokens: Colors
+
+    /// The theme values the page draws in.
+    private struct Colors: Sendable, Equatable {
+        var text, secondary, tertiary, background, card, hover, selection, separator, danger, success, attention: ThemeRGB
+    }
 
     /// The palette for `tokens` (a window's theme scope).
     public init(tokens: ThemeTokens) {
-        func color(_ rgb: ThemeRGB) -> Color { Color(nsColor: rgb.nsColor) }
-        text = color(tokens.textPrimary)
-        secondary = color(tokens.textSecondary)
-        tertiary = color(tokens.textTertiary)
-        background = color(tokens.contentBackground)
-        card = color(tokens.chromeBackground)
-        hover = color(tokens.hoverFill)
-        selection = color(tokens.selectionFill)
-        separator = color(tokens.separator)
-        danger = color(tokens.danger)
-        success = color(tokens.success)
-        attention = color(tokens.attention)
+        self.tokens = Colors(text: tokens.textPrimary, secondary: tokens.textSecondary, tertiary: tokens.textTertiary,
+                             background: tokens.contentBackground, card: tokens.chromeBackground, hover: tokens.hoverFill,
+                             selection: tokens.selectionFill, separator: tokens.separator, danger: tokens.danger,
+                             success: tokens.success, attention: tokens.attention)
     }
 
-    var body: Font { Font(Typography.body) }
-    var emphasized: Font { Font(Typography.bodyEmphasized) }
-    var caption: Font { Font(Typography.caption) }
-    var header: Font { Font(Typography.header) }
+    var text: NSColor { tokens.text.nsColor }
+    var secondary: NSColor { tokens.secondary.nsColor }
+    var tertiary: NSColor { tokens.tertiary.nsColor }
+    var background: NSColor { tokens.background.nsColor }
+    var card: NSColor { tokens.card.nsColor }
+    var hover: NSColor { tokens.hover.nsColor }
+    var selection: NSColor { tokens.selection.nsColor }
+    var separator: NSColor { tokens.separator.nsColor }
+    var danger: NSColor { tokens.danger.nsColor }
+    var success: NSColor { tokens.success.nsColor }
+    var attention: NSColor { tokens.attention.nsColor }
 
-    func color(_ result: AutomationRow.LastResult) -> Color {
+    @MainActor var body: NSFont { Typography.body }
+    @MainActor var emphasized: NSFont { Typography.bodyEmphasized }
+    @MainActor var caption: NSFont { Typography.caption }
+    @MainActor var header: NSFont { Typography.header }
+
+    func color(_ result: AutomationRow.LastResult) -> NSColor {
         switch result {
         case .succeeded: success
         case .failed: danger

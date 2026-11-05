@@ -1,6 +1,5 @@
 public import AppKit
 public import CmuxNextDesign
-import SwiftUI
 
 /// The Automations page as the app shows it (docs/automations-platonic-ideal.md section 8, option A):
 /// one ``AutomationsPage`` model per app over both sources, and one hosted view per tab or top page.
