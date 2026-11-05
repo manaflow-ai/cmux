@@ -198,17 +198,18 @@ def base_terminal(j, step):
 
 
 def refocus_terminal(j, step):
-    """No key: read the focused terminal again. The presses close their workspaces, so the focus ends on a terminal
-    whose pane and terminal ids differ from base_terminal's; a later type/expect must check that terminal."""
-    end = now() + float(step.get("timeout", 15))
+    """No key: adopt the focused terminal again. The presses close their workspaces, so the focus can end on a
+    terminal other than base_terminal's, and a view's `terminal_id` is the host id, which no daemon selector resolves:
+    the driver's creation_place names the daemon's terminal (term_...) of the focused pane, as focused_terminal does."""
+    end, why = now() + float(step.get("timeout", 15)), "no focused terminal"
     while now() < end:
-        pane = focused_pane(j)
-        if pane.get("kind") == "terminal" and pane.get("terminal_id"):
-            j.term, j.host_pid = pane.get("terminal_id"), pane.get("host_pid") or j.host_pid
-            j.pane = pane.get("pane") or pane.get("id") or j.pane
-            return {"terminal": j.term, "pane": j.pane}
+        view = focused_pane(j)
+        if view.get("kind") == "terminal" and view.get("terminal_id"):
+            place, why = j.creation_place(view, j.topology())
+            if place:
+                return j.adopt(place[2], view.get("pane"), int(view["host_pid"]) if view.get("host_pid") else None)
         time.sleep(0.2)
-    raise StepError("no focused terminal after the presses")
+    raise StepError(f"no daemon terminal for the focused pane after the presses: {why}")
 
 
 def focused_pane(j):
