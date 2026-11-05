@@ -2670,14 +2670,17 @@ class LostBesideLaterSiblingsTests(unittest.TestCase):
                 self.assertEqual(janitor.lost_wait_start(stuck, jobs[run["id"]]),
                                  janitor.parse_time("2026-10-31T02:18:12Z"))
 
-    def test_it_is_lost_from_02_48_and_fails_over_at_the_open_head(self):
-        # 30 minutes after 02:18:12Z, react-apps-check (1) and (4) and react-doctor were running (created 02:30Z
-        # and 02:43Z) and `web / runners` had just finished (02:43:49Z); at 02:57:39Z the react-apps-base-check
-        # shards had been created and were queued. None of them can be its need, and the run cannot finish
-        # without it, so it is lost at both: the cancel's re-run of failed (cancelled) jobs brings them back too.
-        for at in ("2026-10-31T02:48:30Z", "2026-10-31T02:57:39Z"):
-            with self.subTest(at=at):
-                self.assert_fails_over(at)
+    def test_it_fails_over_at_the_open_head_once_no_sibling_is_running(self):
+        # At 02:57:39Z the react-apps-base-check shards had been created and were queued, and nothing else ran.
+        # None of them can be its need, and the run cannot finish without it, so it is lost: the cancel's
+        # re-run of failed (cancelled) jobs brings them back too.
+        self.assert_fails_over("2026-10-31T02:57:39Z")
+        # At 02:48:30Z, 30 minutes after 02:18:12Z, react-apps-check (1) and (4) and react-doctor were running
+        # (created 02:30Z and 02:43Z): a cancel then would kill their work (run 42018091049), so it waits.
+        at = "2026-10-31T02:48:30Z"
+        run, sweep, jobs = self.world(at)
+        self.assertTrue(any(job["status"] == "in_progress" for job in jobs[run["id"]]))
+        self.assertEqual(janitor.find_lost([run, sweep], jobs, now=janitor.parse_time(at)), {})
         # Not before its 30 minutes.
         run, sweep, jobs = self.world("2026-10-31T02:48:00Z")
         self.assertEqual(janitor.find_lost([run, sweep], jobs, now=janitor.parse_time("2026-10-31T02:48:00Z")), {})
@@ -2714,6 +2717,77 @@ class LostBesideLaterSiblingsTests(unittest.TestCase):
                             labels=["blacksmith-8vcpu-ubuntu-2404"], created_at="2026-10-31T02:15:00Z")
                 jobs[run["id"]].append(gate)
                 self.assertEqual(janitor.find_lost([run, sweep], jobs, now=now), {})
+
+
+class LostBesideARunningSiblingTests(unittest.TestCase):
+    """Run 42018091049 attempt 2 (PR #36356, cmux-next, 2026-11-05): a lost job beside a running sibling.
+
+    `cmux-next daemon tests` and `cmux-next swift test` (glaeda-side-std-xcode-26.6) were created at 11:51:20Z.
+    The swift test started on a runner at 12:19:37Z; the daemon tests stayed queued with no runner while newer
+    jobs on the label started. The 12:43Z sweep found the daemon tests lost at the open head and cancelled the
+    run, killing the swift test 26 minutes into its run. A running sibling now gates the failover, and the
+    cancel re-checks for one.
+    """
+
+    SIDE_LABEL = "glaeda-side-std-xcode-26.6"
+    SHA = "b7ccd309521263c5288ca4b61478e7fac4ed49dc"
+    AT = "2026-11-05T12:44:30Z"
+
+    def world(self, swift_done=None):
+        history = [
+            (127227054661, "cmux-next push head preflight", LINUX, "2026-11-05T11:49:34Z", "2026-11-05T11:49:36Z",
+             "2026-11-05T11:49:38Z", 101),
+            (127227297469, "cmux-next fleet Release compile", LINUX, "2026-11-05T11:50:07Z", "2026-11-05T11:50:08Z",
+             "2026-11-05T11:50:16Z", 102),
+            (127227843398, "cmux-next swift test", self.SIDE_LABEL, "2026-11-05T11:51:20Z", "2026-11-05T12:19:37Z",
+             swift_done, 201),
+            (127227843495, "cmux-next daemon tests", self.SIDE_LABEL, "2026-11-05T11:51:20Z", None, None, None),
+        ]
+        jobs = recorded_jobs(history, self.AT)
+        run = {"id": 42018091049, "event": "pull_request", "status": "in_progress", "run_attempt": 2,
+               "head_branch": "leo/vm-agent-key-rust-rules", "head_sha": self.SHA,
+               "path": ".github/workflows/cmux-next.yml", "name": "cmux-next · b550d5f611919488d58d388e469eb4860f9640f8",
+               "created_at": "2026-11-05T11:19:51Z", "triggering_actor": {"login": "teamleaderleo"},
+               "head_repository": {"full_name": "manaflow-ai/cmux", "owner": {"login": "manaflow-ai"}},
+               "pull_requests": [{"number": 36356}]}
+        other = make_run(event="pull_request", branch="another-pr", sha="ccc", path=".github/workflows/cmux-next.yml",
+                         name="cmux-next · ccc", status="in_progress")
+        served = recorded_jobs([(1, "cmux-next daemon tests", self.SIDE_LABEL, "2026-11-05T12:00:00Z",
+                                 "2026-11-05T12:01:00Z", None, 77)], self.AT)
+        prs = {run["head_branch"]: [make_pr(36356, head=self.SHA)], "another-pr": []}
+        return run, other, {run["id"]: jobs, other["id"]: served}, prs
+
+    def plan(self, runs, jobs, prs):
+        return janitor.build_plan(runs, jobs, prs, threshold=6, max_cancels=10, pull_request_policy="compile-only",
+                                  now=janitor.parse_time(self.AT), rerun_state=True, branch_heads={},
+                                  app_rerun=True, cmux_bot_rerun=True)
+
+    def test_a_running_sibling_keeps_the_run_from_being_cancelled(self):
+        run, other, jobs, prs = self.world()
+        swift = next(job for job in jobs[run["id"]] if job["name"] == "cmux-next swift test")
+        self.assertEqual((swift["status"], swift["runner_name"]), ("in_progress", "runner-201"))
+        self.assertEqual(janitor.find_lost([run, other], jobs, now=janitor.parse_time(self.AT)), {})
+        decision = decision_for(self.plan([run, other], jobs, prs), run)
+        self.assertTrue(decision is None or decision.action == "skip")
+
+    def test_it_fails_over_once_the_sibling_finished(self):
+        run, other, jobs, prs = self.world(swift_done="2026-11-05T12:40:00Z")
+        lost = janitor.find_lost([run, other], jobs, now=janitor.parse_time(self.AT))
+        self.assertEqual(lost[run["id"]].job_name, "cmux-next daemon tests")
+        decision = decision_for(self.plan([run, other], jobs, prs), run)
+        self.assertEqual((decision.action, decision.candidate.category), ("cancel", "lost"))
+        self.assertTrue(decision.candidate.open_head)
+
+    def test_the_cancel_is_refused_when_a_sibling_started_since_the_inventory(self):
+        run, other, jobs, prs = self.world(swift_done="2026-11-05T12:40:00Z")
+        candidate = decision_for(self.plan([run, other], jobs, prs), run).candidate
+        now_jobs = [dict(job) for job in jobs[run["id"]]]
+        now_jobs.append(dict(now_jobs[-1], id=5, name="cmux-next Swift exports cache", status="in_progress",
+                             runner_id=9, runner_name="runner-9", labels=[LINUX]))
+        fake = FakeGitHub({run["id"]: dict(run)}, {run["id"]: now_jobs})
+        results, failures = janitor.cancel_plan(fake, [candidate], jobs)
+        self.assertIn("is running beside the lost job", results[run["id"]])
+        self.assertEqual((failures, fake.posts()), (0, []))
 
 
 class LostInAFailedRunTests(unittest.TestCase):
