@@ -30,6 +30,7 @@ extension TerminalSurfaceView {
     func place(_ frame: CGRect, anchor: PaneMotionAnchor) { // perf-hot: 1ms motion-frame (each frame of a key resize)
         let owned = TerminalDragTunables.framesOwnedByCommit.value
         if owned != frameOwnership.embedderPresents { setFramesOwnedByCommit(owned) }
+        window.map(TerminalFramePresenter.forWindow)?.note("place \(TerminalFramePresenter.tag(self)) \(frame.width)x\(frame.height) owned=\(owned) shown=\(isShown) inFlight=\(frameOwnership.inFlight.map { "\($0.width)x\($0.height)" } ?? "-") bounds=\(bounds.width)x\(bounds.height) state=\(TerminalFramePresenter.name(hostFrame(present: false)))")
         guard owned, isShown, window != nil, surface != nil else {
             // A size or a scale that waits gives way: the view takes this frame now (hidden, parked, no window).
             if frameOwnership.inFlight != nil || frameOwnership.scale != nil {

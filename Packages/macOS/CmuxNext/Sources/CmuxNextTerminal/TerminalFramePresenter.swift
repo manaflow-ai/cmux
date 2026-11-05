@@ -48,6 +48,29 @@ final class TerminalFramePresenter {
     /// What this window's presenter did, cumulative.
     private(set) var stats = Stats()
 
+    // SCRATCH (-nomerge): a trace of every request, pass and landing, for the commit-size suite's cause hunt.
+    var trace: [String]?
+    private let traceStart = ContinuousClock.now
+    func note(_ line: @autoclosure () -> String) {
+        guard trace != nil else { return }
+        let d = traceStart.duration(to: .now)
+        let ms = Double(d.components.seconds) * 1000 + Double(d.components.attoseconds) / 1e15
+        trace?.append(String(format: "%9.2f ", ms) + line())
+    }
+    static func tag(_ view: TerminalSurfaceView) -> String { String(UInt(bitPattern: ObjectIdentifier(view).hashValue) & 0xfff, radix: 16) }
+    static func name(_ s: ghostty_host_frame_e) -> String {
+        switch s {
+        case GHOSTTY_HOST_FRAME_NONE: "NONE"
+        case GHOSTTY_HOST_FRAME_HIDDEN: "HIDDEN"
+        case GHOSTTY_HOST_FRAME_SHOWN: "SHOWN"
+        case GHOSTTY_HOST_FRAME_READY: "READY"
+        case GHOSTTY_HOST_FRAME_PRESENTED: "PRESENTED"
+        case GHOSTTY_HOST_FRAME_PENDING: "PENDING"
+        case GHOSTTY_HOST_FRAME_HELD: "HELD"
+        default: "?\(s.rawValue)"
+        }
+    }
+
     private struct Request {
         weak var view: TerminalSurfaceView?
         /// The refresh it was made in: its group.
@@ -71,8 +94,9 @@ final class TerminalFramePresenter {
     private var passObserver: MainRunLoopObserver?
     private lazy var client = FrameClient(owner: "Terminal.framePresenter", isAnimation: false, scheduler: { [weak self] in
         self?.window.map(FrameScheduler.forWindow) ?? .app
-    }) { [weak self] _ in
-        self?.tick() ?? false
+    }) { [weak self] tick in
+        self?.note("tick epoch=\((self?.epoch ?? 0) &+ 1) interval=\(tick.refreshInterval.map { String(format: "%.4f", $0) } ?? "stall") requests=\(self?.requests.count ?? -1)")
+        return self?.tick() ?? false
     }
 
     private init(window: NSWindow) {
@@ -92,6 +116,7 @@ final class TerminalFramePresenter {
     /// `view` asked Ghostty for a frame at a new size: the next commits present it with its bounds, or keep both.
     func request(_ view: TerminalSurfaceView) {
         let id = ObjectIdentifier(view)
+        note("request \(Self.tag(view)) epoch=\(epoch) size=\(view.frameOwnership.inFlight.map { "\($0.width)x\($0.height)" } ?? "-") state=\(Self.name(view.hostFrame(present: false)))")
         requests[id] = Request(view: view, epoch: epoch)
         watched[id] = nil
         armPass()
@@ -195,6 +220,7 @@ final class TerminalFramePresenter {
             }
             let age = epoch &- request.epoch
             if waitingGroups.contains(request.epoch), age < Self.groupTicks {
+                note("groupwait \(Self.tag(view)) age=\(age)")
                 if Self.isReady(view.hostFrame(present: false)) { stats.groupWaits += 1 }
                 continue
             }
@@ -202,6 +228,7 @@ final class TerminalFramePresenter {
             // commit of another terminal can ship this one's new frame with its old bounds in between.
             CATransaction.lock()
             let shown = view.hostFrame(present: true)
+            note("pass \(Self.tag(view)) age=\(age) shown=\(Self.name(shown))")
             let presented = shown == GHOSTTY_HOST_FRAME_PRESENTED || shown == GHOSTTY_HOST_FRAME_SHOWN
             // Cleared before the frame changes: a request the new frame makes for this view stays.
             if presented { requests[id] = nil }
@@ -219,6 +246,7 @@ final class TerminalFramePresenter {
             default:
                 stats.keeps += 1
                 if age > Self.keepLimit {
+                    note("FALLBACK \(Self.tag(view)) age=\(age)")
                     stats.fallbacks += 1
                     land(view, id: id, watch: true)
                 }

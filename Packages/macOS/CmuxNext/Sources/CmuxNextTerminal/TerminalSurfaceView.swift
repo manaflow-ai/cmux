@@ -550,6 +550,7 @@ public final class TerminalSurfaceView: NSView {
             session?.frameChanges.wake()
         }
         let drawing = pause == nil
+        if drawing != lastOcclusionVisible { window.map(TerminalFramePresenter.forWindow)?.note("occlusion \(TerminalFramePresenter.tag(self)) drawing=\(drawing) pause=\(pause.map { "\($0)" } ?? "-")") }
         guard drawing != lastOcclusionVisible else { return }
         lastOcclusionVisible = drawing
         session?.frameChanges.wake() // drawn or paused (a window shown, minimized, occluded): its kept frame follows

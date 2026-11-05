@@ -293,6 +293,7 @@ struct TerminalSurfaceCommitSizeTests {
             window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 1000, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
+            CommitSizeTrace.begin(window)
             window.contentView = root
             window.orderFrontRegardless()
             root.layoutSubtreeIfNeeded() // sync-layout: the panes exist before their terminals attach
@@ -332,6 +333,7 @@ struct TerminalSurfaceCommitSizeTests {
         }
 
         func close() {
+            CommitSizeTrace.end(window)
             sampler = nil
             for io in ios { io.finish() }
             window.close()
@@ -344,6 +346,7 @@ struct TerminalSurfaceCommitSizeTests {
                 guard let layer = session.surfaceView.layer, let frame = session.surfaceView.presentedFrame else { continue }
                 let scale = layer.contentsScale
                 let width = Int((layer.bounds.width * scale).rounded()), height = Int((layer.bounds.height * scale).rounded())
+                TerminalFramePresenter.forWindow(window).note("turn \(TerminalFramePresenter.tag(session.surfaceView)) layer=\(width)x\(height) frame=\(frame.width)x\(frame.height)\(width != frame.width || height != frame.height ? " MISMATCH" : "")")
                 if width != frame.width || height != frame.height {
                     mismatches.append("layer \(width)x\(height) frame \(frame.width)x\(frame.height)")
                 }
@@ -444,6 +447,7 @@ struct TerminalSurfaceCommitSizeTests {
             window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 640, height: 320), styleMask: [.borderless],
                               backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
+            CommitSizeTrace.begin(window)
             container = ResizingContainer(frame: NSRect(x: 0, y: 0, width: 640, height: 320))
             window.contentView = container
             container.terminal = session.view
@@ -469,6 +473,7 @@ struct TerminalSurfaceCommitSizeTests {
         }
 
         func close() {
+            CommitSizeTrace.end(window)
             observer = nil
             io.finish()
             window.close()
@@ -490,6 +495,7 @@ struct TerminalSurfaceCommitSizeTests {
 
         private func sample() {
             guard let layer = layerPixels, let frame = shownPixels else { return }
+            TerminalFramePresenter.forWindow(window).note("turn layer=\(layer) frame=\(frame)\(layer != frame ? " MISMATCH" : "")")
             samples += 1
             turns.append(Turn(layer: layer, frame: frame))
         }
