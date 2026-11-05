@@ -152,6 +152,48 @@ def write(text):
                    capture_output=True, text=True, timeout=60, env=env, stdin=subprocess.DEVNULL)
 
 
+# Background work on a perf mini spoils an A/B (2026-11-05: mediaanalysisd took 10.6 s CPU in one ON arm). Each
+# round records these daemons' CPU over its window; a reader drops a round above BACKGROUND_LIMIT_S.
+BACKGROUND_DAEMONS = ("mediaanalysisd", "mds", "mds_stores", "mdworker", "mdworker_shared", "mdbulkimport",
+                      "photoanalysisd", "corespotlightd")
+BACKGROUND_LIMIT_S = 1.0
+
+
+def background_cpu():
+    """CPU seconds so far per pid of the background daemons ({pid: (name, seconds)}); {} when ps fails."""
+    try:
+        out = subprocess.run(["ps", "-A", "-o", "pid=,time=,comm="], capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    found = {}
+    for line in out.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) < 3:
+            continue
+        name = os.path.basename(parts[2].strip())
+        if name not in BACKGROUND_DAEMONS:
+            continue
+        seconds = 0.0
+        for field in parts[1].replace("-", ":").split(":"):
+            try:
+                seconds = seconds * 60 + float(field)
+            except ValueError:
+                seconds = 0.0
+        found[parts[0]] = (name, seconds)
+    return found
+
+
+def background_delta(before):
+    """CPU seconds the background daemons used since `before`, per daemon name, plus their total."""
+    by_name = {}
+    for pid, (name, seconds) in background_cpu().items():
+        used = seconds - before.get(pid, (name, 0.0))[1]
+        if used > 0:
+            by_name[name] = round(by_name.get(name, 0.0) + used, 2)
+    return {"by_name": by_name, "total_s": round(sum(by_name.values()), 2), "limit_s": BACKGROUND_LIMIT_S,
+            "over_limit": sum(by_name.values()) > BACKGROUND_LIMIT_S}
+
+
 def counter_delta(before, after):
     """Sums counter deltas of the terminals present before and after, paired by id (not by x order:
     a pane that appears, closes or moves between the two reads must not pair with another's counters).
@@ -319,11 +361,13 @@ def measure(name):
                 rounds.append({**entry, "error": problem})
                 continue
             before = surfaces()
+            background = background_cpu()
             rpc("debug.terminal_display", {"action": "start"})
             rpc("debug.frames", {"action": "start"})
             drag(x0, y0, refresh_ms / 1000)
             frames = rpc("debug.frames", {"action": "stop", "raw": True}) or {}
             display = rpc("debug.terminal_display", {"action": "stop"}) or {}
+            entry["background_cpu"] = background_delta(background)
             time.sleep(1.0)  # bench script: the drag's last grid lands at the owner
             after = surfaces()
             numbers, raw = frame_numbers(frames)
@@ -441,6 +485,7 @@ def measure_keys(name):
                 continue
             before = surfaces()
             recording = xctrace_start(f"{name}-{arms.label(arm)}")
+            background = background_cpu()
             rpc("debug.terminal_display", {"action": "start"})
             rpc("debug.frames", {"action": "start"})
             presses = []
@@ -463,6 +508,7 @@ def measure_keys(name):
                 presses.append(press)
             frames = rpc("debug.frames", {"action": "stop", "raw": True}) or {}
             display = rpc("debug.terminal_display", {"action": "stop"}) or {}
+            entry["background_cpu"] = background_delta(background)
             profile = xctrace_stop(recording, f"{name}-{arms.label(arm)}")
             if profile:
                 entry["xctrace"] = profile
