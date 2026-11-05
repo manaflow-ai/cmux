@@ -1199,6 +1199,8 @@ final class ChatRowLookup {
             for call in calls { hasher.combine(disclosures.isOpen("tool-\(call.id)")) }
         case .thought:
             hasher.combine(disclosures.isOpen("thought-\(row.id)"))
+        case .whoElse(let id, _):
+            hasher.combine(disclosures.isOpen(WhoElseCard.disclosureKey(id)))
         case .edit(let call, _):
             // A running edit draws as its tool row.
             hasher.combine(disclosures.isOpen("diff-\(call.id)"))
@@ -1342,7 +1344,7 @@ extension ChatRow {
     }
 
     static let hostedReuseKeys = ["prompt", "block", "thought", "tool", "toolGroup", "edit", "plan", "permission", "question",
-                                  "subagents", "working", "editedFiles", "stopped", "failed", "actions", "nextStep", "other"]
+                                  "subagents", "working", "editedFiles", "stopped", "failed", "actions", "nextStep", "whoElse", "other"]
 
     /// The SwiftUI reuse pool: one per kind, so a reused cell keeps its view structure.
     var hostedReuseKey: String {
@@ -1364,6 +1366,7 @@ extension ChatRow {
         case .failed: "failed"
         case .actions: "actions"
         case .nextStep: "nextStep"
+        case .whoElse: "whoElse"
         }
     }
 
@@ -1425,6 +1428,9 @@ extension ChatRow {
         case .failed: return 170
         case .actions: return 44
         case .nextStep(let ask, let answer, _): return answer == nil ? 96 + CGFloat(ask.options.count) * 50 : 64
+        case .whoElse(_, let call):
+            let rows = min(call.answer?.sessions.count ?? 0, WhoElseCall.rowsShown)
+            return 32 + CGFloat(rows) * 48 + (call.hiddenCount(shown: rows) > 0 ? 32 : 0) + (call.unreachedNote == nil ? 0 : 20)
         }
     }
 }

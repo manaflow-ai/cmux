@@ -157,6 +157,15 @@ struct ChatRowView: View {
                 // The answer goes as the next prompt (`session/prompt`), in the agent's own words.
                 store.send(prompt: option.label)
             }
+        case .whoElse(let id, let call):
+            // A session here opens as a tab of this workspace by its id; a peer's session stays a
+            // name (a phone can't route to another machine's acpmux).
+            let open = store.source.isReadOnly ? nil : context.surface.tabActions?.openSession
+            WhoElseCard(id: id, call: call, open: open.map { open in
+                { (session: WhoElseCall.Session) -> Void in
+                    Task { @MainActor in await open(session.sessionId, session.harness, session.title) }
+                }
+            })
         case .actions(let turn, let isLast):
             AnswerActionRow(turn: turn, isLast: isLast, insetsTargets: false, retryWith: RetryModelChoice(store: store, turn: turn),
                             polish: ChatPolishMenuButtons(store: store, turnID: turn.id, prompt: nil)) {

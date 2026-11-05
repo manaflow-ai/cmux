@@ -69,6 +69,53 @@ extension MockAgentSession {
         emit(.turnResult(turnId: turnID, status: .completed, errorText: nil, at: start.addingTimeInterval(41)))
     }
 
+    /// Claude's acpmux `who_else` MCP call (`mcp__acpmux__who_else`) before it reads a file: three
+    /// other sessions, a peer's named with its machine, one matched by topic, and one machine that did
+    /// not answer (the Mac's `WhoElseCard.gallery.ts` claude state). Draws as the who-else card.
+    func replayWhoElseCall() {
+        let minute = 60_000.0
+        func file(_ path: String, _ edited: Bool) -> JSONValue {
+            .object(["path": .string("cmux-next-ios/rust/cmux-mobile-link/src/\(path)"), "edited": .bool(edited)])
+        }
+        func session(_ id: String, name: String, host: String? = nil, harness: String, live: Bool, branch: String, pulls: [String],
+                     ago: Double, files: [JSONValue], inCommon: Int, topic: [String] = []) -> JSONValue {
+            var object: [String: JSONValue] = [
+                "sessionId": .string(id), "name": .string(name), "ref": .string(host.map { "\($0)/\(name)" } ?? name),
+                "harness": .string(harness), "status": .string(live ? "running" : "idle"), "live": .bool(live),
+                "branch": .string(branch), "pullRequests": .array(pulls.map { .string("https://github.com/manaflow-ai/cmux/pull/\($0)") }),
+                "agoMs": .number(ago), "filesInCommon": .number(Double(inCommon)),
+                "editedInCommon": .number(Double(files.count(where: { $0["edited"] == .bool(true) }))),
+                "files": .array(files), "sameWorktree": .bool(false), "sameBranch": .bool(false),
+                "topicWords": .array(topic.map(JSONValue.string)),
+            ]
+            if let host { object["host"] = .string(host) }
+            return .object(object)
+        }
+        let answer: JSONValue = .object([
+            "schema": .string(WhoElseCall.schema),
+            "query": .object(["files": .array([.string("cmux-next-ios/rust/cmux-mobile-link/src/frame.rs")]), "fileCount": .number(1),
+                              "topic": .string("link framing")]),
+            "sessions": .array([
+                session("who-dialer", name: "transport-switch", harness: "codex", live: true, branch: "lane/transport-switch",
+                        pulls: ["36001"], ago: 4 * minute, files: [file("frame.rs", true), file("dial.rs", true), file("wg.rs", false)],
+                        inCommon: 4),
+                session("who-relay", name: "relay-probe", host: "big-red", harness: "opencode", live: true, branch: "lane/relay-probe",
+                        pulls: [], ago: 3 * 60 * minute, files: [file("frame.rs", false)], inCommon: 1),
+                session("who-framing", name: "framing-docs", harness: "claude", live: false, branch: "lane/framing-docs",
+                        pulls: ["35880"], ago: 26 * 60 * minute, files: [], inCommon: 0, topic: ["link", "framing"]),
+            ]),
+            "more": .number(0),
+            "unreached": .array([.object(["host": .string("cosmic-gray"), "error": .string("no answer in 5 s")])]),
+            "lines": .array([]),
+        ])
+        emit(.update(.toolCall(ACPToolCall(
+            id: "h-who", title: "mcp__acpmux__who_else", kind: .other, status: .completed,
+            content: [.content(.text("transport-switch (codex) edited frame.rs 4m ago"))],
+            rawInput: .object(["files": .array([.string("cmux-next-ios/rust/cmux-mobile-link/src/frame.rs")]), "topic": .string("link framing")]),
+            rawOutput: .object(["content": .array([.object(["type": .string("text"), "text": .string("…")])]), "structuredContent": answer])
+        ))))
+    }
+
     private func emitSub(_ id: String, _ update: ACPSessionUpdate) {
         emit(.subagentUpdate(subagentID: id, update))
     }

@@ -58,6 +58,10 @@ extension AgentTurn {
                     rows.append(.edit(call))
                 } else if permissionTools.contains(call.id), call.status == .pending {
                     continue
+                } else if WhoElseCall(call) != nil {
+                    // "Who else is working on these files" stands alone: its row draws as the card.
+                    flush()
+                    rows.append(.tool(call))
                 } else {
                     pending.append(call)
                 }

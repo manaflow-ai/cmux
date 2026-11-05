@@ -834,7 +834,12 @@ public final class WorkspaceTabsSource: TabsDataSource {
         // `/fork` and an earlier prompt's Edit and Resend open their copy as a tab beside it.
         surface.tabActions = AgentChatTabActions(
             fork: { [weak self] in await self?.fork(id) },
-            editAndResend: { [weak self] seq, prompt in await self?.editAndResend(id, through: seq, prompt: prompt) ?? false }
+            editAndResend: { [weak self] seq, prompt in await self?.editAndResend(id, through: seq, prompt: prompt) ?? false },
+            // The who-else card's session chips: that chat as a tab here, as the Chats list opens one.
+            openSession: { [weak self] sessionID, harness, title in
+                let chat = AgentChatListing(id: sessionID, title: title, harness: harness, cwd: "", status: "idle", updatedAt: nil, archived: false)
+                if let refusal = await self?.openAgentChat(chat) { self?.show(refusal) }
+            }
         )
         surfaces[id] = surface
         return surface
