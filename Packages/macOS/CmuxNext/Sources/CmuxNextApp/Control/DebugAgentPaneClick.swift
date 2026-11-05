@@ -52,9 +52,9 @@ enum DebugAgentPaneClick {
         if view.debugShowsChromium {
             // The pane's gesture monitor judges a real click in the page window before Chromium gets it; the
             // DevTools press is the page's half only, so the monitor gets its native mouse down first.
-            willDeliver?()
             judgeChromiumClick(x: x, y: y, pane: pane, view: view, services: services)
-            let pressed = await view.debugPress(x: x, y: y)
+            // The click's instant: the release, which fires the page's click, not the press's DevTools round trip before it.
+            let pressed = await view.debugPress(x: x, y: y, beforeRelease: willDeliver)
             let page = (try? await view.callPageScript(report)) as? String
             let pageObject = page.flatMap { (try? JSONSerialization.jsonObject(with: Data($0.utf8))) as? [String: Any] }
             return .object([

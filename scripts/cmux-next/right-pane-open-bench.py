@@ -248,7 +248,9 @@ class Run:
                              "CMUX_NEXT_CONFIG_FILE": os.path.join(self.scratch, "cmux.json")})
             self.write_layout()
         else:
-            self.pid, self.sock = self.relaunch()
+            # Into this run's scratch (its HOME, config and saved state), with bench_memory's whole environment
+            # (the scratch Downloads folder too), as a relaunch after a quit.
+            self.pid, self.sock, _ = bm.launch(APP, CONFIG, dict(self.env), scratch=self.scratch)
         self.app = bm.App(APP, self.sock)
         deadline = time.monotonic() + 60
         while not self.app.ping() and time.monotonic() < deadline:
@@ -261,25 +263,6 @@ class Run:
         os.makedirs(folder, exist_ok=True)
         with open(os.path.join(folder, "layout.json"), "w") as handle:
             json.dump({"quickActions": ["changes", "terminal", "browser", "files", "newTab"]}, handle)
-
-    def relaunch(self):
-        """bench_memory.launch's direct launch, on this run's scratch state (chat-open-bench.py's relaunch)."""
-        import plistlib
-        with open(os.path.join(APP, "Contents", "Info.plist"), "rb") as handle:
-            binary = os.path.join(APP, "Contents/MacOS", plistlib.load(handle)["CFBundleExecutable"])
-        full = {"USER": os.environ.get("USER", ""), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1",
-                "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1400,900"}
-        full.update(self.env)
-        with open(os.path.join(self.scratch, "app.log"), "a") as log:
-            subprocess.Popen([binary], env=full, stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True)
-        deadline = time.monotonic() + 90
-        while time.monotonic() < deadline:
-            pid = next((p for p, _, cmd in bm.process_table() if bm.is_binary(cmd, binary)), None)
-            path = bm.control_socket(APP, pid, [os.path.join(full["HOME"], ".local", "state", "cmux"), "/tmp", full["TMPDIR"]]) if pid else None
-            if path:
-                return pid, path
-            time.sleep(0.5)  # test script: waiting for the relaunched app's socket
-        raise SystemExit("right-pane-open: the relaunched app opened no socket in 90 s" + bm.tail(os.path.join(self.scratch, "app.log")))
 
     def rpc(self, method, params=None, timeout=40):
         try:
@@ -406,6 +389,11 @@ def measure(run, chat, surface, label, round_index):
     if reply.get("error"):
         chat.close_new(before)
         return {"error": str(reply["error"])[:400], "click": target}
+    # A click that failed in the app comes back in `key` (the gesture's own reply), not as the strip's error.
+    clicked = reply.get("key") if isinstance(reply.get("key"), dict) else {}
+    if clicked.get("error") or clicked.get("clicked") is False:
+        chat.close_new(before)
+        return {"error": f"click: {clicked.get('error') or 'not clicked'}", "click": target, "key": clicked}
     record = cof.final_frame(reply.get("frames"), settle_frames=opts.settle_frames, tolerance=opts.strip_tolerance)
     record.update({"click": target, "commit_ms": reply.get("first_change_ms"), "final_ms": record.get("final_frame_ms"),
                    "strip_settled_ms": reply.get("settled_ms"), "frame_count": reply.get("frame_count"),
