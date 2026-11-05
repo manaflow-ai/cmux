@@ -403,6 +403,9 @@ public final class MobileHostPairedDevicesFile: Sendable {
         return stored
     }
 
+    /// Red stub: the old behavior (a refused seal reads as an empty list).
+    public func read(userID: String) -> MobileHostPairedDevices? { load(userID: userID) }
+
     public func save(_ devices: MobileHostPairedDevices) throws {
         try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])

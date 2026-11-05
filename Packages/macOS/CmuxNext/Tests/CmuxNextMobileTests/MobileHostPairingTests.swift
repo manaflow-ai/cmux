@@ -630,6 +630,32 @@ import Testing
         #expect(Self.relaunched(directory, seal: MobileHostKeychainPairingSeal(bundleID: "test.next", keychain: keychain.calls, loginKeychain: testLoginKeychain)).approvers.isEmpty)
     }
 
+    /// A seal the Keychain refuses to read (right after a nightly update the user's Mac answered
+    /// errSecMissingEntitlement, then errSecAuthFailed from the login Keychain, for two launches) is not
+    /// a tampered list: the read says so (nil), so the iPhone host waits and reads again instead of asking
+    /// the person to allow every phone again; once the Keychain answers, the phone is trusted.
+    @Test func aSealTheKeychainRefusesIsNotReadAsATamperedList() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let keychain = FakeKeychain(entitled: false)
+        let seal = MobileHostKeychainPairingSeal(bundleID: "test.next", keychain: keychain.calls, loginKeychain: testLoginKeychain)
+        _ = try Self.saved(directory, seal: seal)
+
+        keychain.refuseLogin(errSecAuthFailed)
+        #expect(seal.read() == .refused)
+        let refused = MobileHostPairedDevicesFile(directory: directory, seal: seal)
+        #expect(refused.read(userID: "u") == nil, "a refused seal read as a list that trusts no phone")
+        #expect(refused.load(userID: "u").devices.isEmpty, "a refused seal must trust no phone")
+
+        keychain.refuseLogin(nil)
+        let answered = MobileHostPairedDevicesFile(directory: directory, seal: seal)
+        #expect(answered.read(userID: "u")?.decision(for: Self.request) == .trusted)
+        // No item at all is still "none": that list trusts no phone (a list from before the seal).
+        #expect(seal.clearDigest())
+        #expect(seal.read() == MobileHostPairingSealRead.none)
+        #expect(MobileHostPairedDevicesFile(directory: directory, seal: seal).read(userID: "u")?.devices.isEmpty == true)
+    }
+
     /// An entitled build keeps its seal in the data-protection Keychain and never reads the login
     /// Keychain: a digest planted there for a list of another process's own counts for nothing.
     @Test func anEntitledBuildIgnoresTheLoginKeychain() throws {
@@ -738,7 +764,14 @@ final class FakeKeychain: @unchecked Sendable {
 
     private let lock = NSLock()
     private var store: [Key: Data] = [:]
+    private var loginRefusal: OSStatus?
     let entitled: Bool
+
+    /// From now on every login Keychain call answers `status` (nil: answers again), as a login item
+    /// this launch may not read without UI does (errSecAuthFailed, 2026-11-03).
+    func refuseLogin(_ status: OSStatus?) {
+        lock.withLock { loginRefusal = status }
+    }
 
     init(entitled: Bool) {
         self.entitled = entitled
@@ -756,6 +789,7 @@ final class FakeKeychain: @unchecked Sendable {
     private func key(_ query: [String: Any]) -> Result<Key, FakeKeychainRefusal> {
         let dataProtection = query[kSecUseDataProtectionKeychain as String] as? Bool == true
         if dataProtection, !entitled { return .failure(FakeKeychainRefusal(status: errSecMissingEntitlement)) }
+        if !dataProtection, let status = lock.withLock({ loginRefusal }) { return .failure(FakeKeychainRefusal(status: status)) }
         return .success(Key(dataProtection: dataProtection, service: query[kSecAttrService as String] as? String ?? "",
                             account: query[kSecAttrAccount as String] as? String ?? ""))
     }

@@ -39,6 +39,9 @@ struct PhoneAdmissionStoreTests {
         await #expect(throws: (any Error).self) {
             try await store.change(for: "one", generation: generation) { $0.approve(Self.phone, at: Date()) }
         }
+        // The person's own sign-out forgets the phones (a session that ends by itself keeps them:
+        // CmuxNextMobileHostTests' PairedPhonesStayTrustedTests).
+        store.forgetForSignOut()
         store.select(userID: nil)
         #expect(store.current == nil && !store.trusts(Self.phone))
         store.select(userID: "one")

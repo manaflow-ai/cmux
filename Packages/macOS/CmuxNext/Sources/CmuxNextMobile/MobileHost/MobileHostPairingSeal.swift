@@ -14,10 +14,32 @@ public protocol MobileHostPairingSealStore: Sendable {
     /// The digest of the list saved last; nil when there is none or this build may not read it.
     /// Never shows UI.
     func digest() -> Data?
+    /// The digest, told apart from "there is none" and "the Keychain would not say" (``MobileHostPairingSealRead``).
+    /// Never shows UI.
+    func read() -> MobileHostPairingSealRead
     /// Records `digest` as the list's; false when it cannot be stored.
     func setDigest(_ digest: Data) -> Bool
     /// Forgets the recorded digest, so no copy of any list counts; false when it cannot.
     func clearDigest() -> Bool
+}
+
+/// One read of the seal. A refused read (the Keychain locked, or this launch not yet allowed its own
+/// item, as right after an update: `errSecMissingEntitlement`, then the login Keychain's
+/// `errSecAuthFailed`, 2026-11-03) says nothing about the list: the iPhone host reads again
+/// (``MobileHostPairedStore``) instead of treating every paired phone as new.
+public enum MobileHostPairingSealRead: Sendable, Equatable {
+    case digest(Data)
+    /// No digest is recorded: no list counts.
+    case none
+    /// The Keychain refused the read.
+    case refused
+}
+
+extension MobileHostPairingSealStore {
+    /// A store that cannot tell a refusal apart: its nil digest is "none".
+    public func read() -> MobileHostPairingSealRead {
+        digest().map(MobileHostPairingSealRead.digest) ?? .none
+    }
 }
 
 /// A save the Keychain refused: the new list is on disk, but no list is trusted at the next launch
@@ -144,6 +166,7 @@ public final class MobileHostMemoryPairingSeal: MobileHostPairingSealStore {
         var digest: Data?
         var refusesRecords = false
         var refusesClears = false
+        var refusesAll = false
     }
 
     private let state = Mutex(State())
@@ -151,6 +174,25 @@ public final class MobileHostMemoryPairingSeal: MobileHostPairingSealStore {
 
     public init(refuses: Bool = false) {
         self.refuses = refuses
+    }
+
+    /// From now on it refuses every read, record and clear, as a Keychain that does not yet allow
+    /// this launch its own item (right after an update), until ``answerAgain()``.
+    public func refuseAll() {
+        state.withLock { $0.refusesAll = true }
+    }
+
+    /// Answers again after ``refuseAll()``, with the digest it held.
+    public func answerAgain() {
+        state.withLock { $0.refusesAll = false }
+    }
+
+    public func read() -> MobileHostPairingSealRead {
+        if refuses { return .refused }
+        return state.withLock { state in
+            if state.refusesAll { return .refused }
+            return state.digest.map(MobileHostPairingSealRead.digest) ?? .none
+        }
     }
 
     public func refuseRecords() {
@@ -162,13 +204,14 @@ public final class MobileHostMemoryPairingSeal: MobileHostPairingSealStore {
     }
 
     public func digest() -> Data? {
-        refuses ? nil : state.withLock { $0.digest }
+        if case .digest(let data) = read() { return data }
+        return nil
     }
 
     public func setDigest(_ digest: Data) -> Bool {
         guard !refuses else { return false }
         return state.withLock { state in
-            guard !state.refusesRecords else { return false }
+            guard !state.refusesRecords, !state.refusesAll else { return false }
             state.digest = digest
             return true
         }
@@ -177,7 +220,7 @@ public final class MobileHostMemoryPairingSeal: MobileHostPairingSealStore {
     public func clearDigest() -> Bool {
         guard !refuses else { return false }
         return state.withLock { state in
-            guard !state.refusesClears else { return false }
+            guard !state.refusesClears, !state.refusesAll else { return false }
             state.digest = nil
             return true
         }

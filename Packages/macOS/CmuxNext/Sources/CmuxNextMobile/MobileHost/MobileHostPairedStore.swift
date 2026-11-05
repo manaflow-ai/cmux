@@ -41,7 +41,11 @@ public final class MobileHostPairedStore: Sendable {
     /// The app's store: each account folder's list sealed in the Keychain behind the app's one `loginKeychain`.
     public init(loginKeychain: LoginKeychain) { seal = { MobileHostKeychainPairingSeal(bundleID: $0, loginKeychain: loginKeychain) } }
     /// A store whose list is sealed by `seal` (tests).
-    public init(seal: any MobileHostPairingSealStore) { self.seal = { _ in seal } }
+    public init(seal: any MobileHostPairingSealStore, clock: any Clock<Duration> = ContinuousClock()) { self.seal = { _ in seal } }
+    /// Red stub.
+    public static let sealWaits: [Duration] = [.seconds(1), .seconds(2), .seconds(4), .seconds(8), .seconds(15)]
+    /// Red stub: the old behavior (only `select(userID: nil)` forgets).
+    public func forgetForSignOut() {}
     public var current: MobileHostPairedDevices? { state.withLock { $0.list } }
     public var versioned: (list: MobileHostPairedDevices?, revision: UInt64) { state.withLock { ($0.list, $0.revision) } }
     public var generation: UInt64 { state.withLock { $0.generation } }
