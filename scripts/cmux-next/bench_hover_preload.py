@@ -9,8 +9,12 @@ Uses only socket calls every DEV or bench build has (`debug.pointer_hover`, `deb
               first. The synthetic pointer crosses one row per display frame (--hz), down and up,
               until it crossed --crossings rows, then leaves the sidebar. Printed: wakes started
               (prewarmed_total and restores, must be 0), missed refreshes and main-thread busy ms
-              per frame over the sweep, and each pointer move's round trip through the main thread
-              (an upper bound of its main-thread cost: it includes the socket).
+              per frame over the sweep (p50/p95/p99/max), and each pointer move's round trip through
+              the main thread (an upper bound of its main-thread cost: it includes the socket). The
+              synthetic pointer walks the window's tracking areas on every move, so these numbers carry
+              the harness's own cost: only the difference between a base build and a head build counts.
+              Only rows the pointer really hovers are swept (each is checked once first); the sweep is
+              reported invalid when the swept pages did not all freeze or hibernate first.
   (b) click   one workspace with --panes browser panes, hibernated by the timeout. --trials times
               each: "cold" (select it from another workspace, no hover) and "dwell" (the pointer
               rests --dwell-ms on its row, then select). Time to content: from the select until
@@ -61,6 +65,22 @@ def serve() -> int:
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Page)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server.server_address[1]
+
+
+class Sites:
+    """A site of its own per page, so a discard or a wake changes its own renderer (as
+    bench_hibernation.page_url): Chromium tN.localhost on one port, WebKit a port each."""
+
+    def __init__(self, engine: str):
+        self.engine, self.ports, self.count = engine, [serve()], 0
+
+    def next(self, label: str) -> str:
+        index, self.count = self.count, self.count + 1
+        if self.engine == "chromium":
+            return f"http://t{index}.localhost:{self.ports[0]}/?n={label}"
+        if index >= len(self.ports):
+            self.ports.append(serve())
+        return f"http://127.0.0.1:{self.ports[index]}/?n={label}"
 
 
 def pct(values: list[float], p: float) -> float | None:
@@ -118,6 +138,21 @@ class Bench:
     def row_of(self, workspace: str) -> dict | None:
         return next((r for r in self.rows() if workspace in str(r.get("key"))), None)
 
+    def hovered_keys(self) -> set[str]:
+        windows = self.rpc("debug.sidebar_rows").get("windows") or []
+        return {str(r.get("key")) for r in (windows[0] if windows else {}).get("rows") or [] if r.get("hovered")}
+
+    def hoverable(self, rows: list[dict], height: float) -> list[tuple[dict, list[float]]]:
+        """The rows whose center the synthetic pointer really hovers (not the overscan band, the footer)."""
+        kept = []
+        for row in rows:
+            point = self.center(row, height)
+            self.hover(point)
+            if str(row.get("key")) in self.hovered_keys():
+                kept.append((row, point))
+        self.hover(None)
+        return kept
+
     def open_workspace(self, engine: str, urls: list[str]) -> tuple[str | None, list[str]]:
         made = self.app.run("workspace.newAtBottom")
         created = [c for c in made.get("created", []) if str(c).startswith("ws_")]
@@ -146,8 +181,7 @@ class Bench:
 
 def sweep(bench: Bench, args, report: dict):
     height = float(bench.window().get("frame", {}).get("height") or 0)
-    rows = bench.rows()
-    points = [bench.center(r, height) for r in rows]
+    points = [point for _, point in bench.hoverable(bench.rows(), height)] if height else []
     if len(points) < 2 or not height:
         report["sweep"] = {"error": f"rows={len(points)} height={height}"}
         print(f"PERF-HOVER-SWEEP error rows={len(points)} height={height}", flush=True)
@@ -174,19 +208,21 @@ def sweep(bench: Bench, args, report: dict):
     rtts.append(bench.hover(None))
     duration = time.perf_counter() - started
     time.sleep(0.5)  # test script: past the dwell, so a pending intent would have fired
-    frames = bench.rpc("debug.frames", {"action": "stop"})
+    frames = bench.rpc("debug.frames", {"action": "stop", "raw": True})
+    main_ms = [float(v) for v in frames.get("main_ms") or []]
     after = bench.hibernation()
     woke = (after.get("prewarmed_total") or 0) - (before.get("prewarmed_total") or 0)
     restores = (after.get("restored_total") or 0) - (before.get("restored_total") or 0)
     result = {"rows_on_screen": len(points), "crossings": len(path), "hz": args.hz, "duration_s": round(duration, 3),
               "rows_per_s": round(len(path) / duration, 1), "late_moves": late, "wakes": woke, "restores": restores,
-              "move_rtt_ms": dist(rtts), "frames": {k: frames.get(k) for k in (
-                  "frames", "refresh_ms", "missed", "p50_ms", "p99_ms", "max_ms", "main_p50_ms", "main_p95_ms",
-                  "main_max_ms", "main_over_8_3_ms")}}
+              "move_rtt_ms": dist(rtts), "main_busy_ms_per_frame": dist(main_ms),
+              "harness_cost_included": True,
+              "frames": {k: frames.get(k) for k in (
+                  "frames", "refresh_ms", "missed", "p50_ms", "p99_ms", "max_ms", "main_over_8_3_ms")}}
     report["sweep"] = result
     print(f"PERF-HOVER-SWEEP crossings={len(path)} rows_per_s={result['rows_per_s']} late_moves={late} wakes={woke} "
-          f"restores={restores} missed={frames.get('missed')} main_p95_ms={frames.get('main_p95_ms')} "
-          f"main_max_ms={frames.get('main_max_ms')} move_rtt={json.dumps(result['move_rtt_ms'])}", flush=True)
+          f"restores={restores} missed={frames.get('missed')} main={json.dumps(result['main_busy_ms_per_frame'])} "
+          f"move_rtt={json.dumps(result['move_rtt_ms'])}", flush=True)
 
 
 def click_trials(bench: Bench, args, report: dict, target: str, tabs: list[str], away: str):
@@ -194,16 +230,17 @@ def click_trials(bench: Bench, args, report: dict, target: str, tabs: list[str],
     trials = []
     for trial in range(args.trials):
         for mode in ("cold", "dwell"):
+            bench.hover(None)  # first: the reveal scroll must not move rows under a resting pointer
             bench.app.action("goToWorkspace", workspace=away)
-            bench.hover(None)
             if not wait_for(lambda: bench.asleep(tabs), args.sleep_wait_s, 1):
                 trials.append({"trial": trial, "mode": mode, "error": "pages did not hibernate"})
                 print(f"PERF-HOVER-CLICK trial={trial} mode={mode} error=not_hibernated", flush=True)
                 continue
             if mode == "dwell":
                 row = bench.row_of(target)
-                if not row:
-                    trials.append({"trial": trial, "mode": mode, "error": "row not on screen"})
+                if not row or not bench.hoverable([row], height):
+                    trials.append({"trial": trial, "mode": mode, "error": "row not hoverable"})
+                    print(f"PERF-HOVER-CLICK trial={trial} mode={mode} error=row_not_hoverable", flush=True)
                     continue
                 bench.hover(bench.center(row, height))
                 time.sleep(args.dwell_ms / 1000)  # test script: the pointer rests on the row
@@ -213,7 +250,7 @@ def click_trials(bench: Bench, args, report: dict, target: str, tabs: list[str],
             def content():
                 hibernated = set(bench.hibernation().get("hibernated") or [])
                 return all(bench.live(t, hibernated) for t in tabs)
-            done = wait_for(content, 20, 0.01)
+            done = wait_for(content, 20, 0.03)
             content_ms = (time.perf_counter() - started) * 1000 if done else None
             entry = {"trial": trial, "mode": mode, "select_rtt_ms": round(shown_at, 2),
                      "content_ms": round(content_ms, 1) if content_ms else None}
@@ -230,8 +267,8 @@ def click_trials(bench: Bench, args, report: dict, target: str, tabs: list[str],
 
 def grace(bench: Bench, args, report: dict, pid: int, bundle: str, target: str, tabs: list[str], away: str):
     height = float(bench.window().get("frame", {}).get("height") or 0)
-    bench.app.action("goToWorkspace", workspace=away)
     bench.hover(None)
+    bench.app.action("goToWorkspace", workspace=away)
     if not wait_for(lambda: bench.asleep(tabs), args.sleep_wait_s, 1):
         report["grace"] = {"error": "pages did not hibernate"}
         print("PERF-HOVER-GRACE error=not_hibernated", flush=True)
@@ -239,8 +276,9 @@ def grace(bench: Bench, args, report: dict, pid: int, bundle: str, target: str, 
     time.sleep(5)  # test script: renderers of the discarded pages exit
     asleep = bm.sample(pid, bundle, "asleep", 1)
     row = bench.row_of(target)
-    if not row:
-        report["grace"] = {"error": "row not on screen"}
+    if not row or not bench.hoverable([row], height):
+        report["grace"] = {"error": "row not hoverable"}
+        print("PERF-HOVER-GRACE error=row_not_hoverable", flush=True)
         return
     bench.hover(bench.center(row, height))
     time.sleep(args.dwell_ms / 1000)  # test script: the pointer rests on the row
@@ -283,27 +321,34 @@ def main():
     pid, sock, scratch = bm.launch(bundle, config)
     app = bm.App(bundle, sock)
     bench = Bench(sock, app)
-    port = serve()
+    sites = Sites(args.engine)
     report = {"app": bundle, "engine": args.engine, "config": config}
     try:
-        # The workspace the bench shows while the others are hidden.
-        home, _ = bench.open_workspace(args.engine, [f"http://127.0.0.1:{port}/?n=home"])
+        # The workspace the bench shows while the others are hidden, then the target right after it, so the
+        # target's row is near the top of the sidebar (a select of the first scrolls to the top).
+        home, _ = bench.open_workspace(args.engine, [sites.next("home")])
+        target, target_tabs = bench.open_workspace(args.engine, [sites.next(f"t{i}") for i in range(args.panes)])
         sweep_tabs = []
         if "sweep" in phases:
             for index in range(args.workspaces):
-                _, tabs = bench.open_workspace(args.engine, [f"http://127.0.0.1:{port}/?n=s{index}"])
+                _, tabs = bench.open_workspace(args.engine, [sites.next(f"s{index}")])
                 sweep_tabs += tabs
-        target, target_tabs = bench.open_workspace(
-            args.engine, [f"http://127.0.0.1:{port}/?n=t{i}" for i in range(args.panes)])
+        bench.hover(None)
         bench.app.action("goToWorkspace", workspace=home)
         report["target"] = {"workspace": target, "tabs": target_tabs}
         if "sweep" in phases:
-            # Every swept page frozen or hibernated first, so a wake would count.
+            # Every swept page frozen or hibernated first, so a wake would count. The planner discards a few
+            # pages per pass after the 30 s timeout: wait in proportion to the page count.
             def settled():
                 h = bench.hibernation()
                 return set(sweep_tabs) <= set(h.get("hibernated") or []) | set(h.get("frozen") or [])
-            report["sweep_pages_settled"] = bool(wait_for(settled, args.sleep_wait_s, 1))
-            sweep(bench, args, report)
+            wait_s = 30 + 2.5 * (len(sweep_tabs) + len(target_tabs)) + 30
+            report["sweep_pages_settled"] = bool(wait_for(settled, wait_s, 1))
+            if report["sweep_pages_settled"]:
+                sweep(bench, args, report)
+            else:
+                report["sweep"] = {"error": "invalid: the swept pages did not all freeze or hibernate first"}
+                print("PERF-HOVER-SWEEP invalid=not_settled", flush=True)
         if "click" in phases and target:
             click_trials(bench, args, report, target, target_tabs, home)
         if "grace" in phases and target:
