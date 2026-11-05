@@ -390,6 +390,8 @@ The bind is lost on reboot and returns at the next `ensure`, which also applies
 the supervisor's reboot recovery and clone identity reset to the reserved copy,
 since those boot steps run first and only see the unused copy underneath.
 Bake parking unmounts it and wipes the reserved copy with the rest of the state.
+`ensure` also creates the daemon's private `/tmp/cmux-*-<uid>` directories, since
+boot empties `/tmp` and only root can still allocate there on a full disk.
 The image consumes space from the existing root disk; it does not change the
 Freestyle VM size or the image ladder. The bake writes a reservation marker
 only after the image is fully created and seeded. The boot supervisor reads

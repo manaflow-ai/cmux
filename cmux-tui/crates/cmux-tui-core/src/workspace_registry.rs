@@ -2281,7 +2281,10 @@ fn open_registry_database_with_flags(path: &Path, flags: OpenFlags) -> anyhow::R
 }
 
 fn open_registry_database(path: &Path) -> anyhow::Result<Connection> {
-    open_registry_database_with_flags(path, OpenFlags::default())
+    let connection = open_registry_database_with_flags(path, OpenFlags::default())?;
+    #[cfg(unix)]
+    root_identity::keep_sqlite_temp_files_beside(&connection, path);
+    Ok(connection)
 }
 
 fn open_registry_database_read_only(path: &Path) -> anyhow::Result<Connection> {

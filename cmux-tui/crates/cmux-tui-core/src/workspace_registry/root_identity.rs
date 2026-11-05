@@ -6,6 +6,28 @@
 
 use super::*;
 
+/// Moves this process's SQLite temp files from `/var/tmp` to the first opened
+/// registry's directory. On a Cloud machine that directory has reserved room,
+/// while `/var/tmp` is on the root disk, where a spill on a full disk stops the
+/// daemon. The setting is process-wide and read without a lock, so it is set once,
+/// before the daemon's other connections exist. SQLite falls back to its default
+/// when the directory is gone, and a failure here only keeps that default.
+#[cfg(unix)]
+pub(super) fn keep_sqlite_temp_files_beside(connection: &Connection, database: &Path) {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let Some(directory) = database.parent().and_then(Path::to_str) else {
+            return;
+        };
+        let directory = directory.replace('\'', "''");
+        if let Err(error) =
+            connection.execute_batch(&format!("PRAGMA temp_store_directory='{directory}';"))
+        {
+            eprintln!("cmux-tui: SQLite temp files stay in their default directory: {error}");
+        }
+    });
+}
+
 /// Creates the pepper (see [`write_identity_file`] for `replace`).
 pub(super) fn create_pepper(
     root: &Path,
@@ -183,7 +205,7 @@ mod tests {
         let connection = open_registry_database(&root.join("registry.sqlite3")).unwrap();
         let directory: String = connection
             .query_row("PRAGMA temp_store_directory", [], |row| row.get(0))
-            .expect("this SQLite build keeps the pragma");
+            .expect("SQLite reports no temp directory");
         assert!(!directory.is_empty(), "temp files still use SQLite's default directory");
         drop(connection);
         fs::remove_dir_all(root).unwrap();

@@ -171,9 +171,25 @@ bind_remote_state() {
   record_remote_instance
 }
 
+# Boot empties /tmp, and an unprivileged mkdir there needs a free block the daemon
+# cannot get on a full root filesystem. Root can still use ext4's reserved blocks,
+# so make the daemon's private directories here; it accepts them as its own.
+# An existing path is the daemon's to judge, so it is never replaced.
+prepare_daemon_tmp_dirs() {
+  [ -f "$STATE_RESERVATION_MARKER" ] || return 0
+  daemon_uid=$(id -u "$user") || return 0
+  for tmp_dir in "/tmp/cmux-tui-$daemon_uid" "/tmp/cmux-th-$daemon_uid" "/tmp/cmux-image-paste-$daemon_uid"; do
+    [ -e "$tmp_dir" ] && continue
+    [ -L "$tmp_dir" ] && continue
+    { mkdir -m 0700 "$tmp_dir" && chown "$user:$user" "$tmp_dir"; } 2>/dev/null ||
+      echo "cmux-tui-state-mount: could not create $tmp_dir" >&2
+  done
+}
+
 ensure_and_bind_locked() {
   ensure_locked || return 1
   bind_remote_state || echo "cmux-tui-state-mount: remote state stays on the root filesystem" >&2
+  prepare_daemon_tmp_dirs
 }
 
 grow_if_needed() {
