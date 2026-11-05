@@ -15,7 +15,7 @@ LONG = "_$s16CmuxNextSettings0A14ConfigSnapshotV4root" + "7density" * 600 + "tcf
 SHORT = "_$s11CmuxNextApp4mainyyF"
 
 
-def check(exports, binds):
+def check(exports, binds, symbols=()):
     with tempfile.TemporaryDirectory() as tmp:
         bin_dir, out = os.path.join(tmp, "bin"), os.path.join(tmp, "out")
         os.makedirs(bin_dir)
@@ -26,9 +26,11 @@ def check(exports, binds):
             # dyld_info writes "<this-image>/NAME" into 4096 bytes.
             f.writelines(f"        __DATA  __la_symbol_ptr  0x10000{i:04X}  lazy-bind  {('<this-image>/' + name)[:4095]}\n"
                          for i, name in enumerate(binds))
+        with open(os.path.join(tmp, "symbols"), "w") as f:
+            f.writelines(f"{name}\n" for name in symbols)
         fakes = {
             "xcrun": f'#!/bin/bash\n[[ "$2" == -exports ]] && cat {tmp}/exports || cat {tmp}/fixups\n',
-            "nm": "#!/bin/bash\n",
+            "nm": f'#!/bin/bash\n[[ "$1" == -j ]] && cat {tmp}/symbols\n',
         }
         for name, body in fakes.items():
             path = os.path.join(bin_dir, name)
@@ -56,6 +58,12 @@ class LiveCodeCheckTests(unittest.TestCase):
         result, missing = check([SHORT], [LONG, SHORT])
         self.assertEqual(result.returncode, 1)
         self.assertEqual(missing, [LONG[:CUT]])
+
+    def test_a_name_of_exactly_the_cut_length_is_not_taken_for_a_cut_one(self):
+        whole = LONG[:CUT]
+        result, missing = check([LONG, SHORT], [whole, SHORT], symbols=[whole, LONG, SHORT])
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(missing, [whole])
 
     def test_a_short_unexported_bind_fails(self):
         result, missing = check([LONG], [LONG, SHORT])

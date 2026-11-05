@@ -26,16 +26,20 @@ live_code_list() { # BIN OUT
 # dyld_info -fixups prints a bind's target as "<this-image>/NAME" in 4096 bytes, so a name longer
 # than 4082 characters (a Swift initializer with many labeled arguments, say) is cut there, and the
 # cut name matches no export. A missing name of that length that starts an exported name is that
-# export: OUT/missing-2.txt keeps the others, OUT/truncated-2.txt has these.
-live_code_untruncate() { # OUT
-  python3 - "$1" <<'PY'
-import os, sys
-out = sys.argv[1]
+# export, unless the symbol table (nm, which prints whole names) has a symbol of exactly that name: a
+# name of 4082 characters fits uncut. OUT/missing-2.txt keeps the others, OUT/truncated-2.txt has these.
+live_code_untruncate() { # BIN OUT
+  python3 - "$1" "$2" <<'PY'
+import os, subprocess, sys
+bin, out = sys.argv[1], sys.argv[2]
 cut = 4096 - len("<this-image>/") - 1
 lines = lambda name: [line.rstrip("\n") for line in open(os.path.join(out, name))]
 missing = lines("missing-2.txt")
 long_exports = [name for name in lines("exports-2.txt") if len(name) > cut]
 truncated = [name for name in missing if len(name) == cut and any(e.startswith(name) for e in long_exports)]
+if truncated:
+    whole = set(subprocess.run(["nm", "-j", bin], capture_output=True, text=True, check=True).stdout.split("\n"))
+    truncated = [name for name in truncated if name not in whole]
 with open(os.path.join(out, "missing-2.txt"), "w") as f:
     f.writelines(name + "\n" for name in missing if name not in truncated)
 with open(os.path.join(out, "truncated-2.txt"), "w") as f:
@@ -59,7 +63,7 @@ live_code_check() { # BIN OUT
     grep -F -f <(sed -n 1,5p "$out/unexported-rebases-2.txt") "$out/fixups-2.txt" | head -n 10 >&2 || true
   fi
   comm -23 "$out/binds-2.txt" "$out/exports-2.txt" > "$out/missing-2.txt"
-  live_code_untruncate "$out"
+  live_code_untruncate "$bin" "$out"
   if [[ ! -s "$out/binds-2.txt" ]]; then
     # The interposable list makes the modules' calls bind through the app; none read means the bind
     # lines were not recognized, and the check would pass blind.
