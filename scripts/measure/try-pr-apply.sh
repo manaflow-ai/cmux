@@ -489,6 +489,8 @@ if [[ "$experience" == isolated ]]; then
   note integrity "PR instance $pid started beside base instance $base_pid; base same process and socket: $base_same; base probe after: ${base_after:-not run}"
   [[ "$base_same" == yes ]] || { result fail fail "isolated: the base instance exited, restarted or lost its socket while the PR instance ran"; exit 0; }
   [[ "$base_after" != pass ]] || { result fail fail "isolated: the base instance took the PR's behaviour (no isolation)"; exit 0; }
+  # A base that never answers proves nothing about isolation: only a red (fail) on it counts.
+  [[ -z "$probe" || "$base_after" == fail ]] || { result fail not_run "isolated: the base instance's probe gave $base_after after the PR instance ran, not its base behaviour"; exit 0; }
   [[ -z "$probe" ]] || note coexistence "pass: base instance $base_pid (same artifact, own HOME, socket and overlay) kept running unchanged beside the PR instance"
 fi
 if [[ "$experience" == in-place ]]; then
