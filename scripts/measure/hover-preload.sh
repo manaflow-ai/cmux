@@ -11,15 +11,18 @@
 #   cmux-ci run --class exclusive --label measure --script scripts/measure/hover-preload.sh --ref <sha> [--arg=--engine=chromium]
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
+# --arms=OFF,ON,OFF,ON (the default) runs the bench once per arm, in that order, on this build and this mini: OFF sets
+# browser.keepNeighborTabsAwake 0 (hover wakes off; the per-row lock write stays), ON is the default.
 # A step's checkout has empty submodules: reload.sh needs Ghostty's headers and ghostty-next for the bundled cmux-tui.
 git submodule update --init --depth 1 ghostty ghostty-next >/dev/null
 tag="hoverpre"
 out="$(mktemp -d)"
 # --config=<debug|release|bench> picks reload.sh's build configuration; every other argument goes to the bench.
-reload_config=() bench_args=()
+reload_config=() bench_args=() arms="OFF,ON,OFF,ON"
 for arg in "$@"; do
   case "$arg" in
     --config=*) reload_config=(--config "${arg#--config=}") ;;
+    --arms=*) arms="${arg#--arms=}" ;;
     *) bench_args+=("$arg") ;;
   esac
 done
@@ -33,4 +36,14 @@ if [[ -z "$app" || ! -d "$app" ]]; then
 fi
 echo "hover-preload: ref $(git rev-parse HEAD)"
 # A fleet step has no LaunchServices session: run the app binary itself (bench_memory.launch).
-CMUX_BENCH_LAUNCH=direct python3 scripts/cmux-next/bench_hover_preload.py --app "$app" --out "$PWD/hover-preload.json" "$@"
+IFS=, read -r -a arm_list <<<"$arms"
+index=0 failed=0
+for arm in "${arm_list[@]}"; do
+  index=$((index + 1))
+  hover="$(tr '[:upper:]' '[:lower:]' <<<"$arm")"
+  echo "hover-preload: arm $index/${#arm_list[@]} hover=$hover"
+  # One arm that fails does not stop the others (each launches its own app); the step fails at the end.
+  CMUX_BENCH_LAUNCH=direct python3 scripts/cmux-next/bench_hover_preload.py --app "$app" --hover "$hover" \
+    --out "$PWD/hover-preload-$index-$hover.json" "$@" || { echo "hover-preload: arm $index ($hover) failed" >&2; failed=1; }
+done
+exit "$failed"
