@@ -24,7 +24,8 @@ export type Waterfall = {
   start: number;
   total: number;
   spans: WaterfallSpan[];
-  /// The span that took longest, called out on its row; undefined with fewer than two spans.
+  /// The call that took longest, called out on its row (never a thought: the tag says which call
+  /// to look at); undefined with fewer than two calls.
   slowest?: number;
 };
 
@@ -65,25 +66,26 @@ function spanTimes(item: AcpmuxActivity): [number | undefined, number | undefine
 const spanFailed = (item: AcpmuxActivity) =>
   item.tool ? rowFailed(item.tool) || item.tool.background?.state === "failed" : false;
 
+/// How many of `work`'s background shells have ended: a late end changes it, so the footer that
+/// carries the work takes a new version (turns.ts shapeTurn) and its Timeline redraws.
+export const workEnds = (work: readonly AcpmuxActivity[] | undefined) =>
+  work?.filter((item) => item.tool?.background?.endedAt !== undefined).length ?? 0;
+
 /// The timed work of a turn's rows, in order: its tool calls (not the drafts the transcript hides,
-/// turns.ts withoutDrafts) and its thoughts, each with a start and an end. Undefined when no call
+/// turns.ts withoutDrafts) and its thoughts, each with a start and an end. Undefined when nothing
 /// was timed, so a footer carries nothing it cannot draw.
 export function turnWork(rows: readonly AcpmuxRow[]): AcpmuxActivity[] | undefined {
   const work: AcpmuxActivity[] = [];
-  let calls = 0;
   for (const row of rows) {
     if (row.kind !== "activity") continue;
     for (const item of row.items ?? []) {
       const [from, to] = spanTimes(item);
       if (from === undefined || to === undefined) continue;
-      if (item.tool) {
-        if (isDraftCall(item.tool)) continue;
-        calls += 1;
-      } else if (item.kind !== "thought") continue;
+      if (item.tool ? isDraftCall(item.tool) : item.kind !== "thought") continue;
       work.push(item);
     }
   }
-  return calls ? work : undefined;
+  return work.length ? work : undefined;
 }
 
 /// The footer's spans on one axis. The axis starts at the turn's start (its summary's time less its
@@ -112,8 +114,9 @@ export function waterfall(row: Pick<AcpmuxRow, "at" | "durationMs">, work: reado
     };
   });
   let slowest: number | undefined;
-  if (spans.length > 1)
+  if (spans.filter((span) => span.item.tool).length > 1)
     spans.forEach((span, at) => {
+      if (!span.item.tool) return;
       if (slowest === undefined || span.to - span.from > spans[slowest]!.to - spans[slowest]!.from) slowest = at;
     });
   return { start, total: Math.max(1, end - start), spans, ...(slowest !== undefined && { slowest }) };

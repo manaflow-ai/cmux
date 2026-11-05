@@ -40,7 +40,7 @@ import { isWaitingMessage } from "./pendingMessages";
 import { appendLaneNotice } from "./laneNoticeBatches";
 import { agentMessage } from "./agentMessages";
 import { turnCopyParts } from "./turnCopy";
-import { turnWork } from "./waterfallSpans";
+import { turnWork, workEnds } from "./waterfallSpans";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
 import { isThought, thoughtDuration } from "./thoughts";
 import {
@@ -1235,6 +1235,7 @@ function shapeTurn(
   // The hint is only rendered for a settled retry target. Avoid scanning the turn body on each
   // live snapshot/token while the turn is still running.
   const changedFiles = (retryable || retryTarget) && !live ? turnChangedFiles(body) : false;
+  const work = live ? undefined : turnWork(body);
   shaped.push({
     ...summary,
     folded,
@@ -1242,7 +1243,7 @@ function shapeTurn(
     // The footer's Copy copies the whole turn (turnCopy.ts): its replies and tool lines in order.
     turnCopy: turnCopyParts(body),
     // Its timed calls, for the footer's Timeline (waterfallSpans.ts); a live turn's footer has none.
-    ...(!live && { turnWork: turnWork(body) }),
+    ...(work && { turnWork: work }),
     ...(resumable && { resumable }),
     ...(retryable && { retryable }),
     ...(retryTarget && { retryTarget }),
@@ -1263,11 +1264,13 @@ function shapeTurn(
       }),
     // A turn is either stopped or failed, so Continue's bit serves both.
     version:
-      version * 16 +
+      version * 1024 +
       (retryable ? 1 : 0) +
       (resumable || continuable ? 2 : 0) +
       (retryTarget ? 4 : 0) +
-      (changedFiles ? 8 : 0),
+      (changedFiles ? 8 : 0) +
+      // A background shell that ended after the summary moves its Timeline bar, so the footer redraws.
+      16 * (workEnds(work) % 64),
   });
   // Anything after the summary (late tool updates, or a turn the agent started on its own)
   // draws as it came.

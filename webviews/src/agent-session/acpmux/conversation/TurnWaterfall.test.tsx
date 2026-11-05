@@ -25,11 +25,15 @@ const activity = (id: string, items: AcpmuxActivity[]): AcpmuxRow => ({
   items,
 });
 
-test("a turn's work is its timed calls and thoughts; an untimed call is left out, and no timed call is none", () => {
+test("a turn's work is its timed calls and thoughts; an untimed call is left out, and nothing timed is none", () => {
   const thought: AcpmuxActivity = { kind: "thought", text: "Hmm", startedAt: 1_000, endedAt: 2_000 };
   const work = turnWork([activity("a", [thought, call("one", 2_000, 3_000), call("two", undefined, undefined)])]);
   expect(work?.map((item) => item.tool?.id ?? item.kind)).toEqual(["thought", "one"]);
-  expect(turnWork([activity("a", [thought, call("two", 2_000, undefined)])])).toBeUndefined();
+  // A turn that only thought still has a Timeline of its thoughts.
+  expect(turnWork([activity("a", [thought, call("two", 2_000, undefined)])])?.map((item) => item.kind)).toEqual([
+    "thought",
+  ]);
+  expect(turnWork([activity("a", [call("two", 2_000, undefined)])])).toBeUndefined();
 });
 
 test("the axis starts at the turn's start; the slowest call and a failed one are marked", () => {
@@ -117,4 +121,43 @@ test("an empty footer (a turn gap, no line of its own) offers no Timeline it has
     turnWork: [call("one", 100, 400)],
   };
   expect(renderToStaticMarkup(<TurnFooter row={empty} />)).not.toContain("Show timeline");
+});
+
+test("a long thought is never the slowest: the tag names a call", () => {
+  const thought: AcpmuxActivity = { kind: "thought", text: "Hmm", startedAt: 0, endedAt: 8_000 };
+  const chart = waterfall({ at: 10_000, durationMs: 10_000 }, [
+    thought,
+    call("one", 8_000, 8_500),
+    call("two", 8_500, 9_900),
+  ]);
+  expect(chart.slowest).toBe(2);
+});
+
+test("a background shell that ends after the summary gives the footer a new version, so its Timeline redraws", () => {
+  const shell = (endedAt?: number): AcpmuxActivity => ({
+    kind: "tool",
+    text: "bun test",
+    tool: {
+      id: "bg",
+      title: "bun test",
+      kind: "execute",
+      command: "bun test",
+      status: "completed",
+      startedAt: 100,
+      endedAt: 200,
+      background: endedAt === undefined ? { state: "running" } : { state: "completed", endedAt },
+    },
+  });
+  const footer = (endedAt?: number) =>
+    turnView(
+      [
+        { id: "prompt", version: 1, at: 0, kind: "user", text: "Look" },
+        activity("work", [shell(endedAt)]),
+        { id: "answer", version: 1, at: 950, kind: "assistant", text: "Done." },
+        { id: "summary", version: 1, at: 1_000, kind: "turnSummary", status: "completed", durationMs: 1_000 },
+      ],
+      new Set(),
+      { agentFamily: "claude", now: 10_000 },
+    ).find((row) => row.kind === "turnSummary")!;
+  expect(footer(5_000).version).not.toBe(footer().version);
 });
