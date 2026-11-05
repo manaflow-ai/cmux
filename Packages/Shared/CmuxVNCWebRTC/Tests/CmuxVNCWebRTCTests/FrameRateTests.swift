@@ -174,6 +174,15 @@ struct FrameRateTests {
     /// A cursor the gate missed (the pointer settled while its frame was on
     /// the way) shows with the next keep-alive: it sends the newest frame
     /// held back, not the last one sent.
+    /// Right after the screen stops changing the picture goes again every
+    /// 250 ms, so the encoder sharpens it; after 2 s still, once a second.
+    @Test func theKeepAliveSettlesFastThenSlows() {
+        #expect(ScreenStreamHost.keepAlivePeriod(sinceChange: 0) == 250)
+        #expect(ScreenStreamHost.keepAlivePeriod(sinceChange: 1_999_000_000) == 250)
+        #expect(ScreenStreamHost.keepAlivePeriod(sinceChange: 2_000_000_000) == 1000)
+        #expect(ScreenStreamHost.keepAlivePeriod(sinceChange: 60_000_000_000) == 1000)
+    }
+
     @Test func theKeepAliveSendsTheNewestHeldFrame() {
         #expect(ScreenStreamHost.keepAliveFrame(held: "held", last: "sent") == "held")
         #expect(ScreenStreamHost.keepAliveFrame(held: String?.none, last: "sent") == "sent")

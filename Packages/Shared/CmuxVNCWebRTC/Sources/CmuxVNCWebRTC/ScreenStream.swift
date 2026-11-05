@@ -240,6 +240,9 @@ public final class ScreenStreamHost: @unchecked Sendable {
         let lock = NSLock()
         var last: (buffer: CVPixelBuffer, crop: CGRect)?
         var lastPush = DispatchTime.now()
+        /// When capture last sent a picture (not a keep-alive): the refresh
+        /// runs faster for a while after it.
+        var lastChange = DispatchTime.now()
         var displays: [CGSize] = []
         var current = 0
         var quality = ScreenQuality.auto
@@ -429,7 +432,10 @@ public final class ScreenStreamHost: @unchecked Sendable {
         session.tasks.append(Task { [weak self] in
             do {
                 try await session.backend.start(frame: { [weak self] buffer, crop in
-                    session.lock.withLock { session.captured += 1 }
+                    session.lock.withLock {
+                        session.captured += 1
+                        session.lastChange = .now()
+                    }
                     self?.push(buffer, crop: crop, session: session)
                 }, displays: { [weak self] sizes, current in
                     session.lock.withLock {
@@ -465,16 +471,20 @@ public final class ScreenStreamHost: @unchecked Sendable {
             }
         })
         // Keep-alive: capture sends nothing while the screen is still, but a
-        // lost keyframe or a quality step needs a frame to encode. Once a
-        // second (Petal's static refresh floor), not twice: a still screen
-        // then costs one frame a second.
+        // lost keyframe or a quality step needs a frame to encode, and the
+        // encoder sharpens a still picture with each frame it gets. So the
+        // picture goes again every 250 ms for 2 s after the screen stops
+        // changing (text comes up sharp), then once a second (Petal's static
+        // refresh floor), where it was twice a second all along.
         session.tasks.append(Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(Int64(ScreenStreamHost.keepAliveMilliseconds))) // keep-alive period
+                try? await Task.sleep(for: .milliseconds(Int64(ScreenStreamHost.settleMilliseconds))) // keep-alive tick
                 guard let self else { return }
                 let stale = session.lock.withLock { () -> (CVPixelBuffer, CGRect)? in
+                    let now = DispatchTime.now().uptimeNanoseconds
+                    let period = ScreenStreamHost.keepAlivePeriod(sinceChange: now - session.lastChange.uptimeNanoseconds)
                     guard let last = session.last,
-                          DispatchTime.now().uptimeNanoseconds - session.lastPush.uptimeNanoseconds > ScreenStreamHost.keepAliveMilliseconds * 900_000 else { return nil }
+                          now - session.lastPush.uptimeNanoseconds >= period * 900_000 else { return nil }
                     return (last.buffer, last.crop)
                 }
                 guard let stale else { continue }
@@ -488,6 +498,15 @@ public final class ScreenStreamHost: @unchecked Sendable {
     /// How long a still screen goes without a frame before the host sends
     /// the last one again (it was 500 ms).
     static let keepAliveMilliseconds: UInt64 = 1000
+    /// The refresh period just after the screen stopped changing, and for how long.
+    static let settleMilliseconds: UInt64 = 250
+    static let settleWindowMilliseconds: UInt64 = 2000
+
+    /// The keep-alive period in milliseconds, `sinceChange` nanoseconds after
+    /// capture last sent a picture: 250 ms for the first 2 s, then 1 s.
+    static func keepAlivePeriod(sinceChange: UInt64) -> UInt64 {
+        sinceChange < settleWindowMilliseconds * 1_000_000 ? settleMilliseconds : keepAliveMilliseconds
+    }
 
     /// What the keep-alive sends: the newest picture the source held back as
     /// unchanged (it may show a cursor the skip gate missed), else the last
