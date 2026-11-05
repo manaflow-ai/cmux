@@ -53,7 +53,7 @@ struct NewTabCloseInterleaveDiagTests {
 
     enum When: String, CaseIterable, Sendable { case sameTurn, ms30, ms150, daemonTab }
 
-    @Test(arguments: [Closed.right, Closed.left], [When.sameTurn])
+    @Test(arguments: [Closed.right, Closed.right, Closed.left], [When.sameTurn])
     func diag(closed: Closed, when: When) async throws {
         try await PasswordManagerRouteTests.withApp { services, connection in
             services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-close-interleave")

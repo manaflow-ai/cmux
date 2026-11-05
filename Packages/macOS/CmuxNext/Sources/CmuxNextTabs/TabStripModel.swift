@@ -17,7 +17,7 @@ public enum TabStripStyle: Hashable, Sendable {
 public final class TabStripModel {
     /// Identifies this strip in cross-strip drags.
     public let stripID: UUID
-    public var tabs: [TabItem] { didSet { followTabs() } }
+    public var tabs: [TabItem] { didSet { followTabs(); if oldValue.map(\.id) != tabs.map(\.id) { print("DIAGSTRIP \(tabs.map { $0.id.rawValue.suffix(6) }) from \(Thread.callStackSymbols.dropFirst(1).prefix(14).map { String($0.split(separator: " ", omittingEmptySubsequences: true).dropFirst(3).prefix(1).joined()) })") } } }
     /// The strip holds one tab: a pane whose chat shares its row shows that row as no band over the chat,
     /// the transcript running up under the tab and tools (Leo, 2026-11-03: "isn't it kinda arbitrary anyway
     /// if you literally only have one tab there?"). Two or more tabs keep the row as before.
