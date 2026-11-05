@@ -199,7 +199,8 @@ async fn the_same_persons_machine_reads_a_reply_through_the_hub_and_no_one_else_
     assert_eq!(replies, ["echo: pong from b"]);
 
     // The app's open of the chat: a hidden attach there, answered with its detail and newest page.
-    let attach = json!({"sessionId": format!("machine-b/{session}"), "limit": 200, "maxBytes": 1 << 20});
+    let attach =
+        json!({"sessionId": format!("machine-b/{session}"), "limit": 200, "maxBytes": 1 << 20});
     let opened = read(&hub, "machine-b", &session, method::MUX_ATTACH, &attach).await.unwrap();
     assert_eq!(opened["session"]["sessionId"].as_str(), Some(session.as_str()), "{opened}");
     assert!(opened["events"].as_array().is_some_and(|events| !events.is_empty()), "{opened}");
