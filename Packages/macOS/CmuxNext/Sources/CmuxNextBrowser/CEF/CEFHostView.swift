@@ -381,6 +381,9 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     /// The page windows told of a resize-sync drag (`BrowserDragResize.resizeSync`), to tell its end wherever the
     /// page is by then; empty otherwise.
     private(set) var syncedDragHostings: [CEFLayerHosting] = []
+    /// The page window this container told of a resize motion (a drag or a key hold), to tell its end wherever the
+    /// page is by then (``CEFLayerHosting/resizeMotion(active:)``); nil otherwise.
+    var motionHosting: CEFLayerHosting?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -409,6 +412,7 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
             dropHold()
             // A container leaving the window (its tab closed or moved mid-drag) may never hear the drag's end.
             endSyncedDrag()
+            paneMotion(active: false)
         }
         guard let tab else { return }
         tab.pageThemeDidChange()
@@ -527,11 +531,15 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
         guard active else {
             endSyncedDrag()
             // A key resize's page hold (FRAME OWNER S3) is its pane's to end, not the drag's.
-            guard heldPageSize != nil, pageMotionHold == nil else { return }
-            dropHold()
-            layoutContent()
+            if heldPageSize != nil, pageMotionHold == nil {
+                dropHold()
+                layoutContent()
+            }
+            // After the landing's layout: the page window comes back once, at the final size.
+            if pageMotionHold == nil { paneMotion(active: false) }
             return
         }
+        paneMotion(active: true)
         if BrowserResizeTunables.dragResize.value == .resizeSync {
             startSyncedDrag()
             return

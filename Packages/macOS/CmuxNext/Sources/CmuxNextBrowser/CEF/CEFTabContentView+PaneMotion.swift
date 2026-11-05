@@ -31,10 +31,14 @@ extension CEFTabContentView: BrowserPagePaneMotionHolding {
 
     func holdPage(for hold: PaneMotionHold?) {
         guard let hold else {
-            guard pageMotionHold != nil else { return }
+            guard pageMotionHold != nil else { return paneMotion(active: false) }
             dropHold()
+            // The landing's layout first, so the page window comes back once, at the final size.
+            layoutContent()
+            paneMotion(active: false)
             return
         }
+        paneMotion(active: true)
         // A drag's own hold, or a page that cannot hold (DevTools docked, a side panel, a fit), lays out as before.
         if pageMotionHold == nil {
             guard startPageHold() else { return }
@@ -42,5 +46,23 @@ extension CEFTabContentView: BrowserPagePaneMotionHolding {
         }
         pageMotionHold = hold
         needsLayout = true
+    }
+}
+
+extension CEFTabContentView {
+    /// A resize motion of this container's pane began (a divider drag's press, a key resize's first press) or landed:
+    /// the shown page's window detaches for it unless the page holds the keys (``CEFLayerHosting/resizeMotion(active:)``).
+    /// One share per container; a start while one is held and an end with none are ignored.
+    func paneMotion(active: Bool) {
+        if active {
+            guard motionHosting == nil, window != nil, let tab, tab.host.hostView.superview === self else { return }
+            let hosting = tab.host.hostView.layerHosting
+            motionHosting = hosting
+            hosting.resizeMotion(active: true)
+        } else {
+            guard let hosting = motionHosting else { return }
+            motionHosting = nil
+            hosting.resizeMotion(active: false)
+        }
     }
 }

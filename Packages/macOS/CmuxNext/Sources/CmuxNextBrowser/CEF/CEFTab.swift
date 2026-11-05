@@ -603,6 +603,13 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         // Never activate a hidden page's window (see `attach`): a hidden page keeps the ask until it shows.
         pendingFocus = focused && (!shown || browserID == nil)
         guard !focused || shown, let browserID else { return }
+        // A page detached for a resize motion (fork API 30) gets its window back first; the window is a child of
+        // this window again only after the next commit, so the grant waits for that commit.
+        if focused, host.hostView.layerHosting.pageTakesFocus() {
+            pendingFocus = true
+            AfterFrameCommit().run { [weak self] in self?.grantPendingFocusIfShown() }
+            return
+        }
         if focused { grantFocus(browserID) } else { runtime.shim?.setFocus(browserID, 0) }
     }
 
