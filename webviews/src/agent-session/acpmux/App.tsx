@@ -1326,8 +1326,7 @@ function DefaultComposerChips({
 export function applyPaneTheme(theme: Record<string, unknown>): void {
   applyAgentTheme(theme as never);
   // The agent chat's scrollbars fade at rest and widen near the pointer (scrollers.ts).
-  // EXPERIMENT (reverted next commit): fade off, to test composer-menu-dismiss.
-  if (SCROLLER_FADE_ATTRIBUTE === "never") document.documentElement.setAttribute(SCROLLER_FADE_ATTRIBUTE, "");
+  document.documentElement.setAttribute(SCROLLER_FADE_ATTRIBUTE, "");
   configureChatWidth(theme.chatWidth);
   configureToolRunLook(theme.toolRunLook);
   configureSentLook(theme.sentLook);
