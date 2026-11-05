@@ -107,3 +107,31 @@ fn server_pairing_pending_and_refusal_are_never_successful_enrollment() {
         Some(Waited::Paired(_))
     ));
 }
+
+#[test]
+fn a_paired_frame_carries_the_machine_join_token_privately_and_drops_a_malformed_one() {
+    let token = format!("cmj_{}", "a".repeat(43));
+    let frame = |join: &str| {
+        format!(
+            r#"{{"t":"paired","install":"inst_00000000000000000001","host":"host_00000000000000000001","user":"user_00000000000000000001","team":"team_00000000000000000001","machine_join":{join}}}"#
+        )
+    };
+    let Some(Waited::Paired(paired)) =
+        read_frame(&frame(&format!(r#"{{"token":"{token}","expires_at":42}}"#))).unwrap()
+    else {
+        panic!("not paired")
+    };
+    let join = paired.machine_join.clone().expect("join token");
+    assert_eq!((join.token(), join.expires_at), (token.as_str(), 42));
+    // Never in the identity file or a public result, nor in Debug.
+    let saved = serde_json::to_string(&paired).unwrap();
+    assert!(!saved.contains(&token) && !saved.contains("machine_join"), "{saved}");
+    assert!(!format!("{paired:?}").contains(&token));
+    // A token of the wrong shape is dropped; the pairing stands.
+    let Some(Waited::Paired(paired)) =
+        read_frame(&frame(r#"{"token":"cmm_nope","expires_at":42}"#)).unwrap()
+    else {
+        panic!("not paired")
+    };
+    assert_eq!(paired.machine_join, None);
+}
