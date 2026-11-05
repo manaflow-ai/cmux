@@ -166,6 +166,7 @@ await requireBrowserLane("composer-rich-paste.test.ts", async () => {
       await page.locator(FIELD).press("Meta+Shift+V");
       // The menu's Paste as Plain Text goes through the host, so its paste can come late: the field
       // keeps it plain for the composer's whole window (pastedChips.ts PLAIN_PASTE_MS).
+      // fixed-wait: the time since ⌘⇧V is the behavior here (a late paste, past the old 1 s window).
       await page.waitForTimeout(1500);
       await paste(page, { "text/plain": "- one\n- two" });
       await settled(page, "two");
