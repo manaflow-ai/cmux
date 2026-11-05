@@ -105,6 +105,12 @@ def ensure_nightly(log) -> str | None:
     return None if r.returncode == 0 else f"rustup install {NIGHTLY} failed"
 
 
+def toolchain_bin(toolchain: str) -> str:
+    r = subprocess.run(["rustup", "which", "--toolchain", toolchain, "cargo"], capture_output=True, text=True,
+                       check=True)
+    return str(Path(r.stdout.strip()).parent)
+
+
 def cargo(spec: dict, target: Path, args: list[str], log_path: Path) -> tuple[float, int, int]:
     env = dict(os.environ)
     env["CARGO_TARGET_DIR"] = str(target)
@@ -116,10 +122,16 @@ def cargo(spec: dict, target: Path, args: list[str], log_path: Path) -> tuple[fl
     else:
         env.pop("CARGO_ENCODED_RUSTFLAGS", None)
     cmd = ["cargo"]
+    env.pop("RUSTUP_TOOLCHAIN", None)
     if spec.get("toolchain"):
-        env["RUSTUP_TOOLCHAIN"] = spec["toolchain"]
+        # The cargo on PATH is not always rustup's proxy (fast checks put the pinned toolchain's own
+        # bin first), so RUSTUP_TOOLCHAIN alone can leave a "nightly" variant on stable.
+        bin_dir = toolchain_bin(spec["toolchain"])
+        env["PATH"] = f"{bin_dir}{os.pathsep}{env.get('PATH', '')}"
+        env["RUSTC"] = str(Path(bin_dir) / "rustc")
+        cmd = [str(Path(bin_dir) / "cargo")]
     else:
-        env.pop("RUSTUP_TOOLCHAIN", None)
+        env.pop("RUSTC", None)
     cmd += [args[0], *spec.get("zflags", [])]
     for c in spec.get("config", []):
         cmd += ["--config", c]
@@ -188,6 +200,10 @@ def main() -> int:
                 if s.get("toolchain") == NIGHTLY:
                     s["skip"] = err
     for k in list(chosen):
+        tc = chosen[k].get("toolchain")
+        if tc and not chosen[k].get("skip"):
+            v = subprocess.run([str(Path(toolchain_bin(tc)) / "rustc"), "-V"], capture_output=True, text=True)
+            log(f"DEVLOOP-TOOLCHAIN {k}: {v.stdout.strip()}")
         if chosen[k].get("skip"):
             log(f"DEVLOOP-SKIP {k}: {chosen[k]['skip']}")
             del chosen[k]
