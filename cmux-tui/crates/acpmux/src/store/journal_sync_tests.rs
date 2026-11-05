@@ -123,14 +123,16 @@ fn a_failed_sync_of_a_rewrite_record_folder_freezes_the_store() {
     let store = open(home.path(), &journal);
     let staged = staged_rewrite(store.as_ref());
     let events = home.path().join("sessions").join(CHAT).join("events");
+    let segment = events.join("000001.ndjson");
+    let before = std::fs::read(&segment).unwrap_or_else(|e| panic!("{e}"));
     FAIL_DIR_SYNC_WHEN.with(|fail| *fail.borrow_mut() = Some((events.clone(), renames_pending)));
     let committed = store.commit_compaction(CHAT, staged);
     FAIL_DIR_SYNC_WHEN.with(|fail| *fail.borrow_mut() = None);
     assert!(committed.is_err(), "the rewrite went on past a failed sync of its record's folder");
-    assert!(
-        renames_pending(&events),
-        "the rewrite renamed segments after its record failed to sync"
-    );
+    // A failed commit drops its staged copies (`Staged`'s drop), so the segment itself tells
+    // whether a rename ran.
+    let after = std::fs::read(&segment).unwrap_or_else(|e| panic!("{e}"));
+    assert!(after == before, "the rewrite renamed a segment after its record failed to sync");
     assert!(
         store.flush().is_err(),
         "a checkpoint went past a failed sync of a rewrite record's folder"
