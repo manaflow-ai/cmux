@@ -40,6 +40,10 @@ fn params_of(file: &routes::RouteFile) -> Value {
             obj.insert(to.into(), x);
         }
     }
+    // The file says `disabled` (left out when false); the RPC says `enabled`, so an edit that
+    // clears it (`enabled: null`) gets the default back.
+    let disabled = obj.remove("disabled").and_then(|d| d.as_bool()).unwrap_or(false);
+    obj.insert("enabled".into(), json!(!disabled));
     v
 }
 

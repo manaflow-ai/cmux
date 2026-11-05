@@ -171,6 +171,28 @@ async fn a_codex_chat_moves_between_its_signed_in_logins_and_keeps_its_conversat
     assert_eq!(off["enabled"], false, "{off}");
     let mut app = client(&hub, Origin::LocalApp);
     app.err("_acpmux/account/set", json!({"id": "work", "enabled": true})).await;
+    let (failed, _) = local.call_text("session/prompt", limit.clone()).await;
+    assert!(failed["error"]["data"].get("fallback").is_none(), "{failed}");
+    // Not as a named fallback with autoFallback either.
+    local
+        .ok(
+            "_acpmux/route/edit",
+            json!({"id": "codex-login", "fallback": ["work"], "autoFallback": true}),
+        )
+        .await;
     let (failed, _) = local.call_text("session/prompt", limit).await;
     assert!(failed["error"]["data"].get("fallback").is_none(), "{failed}");
+    assert_eq!(local.env_of(&id, "CODEX_HOME").await, format!("CODEX_HOME={}", base.display()));
+
+    // An edit that clears `enabled` turns the account back on.
+    let edited = local.ok("_acpmux/route/edit", json!({"id": "work", "enabled": null})).await;
+    assert_eq!(edited["enabled"], true, "{edited}");
+    // A shadow needs a folder of its own.
+    local
+        .err(
+            "_acpmux/route/add",
+            json!({"id": "homeless", "kind": "direct-subscription", "families": ["codex"],
+                   "shadow": true}),
+        )
+        .await;
 }

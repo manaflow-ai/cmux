@@ -404,8 +404,11 @@ impl Hub {
         let (_, env) = self.harness_env(&meta).await;
         let home = route_account::current_home(&meta, &family, &env);
         let named = route.file.fallback.iter().filter(|f| **f != id).find_map(|f| {
+            // A route turned off (`_acpmux/account/set`) is never moved onto.
             routes::find(dir.as_deref(), f).ok().filter(|r| {
-                r.serves(&family) && route_account::switch_allowed(home.as_deref(), r).is_ok()
+                !r.file.disabled
+                    && r.serves(&family)
+                    && route_account::switch_allowed(home.as_deref(), r).is_ok()
             })
         });
         // A codex chat on a router, proxy or key with no fallback of its own may always go back to

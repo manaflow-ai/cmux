@@ -28,11 +28,16 @@ pub fn codex_base() -> Option<PathBuf> {
 }
 
 /// Links every entry of `base` but the login into `home`, creating both
-/// folders (and the shared conversation folder) when missing. Entries `home`
-/// already has stay as they are.
+/// folders (and the shared conversation folder) when missing, owner-only like
+/// every account home: the shadow holds a login. Entries `home` already has
+/// stay as they are.
 pub fn link(home: &Path, base: &Path) -> std::io::Result<()> {
-    std::fs::create_dir_all(base.join(CONVERSATIONS))?;
-    std::fs::create_dir_all(home)?;
+    let mut dirs = std::fs::DirBuilder::new();
+    dirs.recursive(true);
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut dirs, 0o700);
+    dirs.create(base.join(CONVERSATIONS))?;
+    dirs.create(home)?;
     for entry in std::fs::read_dir(base)? {
         let name = entry?.file_name();
         if OWN.iter().any(|own| name == *own) {
@@ -71,6 +76,12 @@ mod tests {
         std::fs::write(base.join("config.toml"), "model = 'x'").unwrap();
         link(&shadow, &base).unwrap();
         assert!(!shadow.join("auth.json").exists(), "the login stays the base's");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&shadow).unwrap().permissions().mode();
+            assert_eq!(mode & 0o077, 0, "a shadow home is owner-only");
+        }
         assert_eq!(std::fs::read_to_string(shadow.join("config.toml")).unwrap(), "model = 'x'");
         assert!(shares_conversations(&base, &shadow));
         // An entry the base gains later is linked at the next refresh; the shadow's own stay.

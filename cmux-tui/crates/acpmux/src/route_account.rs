@@ -72,7 +72,15 @@ pub fn shadow_from_json(params: &serde_json::Value) -> Result<Option<String>, Ro
 /// family that has a home variable, and is an absolute path that is never
 /// expanded at spawn (no `${…}`).
 pub fn validate(file: &RouteFile) -> Result<(), RouteError> {
-    let Some(home) = &file.account_home else { return Ok(()) };
+    let Some(home) = &file.account_home else {
+        // A shadow is a login folder of its own: without one it would run on nothing.
+        return match &file.shadow_of {
+            Some(_) => {
+                Err(RouteError::BadParams("a shadow needs an accountHome of its own".into()))
+            }
+            None => Ok(()),
+        };
+    };
     if file.kind != RouteKind::DirectSubscription {
         return Err(RouteError::BadParams(
             "accountHome is for a direct-subscription route (the CLI's own login)".into(),
