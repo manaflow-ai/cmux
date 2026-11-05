@@ -542,6 +542,30 @@ class HostBuildRoot(unittest.TestCase):
         self.assertIn('root=\n', out)
         self.assertTrue((self.slots['1'] / 'build-universal').is_symlink())
 
+    def test_the_job_summary_says_the_host_roots_decision(self):
+        """The slot's own prepare line always read "no earlier build on this builder" after a host-root
+        build (runs 42033609306, 42018687632), though the host root decided; the summary names that one."""
+        summary = self.root / 'summary.md'
+        self.env['GITHUB_STEP_SUMMARY'] = str(summary)
+        self.build('1')
+        self.assertIn('- DerivedData: clean (no earlier build on this builder), host build root', summary.read_text())
+        self.commit({'Sources/a.swift': 'let a = 2\n'})
+        self.build('2')
+        self.assertIn('- DerivedData: incremental (1 since the last clean build), host build root', summary.read_text())
+
+    def test_the_release_summary_reports_cache_hits_and_the_fallback(self):
+        log = self.root / 'build.log'
+        log.write_text('note: 311 hits / 391 cacheable tasks (80%)\nnote: 435 hits / 517 cacheable tasks (84%)\n')
+        summary = self.root / 'summary.md'
+        env = {**self.env, 'GITHUB_STEP_SUMMARY': str(summary)}
+        script = ROOT / 'scripts/ci/nightly-steps/release-build-summary.sh'
+        for fallback, said in (('0', 'fleet cache'), ('1', 'local cache after the fleet cache failed')):
+            summary.write_text('')
+            subprocess.run(['bash', str(script), str(log), fallback], env=env, check=True)
+            text = summary.read_text()
+            self.assertIn('- compile cache: 435 hits / 517 cacheable tasks (84%), 82 missed', text)
+            self.assertIn(f'- cache: {said}', text)
+
     def test_off_unless_the_slot_keeps_build_state(self):
         self.env['CMUX_NIGHTLY_HOST_BUILD_ROOT'] = ''
         self.assertIn('root=\n', self.build('1'))
