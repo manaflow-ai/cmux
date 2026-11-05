@@ -106,7 +106,7 @@ def draw_strip(img, x0, x1, pill_x0):
 
 def a_width(k, variant):
     """Pane A's width (device px, float) in trace sample k."""
-    if variant == "still":
+    if variant in ("still", "strip-glow", "strip-glow-off3"):
         return float(A_REST)
     if variant.startswith("spring"):
         t = (k - MOVE[0] + 1) * P
@@ -246,6 +246,19 @@ def frame(k, variant):
         if touching(variant):
             # The divider band on the strip row is the neighbour's strip ground, not the shell: the strips touch.
             img[:STRIP_PX, int(round(aw)):int(round(b_x))] = BLACK
+    if variant in ("strip-glow", "strip-glow-off3") and 30 <= k <= 49:
+        # 3e.7: the pressed divider's glow band over the strip row (ab-s2bmin-d8ac2f4 clamp-2x on-s0125 frame 390): over
+        # the gap the cue (#FF04FF) and the halo (#ED65F5, 3 px), over B's strip its first pixel gray (#62646A) and dark
+        # gray after (#111213). strip-glow-off3: B's strip truly starts 3 px early, in the gap, under the same glow.
+        g = int(round(aw))
+        img[:STRIP_PX, g] = (255, 4, 255)
+        if variant == "strip-glow":
+            img[:STRIP_PX, g + 1:g + 4] = (237, 101, 245)
+            img[:STRIP_PX, g + 4] = (98, 100, 106)
+            img[:STRIP_PX, g + 5:g + 10] = (17, 18, 19)
+        else:
+            img[:STRIP_PX, g + 1] = (98, 100, 106)
+            img[:STRIP_PX, g + 2:g + 10] = (17, 18, 19)
     if variant == "strip-scrolled":
         # The sidebar covers A's left part: the shell color, and a white blob (the window's buttons) on the strip row.
         img[:, :SIDEBAR_PX] = MAGENTA
@@ -676,6 +689,12 @@ def build(root, name, variant):
         journal += [{"seq": 2 + i, "uptimeNanos": int((T0 + (10 + i) * P) * 1e9), "kind": {"mouse": {"_0": {"phase": "drag", "x": 151 + i, "y": 50}}}}
                     for i in range(20)]
         journal.append({"seq": 30, "uptimeNanos": int((T0 + 30 * P) * 1e9), "kind": {"mouse": {"_0": {"phase": "up", "x": 170, "y": 50}}}})
+    if variant in ("strip-glow", "strip-glow-off3"):
+        # the layout holds still; the mouse goes down on the divider (its rect: [A's width, + DIV_PX] pt) before frame 30
+        # and up after frame 49 (a held press, as the clamp films' divider held at its limit)
+        x = a_width(29, variant) / SCALE + DIV_PX / SCALE / 2
+        journal = [{"seq": 1, "uptimeNanos": int((T0 + 29.5 * P) * 1e9), "kind": {"mouse": {"_0": {"phase": "down", "x": x, "y": 50}}}},
+                   {"seq": 2, "uptimeNanos": int((T0 + 49.5 * P) * 1e9), "kind": {"mouse": {"_0": {"phase": "up", "x": x + 40, "y": 50}}}}]
     if variant == "reduce-keys":
         journal = [{"seq": 1, "uptimeNanos": int((T0 + 9.5 * P) * 1e9), "kind": {"key": {"_0": {"phase": "down", "keyCode": 37, "isRepeat": False}}}}]
     Path(f"{base}.events.json").write_text(json.dumps({"hid": [], "journal": journal}))
@@ -1841,6 +1860,41 @@ class RestCutRingTests(unittest.TestCase):
     def test_a_real_stretch_still_fails(self):
         t = self.reports["rest-cut-stretch"]["m6"]["kinds"]["terminal"]
         self.assertEqual(jp_frames(t["fail_frames_by_rule"]["E5"]), {20, 21, 22}, t)
+
+
+class PressedDividerGlowTests(unittest.TestCase):
+    """3e.7 (pixel-perfect, 2026-11-05: ab-s2bmin-d8ac2f4 px-keys-then-clamp-2x-sw-sharededges-on-s0125, strip row 28,
+    frames 224-396: p2's tab strip read 3 px left of its pane edge, m14 "edge" in 162-173 frames per clamp film, both
+    arms): while a divider is pressed, its glow band (CmuxNextDesign DividerGlowBand: a 2 pt core and a 3 pt halo each side
+    of the line) covers the strip ends next to it: the halo (#ED65F5) over the gap is no strip class, so the strip reader
+    took it for the strip. During a press, within 4 pt of the pressed divider's line, a pixel with red and blue on (the glow
+    over the shell) is the shell and any other is the strip (the glow over the strip): the strip edge is read where it is.
+    A strip that is truly off under the glow still fails."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp(prefix="judge-pixel-glow-")
+        cls.reports = {v: jp.judge(build(cls.tmp, v, v), all_frames=True) for v in ("strip-glow", "strip-glow-off3")}
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_a_strip_edge_under_the_pressed_dividers_glow_reads_on_its_pane_edge(self):
+        r = self.reports["strip-glow"]
+        page = r["m6"]["kinds"]["page"]
+        self.assertEqual(page["fail"], 0, page)
+        self.assertEqual(r["m14"]["kinds"]["page"]["fail"], 0)
+        strip = side(r, "strip p1", "row@12", "lo")
+        self.assertEqual(strip["off_ranges"], "", strip)
+
+    def test_a_strip_truly_off_under_the_glow_still_fails(self):
+        r = self.reports["strip-glow-off3"]
+        strip = side(r, "strip p1", "row@12", "lo")
+        self.assertEqual(jp_frames(strip["off_ranges"]), set(range(30, 50)), strip)
+        # m6 passes a page whose edge matches the frame before as "page late 1"; m14 fails it (cmux-ad m14)
+        page = r["m14"]["kinds"]["page"]
+        self.assertEqual(jp_frames(page["fail_ranges"]), set(range(30, 50)), page)
 
 
 TOL_TEST_PX = 1.0
