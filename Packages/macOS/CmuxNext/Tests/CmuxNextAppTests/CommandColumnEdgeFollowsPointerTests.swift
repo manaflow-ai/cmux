@@ -109,7 +109,11 @@ struct CommandColumnEdgeFollowsPointerTests {
         screen.release(handle, at: CGPoint(x: from.x - 30, y: from.y), flags: .command)
     }
 
-    @Test func theFirstCommandFrameAtTheStripsEndWithUnevenWidthsKeepsEveryWidth() throws {
+    /// `shift`: Command-Shift (a snap at the release) follows the pointer while it is down like Command alone; Codex review
+    /// of d5966937dd2: with Shift held the drag skipped `.keep` during the move too and applied the plain extent.
+    @Test(arguments: [false, true])
+    func theFirstCommandFrameAtTheStripsEndWithUnevenWidthsKeepsEveryWidth(shift: Bool) throws {
+        let flags: NSEvent.ModifierFlags = shift ? [.command, .shift] : .command
         // Codex review of 054294ef137: widths 0.6, 0.3, 0.6 (not uniform yet), the camera at the strip's end, c1's edge
         // Command-dragged 30 pt left. No uniform width holds the edge there: the pointer's width, and the hold at c1's
         // width, both shrink the strip until it fits, so the camera would spring back. The drag made every column the plain
@@ -127,8 +131,8 @@ struct CommandColumnEdgeFollowsPointerTests {
         try #require(before > 40 && before < screen.root.bounds.maxX - 40, "c1's edge is off screen at \(before) pt")
         let widths = ["c0", "c1", "c2"].map { view.geometry.columns[ColumnID($0)]?.width ?? 0 }
 
-        let (handle, from) = try screen.press(.columnEdge("c1"), flags: .command)
-        screen.move(handle, from: from, by: -30, flags: .command)
+        let (handle, from) = try screen.press(.columnEdge("c1"), flags: flags)
+        screen.move(handle, from: from, by: -30, flags: flags)
         var moved: [CGFloat] = [], frames = 0, moving = true
         while moving, frames < 240 {
             moved.append(try edge(screen, "p3") - before)
@@ -140,7 +144,7 @@ struct CommandColumnEdgeFollowsPointerTests {
         #expect(zip(widths, after).allSatisfy { abs($0 - $1) < 0.5 }, "the columns went from \(widths) to \(after) pt")
         #expect(moved.allSatisfy { $0 <= 1 && $0 >= -31 }, "the edge moved \(moved.prefix(8)) pt for the pointer's -30 pt")
         #expect((moved.max() ?? 0) - (moved.min() ?? 0) <= 1, "the edge slid from \(moved.min() ?? 0) to \(moved.max() ?? 0) pt under the still pointer")
-        screen.release(handle, at: CGPoint(x: from.x - 30, y: from.y), flags: .command)
+        screen.release(handle, at: CGPoint(x: from.x - 30, y: from.y), flags: flags)
     }
 
     @Test func commandDraggingTheSecondColumnsEdgeInAStripThatScrollsFollowsThePointerOverSeveralMoves() throws {
