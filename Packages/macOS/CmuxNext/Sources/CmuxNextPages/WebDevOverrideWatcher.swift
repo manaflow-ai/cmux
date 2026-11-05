@@ -67,9 +67,27 @@ public final class WebDevOverrideWatcher {
     private func apply(_ value: WebDevOverride) {
         watchManifest(of: value.overlay)
         guard WebDevOverride.update(value) else { return }
-        // The same URL again: the scheme handler answers it from where the override now says.
-        WebBundleServedViews.shared.reloadServed()
+        Self.reloadPages()
     }
+
+    /// Reloads every page and agent pane from where the override now says, in both engines: the
+    /// same URL again, which the WebKit scheme handlers and (with ``PageChromiumHosting/setLivePages(_:)``)
+    /// Chromium's page host answer from the dev server, the overlay, a web update or the bundle.
+    /// Also run when the Live Web Reload setting changes (``WebDevOverride/setAllowed(_:)``).
+    static func reloadPages() {
+        let live = WebDevOverride.current.isActive
+        let chromiumLive = live && (PageWebView.chromiumHosting?.setLivePages(true) ?? false)
+        if !live { _ = PageWebView.chromiumHosting?.setLivePages(false) }
+        WebBundleServedViews.shared.reloadServed()
+        // Chromium pages reload when they serve the loop now or did until now. One whose Chromium
+        // cannot serve it keeps its bundled files until it next opens, in WebKit (PageEnginePolicy).
+        defer { chromiumServedLive = chromiumLive }
+        guard chromiumLive || chromiumServedLive else { return }
+        for page in PageRegistry.pages() where page.chromiumPage != nil { page.reload() }
+    }
+
+    /// Whether Chromium pages were serving the live loop after the last ``reloadPages()``.
+    private static var chromiumServedLive = false
 
     /// Follows the overlay's `manifest.json`, which an install writes after its files.
     private func watchManifest(of overlay: URL?) {

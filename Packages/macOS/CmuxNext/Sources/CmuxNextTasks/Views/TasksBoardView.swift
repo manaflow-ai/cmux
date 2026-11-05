@@ -50,7 +50,7 @@ private struct BoardColumn: View {
         .padding(6)
         .frame(width: TasksTunables.boardColumnWidth.value)
         .frame(maxHeight: .infinity, alignment: .top)
-        .background(RoundedRectangle(cornerRadius: 10).fill(targeted ? colors.hover : colors.hover.opacity(0.35)))
+        .background(RoundedRectangle(cornerRadius: Metrics.surfaceCornerRadius).fill(targeted ? colors.hover : colors.hover.opacity(0.35)))
         .dropDestination(for: String.self) { ids, _ in
             for id in ids { model.setStatus(id, to: status.id) }
             return !ids.isEmpty
@@ -88,7 +88,8 @@ private struct BoardCard: View {
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 8)
+            // A card in a column that pads it 6 pt: concentric with the column's corner.
+            RoundedRectangle(cornerRadius: Metrics.cornerRadius(insetFromSurface: 6))
                 .fill(model.selection == task.id ? colors.selection : colors.elevated)
                 .shadow(color: colors.shadow.opacity(elevation.alpha), radius: elevation.layerRadius, y: elevation.offset)
         )
