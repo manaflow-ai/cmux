@@ -514,4 +514,58 @@ if out="$(ratchet)"; then fail "a binding taken by a closure in a condition or a
 g reset -q
 reset
 
+# 24. Review of #36282 (HOLD): a closure in a condition is its own statement context. A
+#     `for`/`if let` inside it binds its own body (not the next `{` outside), a binding typed
+#     inside it does not leak into the outer body, and a switch `case let` pattern (no brace
+#     of its own) does not stay pending, so an unbalanced "(" in a multi-line string after it
+#     cannot keep later bodies from taking their bindings. Each subscript is on another
+#     file's Model array and counts.
+cat > "$shared/Sources/MessagesLabHome/F.swift" <<'SWIFT'
+struct Local {
+    var rows: [String: Int] = [:]
+}
+final class Scan {
+    var row = Local()
+    var model = Local()
+    func a(ms: [Model], i: Int) -> Bool {
+        if let first = ms.first(where: { c in
+            for row in ms { if row.rows[i] > 0 { return true } }
+            return false
+        }) { _ = first }
+        return false
+    }
+    func b(e: E, ms: [Model], i: Int) {
+        switch e {
+        case let .x(v):
+            Button(action: {
+                if let model = ms.first { _ = model.rows[i] }
+            })
+        default: break
+        }
+    }
+    func c(e: E, ms: [Model], i: Int) {
+        switch e {
+        case let .x(v):
+            let s = """
+            Usage (see docs
+            """
+            for model in ms { _ = model.rows[i] }
+        default: break
+        }
+    }
+    func d(ms: [Model], model: Model, i: Int) {
+        if let other = ms.first(where: { m in
+            if let model: Local = make(m) { return model.rows.isEmpty }
+            return false
+        }) { _ = model.rows[i] }
+    }
+}
+SWIFT
+printf 'struct Model {\n    var rows: [Int] = []\n}\n' > "$shared/Sources/MessagesLabHome/G.swift"
+g add -A
+if out="$(ratchet)"; then fail "a binding inside a condition closure, a leaked typed binding or a stale case pattern made an index exempt: $out"; fi
+[[ "$out" == *"swift MessagesLabHome: index_subscript 0 -> 4"* ]] || fail "row.rows[i] in a condition closure's for, model.rows[i] in a closure after a case let, model.rows[i] after a multi-line string with \"(\", or model.rows[i] after a typed binding in a condition closure was exempt: $out"
+g reset -q
+reset
+
 echo "crash-ratchet-v2.test.sh: ok"
