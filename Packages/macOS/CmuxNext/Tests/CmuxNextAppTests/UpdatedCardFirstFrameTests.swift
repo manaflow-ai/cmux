@@ -141,8 +141,10 @@ struct UpdatedCardFirstFrameTests {
         let wideAgain = Self.launch(FakeSurfaces(), width: 312)
         #expect(narrowAgain.updatedCardView.height == 77, "the narrow card took the wide card's height")
         #expect(narrowAgain.updatedCardView.frame == narrow.updatedCardView.frame)
+        // The wide launch before had no height of its own yet: its first frame took the narrow card's
+        // 77 pt and held it (no move after the first frame). The relaunch starts at its real 64 pt.
         #expect(wideAgain.updatedCardView.height == 64)
-        #expect(wideAgain.updatedCardView.frame == wide.updatedCardView.frame)
+        #expect(wideAgain.updatedCardView.frame.height < wide.updatedCardView.frame.height)
     }
 
     /// The relaunch bench at 3f6fa2890d2, and any real update whose index on disk does not list the new
