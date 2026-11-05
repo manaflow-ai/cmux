@@ -17,7 +17,11 @@
 //! viewer gets no frame of the half-drawn screen, and the frame after the
 //! update ends shows all of it. A program that never ends the mode is shown
 //! again after [`SYNCHRONIZED_OUTPUT_HOLD`], Ghostty's own bound (termio
-//! `sync_reset_ms`), so a crash mid-update never freezes the view.
+//! `sync_reset_ms`), so a crash mid-update never freezes the view. Only
+//! output is held: a frame a client's action asks for (resize, reconnect,
+//! a stream replacement) is built at once. A held terminal stays on the
+//! deadline heap once, checked again each cadence, however much output the
+//! update writes.
 
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, VecDeque};
@@ -255,17 +259,20 @@ fn run() {
                     slot.last_frame.store(nanos_since_epoch(Instant::now()), Ordering::Release);
                 }
                 Produced::Done(false) => {}
-                // The request stays: the output that ends the update asks
-                // again through the ready queue, and the deadline shows a
-                // screen whose update never ended.
+                // The request stays, and so does the slot: it is checked
+                // again after a cadence (or at the hold's end), and output
+                // meanwhile only raises its generation. A request that queued
+                // the slot since the clear already put it back.
                 Produced::Held(until) => {
-                    let flag = if announce { ANNOUNCE } else { 0 };
                     let _ =
                         slot.requested.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |old| {
-                            Some(((old & !ANNOUNCE).max(requested)) | (old & ANNOUNCE) | flag)
+                            Some((old & !ANNOUNCE).max(requested) | (old & ANNOUNCE))
                         });
-                    order += 1;
-                    waiting.push(Reverse(Deadline(until, order, Arc::downgrade(&slot))));
+                    if !slot.queued.swap(true, Ordering::SeqCst) {
+                        let again = (Instant::now() + RENDER_FRAME_CADENCE).min(until);
+                        order += 1;
+                        waiting.push(Reverse(Deadline(again, order, Arc::downgrade(&slot))));
+                    }
                 }
             }
         }
@@ -325,7 +332,8 @@ fn sync_hold(slot: &Slot, synchronized: bool, now: Instant) -> Option<Instant> {
 }
 
 /// Build one terminal's frame and publish output's scroll position, unless
-/// a synchronized update holds it for a render viewer.
+/// a synchronized update holds it for a render viewer. `announce` marks a
+/// request that is not only output's (a client's action): it is never held.
 fn produce(slot: &Slot, surface: &Weak<Surface>, requested: u64, announce: bool) -> Produced {
     let Some(surface) = surface.upgrade() else { return Produced::Done(false) };
     let Some(pty) = surface.as_pty() else { return Produced::Done(false) };
@@ -338,8 +346,9 @@ fn produce(slot: &Slot, surface: &Weak<Surface>, requested: u64, announce: bool)
     // Only a render viewer draws the half-drawn screen; with none, no frame is
     // built and the output event is not held.
     let viewed = pty.render.lock().is_ok_and(|render| !render.taps.is_empty());
-    if let Some(until) =
-        sync_hold(slot, viewed && term.mode(SYNCHRONIZED_OUTPUT, false), Instant::now())
+    let synchronized = viewed && term.mode(SYNCHRONIZED_OUTPUT, false);
+    if let Some(until) = sync_hold(slot, synchronized, Instant::now())
+        && !announce
     {
         return Produced::Held(until);
     }

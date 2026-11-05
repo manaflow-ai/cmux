@@ -194,3 +194,22 @@ fn a_synchronized_update_without_a_viewer_holds_nothing() {
         std::thread::sleep(Duration::from_millis(5));
     }
 }
+
+/// A frame a client's action asks for (an announced request: resize,
+/// reconnect, a stream replacement) is built at once, even mid-update.
+#[test]
+fn an_action_frame_is_not_held_by_a_synchronized_update() {
+    let mux = Mux::new_for_test("frame-sync-output-action", SurfaceOptions::default());
+    let surface =
+        Surface::spawn_for_test(9_954, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+    spawn_frame_producer(&surface).unwrap();
+    let pty = surface.as_pty().unwrap();
+    let _viewer = surface.attach_render_stream().unwrap();
+    pty.term.lock().unwrap().vt_write(b"\x1b[?2026h\x1b[1;1Hx");
+    let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
+    pty.request_frame(generation);
+    assert!(
+        wait_for_built(pty, generation, SYNCHRONIZED_OUTPUT_HOLD / 2).is_some(),
+        "an action's frame waited for the synchronized update"
+    );
+}
