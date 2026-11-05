@@ -1,0 +1,100 @@
+/* Who else works on these files: the transcript's quiet tool line, then one compact row per
+   session under it, indented to the line's text. No card chrome: it reads as the call's answer. */
+.cv-who-else {
+  /* The tool line's text column (its icon's width and gap), as DispatchCard's body indents to it. */
+  --cv-who-else-indent: 22.5px;
+  --cv-who-else-dot: 6px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.cv-who-else__rows {
+  margin: 0 0 8px;
+  padding: 0;
+  padding-inline-start: var(--cv-who-else-indent);
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.cv-who-else__row {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+}
+.cv-who-else__head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  min-width: 0;
+}
+.cv-who-else__dot {
+  flex: none;
+  width: var(--cv-who-else-dot);
+  height: var(--cv-who-else-dot);
+  border-radius: 50%;
+  background: var(--cv-text-dim);
+  opacity: 0.6;
+}
+.cv-who-else__dot.is-live {
+  background: var(--agent-status-success);
+  opacity: 1;
+}
+.cv-who-else__where,
+.cv-who-else__ago {
+  color: var(--cv-text-muted);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  overflow-wrap: anywhere;
+}
+.cv-who-else__ago {
+  margin-inline-start: auto;
+  color: var(--cv-text-dim);
+}
+.cv-who-else__pr {
+  color: var(--cv-text-muted);
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.cv-who-else__pr:hover,
+.cv-who-else__pr:focus-visible {
+  color: var(--cv-text);
+}
+.cv-who-else__what {
+  margin-inline-start: 12px;
+  color: var(--cv-text-muted);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+  overflow-wrap: anywhere;
+}
+.cv-who-else__more {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 8px;
+  margin-inline-start: var(--cv-who-else-indent);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--cv-text-muted);
+  font: inherit;
+  font-size: var(--text-detail);
+  cursor: pointer;
+}
+.cv-who-else__more:hover,
+.cv-who-else__more:focus-visible {
+  color: var(--cv-text);
+}
+.cv-who-else__note {
+  margin: 0 0 8px;
+  margin-inline-start: var(--cv-who-else-indent);
+  color: var(--cv-text-dim);
+  font-size: var(--text-detail);
+}

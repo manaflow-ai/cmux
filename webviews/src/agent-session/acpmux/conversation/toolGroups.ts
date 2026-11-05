@@ -9,6 +9,7 @@ import { acpmuxMcpSends } from "./acpmuxMcpSends";
 import { acpmuxSendCalls, recordedMessageBodyChangesForTool, type AcpmuxSendCallPart } from "./acpmuxSends";
 import { agentMessage, type AgentMessage } from "./agentMessages";
 import { dispatchCall, type DispatchCall } from "./dispatchCalls";
+import { whoElseCall, type WhoElseCall } from "./whoElseCalls";
 import { isCmuxExec } from "./cmuxExec";
 import { mcpCall, mcpDescription, mcpIsObservational, mcpKey } from "./mcpCalls";
 import { subsessionCall, type SubsessionCall } from "./subsessionCalls";
@@ -25,6 +26,9 @@ export type ToolGroup =
   | { type: "message"; item: AcpmuxActivity; message: AgentMessage }
   /// A first-class dispatch/steer/report operation, kept visible beside folded tool work.
   | { type: "dispatch"; item: AcpmuxActivity; call: DispatchCall }
+  /// "Who else is working on these files" (whoElseCalls.ts): its answer as one card, whether the
+  /// agent asked through the acpmux MCP tool or `acpmux who-else --json` in a shell.
+  | { type: "whoElse"; item: AcpmuxActivity; call: WhoElseCall }
   /// A message a shell `acpmux send` (acpmuxSends.ts) or the acpmux MCP send's batch, file or tag
   /// shape (acpmuxMcpSends.ts) sent: the sent-message row (SentMessageLine.tsx). A call that sent
   /// several (a batch) is one entry per message, all with the same `item`.
@@ -150,7 +154,8 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
       continue;
     }
     const tool = item.tool;
-    const dispatch = tool ? dispatchCall(item) : undefined;
+    const whoElse = tool ? whoElseCall(item) : undefined;
+    const dispatch = tool && !whoElse ? dispatchCall(item) : undefined;
     let send = tool && !dispatch ? acpmuxSendCalls(tool, messageFiles) : undefined;
     if (send && messageFiles.size) {
       const startsAt = tool?.startedAt;
@@ -162,9 +167,9 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
         send = tool && !dispatch ? acpmuxSendCalls(tool) : undefined;
       }
     }
-    if (!send && tool && !dispatch) send = acpmuxMcpSends(tool);
-    const message = tool && !dispatch && !send ? agentMessage(tool) : undefined;
-    const named = tool && !dispatch && !send && !message ? mcpCall(tool) : undefined;
+    if (!send && tool && !dispatch && !whoElse) send = acpmuxMcpSends(tool);
+    const message = tool && !dispatch && !whoElse && !send ? agentMessage(tool) : undefined;
+    const named = tool && !dispatch && !whoElse && !send && !message ? mcpCall(tool) : undefined;
     const subsession = named && subsessionCall(tool!, named);
     const call = subsession ? undefined : named;
     // A cmux script is its own row even beside another: each says what it did (cmuxExec.ts).
@@ -282,7 +287,7 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
       rememberMessageFiles();
       continue;
     }
-    const kind = tool && !send && !message && !subsession && !call ? toolGroupKind(tool) : undefined;
+    const kind = tool && !whoElse && !send && !message && !subsession && !call ? toolGroupKind(tool) : undefined;
     if (kind && run?.kind === kind) {
       run.items.push(...held, item);
       held = [];
@@ -297,7 +302,8 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
       continue;
     }
     flushLead();
-    if (dispatch) groups.push({ type: "dispatch", item, call: dispatch });
+    if (whoElse) groups.push({ type: "whoElse", item, call: whoElse });
+    else if (dispatch) groups.push({ type: "dispatch", item, call: dispatch });
     else if (send) for (const part of send) groups.push({ type: "send", item, send: part });
     else if (message) groups.push({ type: "message", item, message });
     else if (subsession) groups.push({ type: "subsession", item, call: subsession });

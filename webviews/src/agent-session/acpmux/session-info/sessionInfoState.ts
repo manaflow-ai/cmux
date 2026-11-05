@@ -36,6 +36,7 @@ export type SessionInfoSectionId =
   | "progress"
   | "subagents"
   | "tasks"
+  | "alsoHere"
   | "outputs"
   | `app:${string}#${string}`;
 export type BuiltInSessionInfoSectionId = Exclude<SessionInfoSectionId, `app:${string}#${string}`>;
@@ -59,6 +60,7 @@ export const DEFAULT_SECTIONS: SessionInfoSections = {
   progress: true,
   subagents: true,
   tasks: true,
+  alsoHere: true,
   outputs: true,
 };
 

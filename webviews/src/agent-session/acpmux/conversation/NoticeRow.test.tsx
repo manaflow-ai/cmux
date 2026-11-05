@@ -157,3 +157,19 @@ test("a notice of a title alone is still a row", () => {
   } as AcpmuxRow;
   expect(isVisiblyEmptyMessage(row)).toBe(false);
 });
+
+test("acpmux's own who-else notice (kind who_else) reads as a notice, not the person's prompt", () => {
+  const title = "greet-codex also edits greeting.txt";
+  const raw = `[notice from acpmux who-else] ${title}\nMessage it with acpmux send greet-codex.`;
+  const provenance = {
+    kind: "who_else",
+    from: "fromAgent",
+    fromName: "acpmux who-else",
+    to: "s-1",
+    notice: { sender: "acpmux who-else", severity: "info", title, links: [] },
+  };
+  const read = incomingPrompt(raw, { _meta: { provenance } });
+  if (read?.kind !== "message") throw new Error("not a message");
+  expect(read.message.notice?.title).toBe(title);
+  expect(read.message.name).toBe("acpmux who-else");
+});

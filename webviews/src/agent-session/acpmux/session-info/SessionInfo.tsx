@@ -112,6 +112,8 @@ import { sessionInfoLists, type SessionInfoProcess, type ProcessRegistry } from 
 import { ServersSection } from "./ServersSection";
 import { SubagentLimitStepper } from "./SubagentLimitStepper";
 import { SubagentCountsMeta, SubagentsSection } from "./SubagentsSection";
+import { AlsoHereSection } from "./AlsoHereSection";
+import { alsoHere } from "./alsoHere";
 import { TasksSection } from "./TasksSection";
 import { currentPlan, planDone, ProgressSection, type SessionInfoPlan } from "./ProgressSection";
 import { WorkflowTasks, type WorkflowAgentRowVariant } from "./WorkflowTasks";
@@ -2003,6 +2005,19 @@ export function SessionInfo({
   // The dev servers are background commands too: their rows head the one Background tasks section
   // (they were a card of their own, most often one row). Every server runs.
   const running = runningTasks + servers.length + workflows.filter((workflow) => workflow.state === "running").length;
+  // The other chats in this chat's worktree or on its branch (alsoHere.ts), shown only when there are.
+  const alsoHereRows = useMemo(() => alsoHere(chatId, allSessions, Date.now()), [chatId, allSessions]);
+  const alsoHereSection = alsoHereRows.length > 0 && (
+    <SessionInfoSection
+      id="alsoHere"
+      title={t("sessionInfo.alsoHere")}
+      open={state.alsoHere}
+      onOpenChange={fold("alsoHere")}
+      meta={value(String(alsoHereRows.length))}
+    >
+      <AlsoHereSection rows={alsoHereRows} onOpen={onOpenChat} />
+    </SessionInfoSection>
+  );
   const tasks = servers.length + commands.length + scheduled.length + workflows.length > 0 && (
     <SessionInfoSection
       id="tasks"
@@ -2084,6 +2099,7 @@ export function SessionInfo({
           progress: progressSection,
           subagents: subagentsSection,
           tasks,
+          alsoHere: alsoHereSection,
           ...appNodes,
         }}
       />
