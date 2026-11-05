@@ -1142,7 +1142,11 @@ impl Brain {
         }
         // control interrupt|restart with a message: the cut run reports
         // nothing; the message is its next prompt, sent now that it stopped.
-        let follow = self.state.sub_mut(id).and_then(|s| s.after_stop.take());
+        let (follow, carried) = self
+            .state
+            .sub_mut(id)
+            .map(|s| (s.after_stop.take(), s.after_stop_prompt.take()))
+            .unwrap_or_default();
         if let Some(message) = follow {
             if let Some(sub) = self.state.sub_mut(id) {
                 if let Some(floor) = floor {
@@ -1151,9 +1155,13 @@ impl Brain {
                 sub.status = SubStatus::Done;
             }
             self.save();
-            match self.tell(id, &message) {
+            // A tell that interrupted the turn keeps its receipt's prompt id.
+            match self.tell_mode_as(id, &message, false, carried.clone()) {
                 Ok(_) => {
-                    self.trace.emit("subagent.after_stop", json!({"id": id}));
+                    self.trace.emit(
+                        "subagent.after_stop",
+                        json!({"id": id, "prompt_id": carried}),
+                    );
                     return;
                 }
                 Err(e) => {
@@ -2302,8 +2310,9 @@ impl Brain {
                 "outcome: queued. Queued for delivery to {id} ({waiting} waiting): {why}. You get a note when it is delivered."
             ))
         } else {
+            // Handed to acpmux, not yet known read: `submitted`, never `done`.
             self.tell_mode(id, message, queue)
-                .map(|answer| format!("outcome: done. {answer}"))
+                .map(|receipt| format!("outcome: submitted. {receipt}"))
         };
         if answer.is_ok() {
             // "Signed in to SITE ...; go on." (chief-auth-escalation): its Feed request closes.
@@ -2416,10 +2425,15 @@ impl Brain {
         // turn instead of cutting it.
         match self.tell_mode(id, &text, true) {
             Ok(_) => {
+                // Handed to its session, not yet taken: a refused handoff
+                // comes back as a note (`tell_undelivered`) and refills it.
                 self.trace
-                    .emit("tell.delivered", json!({"id": id, "count": messages.len()}));
+                    .emit("tell.submitted", json!({"id": id, "count": messages.len()}));
                 self.queue(
-                    format!("[{id}] got {} queued message(s) from you.", messages.len()),
+                    format!(
+                        "[{id}] {} queued message(s) from you submitted to its session (not yet confirmed read).",
+                        messages.len()
+                    ),
                     Source::Note,
                 );
             }
@@ -2440,16 +2454,32 @@ impl Brain {
         self.tell_mode(id, message, false)
     }
 
-    /// A message to the subagent's session. Into a running turn it is
-    /// steered (read between its tool calls); when the agent cannot steer
-    /// now, the turn is interrupted and the message is its next prompt
-    /// (`tell_unsteered`), or with `queue` it waits for the turn to end
-    /// (acpmux queues it). An idle session runs it as a new turn.
+    /// `tell_mode`, a new prompt id.
     pub(super) fn tell_mode(
         &mut self,
         id: &str,
         message: &str,
         queue: bool,
+    ) -> Result<String, String> {
+        self.tell_mode_as(id, message, queue, None)
+    }
+
+    /// A message to the subagent's session. Into a running turn it is
+    /// steered (read between its tool calls); when the agent cannot steer
+    /// now, the turn is interrupted and the message is its next prompt
+    /// (`tell_unsteered`), or with `queue` it waits for the turn to end
+    /// (acpmux queues it). An idle session runs it as a new turn.
+    /// `prompt_id` is the id an earlier receipt named, when this sends that
+    /// tell again: its steer was refused and its turn had ended, or the
+    /// interrupt's next prompt. A tell joined to an earlier interrupt goes out
+    /// under that one's id (traced as `sent_as`). A tell kept after a failed
+    /// handoff goes later under a new id (`tell_undelivered`).
+    pub(super) fn tell_mode_as(
+        &mut self,
+        id: &str,
+        message: &str,
+        queue: bool,
+        prompt_id: Option<String>,
     ) -> Result<String, String> {
         let (spawn, session) = match self.state.sub(id) {
             Some((spawn, sub)) => (
@@ -2463,7 +2493,8 @@ impl Brain {
         // A `queue` tell is `fyi:`, so a reconnect never flushes it as an
         // interrupt (`flush_queued_tells` takes `tell:` ones only).
         let kind = if queue { "fyi" } else { "tell" };
-        let prompt_id = format!("{PROMPT_PREFIX}{kind}:{id}:{}", now_ms());
+        let prompt_id =
+            prompt_id.unwrap_or_else(|| format!("{PROMPT_PREFIX}{kind}:{id}:{}", now_ms()));
         let blocks = vec![json!({"type": "text", "text": message})];
         let running = self
             .state
@@ -2471,6 +2502,13 @@ impl Brain {
             .is_some_and(|(_, s)| matches!(s.status, SubStatus::Running | SubStatus::Starting));
         let (agents, forward, sub_id) = (self.agents.clone(), self.tx.clone(), id.to_owned());
         let text = message.to_owned();
+        let receipt = TellReceipt {
+            id: id.to_owned(),
+            prompt_id: prompt_id.clone(),
+            session: session.clone(),
+            queue,
+            running,
+        };
         let steered = if running {
             // Reference parity S4: into the running session, read between
             // its tool calls. One that cannot steer now is interrupted, and
@@ -2497,6 +2535,7 @@ impl Brain {
                             id: sub_id,
                             session,
                             message,
+                            prompt_id,
                         });
                         return;
                     }
@@ -2543,18 +2582,9 @@ impl Brain {
         }
         self.trace.emit(
             "tell",
-            json!({"id": id, "spawn": spawn, "from": "chief", "steered": steered, "queue": queue, "message": self.trace.text(message)}),
+            json!({"id": id, "spawn": spawn, "from": "chief", "steered": steered, "queue": queue, "prompt_id": receipt.prompt_id, "session": receipt.session, "message": self.trace.text(message)}),
         );
-        let answer = if steered && queue {
-            format!("sent to {id}; read between tool calls or after its turn")
-        } else if steered {
-            format!(
-                "sent to {id}; its current step stops so it reads it now (a running subagent or background shell runs on), else its turn restarts with it"
-            )
-        } else {
-            format!("sent to {id}; read after its current step")
-        };
-        Ok(answer)
+        Ok(receipt.text())
     }
 
     /// A tell whose steer the running turn refused (`tell_mode`): the turn
@@ -2563,7 +2593,13 @@ impl Brain {
     /// reports nothing. A second one while the stop is pending joins the
     /// same next prompt. One that ended meanwhile gets it as a new turn;
     /// when the cancel fails it waits after the turn, as a `queue` tell.
-    pub(super) fn tell_unsteered(&mut self, id: &str, session: &str, message: &str) {
+    pub(super) fn tell_unsteered(
+        &mut self,
+        id: &str,
+        session: &str,
+        message: &str,
+        prompt_id: &str,
+    ) {
         let Some((_, sub)) = self.state.sub(id) else {
             return;
         };
@@ -2572,7 +2608,7 @@ impl Brain {
         if !running {
             if same
                 && !sub.cancelled
-                && let Err(e) = self.tell(id, message)
+                && let Err(e) = self.tell_mode_as(id, message, false, Some(prompt_id.to_owned()))
             {
                 (self.log)(&format!("subagent {id}: the tell did not reach it: {e}"));
                 self.tell_undelivered(id, message.to_owned(), &e);
@@ -2585,28 +2621,44 @@ impl Brain {
                 Some(earlier) => format!("{earlier}\n\n{message}"),
                 None => message.to_owned(),
             });
+            // The first tell's prompt id carries the next prompt; one joined
+            // to it goes out under that id, which the trace records. A
+            // follow-up with no id yet (a control interrupt's message or an
+            // auto-continue: no receipt named one) takes this tell's.
+            if !pending || sub.after_stop_prompt.is_none() {
+                sub.after_stop_prompt = Some(prompt_id.to_owned());
+            }
         }
         self.save();
+        let carried = self
+            .state
+            .sub(id)
+            .and_then(|(_, s)| s.after_stop_prompt.clone());
         if pending {
-            self.trace
-                .emit("tell.interrupt", json!({"id": id, "joined": true}));
+            self.trace.emit(
+                "tell.interrupt",
+                json!({"id": id, "joined": true, "prompt_id": prompt_id, "sent_as": carried}),
+            );
             return;
         }
         match self.agents.cancel(session) {
-            Ok(()) => self
-                .trace
-                .emit("tell.interrupt", json!({"id": id, "joined": false})),
+            Ok(()) => self.trace.emit(
+                "tell.interrupt",
+                json!({"id": id, "joined": false, "prompt_id": prompt_id}),
+            ),
             Err(e) => {
                 (self.log)(&format!(
                     "subagent {id}: the tell could not interrupt it ({e}); it goes after the current turn"
                 ));
-                let text = self
+                let (text, carried) = self
                     .state
                     .sub_mut(id)
-                    .and_then(|s| s.after_stop.take())
-                    .unwrap_or_else(|| message.to_owned());
+                    .map(|s| (s.after_stop.take(), s.after_stop_prompt.take()))
+                    .unwrap_or_default();
+                let text = text.unwrap_or_else(|| message.to_owned());
                 self.save();
-                let prompt_id = format!("{PROMPT_PREFIX}tell:{id}:{}", now_ms());
+                // The receipt's prompt id, not a fresh one.
+                let prompt_id = carried.unwrap_or_else(|| prompt_id.to_owned());
                 let blocks = vec![json!({"type": "text", "text": text.clone()})];
                 if let Err(e) = tell_prompt(
                     &*self.agents,
@@ -2834,7 +2886,9 @@ impl Brain {
             }
             if delivered > 0 {
                 self.queue(
-                    format!("[{id}] got {delivered} queued message(s) from you with its task."),
+                    format!(
+                        "[{id}] {delivered} queued message(s) from you went with its task to its start (not yet confirmed read)."
+                    ),
                     Source::Note,
                 );
             }
@@ -3062,7 +3116,10 @@ impl Brain {
             if let Some(s) = self.state.sub_mut(id) {
                 told.insert(
                     id.clone(),
-                    (s.after_stop.take(), std::mem::take(&mut s.inbox)),
+                    (
+                        (s.after_stop.take(), s.after_stop_prompt.take()),
+                        std::mem::take(&mut s.inbox),
+                    ),
                 );
                 if *status == SubStatus::Queued {
                     s.cancelled = true;
@@ -3094,9 +3151,10 @@ impl Brain {
                         (self.log)(&format!("subagent {id}: stopping it: {e}"));
                         // Not stopped: it stays as it was.
                         if let Some(s) = self.state.sub_mut(&id)
-                            && let Some((after_stop, inbox)) = told.remove(&id)
+                            && let Some(((after_stop, after_stop_prompt), inbox)) = told.remove(&id)
                         {
                             s.after_stop = after_stop;
+                            s.after_stop_prompt = after_stop_prompt;
                             s.inbox = inbox;
                         }
                         starting.retain(|s| s != &id);
@@ -3412,6 +3470,51 @@ fn tell_prompt(
         }
     });
     Ok(())
+}
+
+/// What a `tell` into a subagent's session answers: the prompt id it went
+/// out under (acpmux runs one prompt id once), the session it went to, the
+/// mode asked for and the one used, and how far it got. It is handed to
+/// acpmux when this answers; the harness takes it later (a steer at its next
+/// step, a new turn when it starts). A handoff that fails comes back as a
+/// note (`tell_undelivered`); a session that never answers is not reported
+/// here: `control status` shows it.
+struct TellReceipt {
+    id: String,
+    prompt_id: String,
+    session: String,
+    queue: bool,
+    running: bool,
+}
+
+impl TellReceipt {
+    /// The route it was submitted on is known now; which one took effect is
+    /// not (the steer resolves on another thread), so it says pending and
+    /// lists the fallbacks, and which prompt id each goes out under.
+    fn text(&self) -> String {
+        let requested = if self.queue {
+            "queue (after its current step)"
+        } else {
+            "now (stop its current step)"
+        };
+        let submitted = match (self.running, self.queue) {
+            (true, false) => {
+                "a steer into its running turn. Effective: pending. If its agent takes the steer, its current step stops and it reads it at once; if not, its turn is interrupted (context kept) and this prompt is its next one; if the interrupt fails, it waits for the turn to end"
+            }
+            (true, true) => {
+                "a steer into its running turn. Effective: pending. Read between its tool calls if its agent takes the steer, else after the turn ends"
+            }
+            (false, _) => {
+                "a new turn (it was not running). Effective: pending until acpmux takes the prompt"
+            }
+        };
+        format!(
+            "{id} prompt {prompt} in session {session}. Requested: {requested}. Submitted as: {submitted}. The interrupt fallback sends it under this prompt id, or, joined to an earlier interrupting tell, under that tell's (the trace records it as sent_as). Not yet confirmed read; a failed handoff keeps the message for a later prompt, under a new id, and comes back as a note; its report answers it.",
+            id = self.id,
+            prompt = self.prompt_id,
+            session = self.session,
+        )
+    }
 }
 
 /// Inbox messages as one prompt, oldest first.

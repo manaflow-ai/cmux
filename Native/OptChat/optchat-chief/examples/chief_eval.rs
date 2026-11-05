@@ -532,8 +532,8 @@ impl CaseRun<'_> {
             }
             "tell" => (
                 format!(
-                    "outcome: done. sent to {}; read between tool calls or after its turn",
-                    input["id"].as_str().unwrap_or("?")
+                    "outcome: submitted. {id} prompt optchat-tell:{id}:1 in session s-{id}. Requested: now (stop its current step). Effective: steered in now: its current step stops and it reads it at once. Submitted to acpmux, not yet confirmed read; a failed handoff comes back as a note, and its report answers it.",
+                    id = input["id"].as_str().unwrap_or("?")
                 ),
                 false,
             ),

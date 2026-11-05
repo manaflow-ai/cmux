@@ -84,6 +84,10 @@ fn wait_for(h: &mut Harness, what: impl Fn(&Harness) -> bool) {
 #[test]
 fn a_tell_to_a_starting_subagent_waits_and_follows_its_task() {
     let mut h = Harness::new(default_script());
+    // The harness traces nothing by default; this test reads the flush's event.
+    let traces = h.dir.path().join("traces");
+    h.brain
+        .set_trace(optchat_chief::trace::Trace::open(&traces, false).unwrap());
     h.agents.inner.lock().unwrap().slow_session =
         Some(("optchat-sub".into(), Duration::from_millis(400)));
     let sp = spawner(&h);
@@ -114,6 +118,31 @@ fn a_tell_to_a_starting_subagent_waits_and_follows_its_task() {
             .expect("second message delivered"),
     );
     assert!(one < two, "in order: {later}");
+    // Issue 36496: the held messages were handed to its session, not seen
+    // taken, so the flush is traced (and noted) as submitted, never delivered.
+    let traced = |ev: &str| -> usize {
+        std::fs::read_dir(&traces)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|entry| std::fs::read_to_string(entry.path()).unwrap_or_default())
+            .map(|text| {
+                text.lines()
+                    .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+                    .filter(|value| value["ev"] == ev)
+                    .count()
+            })
+            .sum()
+    };
+    assert!(
+        traced("tell.submitted") >= 1,
+        "the inbox flush was not traced as submitted"
+    );
+    assert_eq!(
+        traced("tell.delivered"),
+        0,
+        "the inbox flush claimed delivery"
+    );
 }
 
 #[test]
@@ -271,7 +300,23 @@ fn a_tell_to_a_running_subagent_that_cannot_steer_interrupts_it() {
     let session = sub_session(&h);
     let a = sp.clone();
     let told = run(&mut h, move || a.tell("a1", "stop and fix the build")).unwrap();
-    assert!(told.starts_with("outcome: done."), "{told}");
+    // Issue 36496: the tell returns before the harness took it, so its
+    // receipt says submitted (never done), names the prompt id and the
+    // session, and leaves the effective route pending: this agent refuses the
+    // steer, so the turn is interrupted instead, which the receipt must not
+    // have called a steer.
+    assert!(told.starts_with("outcome: submitted."), "{told}");
+    let prompt_id = told
+        .split_whitespace()
+        .find(|word| word.starts_with("optchat-tell:a1:"))
+        .expect("the receipt names its prompt id")
+        .to_owned();
+    assert!(told.contains(&format!("in session {session}.")), "{told}");
+    assert!(told.contains("Requested: now"), "{told}");
+    assert!(told.contains("Effective: pending"), "{told}");
+    assert!(!told.contains("Effective: steered"), "{told}");
+    assert!(told.contains("Not yet confirmed read"), "{told}");
+    assert!(!told.contains("outcome: done"), "{told}");
     wait_for(&mut h, |h| {
         !h.agents.inner.lock().unwrap().cancels.is_empty()
     });
@@ -289,6 +334,55 @@ fn a_tell_to_a_running_subagent_that_cannot_steer_interrupts_it() {
     wait_for(&mut h, |h| sub_prompts(h).len() >= 2);
     let prompts = sub_prompts(&h);
     assert!(prompts[1].contains("stop and fix the build"), "{prompts:?}");
+    // The interrupt's next prompt goes out under the receipt's prompt id.
+    let ids = h.agents.inner.lock().unwrap().prompt_ids.clone();
+    assert_eq!(ids.last(), Some(&prompt_id), "{ids:?}");
+}
+
+/// Review of a69 (issue 36496): a tell that joins a pending control
+/// interrupt's message (whose follow-up no receipt named) gives the combined
+/// next prompt its own prompt id, so its receipt correlates with what is sent.
+#[test]
+fn a_tell_joined_to_a_pending_control_interrupt_names_the_combined_prompt() {
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let sp = spawner(&h);
+    let a = sp.clone();
+    run(&mut h, move || a.spawn(vec!["long job".into()], None)).unwrap();
+    wait_for(&mut h, |h| !sub_prompts(h).is_empty());
+    let session = sub_session(&h);
+    let a = sp.clone();
+    let interrupted = run(&mut h, move || {
+        a.control(ControlCall {
+            action: "interrupt".into(),
+            id: Some("a1".into()),
+            message: Some("check the logs first".into()),
+            ..ControlCall::default()
+        })
+    })
+    .unwrap();
+    assert!(interrupted.starts_with("outcome: done."), "{interrupted}");
+    // This agent refuses steers: the tell joins the pending interrupt.
+    h.agents.inner.lock().unwrap().steering = false;
+    let a = sp.clone();
+    let told = run(&mut h, move || a.tell("a1", "then fix the build")).unwrap();
+    let prompt_id = told
+        .split_whitespace()
+        .find(|word| word.starts_with("optchat-tell:a1:"))
+        .expect("the receipt names its prompt id")
+        .to_owned();
+    settle(&mut h);
+    h.agents.hold(false);
+    h.brain.step(Input::from(
+        optchat_chief::acpmux::AgentEvent::SessionChanged(idle(&session)),
+    ));
+    wait_for(&mut h, |h| sub_prompts(h).len() >= 2);
+    let prompts = sub_prompts(&h);
+    let next = prompts.last().unwrap();
+    assert!(next.contains("check the logs first"), "{prompts:?}");
+    assert!(next.contains("then fix the build"), "{prompts:?}");
+    let ids = h.agents.inner.lock().unwrap().prompt_ids.clone();
+    assert_eq!(ids.last(), Some(&prompt_id), "{ids:?}");
 }
 
 /// `queue: true` keeps the old behavior for a low-priority FYI: no
@@ -306,7 +400,12 @@ fn a_queue_tell_waits_for_the_turn() {
         a.tell_with("a1", "FYI: a188 landed its fix", None, true)
     })
     .unwrap();
-    assert!(told.starts_with("outcome: done."), "{told}");
+    assert!(told.starts_with("outcome: submitted."), "{told}");
+    assert!(told.contains("Requested: queue"), "{told}");
+    assert!(
+        told.contains("Effective: pending. Read between its tool calls"),
+        "{told}"
+    );
     wait_for(&mut h, |h| sub_prompts(h).len() >= 2);
     assert!(sub_prompts(&h)[1].contains("FYI: a188 landed its fix"));
     let inner = h.agents.inner.lock().unwrap();
@@ -433,7 +532,7 @@ fn keyed_tells_and_cancels_are_idempotent() {
             a.tell_with("a1", "focus on tests", Some("k1"), true),
         )
     });
-    assert!(one.unwrap().starts_with("outcome: done."));
+    assert!(one.unwrap().starts_with("outcome: submitted."));
     assert!(two.unwrap().starts_with("outcome: noop."));
     let cancel = |sp: &Arc<Spawner>| {
         let a = sp.clone();

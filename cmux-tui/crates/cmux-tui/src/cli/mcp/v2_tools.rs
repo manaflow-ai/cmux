@@ -198,6 +198,7 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("agent.message.list", AGENT_MESSAGE_REASON),
     ("agent.message.mark", AGENT_MESSAGE_REASON),
     ("agent.message.send", AGENT_MESSAGE_REASON),
+    ("agent.message.wait", AGENT_MESSAGE_WAIT_REASON),
 ];
 
 /// Operations the curated `cmux` CLI offers but MCP does not, with the
@@ -224,6 +225,12 @@ pub(super) const CLI_ONLY: &[(&str, &str)] = &[
 const AGENT_MESSAGE_REASON: &str = "Agent messages go through `cmux agent message` and `cmux \
      agent inbox`, which store, deliver and mark in one command; one operation alone would \
      store a message without delivering it or change another agent's delivery state.";
+
+/// The wake hook's claim (`cmux-tui-hook/inbox.rs`) leases a terminal
+/// agent's queued messages until its hook marks them delivered.
+const AGENT_MESSAGE_WAIT_REASON: &str = "The blocking claim belongs to a terminal agent's own \
+     wake and prompt hooks, which show the claimed messages and then mark them delivered; a \
+     tool that claimed another agent's messages would hide them from it until the lease ends.";
 
 const AGENT_MESSAGE_RELEASE_REASON: &str = "Releasing a held agent message is the person's \
      decision (`cmux agent message release`); an agent gets no tool to approve messages.";

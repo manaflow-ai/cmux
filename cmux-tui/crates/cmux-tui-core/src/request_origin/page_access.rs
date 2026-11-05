@@ -77,7 +77,9 @@ const fn access(operation: Op) -> Access {
         // lets a held one through, and an unsend sends the agent a notice.
         | Op::AgentMessageSend
         | Op::AgentMessageRelease
-        | Op::AgentMessageUnsend => Access::Denied(Denied::Input),
+        | Op::AgentMessageUnsend
+        // A claim hides an agent's messages from it until its lease ends.
+        | Op::AgentMessageWait => Access::Denied(Denied::Input),
         Op::TerminalScreenRead
         | Op::TerminalHistoryRead
         | Op::TerminalHistoryClear

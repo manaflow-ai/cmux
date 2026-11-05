@@ -49,7 +49,7 @@ use windows_sys::Win32::System::Threading::{
 
 #[cfg(test)]
 mod claude_worktree_tests;
-mod message_hooks;
+pub mod message_hooks;
 mod status_conflict;
 use message_hooks::{delivers_messages, hook_command, journal_hook_command};
 use status_conflict::{conflict_row, ensure_replaceable_target};

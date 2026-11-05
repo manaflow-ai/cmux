@@ -5,6 +5,7 @@ use serde_json::{Value, json};
 
 use super::{index, mutation, state_error, state_result, string, strings};
 use crate::Mux;
+use crate::mux::agent_message_wait::AgentMessageWait;
 use crate::resource::{ResourceError, ResourceOperation};
 use crate::resource_router::{ParsedResourceRequest, expected_revision};
 use crate::state::agent_message_store::{AgentMessageFilter, NewAgentMessage};
@@ -19,6 +20,7 @@ pub(super) fn handles(operation: ResourceOperation) -> bool {
             | Op::AgentMessageMark
             | Op::AgentMessageRelease
             | Op::AgentMessageUnsend
+            | Op::AgentMessageWait
     )
 }
 
@@ -97,6 +99,24 @@ pub(super) fn dispatch(mux: &Mux, request: &ParsedResourceRequest) -> Result<Val
                 )
                 .map_err(state_error)?;
             state_result(mux, commit)
+        }
+        // A one-shot claim (a prompt hook) answers at once. A blocking wait
+        // needs the connection that can cancel it: the socket hands it to a
+        // wait worker (server/resource_waits.rs) before this router.
+        Op::AgentMessageWait => {
+            let wait = AgentMessageWait::from_fields(fields)?;
+            if !wait.timeout.is_zero() {
+                return Err(ResourceError::validation_invalid(
+                    Some("timeout_ms"),
+                    "agent.message.wait blocks only on a cmux.protocol/2 socket connection; \
+                     send timeout_ms 0 here",
+                ));
+            }
+            let answer =
+                mux.agent_message_wait(selectors, &wait, &|| false, &|_: &std::sync::Arc<
+                    crate::mux::ResourceWaitWake,
+                >| {})?;
+            Ok(answer.unwrap_or_else(|| json!({"status":"timeout"})))
         }
         operation => Err(ResourceError::operation_failed(
             operation.wire_name(),

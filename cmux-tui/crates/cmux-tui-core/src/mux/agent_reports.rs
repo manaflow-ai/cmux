@@ -400,6 +400,9 @@ impl Mux {
         drop(state);
         drop(registry);
         drop(sequence_guard);
+        // A held wake may claim again (the person answered), or must stop
+        // claiming (the agent waits on the person now).
+        self.agent_message_waits().notify(terminal_id.as_str());
         let agent = AgentRecord {
             surface,
             terminal_id,

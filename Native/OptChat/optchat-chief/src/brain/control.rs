@@ -1,6 +1,6 @@
 //! `control(action, ...)`: the Chief's control over its subagents
 //! (DESIGN 2026-10-19, Lawrence: "fix such that you can interrupt sessions
-//! better"). Every answer starts with `outcome: done|queued|noop|refused`,
+//! better"). Every answer starts with `outcome: done|submitted|queued|noop|refused`,
 //! and every action checks state first, so a repeat is a `noop`, never a
 //! second effect and never an unknown outcome.
 //!
@@ -563,9 +563,13 @@ impl Brain {
         let id = sub.id.as_str();
         if !Self::running(sub) {
             return match (message, sub.session_id.is_some()) {
-                (Some(m), _) => self
-                    .tell_keyed(id, m, None)
-                    .map(|a| a.replacen("outcome: done.", "outcome: done. It was not running;", 1)),
+                (Some(m), _) => self.tell_keyed(id, m, None).map(|a| {
+                    a.replacen(
+                        "outcome: submitted.",
+                        "outcome: submitted. It was not running;",
+                        1,
+                    )
+                }),
                 (None, _) => outcome(
                     "noop",
                     format!("{id} is not running a turn ({})", state_name(sub, now_ms())),
@@ -583,11 +587,13 @@ impl Brain {
         });
         if let Some(sub) = self.state.sub_mut(id) {
             sub.after_stop = follow;
+            sub.after_stop_prompt = None;
         }
         self.save();
         if let Err(e) = self.agents.cancel(&session) {
             if let Some(sub) = self.state.sub_mut(id) {
                 sub.after_stop = None;
+                sub.after_stop_prompt = None;
             }
             self.save();
             return outcome("refused", format!("{id} could not be interrupted: {e}"));
@@ -874,6 +880,7 @@ impl Brain {
             s.cancelled = true;
             s.inbox.clear();
             s.after_stop = None;
+            s.after_stop_prompt = None;
         }
         self.sign_ins.abandoned(id);
         self.save();
@@ -1206,6 +1213,7 @@ impl Brain {
         );
         let attempt = if let Some(sub) = self.state.sub_mut(id) {
             sub.after_stop = Some(text);
+            sub.after_stop_prompt = None;
             sub.auto_continues += 1;
             sub.continued_ms = now;
             sub.auto_continues
@@ -1219,6 +1227,7 @@ impl Brain {
             ));
             if let Some(sub) = self.state.sub_mut(id) {
                 sub.after_stop = None;
+                sub.after_stop_prompt = None;
             }
             self.save();
             return;
@@ -1274,6 +1283,7 @@ impl Brain {
             && let Some(s) = self.state.sub_mut(id)
             && let Some(dropped) = s.after_stop.take()
         {
+            s.after_stop_prompt = None;
             (self.log)(&format!(
                 "subagent {id}: dropped a follow-up an hour old: {}",
                 one_line(&dropped, 120)

@@ -97,6 +97,7 @@ impl ResourceOperation {
                 | Self::NotificationList
                 | Self::AgentList
                 | Self::AgentMessageList
+                | Self::AgentMessageWait
                 | Self::SidebarViewGet
                 | Self::ClosedList
                 | Self::WindowRecordList

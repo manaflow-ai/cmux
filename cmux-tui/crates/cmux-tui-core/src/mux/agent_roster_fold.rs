@@ -317,6 +317,9 @@ impl Mux {
         // Projection ordering is complete. Do not carry the fence guard into
         // cleanup or any retry/reentrant path.
         drop(fences);
+        // A wait bound to this terminal's session rechecks the new fence
+        // (agent_message_wait.rs): a new session binds, a replaced one ends.
+        self.agent_message_waits().notify(terminal_id.as_str());
         // An ended session leaves the roster entirely: the done state was
         // committed and broadcast above (so remote caches converge), and the
         // live record is dropped so agents views stop listing the terminal

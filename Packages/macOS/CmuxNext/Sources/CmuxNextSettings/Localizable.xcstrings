@@ -203983,6 +203983,402 @@
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "更大"}}
       }
     },
+    "settings.group.agentMessages": {
+      "comment": "Settings > Agents: group title for how agent messages wake an idle agent in a terminal",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رسائل الوكلاء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poruke agenata"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentbeskeder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Nachrichten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Messages"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mensajes de agentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Messages des agents"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Messaggi degli agenti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントメッセージ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សារភ្នាក់ងារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 메시지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentmeldinger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wiadomości agentów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mensagens de agentes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сообщения агентов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ข้อความของเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan Mesajları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повідомлення агентів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tin nhắn của tác tử"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智能体消息"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式訊息"
+          }
+        }
+      }
+    },
+    "settings.agents.messages.claudeWake": {
+      "comment": "Settings > Agents > Agent Messages: toggle title",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إيقاظ Claude الخامل عند وصول الرسائل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Probudi neaktivni Claude za poruke"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Væk inaktiv Claude ved beskeder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inaktiven Claude bei Nachrichten wecken"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wake Idle Claude for Messages"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Despertar a Claude inactivo con mensajes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réveiller Claude inactif pour les messages"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Risveglia Claude inattivo per i messaggi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージでアイドル中の Claude を起こす"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដាស់ Claude ដែលទំនេរ សម្រាប់សារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메시지가 오면 유휴 Claude 깨우기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vekk inaktiv Claude for meldinger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Budź bezczynnego Claude dla wiadomości"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acordar o Claude ocioso para mensagens"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Будить бездействующий Claude для сообщений"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปลุก Claude ที่ว่างอยู่เมื่อมีข้อความ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mesajlar İçin Boştaki Claude'u Uyandır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Будити неактивний Claude для повідомлень"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đánh thức Claude đang rảnh khi có tin nhắn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有消息时唤醒空闲的 Claude"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有訊息時喚醒閒置的 Claude"
+          }
+        }
+      }
+    },
+    "settings.agents.messages.claudeWake.help": {
+      "comment": "Settings > Agents > Agent Messages: toggle help",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عندما يرسل وكيل آخر أو شخص رسالة إلى Claude Code في طرفية، تبدأ الجلسة الخاملة دورًا لقراءتها. لا يُكتب أي شيء في الطرفية. عند الإيقاف: تنتظر الرسالة الطلب التالي في تلك الجلسة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada drugi agent ili osoba pošalje poruku Claude Codeu u terminalu, neaktivna sesija započinje potez da je pročita. Ništa se ne upisuje u terminal. Isključeno: poruka čeka sljedeći upit u toj sesiji."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når en anden agent eller en person sender en besked til Claude Code i en terminal, starter en inaktiv session en tur for at læse den. Der skrives intet i terminalen. Fra: beskeden venter på den næste prompt i den session."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn ein anderer Agent oder eine Person Claude Code in einem Terminal eine Nachricht sendet, beginnt eine inaktive Sitzung einen Zug, um sie zu lesen. Im Terminal wird nichts eingegeben. Aus: Die Nachricht wartet auf den nächsten Prompt in dieser Sitzung."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When another agent or a person sends a message to Claude Code in a terminal, an idle session starts a turn to read it. Nothing is typed into the terminal. Off: the message waits for the next prompt in that session."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuando otro agente o una persona envía un mensaje a Claude Code en un terminal, una sesión inactiva empieza un turno para leerlo. No se escribe nada en el terminal. Desactivado: el mensaje espera al siguiente prompt de esa sesión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quand un autre agent ou une personne envoie un message à Claude Code dans un terminal, une session inactive commence un tour pour le lire. Rien n’est saisi dans le terminal. Désactivé : le message attend la prochaine invite de cette session."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando un altro agente o una persona invia un messaggio a Claude Code in un terminale, una sessione inattiva avvia un turno per leggerlo. Nel terminale non viene digitato nulla. Disattivato: il messaggio attende il prossimo prompt in quella sessione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のエージェントや人がターミナルの Claude Code にメッセージを送ると、アイドル中のセッションがターンを開始してそれを読みます。ターミナルには何も入力されません。オフの場合、メッセージはそのセッションの次のプロンプトまで待ちます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅពេលភ្នាក់ងារផ្សេង ឬមនុស្សម្នាក់ផ្ញើសារទៅ Claude Code ក្នុងទែមីណាល់ វគ្គដែលទំនេរនឹងចាប់ផ្តើមវេនមួយដើម្បីអានវា។ គ្មានអ្វីត្រូវបានវាយចូលក្នុងទែមីណាល់ទេ។ បិទ៖ សាររង់ចាំប្រអប់បញ្ចូលបន្ទាប់ក្នុងវគ្គនោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 에이전트나 사람이 터미널의 Claude Code에 메시지를 보내면 유휴 세션이 턴을 시작해 메시지를 읽습니다. 터미널에는 아무것도 입력되지 않습니다. 끄면 메시지는 해당 세션의 다음 프롬프트까지 기다립니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når en annen agent eller en person sender en melding til Claude Code i en terminal, starter en inaktiv økt en tur for å lese den. Ingenting skrives inn i terminalen. Av: meldingen venter på neste ledetekst i den økten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdy inny agent lub osoba wyśle wiadomość do Claude Code w terminalu, bezczynna sesja rozpoczyna turę, aby ją przeczytać. Nic nie jest wpisywane w terminalu. Wyłączone: wiadomość czeka na następny prompt w tej sesji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando outro agente ou uma pessoa envia uma mensagem ao Claude Code em um terminal, uma sessão ociosa inicia um turno para lê-la. Nada é digitado no terminal. Desativado: a mensagem aguarda o próximo prompt nessa sessão."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда другой агент или человек отправляет сообщение Claude Code в терминале, бездействующий сеанс начинает ход, чтобы прочитать его. В терминал ничего не вводится. Выкл.: сообщение ждёт следующего запроса в этом сеансе."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อเอเจนต์อื่นหรือบุคคลส่งข้อความถึง Claude Code ในเทอร์มินัล เซสชันที่ว่างอยู่จะเริ่มเทิร์นเพื่ออ่านข้อความนั้น ไม่มีการพิมพ์สิ่งใดลงในเทอร์มินัล ปิด: ข้อความจะรอพรอมต์ถัดไปในเซสชันนั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Başka bir ajan ya da bir kişi terminaldeki Claude Code'a mesaj gönderdiğinde, boştaki oturum mesajı okumak için bir tur başlatır. Terminale hiçbir şey yazılmaz. Kapalı: mesaj o oturumdaki bir sonraki istemi bekler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Коли інший агент або людина надсилає повідомлення Claude Code у терміналі, неактивний сеанс починає хід, щоб його прочитати. У термінал нічого не вводиться. Вимкнено: повідомлення чекає на наступний запит у цьому сеансі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi một tác tử khác hoặc một người gửi tin nhắn đến Claude Code trong terminal, phiên đang rảnh sẽ bắt đầu một lượt để đọc nó. Không có gì được gõ vào terminal. Tắt: tin nhắn chờ lời nhắc tiếp theo trong phiên đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当其他智能体或某人向终端中的 Claude Code 发送消息时，空闲的会话会开始一轮来读取它。不会向终端输入任何内容。关闭：消息会等待该会话中的下一个提示。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當其他代理程式或某人向終端機中的 Claude Code 傳送訊息時，閒置的工作階段會開始一輪來讀取它。不會在終端機中輸入任何內容。關閉：訊息會等待該工作階段中的下一個提示。"
+          }
+        }
+      }
+    },
     "settings.group.agentRetry": {
       "comment": "Settings > Agents: group title for the automatic retry loop after errors",
       "extractionState": "manual",

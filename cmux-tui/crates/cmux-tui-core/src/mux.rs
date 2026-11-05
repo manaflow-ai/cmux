@@ -182,6 +182,7 @@ mod agent_chat_columns;
 #[cfg(unix)]
 mod agent_chat_notices;
 pub(crate) mod agent_message_pump;
+pub(crate) mod agent_message_wait;
 pub(crate) mod app_terminals;
 mod cell_pixels;
 mod client_resize;
@@ -657,6 +658,8 @@ pub struct Mux {
     agent_roster: Mutex<AgentRosterHost>,
     agent_roster_worker: agent_roster_fold::AgentRosterWorker,
     agent_message_pump: agent_message_pump::AgentMessagePump,
+    /// Terminal agents' blocking claims of their messages (`agent_message_wait.rs`).
+    agent_message_waits: agent_message_wait::AgentMessageWaits,
     #[cfg(unix)]
     agent_chat_notices: agent_chat_notices::AgentChatNoticesWake,
     /// Nonterminal notifications remain placement-local. Terminal unread state is keyed by

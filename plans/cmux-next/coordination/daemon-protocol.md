@@ -1,5 +1,18 @@
 # Lane: daemon-protocol
 
+## 2026-11-05 agent message wake for native Claude (issue 36496, PR #36546)
+
+- New read `agent.message.wait`, for `term_` recipients only; `acp:` is refused, so the ACP prompt pump is unchanged and gets no second wake path.
+  - It is a bounded, event-driven wait (no polling) on the socket wait-worker path, with its own budget (1 per connection, 256 per daemon), at most 15 min per wait.
+  - It claims memory-only 30 s leases that the wake hook and the Claude prompt hook share. Eligibility (session fence, poller, effective setting, person hold) and the lease commit are one critical section under the hook-fence lock.
+  - `delivered` is marked only after the hook wrote its output. Delivery is at least once.
+  - Denied to pages and apps; no MCP tool.
+- The Claude wrapper's own `--settings` add an `asyncRewake` `inbox-wait` (SessionStart, Stop, StopFailure) and an `inbox-drain` (UserPromptSubmit), each naming the launch (`CMUX_TUI_HOOK_LAUNCH`). Nested, second-install and headless Claudes take nothing.
+- Setting `agents.messages.claudeWake` (default on, userOnly for agents). The daemon's settings owner applies its effective value (MDM or team forced wins); no hook reads the file.
+- `cmux agent message` adds `delivery_capabilities` per recipient: `acp_prompt`, `claude_wake`, `codex_app_server`, `unsupported` (Muse, OpenCode terminals), `unknown`.
+- Chief `tell` answers `outcome: submitted` with the prompt id, the session, the requested mode and "Effective: pending". The interrupt fallbacks reuse that id, or a joined tell's (traced as `sent_as`).
+- Limits: a wake hook lives at most 24 h and stops after 10 min with no daemon answer; it re-arms only at Claude's next start or stop. No real-Claude end-to-end run of the helper yet. No Muse or OpenCode transport. Owner notice: PL-daemon.
+
 ## 2026-10-27 computer use v2 target guard (uncommitted)
 
 The Swift helper checks all explicit app targets before invoking Cua Driver. The acpmux bridge

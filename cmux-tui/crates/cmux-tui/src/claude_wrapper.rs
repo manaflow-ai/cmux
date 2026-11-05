@@ -43,6 +43,17 @@ pub(crate) fn agent_args_json(args: &[OsString]) -> String {
 
 /// `1` starts Claude without cmux-tui's hooks.
 const HOOKS_DISABLED_ENV: &str = "CMUX_TUI_CLAUDE_HOOKS_DISABLED";
+/// Read by the hook helper (cmux-tui-hook inbox.rs): the wrapped Claude's
+/// process id, and `1` for a headless (`-p`) run.
+const CLAUDE_PID_ENV: &str = "CMUX_TUI_CLAUDE_PID";
+const HEADLESS_ENV: &str = "CMUX_TUI_CLAUDE_HEADLESS";
+
+/// Whether `args` run Claude headless (`-p`/`--print`), before any `--`.
+fn is_headless(args: &[OsString]) -> bool {
+    args.iter()
+        .take_while(|arg| *arg != "--")
+        .any(|arg| arg == "-p" || arg == "--print" || arg.as_bytes().starts_with(b"--print="))
+}
 /// Merged settings can carry a launcher's credentials, so copies that no
 /// launch has reused for this long are removed.
 const SETTINGS_RETENTION: Duration = Duration::from_secs(7 * 24 * 60 * 60);
@@ -73,11 +84,21 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
     // after a reboot starts Claude with again (relaunch_store::agent_launch).
     command.env(AGENT_ARGS_ENV, agent_args_json(args));
     let mut launch_args = args.to_vec();
+    // A `claude -p` run shares the terminal with its interactive session; its
+    // hooks must not take that session's messages (cmux-tui-hook inbox.rs).
+    if is_headless(args) {
+        command.env(HEADLESS_ENV, "1");
+    } else {
+        command.env_remove(HEADLESS_ENV);
+    }
     if should_inject(args, |name| std::env::var_os(name)) {
         match prepare_hooks(args) {
             Ok((injected, helper)) => {
                 launch_args = injected;
                 command.env(WRAPPER_ACTIVE_ENV, "1");
+                // exec keeps this process id, so it is Claude's: its hooks
+                // check that they run under it, and its wake hook ends with it.
+                command.env(CLAUDE_PID_ENV, std::process::id().to_string());
                 if let Some(helper) = helper {
                     command.env("CMUX_TUI_HOOK", helper);
                 }
@@ -168,6 +189,20 @@ fn hook_helper(executable: &Path) -> Option<PathBuf> {
 /// The hook settings fragment merged into every wrapped launch.
 fn session_hook_settings(emit_binary: Option<&Path>) -> anyhow::Result<Map<String, Value>> {
     let mut settings = agent_hook_install::claude_session_hook_settings(emit_binary)?;
+    // The hooks that hand this launch's Claude its agent messages name this
+    // process (exported as CMUX_TUI_CLAUDE_PID), so a Claude started inside
+    // it, which runs other settings, never takes them (message_hooks.rs).
+    let quoted = emit_binary
+        .map(|binary| binary.to_str().map(agent_hook_install::shell_quote))
+        .map(|quoted| quoted.context("the cmux-tui path is not UTF-8"))
+        .transpose()?;
+    let hooks =
+        settings.get_mut("hooks").and_then(Value::as_object_mut).context("hooks missing")?;
+    agent_hook_install::message_hooks::add_claude_launch_hooks(
+        hooks,
+        std::process::id(),
+        quoted.as_deref(),
+    )?;
     // The hooks drive cmux notifications; Claude's own would duplicate them.
     settings.insert("preferredNotifChannel".into(), Value::from("notifications_disabled"));
     Ok(settings)
@@ -730,9 +765,10 @@ mod tests {
         assert_eq!(settings["env"], serde_json::json!({"A":"1","B":"2"}));
         assert_eq!(settings["preferredNotifChannel"], "notifications_disabled");
         let stop = settings["hooks"]["Stop"].as_array().unwrap();
-        assert_eq!(stop.len(), 2, "{stop:?}");
+        assert_eq!(stop.len(), 3, "{stop:?}");
         assert_eq!(stop[0]["hooks"][0]["command"], "user-stop");
         assert_eq!(stop[1], hooks["hooks"]["Stop"][0]);
+        assert_eq!(stop[2], hooks["hooks"]["Stop"][1], "the idle wake follows the journal hook");
         for event in ["SessionStart", "UserPromptSubmit", "Notification", "SessionEnd"] {
             assert!(settings["hooks"][event].is_array(), "{event} missing");
         }
@@ -762,6 +798,81 @@ mod tests {
             emit["hooks"].as_object().unwrap().keys().collect::<Vec<_>>(),
             installed["hooks"].as_object().unwrap().keys().collect::<Vec<_>>()
         );
+    }
+
+    /// Issue 36496: a wrapped interactive Claude gets a background `asyncRewake` wait
+    /// after its start and each end of a turn, and nowhere else. The prompt hook
+    /// stays synchronous (it never exits 2, which would erase the person's prompt).
+    #[test]
+    fn claude_wrapper_adds_the_idle_wake_after_start_and_each_stop_only() {
+        let launch = format!("CMUX_TUI_HOOK_LAUNCH={} ", std::process::id());
+        for emit in [None, Some(Path::new("/opt/cmux tui/cmux-tui"))] {
+            let settings = session_hook_settings(emit).unwrap();
+            for (event, groups) in settings["hooks"].as_object().unwrap() {
+                let hooks: Vec<&Value> = groups
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .flat_map(|group| group["hooks"].as_array().unwrap())
+                    .collect();
+                let mode = |mode: &str| -> Vec<&Value> {
+                    hooks
+                        .iter()
+                        .copied()
+                        .filter(|hook| hook["command"].as_str().unwrap().contains(mode))
+                        .collect()
+                };
+                let (wakes, drains) = (mode("inbox-wait"), mode("inbox-drain"));
+                let expected = matches!(event.as_str(), "SessionStart" | "Stop" | "StopFailure");
+                assert_eq!(wakes.len(), usize::from(expected), "{event}: {groups}");
+                assert_eq!(drains.len(), usize::from(event == "UserPromptSubmit"), "{event}");
+                for wake in wakes {
+                    assert_eq!(wake["asyncRewake"], true, "{wake}");
+                    assert_eq!(wake["async"], true, "{wake}");
+                    let command = wake["command"].as_str().unwrap();
+                    // Its stderr is what Claude shows the model; nothing may drop it.
+                    assert!(!command.contains("2>"), "{command}");
+                    assert!(!command.contains("echo"), "{command}");
+                    assert!(command.contains(&launch), "names this launch: {command}");
+                    if emit.is_some() {
+                        let expected = format!(
+                            "{launch}'/opt/cmux tui/cmux-tui' __agent-hook claude inbox-wait;"
+                        );
+                        assert!(command.starts_with(&expected), "{command}");
+                    }
+                }
+                for drain in drains {
+                    // Synchronous, so Claude Code reads its context; never exits 2.
+                    assert_eq!(drain.get("async"), None, "{drain}");
+                    assert_eq!(drain.get("asyncRewake"), None, "{drain}");
+                    let command = drain["command"].as_str().unwrap();
+                    assert!(command.contains(&launch), "names this launch: {command}");
+                    assert!(command.contains("||echo {}"), "{command}");
+                }
+                // Every other hook is shared with the installed settings: no launch.
+                let shared = hooks.iter().filter(|hook| {
+                    let command = hook["command"].as_str().unwrap();
+                    !command.contains("inbox-wait") && !command.contains("inbox-drain")
+                });
+                for hook in shared {
+                    assert!(!hook["command"].as_str().unwrap().contains("CMUX_TUI_HOOK_LAUNCH"));
+                }
+            }
+            let prompt = &settings["hooks"]["UserPromptSubmit"][0]["hooks"][0];
+            assert_ne!(prompt["asyncRewake"], true, "{prompt}");
+        }
+    }
+
+    /// `claude -p` shares the terminal with the interactive session; the wrapper
+    /// marks it so its hooks never take that session's messages.
+    #[test]
+    fn claude_wrapper_marks_print_mode_launches_headless() {
+        assert!(is_headless(&os(&["-p", "hi"])));
+        assert!(is_headless(&os(&["--model", "opus", "--print", "hi"])));
+        assert!(is_headless(&os(&["--print=hi"])));
+        assert!(!is_headless(&os(&["--model", "opus"])));
+        assert!(!is_headless(&os(&["--", "-p"])), "arguments after -- are the prompt's");
+        assert!(!is_headless(&os(&["--resume", "abc"])));
     }
 
     /// Unreadable or malformed `--settings` values fail so the launch proceeds without hooks.

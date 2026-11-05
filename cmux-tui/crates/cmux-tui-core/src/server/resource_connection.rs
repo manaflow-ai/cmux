@@ -287,6 +287,16 @@ pub(super) fn handle_resource_connection_message(
         ResourceOperation::TerminalWait | ResourceOperation::TerminalWaitExit => {
             start_resource_wait(mux.clone(), client, writer.clone(), request, id)
         }
+        // A one-shot claim (timeout_ms absent or 0) answers on the dispatcher.
+        ResourceOperation::AgentMessageWait
+            if request
+                .fields
+                .get("timeout_ms")
+                .and_then(Value::as_str)
+                .is_some_and(|ms| ms != "0") =>
+        {
+            start_resource_wait(mux.clone(), client, writer.clone(), request, id)
+        }
         ResourceOperation::RequestCancel => {
             let result = cancel_resource_request(mux, client, writer, &request);
             send_resource_response(writer, id, operation, result)
