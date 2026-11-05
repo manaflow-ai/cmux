@@ -24,15 +24,39 @@ use serde_json::Value;
 /// The `action.run` params the CLI sets beside `args` (`cli/app/run.rs`
 /// `action_run_params`, `run_action`, `insert_run_key`).
 const RUN_PARAMS: &[&str] = &[
-    "action", "args", "arguments", "background", "cli", "focus", "interactive", "origin", "run_key",
-    "runKey", "target", "wait", "wait_action", "caller", "deadline_ms", "timeout_ms",
+    "action",
+    "args",
+    "arguments",
+    "background",
+    "cli",
+    "focus",
+    "interactive",
+    "origin",
+    "run_key",
+    "runKey",
+    "target",
+    "wait",
+    "wait_action",
+    "caller",
+    "deadline_ms",
+    "timeout_ms",
 ];
 
 /// Flags `run_action` and the global parser take for themselves, never
 /// sent as an argument (`cli.rs` global flags; `run_action`'s own).
 const CLI_FLAGS: &[&str] = &[
-    "wait", "no-wait", "interactive", "focus", "target", "arg", "json", "jsonl", "quiet", "socket",
-    "session", "timeout",
+    "wait",
+    "no-wait",
+    "interactive",
+    "focus",
+    "target",
+    "arg",
+    "json",
+    "jsonl",
+    "quiet",
+    "socket",
+    "session",
+    "timeout",
 ];
 
 /// Flags a CLI scope takes for itself before the words reach the app: `chat
@@ -237,7 +261,9 @@ fn drop_test_items(tokens: Vec<(Token, usize)>) -> Vec<(Token, usize)> {
             continue;
         }
         // Skip to the item's body and past its matching brace (or its `;`).
-        while index < tokens.len() && !matches!(tokens[index].0, Token::Punct('{') | Token::Punct(';')) {
+        while index < tokens.len()
+            && !matches!(tokens[index].0, Token::Punct('{') | Token::Punct(';'))
+        {
             index += 1;
         }
         if is(index, Token::Punct('{')) {
@@ -287,10 +313,14 @@ fn source_files() -> Vec<PathBuf> {
         let Ok(entries) = std::fs::read_dir(&dir) else { continue };
         for entry in entries.flatten() {
             let path = entry.path();
-            let name = path.file_name().and_then(|name| name.to_str()).unwrap_or_default().to_owned();
+            let name =
+                path.file_name().and_then(|name| name.to_str()).unwrap_or_default().to_owned();
             if path.is_dir() {
                 // Tests send wrong names on purpose; vendored and built trees are not the CLI's.
-                if !matches!(name.as_str(), "tests" | "target" | "vendor" | "benches" | "examples" | "node_modules") {
+                if !matches!(
+                    name.as_str(),
+                    "tests" | "target" | "vendor" | "benches" | "examples" | "node_modules"
+                ) {
                     stack.push(path);
                 }
             } else if name.ends_with(".rs") && !name.contains("test") {
@@ -383,7 +413,9 @@ fn drift_in(path: &Path, actions: &[Action], reaches_app: &dyn Fn(&str) -> bool)
         match token {
             // A new function or match arm is another call.
             Token::Ident(word) if word == "fn" => current = None,
-            Token::Punct('=') if matches!(tokens.get(index + 1), Some((Token::Punct('>'), _))) => current = None,
+            Token::Punct('=') if matches!(tokens.get(index + 1), Some((Token::Punct('>'), _))) => {
+                current = None
+            }
             Token::Ident(word) if word == "action_run_params" => {
                 if let (Some((Token::Punct('('), _)), Some((Token::Str(name), _))) =
                     (tokens.get(index + 1), tokens.get(index + 2))
@@ -392,8 +424,11 @@ fn drift_in(path: &Path, actions: &[Action], reaches_app: &dyn Fn(&str) -> bool)
                 }
             }
             Token::Ident(word) if word == "insert" => {
-                if let (Some((action, true)), Some((Token::Punct('('), _)), Some((Token::Str(key), line))) =
-                    (current, tokens.get(index + 1), tokens.get(index + 2))
+                if let (
+                    Some((action, true)),
+                    Some((Token::Punct('('), _)),
+                    Some((Token::Str(key), line)),
+                ) = (current, tokens.get(index + 1), tokens.get(index + 2))
                     && !RUN_PARAMS.contains(&key.as_str())
                 {
                     report(*line, action, key.clone(), &mut drift);
@@ -412,10 +447,13 @@ fn drift_in(path: &Path, actions: &[Action], reaches_app: &dyn Fn(&str) -> bool)
                 let mut probe = skip_conversion(&tokens, index + 1);
                 if matches!(tokens.get(probe), Some((Token::Punct(':' | ','), _))) {
                     probe += 1;
-                    if matches!(tokens.get(probe), Some((Token::Ident(word), _)) if word == "json") {
+                    if matches!(tokens.get(probe), Some((Token::Ident(word), _)) if word == "json")
+                    {
                         probe += 3;
                     }
-                    if let (Some((action, true)), Some((Token::Punct('{'), _))) = (current, tokens.get(probe)) {
+                    if let (Some((action, true)), Some((Token::Punct('{'), _))) =
+                        (current, tokens.get(probe))
+                    {
                         let mut depth = 0;
                         while probe < tokens.len() {
                             match &tokens[probe].0 {
@@ -428,7 +466,10 @@ fn drift_in(path: &Path, actions: &[Action], reaches_app: &dyn Fn(&str) -> bool)
                                 }
                                 Token::Str(key)
                                     if depth == 1
-                                        && matches!(tokens.get(probe + 1), Some((Token::Punct(':'), _))) =>
+                                        && matches!(
+                                            tokens.get(probe + 1),
+                                            Some((Token::Punct(':'), _))
+                                        ) =>
                                 {
                                     report(tokens[probe].1, action, key.clone(), &mut drift);
                                 }
@@ -538,7 +579,10 @@ fn the_scanner_finds_a_drifted_argument_in_every_call_shape() {
         "#,
     )
     .unwrap();
-    let found = drift_in(&file, &actions, &|_| true).into_iter().map(|drift| drift.sent).collect::<Vec<_>>();
+    let found = drift_in(&file, &actions, &|_| true)
+        .into_iter()
+        .map(|drift| drift.sent)
+        .collect::<Vec<_>>();
     std::fs::remove_dir_all(&dir).ok();
     assert_eq!(found, ["promptIdent", "prompt_id", "promptID"]);
 }
