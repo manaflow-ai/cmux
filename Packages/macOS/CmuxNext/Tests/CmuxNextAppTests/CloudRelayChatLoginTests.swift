@@ -125,7 +125,7 @@ struct CloudRelayChatLoginTests {
     /// Claude on a fresh machine with no login, and this Mac with none of the person's cached: nothing is sent, and the
     /// answer says how to sign the machine in.
     @Test func anAbsentLoginSendsNothingAndSaysHowToSignIn() async throws {
-        let run = try await Self.relayChat(Self.decision(outcome: CloudStartChat.signInInChat))
+        let run = try await Self.relayChat(Self.decision(outcome: CloudCredentialTransfer.CachedLogin.none.startOutcome))
         #expect(run.steps == ["login"], "the relay sent to a machine with no login")
         let fields = try Self.fields(run.result)
         #expect(fields["delivered"] == .bool(false) && fields["error_code"] == .string("cloud.relay.login_missing"))
@@ -196,7 +196,7 @@ struct CloudRelayChatLoginTests {
 
     /// The person's own run (the palette) sees the same refusal, and nothing is sent.
     @Test func thePersonsRunIsRefusedTheSameWay() async throws {
-        let run = try await Self.relayChat(Self.decision(outcome: CloudStartChat.signInInChat), origin: .user)
+        let run = try await Self.relayChat(Self.decision(outcome: CloudCredentialTransfer.CachedLogin.none.startOutcome), origin: .user)
         #expect(run.steps == ["login"])
         let failure = try #require(run.work ?? nil, "the person's refused relay chat answered no failure")
         #expect(failure.message.contains("Sign in to Claude") || failure.shownReason?.contains("Sign in to Claude") == true, "\(failure)")
@@ -204,7 +204,7 @@ struct CloudRelayChatLoginTests {
 
     /// No answer field carries the bearer the relay used.
     @Test func noAnswerCarriesTheAccessToken() async throws {
-        for decision in [Self.decision(outcome: "installed"), Self.decision(outcome: CloudStartChat.signInInChat), Self.decision(requested: nil, outcome: nil)] {
+        for decision in [Self.decision(outcome: "installed"), Self.decision(outcome: CloudCredentialTransfer.CachedLogin.none.startOutcome), Self.decision(requested: nil, outcome: nil)] {
             let fields = try Self.fields(try await Self.relayChat(decision).result)
             #expect(!fields.values.contains { "\($0)".contains("fixture-access") })
         }
