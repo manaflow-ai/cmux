@@ -29,7 +29,7 @@ fn scratch(tag: &str) -> PathBuf {
     fs::write(
         dir.join("config.json"),
         json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake",
-               "permissionPolicy": "approve-all"})
+               "permissionPolicy": "approve-all", "agentInbox": false})
         .to_string(),
     )
     .unwrap();

@@ -204,7 +204,10 @@ pub(super) async fn handle_notification(
                         &params,
                         &mut forwarded,
                     );
-                    super::remote_guard::attest_person(&mut forwarded, conn.is_person());
+                    super::remote_guard::attest_person(
+                        &mut forwarded,
+                        person_admitted(conn, &params),
+                    );
                     person_stop::mark(conn, &params, &peer, &mut forwarded);
                     cancel_refused::forward(conn, peer, key, turn, forwarded).await;
                 }
@@ -3036,7 +3039,7 @@ fn transport_of(conn: &Conn) -> &'static str {
 /// word, recorded as come over `peer`). A local process of the user (a shell, a script, an agent
 /// outside acpmux, the Cloud mobile carrier's unix connection) proves nothing: socket access and
 /// environment tags are not the person.
-fn person_admitted(conn: &Conn, params: &Value) -> bool {
+pub(super) fn person_admitted(conn: &Conn, params: &Value) -> bool {
     if conn.is_person() {
         return true;
     }
@@ -3045,14 +3048,14 @@ fn person_admitted(conn: &Conn, params: &Value) -> bool {
     }
     match conn.origin {
         super::Origin::Web => true,
+        // Only the forwarding daemon's own proof (`remote_guard::attest_person`, by this same
+        // rule there). Its `via` is no proof: it labels any client but the owner's, a unix one too.
         super::Origin::Peer => {
-            let mux = params.pointer("/_meta/acpmux");
-            let via = mux.and_then(|m| m.get("via")).and_then(Value::as_str);
-            let proven = mux
+            params
+                .pointer("/_meta/acpmux")
                 .and_then(|m| m.get(super::remote_guard::PERSON_PROVEN))
                 .and_then(Value::as_bool)
-                == Some(true);
-            proven || matches!(via, Some("web" | "app" | "device"))
+                == Some(true)
         }
         super::Origin::Local | super::Origin::LocalApp => false,
     }

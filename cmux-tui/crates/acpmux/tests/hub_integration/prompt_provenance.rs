@@ -1147,7 +1147,11 @@ async fn a_notice_is_recorded_on_its_user_message_and_its_queued_record() {
     let waiting = c.queue(noticed(&session, "n-q", &fire_notice())).await;
     let queued = c.records(&session, "queued").await;
     let queued = queued.iter().find(|m| m["promptId"] == "n-q").expect("its queued record");
-    assert_eq!(queued.pointer("/_meta/provenance"), Some(&stamped_notice(&session)), "{queued}");
+    assert_eq!(
+        queued.pointer("/_meta/provenance"),
+        Some(&seen(stamped_notice(&session), "unix")),
+        "{queued}"
+    );
     c.cancel(&session).await;
     c.reply_to(waiting).await;
     let ran = c.user_message(&session, "n-q").await;
