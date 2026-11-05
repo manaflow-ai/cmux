@@ -43,18 +43,26 @@ export function diffFingerprintReader(
 /// True once the files changed since load `generation` while the reader was in the viewer. A
 /// change found on coming back runs `refresh` instead, when `canRefresh` (no comment draft, no
 /// commit form). Pass a stable `read` (memoized on the shown source).
+///
+/// `precomputed`: the fingerprint of a diff the host computed before the page asked (an agent's turn
+/// ended; DiffPageRuntime+Warm.swift), the baseline instead of the first read. When the files changed
+/// since, the first check runs `reconcile` (when `canRefresh`), which swaps the new diff in without
+/// moving the reader, instead of showing the notice.
 export function useDiffFreshness(
   read: (() => Promise<string | undefined>) | undefined,
   generation: number,
   canRefresh: () => boolean,
   refresh: () => void,
   onUnavailable?: (reason: string | undefined) => void,
+  precomputed?: { fingerprint: string | undefined; reconcile: () => void },
 ): boolean {
   const [stale, setStale] = useState<number>();
   const baseline = useRef<string | undefined>(undefined);
-  const latest = useSyncedRef({ canRefresh, refresh, onUnavailable });
+  const latest = useSyncedRef({ canRefresh, refresh, onUnavailable, reconcile: precomputed?.reconcile });
+  const precomputedFingerprint = precomputed?.fingerprint;
   useEffect(() => {
-    baseline.current = undefined;
+    baseline.current = precomputedFingerprint;
+    let first = precomputedFingerprint !== undefined;
     latest.current.onUnavailable?.(undefined);
     if (!read) return;
     let current = true;
@@ -66,9 +74,14 @@ export function useDiffFreshness(
         const now = await read();
         if (!current || now === undefined) return;
         latest.current.onUnavailable?.(undefined);
+        const reconcile = first ? latest.current.reconcile : undefined;
+        first = false;
         if (baseline.current === undefined) baseline.current = now;
         else if (now !== baseline.current) {
-          if (returning && latest.current.canRefresh()) latest.current.refresh();
+          if (reconcile && latest.current.canRefresh()) {
+            baseline.current = now;
+            reconcile();
+          } else if (returning && latest.current.canRefresh()) latest.current.refresh();
           else setStale(generation);
         }
       } catch (error) {
@@ -110,6 +123,6 @@ export function useDiffFreshness(
       window.removeEventListener("blur", blur);
       document.removeEventListener("visibilitychange", visible);
     };
-  }, [read, generation, latest]);
+  }, [read, generation, latest, precomputedFingerprint]);
   return stale === generation;
 }

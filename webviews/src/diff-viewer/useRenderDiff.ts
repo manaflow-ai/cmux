@@ -4,7 +4,7 @@ import { parsePatchFiles, preloadHighlighter, processFile, registerCustomTheme }
 import { useEffect, useRef } from "react";
 import { resolveDiffViewerAppearance, type ResolvedDiffViewerAppearance } from "../appearance";
 import { resolveDiffPreloadLanguages } from "../diff-language";
-import { fileName, type DiffItem, streamPatch } from "../diff-stream";
+import { fileName, type DiffItem, streamPatch, type StreamPatchOptions } from "../diff-stream";
 import { DEFERRED_PATCH_KEY, hydrateDeferredFileDiff } from "../deferred-parse";
 import { isGeneratedDiffPath } from "../deferred-diffs";
 import { shikiThemeFromGhostty } from "../pierre-options";
@@ -25,7 +25,7 @@ import {
 import { type AppAction, type AppState } from "./state";
 import { getInitialFileTreeRowCount } from "./FilesSidebar";
 import { withoutImportOnlyHunks } from "./importHunks";
-import { markDiffOpen } from "./openTiming";
+import { markDiffAdopted, markDiffOpen } from "./openTiming";
 
 const registeredCustomThemeNames = new Set<string>();
 /** Errors of a repository on another machine (a Cloud workspace's): `message` is the host's reason. */
@@ -49,6 +49,17 @@ export function useDiffLanguageChanges(dispatch: React.Dispatch<AppAction>): voi
   useEffect(() => diffLanguages.subscribe(() => dispatch({ type: "relanguage-items" })), [dispatch]);
 }
 
+/**
+ * What the viewer does around a render besides the items: `prepared` gets the fingerprint of a diff
+ * the host precomputed (`SessionOpened.prepared === "warm"`), the freshness check's baseline; and
+ * `beforeReplace` runs right before a reconciling render swaps its files in (the viewer takes the
+ * reader's place then, to put it back after).
+ */
+export type RenderDiffHooks = {
+  prepared?: (fingerprint: string | undefined) => void;
+  beforeReplace?: () => void;
+};
+
 export function useRenderDiff(
   config: DiffViewerConfig,
   transport: DiffTransport | null,
@@ -66,6 +77,7 @@ export function useRenderDiff(
   hideWhitespace: boolean,
   /** Hide imports as chosen (importHunks.ts); as `hideWhitespace`, it changes with a refresh. */
   hideImports: boolean,
+  hooks?: React.MutableRefObject<RenderDiffHooks>,
 ) {
   useEffect(() => {
     if (isStatusOnlyPayload(config.payload, transport, sessionSource)) {
@@ -74,6 +86,8 @@ export function useRenderDiff(
     // A soft refresh bumps the generation: the cleanup below closes the
     // superseded session and this effect re-streams in place.
     document.body.dataset.diffRenderGeneration = String(renderGeneration);
+    // A reconciling render keeps the files on screen and swaps the new ones in when all have arrived.
+    const reconciling = latestState.current.reconciling;
     const payload = config.payload ?? {};
     const appearance = resolveDiffViewerAppearance(payload.appearance);
     registerDiffViewerThemes(appearance);
@@ -141,6 +155,13 @@ export function useRenderDiff(
           // Older sidecars omit the field: white space is shown.
           hidingWhitespace = result.value.ignoreWhitespace === true;
           dispatch({ type: "set-whitespace-hidden", hidden: hidingWhitespace });
+          // The host opened it before the page asked: while the page booted ("preopen"), or before
+          // anyone clicked, when an agent's turn ended ("warm", with the fingerprint it had then).
+          const extra = result.value as { prepared?: unknown; fingerprint?: unknown };
+          markDiffAdopted(extra.prepared === "warm" || extra.prepared === "preopen");
+          hooks?.current.prepared?.(
+            extra.prepared === "warm" && typeof extra.fingerprint === "string" ? extra.fingerprint : undefined,
+          );
           patchURL = result.value.patch.id;
         }
         if (cancelled || !patchURL) {
@@ -159,7 +180,10 @@ export function useRenderDiff(
           return declaredSet;
         };
         const streamedItems: DiffItem[] = [];
-        dispatch({ type: "set-status", status: createDiffViewerStatus(label("parsingDiff"), { loading: true }) });
+        let heldTree: Parameters<StreamPatchOptions["onTreeSource"]>[0] | null = null;
+        if (!reconciling) {
+          dispatch({ type: "set-status", status: createDiffViewerStatus(label("parsingDiff"), { loading: true }) });
+        }
         await streamPatch({
           getCollapsed: () => latestState.current.options.collapsed,
           initialFileTreeRowCount: getInitialFileTreeRowCount(),
@@ -169,10 +193,15 @@ export function useRenderDiff(
             if (cancelled) return;
             if (items.length > 0) markDiffOpen("firstBatch");
             streamedItems.push(...items);
-            dispatch({ type: "append-items", items });
+            if (!reconciling) dispatch({ type: "append-items", items });
           },
           onComplete: (metrics) => {
             if (cancelled) return;
+            if (reconciling) {
+              hooks?.current.beforeReplace?.();
+              dispatch({ type: "replace-items", items: streamedItems });
+              if (heldTree) dispatch({ type: "set-tree-source", source: heldTree });
+            }
             dispatch({ type: "set-metrics", metrics });
             // Every file has arrived, so "Group by kind" can reorder without moving text the
             // reader is already on.
@@ -199,13 +228,21 @@ export function useRenderDiff(
             );
           },
           onMetrics: (metrics) => {
-            if (!cancelled) dispatch({ type: "set-metrics", metrics });
+            if (!cancelled && !reconciling) dispatch({ type: "set-metrics", metrics });
           },
           onRename: (rename) => {
-            if (!cancelled) dispatch({ type: "rename-item", oldId: rename.oldId, newId: rename.newId });
+            if (cancelled) return;
+            if (!reconciling) {
+              dispatch({ type: "rename-item", oldId: rename.oldId, newId: rename.newId });
+              return;
+            }
+            const index = streamedItems.findIndex((item) => item.id === rename.oldId);
+            if (index >= 0) streamedItems[index] = { ...streamedItems[index], id: rename.newId };
           },
           onTreeSource: (source) => {
-            if (!cancelled) dispatch({ type: "set-tree-source", source });
+            if (cancelled) return;
+            if (reconciling) heldTree = source;
+            else dispatch({ type: "set-tree-source", source });
           },
           isGeneratedPath: (path) => isGeneratedDiffPath(path, declaredGenerated()),
           ...(hideImports ? { filterFileText: withoutImportOnlyHunks } : {}),
@@ -218,6 +255,13 @@ export function useRenderDiff(
           return;
         }
         const empty = error instanceof DiffTransportError && error.code === "emptyDiff";
+        if (reconciling && empty) dispatch({ type: "replace-items", items: [] });
+        else if (reconciling) {
+          // The diff on screen stays; the freshness check offers Refresh again on the next change.
+          console.warn("cmux diff viewer reconcile failed", String((error as any)?.message ?? error));
+          dispatch({ type: "end-reconcile" });
+          return;
+        }
         if (!empty) {
           // Error objects JSON.stringify to {} in the native console mirror,
           // so serialize the message and stack explicitly.
@@ -263,6 +307,7 @@ export function useRenderDiff(
     adoptedSessionRef,
     hideWhitespace,
     hideImports,
+    hooks,
   ]);
 }
 

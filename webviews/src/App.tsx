@@ -121,6 +121,7 @@ import {
   useDiffTransport,
   usePendingReplacement,
   useRenderDiff,
+  type RenderDiffHooks,
 } from "./diff-viewer/useRenderDiff";
 import { fullFilesAvailable, useFileSidesReader, useFullFiles } from "./diff-viewer/fullFiles";
 
@@ -426,6 +427,22 @@ export function App({ config, initialStatus }: ConfigProps) {
   });
   useViewedFilesBootstrap(viewedScope, dispatch);
   usePendingReplacement(payload, label, dispatch, transport);
+  // A diff the host precomputed (an agent's turn ended): its fingerprint is the freshness baseline,
+  // and when the files changed since, the new diff replaces it with the reader kept in place.
+  const [precomputedFingerprint, setPrecomputedFingerprint] = useState<string>();
+  const replaceAnchor = useRef<ReturnType<KindOrderHandlers["anchor"]>>(null);
+  const renderHooks = useRef<RenderDiffHooks>({});
+  renderHooks.current = {
+    prepared: setPrecomputedFingerprint,
+    beforeReplace: () => {
+      replaceAnchor.current = kindOrderHandlers.current.anchor();
+    },
+  };
+  useLayoutEffect(() => {
+    const anchor = replaceAnchor.current;
+    replaceAnchor.current = null;
+    if (anchor) kindOrderHandlers.current.restore(anchor);
+  }, [state.replaceCount]);
   useRenderDiff(
     config,
     transport,
@@ -441,6 +458,7 @@ export function App({ config, initialStatus }: ConfigProps) {
     adoptedSessionRef,
     state.options.hideWhitespace,
     state.options.hideImports,
+    renderHooks,
   );
   useViewerPrefsBootstrap(payload, dispatch);
   useCommentsBootstrap(bridgeAvailable ? commentRepoRoot : null, comments.onLoaded);
@@ -797,6 +815,7 @@ export function App({ config, initialStatus }: ConfigProps) {
     () => latestState.current.draft == null && !commitOpenRef.current,
     () => refreshRef.current(),
     setMachineUnavailable,
+    { fingerprint: precomputedFingerprint, reconcile: () => dispatch({ type: "reconcile" }) },
   );
 
   return (
