@@ -11,11 +11,14 @@
 // test says.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { attachSeeThroughBlur, UNDER_ATTRIBUTE } from "../src/ui/glass/seeThroughBlur";
+import { attachSeeThroughBlur, OVER_ATTRIBUTE, UNDER_ATTRIBUTE } from "../src/ui/glass/seeThroughBlur";
 
-const dom = new JSDOM("<!doctype html><div id=layer><div id=rows></div><div id=card></div></div>", {
-  pretendToBeVisual: true,
-});
+const dom = new JSDOM(
+  "<!doctype html><div id=layer><div id=rows></div><div id=card></div><div id=positioner><div id=popup></div></div></div>",
+  {
+    pretendToBeVisual: true,
+  },
+);
 const win = dom.window as unknown as Window & typeof globalThis & Record<string, unknown>;
 const queued = new Map<number, FrameRequestCallback>();
 let lastFrame = 0;
@@ -93,6 +96,40 @@ test("a transition on the surface still follows until it settles", async () => {
     // Nothing moved: STABLE_FRAMES (3) unchanged frames, each a measure.
     expect(await frames()).toBe(3);
     expect(measures).toBe(3);
+  } finally {
+    detach();
+  }
+});
+
+// A hover card's popup is placed by its positioner (Base UI writes the positioner's inline style, on
+// scroll too), not by its own style: the hole follows the positioner. A card on a page with nothing
+// it can blur (the changelog's pull request cards) keeps its underlay.
+const positioner = document.getElementById("positioner")!;
+const popup = document.getElementById("popup")!;
+popup.getBoundingClientRect = () => {
+  const y = Number(/translate\([^,]+,\s*([-\d.]+)px/.exec(positioner.style.transform)?.[1] ?? 0);
+  return rect(40, y, 300, 120);
+};
+positioner.style.transform = "translate(40px, 100px)";
+
+test("a popup moved by its positioner's inline style moves its hole with it", async () => {
+  const detach = attachSeeThroughBlur(popup, () => [rows]);
+  try {
+    await frames();
+    expect(holeTop()).toBe(100);
+    positioner.style.transform = "translate(40px, 180px)";
+    await frames();
+    expect(holeTop()).toBe(180);
+  } finally {
+    detach();
+  }
+});
+
+test("a surface with nothing it can blur keeps its underlay", async () => {
+  const detach = attachSeeThroughBlur(popup, () => []);
+  try {
+    await frames();
+    expect(popup.hasAttribute(OVER_ATTRIBUTE)).toBe(false);
   } finally {
     detach();
   }
