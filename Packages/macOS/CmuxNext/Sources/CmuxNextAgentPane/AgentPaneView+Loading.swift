@@ -284,7 +284,7 @@ extension AgentPaneView {
         if pageContent.alphaValue == 0 { return .cover }
         // The page's own first frame (``PagePaintProbe``), the same signal in both engines.
         guard page != nil else { return model.hasPainted ? .page : .pageEmpty }
-        return ChatOpenTrace.shared.has(.pagePainted) ? .page : .pageEmpty
+        return .shownPage(paintedInOpen: ChatOpenTrace.shared.has(.pagePainted), paneHasPainted: model.hasPainted)
     }
 }
 #endif
