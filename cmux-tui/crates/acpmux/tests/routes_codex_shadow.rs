@@ -191,8 +191,8 @@ async fn a_codex_chat_moves_between_its_signed_in_logins_and_keeps_its_conversat
     // An edit that clears `enabled` turns the account back on.
     let edited = local.ok("_acpmux/route/edit", json!({"id": "work", "enabled": null})).await;
     assert_eq!(edited["enabled"], true, "{edited}");
-    // A chat in another account's own folder, moved onto a router that fails, is never "moved"
-    // onto the CLI's login: it would keep running in that folder.
+    // A chat in another account's own folder, moved onto a router that fails, goes back to that
+    // account, never "onto" the CLI's login: it would keep running in that folder.
     let solo = root.join("solo");
     local
         .ok(
@@ -208,16 +208,18 @@ async fn a_codex_chat_moves_between_its_signed_in_logins_and_keeps_its_conversat
                    "openaiBaseUrl": "http://127.0.0.1:9/o"}),
         )
         .await;
+    // The chat starts in that folder: a started chat never moves into another account's.
+    local.ok("_acpmux/route/default.set", json!({"scope": "global", "routeId": "solo"})).await;
     let other =
         local.ok("session/new", json!({"cwd": std::env::temp_dir(), "mcpServers": []})).await;
     let other = other["sessionId"].as_str().unwrap().to_owned();
-    local.ok("_acpmux/chat/route.set", json!({"sessionId": other, "routeId": "solo"})).await;
+    local.ok("_acpmux/route/default.set", json!({"scope": "global", "routeId": null})).await;
     assert_eq!(local.env_of(&other, "CODEX_HOME").await, format!("CODEX_HOME={}", solo.display()));
     local.ok("_acpmux/chat/route.set", json!({"sessionId": other, "routeId": "router"})).await;
     let limit = json!({"sessionId": other, "prompt": [{"type": "text", "text": "limit: now"}]});
     let (failed, _) = local.call_text("session/prompt", limit).await;
     assert_eq!(failed["error"]["data"]["route"]["routeId"], "router", "{failed}");
-    assert!(failed["error"]["data"].get("fallback").is_none(), "{failed}");
+    assert_eq!(failed["error"]["data"]["fallback"]["routeId"], "solo", "{failed}");
 
     // A shadow needs a folder of its own.
     local
