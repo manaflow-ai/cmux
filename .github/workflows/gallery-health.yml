@@ -14,6 +14,9 @@ name: gallery health
 # If this check is ever made required, move the filter into a router job first (cmux-next.yml
 # path_route), so a skipped pull request reports a pass instead of waiting forever.
 #
+# A routed file outside webviews/src/ that no entry imports renders every entry
+# (scripts/gallery-matrix/unplaced.py): it is global to every page.
+#
 # A dispatch (workflow_dispatch) renders every entry at the dispatched ref: the nightly full render
 # of the base. A schedule here would never fire: GitHub runs schedules only from the default
 # branch (main), and this workflow lives on feat-cmux-next, so the nightly needs a dispatcher on
@@ -55,6 +58,8 @@ on:
       - "schemas/gallery/**"
       - "schemas/agent-pane/wake-state.json"
       - "schemas/design-scale/**"
+      - "schemas/type-scale/**"
+      - "schemas/motion-scale/**"
       - "schemas/layout-grid/**"
       - "schemas/sync-motion/**"
       - "schemas/settings/settings-schema.json"
@@ -77,6 +82,7 @@ on:
       - "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
       - "web/data/model-catalog/**"
+      - "release-notes/next/highlights/**"
   push:
     branches: [feat-cmux-next]
     paths:
@@ -105,6 +111,8 @@ on:
       - "schemas/gallery/**"
       - "schemas/agent-pane/wake-state.json"
       - "schemas/design-scale/**"
+      - "schemas/type-scale/**"
+      - "schemas/motion-scale/**"
       - "schemas/layout-grid/**"
       - "schemas/sync-motion/**"
       - "schemas/settings/settings-schema.json"
@@ -127,6 +135,7 @@ on:
       - "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
       - "web/data/model-catalog/**"
+      - "release-notes/next/highlights/**"
   workflow_dispatch:
 
 permissions:
@@ -228,8 +237,13 @@ jobs:
           fi
           if [ -s "$RUNNER_TEMP/changed.txt" ]; then
             bun scripts/gallery/touched.ts --changed "$RUNNER_TEMP/changed.txt" --out "$RUNNER_TEMP/touched.json"
-            # The checker itself changed: render everything with it.
+            # The checker itself changed: render everything with it. So does a routed file no entry
+            # imports (a theme, a font, a string catalog, a lockfile): it is global to every page, and
+            # rendering nothing would pass with no verdict.
             if grep -q '^scripts/gallery-matrix/\|^\.github/workflows/gallery-health\.yml$' "$RUNNER_TEMP/changed.txt"; then
+              echo 'all=true' >> "$GITHUB_OUTPUT"
+            elif [ "$(python3 ../scripts/gallery-matrix/unplaced.py ../.github/workflows/gallery-health.yml \
+                "$RUNNER_TEMP/changed.txt" "$RUNNER_TEMP/touched.json")" = true ]; then
               echo 'all=true' >> "$GITHUB_OUTPUT"
             else
               echo "all=$(jq -r .all "$RUNNER_TEMP/touched.json")" >> "$GITHUB_OUTPUT"

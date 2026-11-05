@@ -8,6 +8,7 @@ had already fixed (transcript-density: "Module not found health.ts" after #23333
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import re
 import subprocess
@@ -196,28 +197,10 @@ def triggers() -> dict:
     return workflow.get("on", workflow.get(True))
 
 
-def glob_regex(pattern: str) -> re.Pattern[str]:
-    """A GitHub paths pattern (`**`, `*`) as a regular expression over one repo path."""
-    out, index = "", 0
-    while index < len(pattern):
-        if pattern.startswith("**/", index):
-            out, index = out + "(?:.*/)?", index + 3
-        elif pattern.startswith("**", index):
-            out, index = out + ".*", index + 2
-        elif pattern[index] == "*":
-            out, index = out + "[^/]*", index + 1
-        else:
-            out, index = out + re.escape(pattern[index]), index + 1
-    return re.compile(out + r"\Z")
-
-
-def triggered(path: str, patterns: list[str]) -> bool:
-    """GitHub's rule: the last pattern that matches decides, a `!` pattern excluding."""
-    hit = False
-    for pattern in patterns:
-        if glob_regex(pattern.lstrip("!")).match(path):
-            hit = not pattern.startswith("!")
-    return hit
+_spec = importlib.util.spec_from_file_location("gallery_unplaced", ROOT / "scripts/gallery-matrix/unplaced.py")
+unplaced_tool = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(unplaced_tool)
+triggered = unplaced_tool.routed
 
 
 def tracked(*paths: str) -> list[str]:
@@ -315,6 +298,38 @@ class GalleryHealthPathRouting(unittest.TestCase):
         files |= set(re.findall(r'inputs: \["([^"]+)"', source))
         self.assertGreater(len(files), 10)
         self.assertEqual(sorted(f for f in files if not triggered(f, paths)), [])
+
+    def test_the_design_scale_and_feature_tips_the_build_writes_trigger_it(self) -> None:
+        # gen-strings.mjs (gallery:build) also writes the design scale (gen-design-scale.mjs) and the feature
+        # tips (gen-feature-tips.mjs); their sources must start the workflow.
+        paths = triggers()["pull_request"]["paths"]
+        scale = (ROOT / "webviews/scripts/pages/gen-design-scale.mjs").read_text(encoding="utf-8")
+        sources = re.findall(r'_?SOURCE = "([^"]+)"', scale)
+        self.assertGreaterEqual(len(sources), 3)
+        tips = [path for path in tracked("release-notes/next/highlights")][:1]
+        for path in [*sources, *tips]:
+            self.assertTrue(triggered(path, paths), path)
+
+    def test_the_tool_reads_the_same_paths_yaml_does(self) -> None:
+        self.assertEqual(unplaced_tool.pull_request_paths(WORKFLOW.read_text(encoding="utf-8")),
+                         triggers()["pull_request"]["paths"])
+
+    def test_a_global_input_no_entry_imports_renders_every_entry(self) -> None:
+        # A theme, a font or a string catalog is global to every page: touched.ts names no entry for it, and
+        # rendering nothing would pass with no verdict (review of #36741).
+        paths = triggers()["pull_request"]["paths"]
+        touched = {"all": False, "entries": ["a"], "reasons": {"a": [
+            "Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/cancelled.json"]}}
+        for path in ("Resources/ghostty/themes/Token Dark", "webviews/bun.lock", "scripts/ci/test_reds.py",
+                     "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings"):
+            self.assertEqual(unplaced_tool.unplaced(paths, [path], touched), [path])
+        # An imported fixture renders only the entries that import it; an unreached webviews/src file and an
+        # unrouted file render nothing.
+        for path in ("Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/cancelled.json",
+                     "webviews/src/unused/Thing.tsx", "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppDelegate.swift"):
+            self.assertEqual(unplaced_tool.unplaced(paths, [path], touched), [], path)
+        run = step("Choose the entries to render")["run"]
+        self.assertIn("scripts/gallery-matrix/unplaced.py ../.github/workflows/gallery-health.yml", run)
 
     def test_a_dispatch_renders_every_entry(self) -> None:
         # The nightly full render of the base: a main-side dispatcher starts it on feat-cmux-next, since a
