@@ -79,3 +79,33 @@ public nonisolated enum SidebarGroupLineLayout: String, Sendable, CaseIterable, 
         help: "Where a group's members' line sits: at the header's left edge, joined to the header as one shape, or inside the header's left corner.",
         default: .edge, code: "SidebarGroupLineLayout.tunable")
 }
+
+/// How a group with no color still reads as a group (`sidebar.noColorGroup`): one neutral surface behind its header and
+/// its members, no hue and no indent. Leo 2026-11-05: "if you're gonna allow the no color option ... you might as well
+/// have it be at least slightly distinguishing from, like, literally depicting it as if it were unhovered", "a
+/// differently highlighted, differently refracted, differently transparented thing ... a grouped up thing", and "we're
+/// not necessarily into that indentation thing". A colored group draws as before in every look.
+public nonisolated enum SidebarNoColorGroupLook: String, Sendable, CaseIterable, Hashable, TunableChoice {
+    /// One flat, faint step of the sidebar's ink behind the block, under the rows' own hover and selection.
+    case tray
+    /// A fainter step with a hairline edge, a pane of glass laid over the block.
+    case glass
+    /// Lit from the header: brightest behind it, fading down the members.
+    case lit
+    /// Nothing: the header and members draw as plain rows (the look since #32198).
+    case plain
+
+    public var tunableTitle: String {
+        switch self {
+        case .tray: "Faint tray"
+        case .glass: "Glass with an edge"
+        case .lit: "Lit from the header"
+        case .plain: "Plain rows"
+        }
+    }
+
+    public static let tunable = Tunable<SidebarNoColorGroupLook>.choice(
+        "sidebar.noColorGroup", .sidebar, "Group with no color",
+        help: "How a group with no color reads as a group: a faint neutral surface behind its header and members, or plain rows.",
+        default: .tray, code: "SidebarNoColorGroupLook.tunable")
+}

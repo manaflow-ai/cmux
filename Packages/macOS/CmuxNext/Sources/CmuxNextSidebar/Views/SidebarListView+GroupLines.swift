@@ -9,6 +9,8 @@ struct SidebarGroupLine: Equatable {
     var color: GroupTint
     /// The group's tree level: a nested group's rail is fainter, so stacked rails stay quiet.
     var level = 0
+    /// A group with no color: `frame` is its block, the header and its members (`SidebarNoColorGroupLook`), not a rail.
+    var isBlock = false
 
     /// How much of its color a rail at `level` draws: 1 at the top, then less per level.
     static func opacity(level: Int) -> CGFloat { max(0.35, 1 - 0.2 * CGFloat(level)) }
@@ -24,7 +26,7 @@ extension SidebarListViewComponents {
     /// each row where its view is now, the animation's start, so a new line
     /// starts over its rows and moves with them (cx-ai79).
     func groupLines(_ layout: SidebarLayout, current: Bool = false) -> [SidebarGroupLine] {
-        let lines = SidebarGroupLine.lines(layout.rows.filter { !suppressed.contains($0.key) }, colors: groups, nested: !legacyNestedRails) { row in
+        let lines = SidebarGroupLine.lines(layout.rows.filter { !suppressed.contains($0.key) }, colors: lineColors, nested: !legacyNestedRails) { row in
             current ? rowViews[row.key]?.frame ?? frame(for: row) : frame(for: row)
         }
         // `sidebar.showColors` off: every group draws as one with no color, its line unseen.
@@ -33,6 +35,16 @@ extension SidebarListViewComponents {
             var line = line
             line.color = .none
             return line
+        }
+    }
+
+    /// The groups as their lines draw them: with `sidebar.showColors` off every group has no color, so each draws
+    /// its block (`SidebarGroupLine.isBlock`) as a group nobody colored does.
+    var lineColors: [GroupID: SidebarGroup] {
+        model.showsColors ? groups : groups.mapValues { group in
+            var group = group
+            group.tint = .none
+            return group
         }
     }
 }
@@ -47,8 +59,12 @@ extension SidebarGroupLine {
     /// last member, at full strength (the "before" capture).
     /// A header's bar reaches left of its own members' x over the line (`SidebarStyle.groupRailReach`): the line
     /// starts at the header frame's left edge, the bar's.
+    /// A group with no color (`blocks`, unless `sidebar.noColorGroup` is plain) draws its block instead: from its header's
+    /// top to its last shown member's bottom, the header's width, a collapsed group's header alone (Leo 2026-11-05: "a
+    /// grouped up thing", with no hue and no indent).
     static func lines(_ rows: [SidebarRow], colors: [GroupID: SidebarGroup], nested: Bool = true,
                       layout: SidebarGroupLineLayout = SidebarStyle.groupLineLayout, joinsBar: Bool = SidebarGroupLine.joinsBar,
+                      blocks: Bool = SidebarNoColorGroupLook.tunable.value != .plain,
                       frame: (SidebarRow) -> CGRect) -> [SidebarGroupLine] {
         var headers: [(GroupID, SidebarRow)] = []
         // Groups drawn as their one member's row (`SidebarRow.standsForGroup`): a line along that row, no header.
@@ -88,14 +104,25 @@ extension SidebarGroupLine {
         }
         let width = SidebarStyle.groupBarWidth
         // A sole member's line runs the row's height at the bar's x a header would have: no bar above it, so no cut.
+        func tint(_ id: GroupID, _ row: SidebarRow) -> GroupTint { colors[id]?.tint ?? row.groupColor.map(GroupTint.palette) ?? .none }
+        func block(_ id: GroupID, _ head: CGRect, _ tail: CGRect, level: Int) -> SidebarGroupLine {
+            SidebarGroupLine(group: id, frame: CGRect(x: head.minX, y: head.minY, width: max(head.maxX, tail.maxX) - head.minX,
+                                                      height: max(head.maxY, tail.maxY) - head.minY),
+                             color: .none, level: level, isBlock: true)
+        }
         let soleLines = soles.map { id, row in
             let head = frame(row), tail = frame(last[id] ?? row), bar = SidebarStyle.groupBarX(membersMinX: head.minX)
+            if blocks, tint(id, last[id] ?? row).isNone { return block(id, head, tail, level: nested ? max(0, row.depth - 1) : 0) }
             let x = layout == .inside ? max(bar, SidebarStyle.groupLineX(membersMinX: head.minX)) : bar
             return SidebarGroupLine(group: id, frame: CGRect(x: x, y: head.minY,
                                                              width: width, height: tail.maxY - head.minY),
                                     color: colors[id]?.tint ?? row.groupColor.map(GroupTint.palette) ?? .none, level: nested ? max(0, row.depth - 1) : 0)
         }
         return soleLines + headers.compactMap { id, header in
+            if blocks, tint(id, last[id] ?? header).isNone {
+                let end = header.isCollapsed ? header : last[id] ?? header
+                return block(id, frame(header), frame(end), level: nested ? header.depth : 0)
+            }
             guard !header.isCollapsed, let end = last[id], end.y > header.y else { return nil }
             let head = frame(header), tail = frame(end)
             // The header's bar fills its row: the line starts a cut under it, or joined, right where it ends. The cut is
