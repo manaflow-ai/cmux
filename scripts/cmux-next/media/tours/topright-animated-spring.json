@@ -62,11 +62,11 @@
     "chat",
     "new",
     "--harness",
-    "fake",
+    "claude",
     "--name",
     "header-motion-light",
     "--",
-    "Title: Tidy the login form\nTidy the login form and report what changed."
+    "Reply with the single word ok."
    ],
    "wait": 5,
    "shot": false,
@@ -138,11 +138,11 @@
     "chat",
     "new",
     "--harness",
-    "fake",
+    "claude",
     "--name",
     "header-motion-dark",
     "--",
-    "Title: Tidy the login form\nTidy the login form and report what changed."
+    "Reply with the single word ok."
    ],
    "wait": 5,
    "shot": false,
