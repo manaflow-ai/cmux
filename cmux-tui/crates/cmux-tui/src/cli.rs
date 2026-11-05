@@ -98,9 +98,9 @@ pub(crate) fn remote_host_requested(raw_args: &[String]) -> bool {
 #[cfg(unix)]
 mod machine_doctor;
 #[cfg(unix)]
-mod machine_link;
-#[cfg(unix)]
 mod machine_join;
+#[cfg(unix)]
+mod machine_link;
 #[cfg(unix)]
 pub(crate) use machine_join::{
     CallError as PlatformCallError, Platform, device_credential as joined_machine_credential,

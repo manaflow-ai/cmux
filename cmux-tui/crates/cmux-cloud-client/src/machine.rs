@@ -51,7 +51,9 @@ impl std::fmt::Display for HandleError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
             // Never echoes the value: a secret could have been pasted into it.
-            Self::Origin => "the Cloud origin must be a bare https origin (http only to this machine)",
+            Self::Origin => {
+                "the Cloud origin must be a bare https origin (http only to this machine)"
+            }
             Self::Team => "the team id is not a plain id",
             Self::MachineId => "the machine id is not a Cloud machine id (vm_…)",
         })
@@ -131,7 +133,11 @@ impl Scope {
 
     /// A generated [`crate::Client`] for this scope with `bearer` (the team
     /// header comes from the scope, so the two cannot disagree).
-    pub fn client(&self, bearer: &str, user_agent: &str) -> Result<crate::Client, crate::BuildError> {
+    pub fn client(
+        &self,
+        bearer: &str,
+        user_agent: &str,
+    ) -> Result<crate::Client, crate::BuildError> {
         crate::client(&self.origin, bearer, self.team(), user_agent)
     }
 }
@@ -168,7 +174,9 @@ pub fn machine_id(id: &str) -> bool {
     id.strip_prefix("vm_").is_some_and(|tail| {
         !tail.is_empty()
             && tail.len() <= 64
-            && tail.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_')
+            && tail
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_')
     })
 }
 
