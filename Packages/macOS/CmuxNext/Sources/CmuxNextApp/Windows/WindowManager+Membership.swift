@@ -437,14 +437,10 @@ extension WindowManager {
         }
     }
 
-    /// The one place daemon truth prunes and fills windows: dead
-    /// workspaces leave their windows (a window left with none closes),
-    /// new ones join their claimed window (opening it) or the most recent
-    /// one. Runs synchronously from each store's `onWorkspaceListChanged`,
-    /// so a window closes in the same turn as the delta that emptied it,
-    /// before any observer or frame; the observation loop above covers
-    /// machine list and Cloud load changes.
-    func reconcileMembership() {
+    /// The one place daemon truth prunes and fills windows (never-merge instrument branch: doc shortened).
+    func reconcileMembership() { BenchSpans.measure("windows.reconcileMembership") { reconcileMembershipBody() } }
+
+    private func reconcileMembershipBody() {
         var live: [String] = []
         var cloud: [[String]] = []
         for daemon in services.machines.daemons {

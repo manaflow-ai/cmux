@@ -51,9 +51,9 @@ extension AgentTabStore {
         sessions[tabKey] = session?.id
         if session?.linked == true { linkedSessions.insert(tabKey) }
         if session == nil { seeds[tabKey] = AgentPaneSeedSource(chat.map { var chat = $0; chat.cwd = chat.cwd ?? cwd; return chat } ?? AgentPaneSeed(cwd: cwd)) }
-        if session == nil, chat == nil { newTabPages[tabKey] = firstPage(cwd: cwd, token: token) }
-        track(tabKey, in: store)
-        if let page = newTabPages[tabKey]?.page, let spare = takeSpare?() { adoptSpare(spare, key: tabKey, page: page) }
+        if session == nil, chat == nil { newTabPages[tabKey] = BenchSpans.measure("cmdN.firstPage") { firstPage(cwd: cwd, token: token) } }
+        BenchSpans.measure("cmdN.track") { track(tabKey, in: store) }
+        if let page = newTabPages[tabKey]?.page, let spare = takeSpare?() { BenchSpans.measure("cmdN.adoptSpare") { adoptSpare(spare, key: tabKey, page: page) } }
         let fail: @MainActor () -> Void = { [weak self] in
             store.rejectIntent(transaction)
             self?.release(tabKey)

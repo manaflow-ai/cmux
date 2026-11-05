@@ -215,6 +215,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         let state = state
         workspaceObservation = Task { [weak self] in
             for await _ in ObservationStream({ Self.readShowInputs(state, cloud: cloud, machines: machines, windows: windows) }) {
+                BenchSpans.mark("window.observe.hop")
                 self?.showWorkspace(requested: state.workspaceID)
                 // A parked terminal (the classic migration's background workspaces) starts on its first show.
                 if let id = state.workspaceID, let (workspace, daemon) = machines.workspace(id: id) { daemon.wakeParkedTabs(in: workspace) }
@@ -230,13 +231,6 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         for daemon in machines.daemons { _ = (daemon.store.isLoaded, daemon.store.workspaces.count) }
     }
 
-    /// Shows the requested workspace on whichever machine holds it. While
-    /// its Cloud machine is still connecting (relaunch), the window waits
-    /// instead of replacing the request. A missing workspace falls back to
-    /// the first one this window lists. There is no empty state: a window
-    /// that loses its last workspace is closed by `WindowManager` in the
-    /// same turn, before this observer runs. Until a workspace is mirrored
-    /// (launch, a Cloud machine reconnecting) the connecting state shows.
     func showWorkspace(requested: String?) {
         let machines = services.machines
         // A parked workspace that closed, whose machine left, or that moved to another window goes now.
@@ -280,6 +274,10 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func show(_ workspace: WorkspaceModel, on daemon: DaemonService) {
+        if content?.workspace !== workspace { BenchSpans.measure("window.show") { showBody(workspace, on: daemon) } } else { showBody(workspace, on: daemon) }
+    }
+
+    private func showBody(_ workspace: WorkspaceModel, on daemon: DaemonService) {
         if state.workspaceID != workspace.id { state.workspaceID = workspace.id }
         if state.machineID != daemon.machineID { state.machineID = daemon.machineID }
         guard content?.workspace !== workspace else { return arrangeOnScreen() }
