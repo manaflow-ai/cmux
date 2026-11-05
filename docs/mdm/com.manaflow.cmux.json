@@ -5346,6 +5346,12 @@
       "title" : "Web UI Updates",
       "type" : "string"
     },
+    "updates.whatsNewInstall" : {
+      "default" : false,
+      "description" : "Each day in What's New lists its versions with an Install button. cmux checks the download's signature, then restarts into that version with your terminals and agents.",
+      "title" : "Install Versions from What's New",
+      "type" : "boolean"
+    },
     "window.titlebar" : {
       "default" : "minimal",
       "description" : "Minimal has no titlebar strip; the top row moves the window.",
