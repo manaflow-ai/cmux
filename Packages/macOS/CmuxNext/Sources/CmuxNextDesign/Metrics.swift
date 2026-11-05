@@ -206,9 +206,10 @@ public struct Metrics {
         return corners.radius(fitting: size, radius: corners.nested(in: pane, inset: inset))
     }
     /// The density's outer corner radius, used when `layout.paneCornerRadius` is unset:
-    /// 10 pt compact and 11 pt comfortable, so the tab pills nested 2 and 3 pt inside
-    /// keep Helium's 8 pt (``heliumTabCornerRadius``), and the compact main pane is
-    /// concentric with the 16 pt window across its 6 pt gutter.
+    /// the omnibar's 8 pt in every density (Lawrence 2026-11-05: "default roundness is too
+    /// round now", "default roundness should be omnibar roundness"). The tab pills and the
+    /// sidebar's rows nest the corner padding inside it; the main pane is less round than
+    /// the 16 pt window across its 6 pt gutter, never rounder.
     public static var densityPaneCornerRadius: CGFloat { MetricTunables.densityPaneCornerRadius.value }
     /// How panes are told apart (`layout.paneSeparation`, else the legacy
     /// `layout.paneBorder` and padding).

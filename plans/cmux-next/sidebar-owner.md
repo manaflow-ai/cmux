@@ -12,10 +12,17 @@
   nothing, which reads as data loss. Until the Earlier window's first answer (`AcpmuxChatWindows.Window.hasAnswered`),
   Earlier keeps its header and one quiet Loading row in the Show More slot (no click action); folded, only its header.
   An answered empty index still has no Earlier. Regression: `SidebarChatHistoryTests.earlierSaysLoadingUntilAcpmuxFirstSendsItsRows`.
+- 2026-11-05: a workspace row is as round as a tab, and the one corner radius defaults to the omnibar's 8 pt.
+  Lawrence, verbatim: "i think default roundness is too round now btw", "maybe default roundness should be omnibar
+  roundness", "sidebar workspaces is too rounded now", "workspace roundness needs to be same as tabs roundness".
+  `SidebarDensityTokens.rowCornerRadius` (workspace rows, pinned rows, group headers) is `Metrics.tabCornerRadius`, one
+  token with the tab pills (6 pt by default, was the outer 10 pt); `densityPaneCornerRadius` is 8 in every density (was
+  10 compact, 11 comfortable). Cards and edit boxes around a row stay that radius plus `space1`. The row insets are
+  a590's. Regression: `DefaultCornerRadiusTests`.
 - 2026-11-05: sidebar corners follow the one concentric corner rule. Lawrence, verbatim (2026-11-04): "all nested
   radius everywhere, for all types of panes where it applies, must be concentric, where inner radius is outer minus
   padding, where padding is configurable too". Rows and rail tiles take the one corner radius
-  (`Metrics.surfaceCornerRadius`, `layout.paneCornerRadius`: 10 compact, 11 comfortable, as before); a card or edit box
+  (`Metrics.surfaceCornerRadius`, `layout.paneCornerRadius`; superseded for rows by the entry above); a card or edit box
   around a row is that radius plus its `space1` gap; the notice, update and now-playing cards and the Needs You tray are
   the one radius (12 pt before, 10 now); rows inside them, the rename field and the drop outline the radius less the
   corner padding; buttons, toggles and small cards the radius less twice the padding; progress bars and dots capsules.

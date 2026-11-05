@@ -55,10 +55,9 @@ enum SidebarDensityTokens {
     /// independent of the sidebar's group nesting grid and remains the original space4.
     static var depthIndent: CGFloat { Metrics.space4 }
     /// The corner radius of every row fill: pinned rows, group headers and workspace rows share it,
-    /// so their fills line up at each density. One `space1` rounder than the app's item corner (8 compact,
-    /// 9 comfortable), near ChatGPT's soft row corner for its height (about 9 to 10 pt on a 30 pt row).
-    /// Leo 2026-11-02: "SMOOTH OUT A BIT MORE OF OUR CORNERS ON THE SIDEBAR WORKSPACES".
-    static var rowCornerRadius: CGFloat { Metrics.surfaceCornerRadius }
+    /// so their fills line up at each density. It is the tab pill's radius (`Metrics.tabCornerRadius`),
+    /// one token for both (Lawrence 2026-11-05: "workspace roundness needs to be same as tabs roundness").
+    static var rowCornerRadius: CGFloat { Metrics.tabCornerRadius }
     static var sectionSpacing: CGFloat { isComfortable ? Metrics.space5 : Metrics.space4 }
     static var topPadding: CGFloat { isComfortable ? Metrics.space3 : Metrics.space2 }
 }
