@@ -559,12 +559,22 @@ class HostBuildRoot(unittest.TestCase):
         summary = self.root / 'summary.md'
         env = {**self.env, 'GITHUB_STEP_SUMMARY': str(summary)}
         script = ROOT / 'scripts/ci/nightly-steps/release-build-summary.sh'
-        for fallback, said in (('0', 'fleet cache'), ('1', 'local cache after the fleet cache failed')):
+        # The cache the build really used: fleet-compilation-cache.sh stays local when the fleet socket is
+        # missing or decide asked for a cold cache, and the retry runs local after the fleet cache failed.
+        for cache, said in (('fleet', 'fleet cache'),
+                            ('unavailable', 'local cache (the fleet cache was unavailable)'),
+                            ('cold', 'local cache (a cold-cache run)'),
+                            ('fallback', 'local cache after the fleet cache failed')):
             summary.write_text('')
-            subprocess.run(['bash', str(script), str(log), fallback], env=env, check=True)
+            subprocess.run(['bash', str(script), str(log), cache], env=env, check=True)
             text = summary.read_text()
             self.assertIn('- compile cache: 435 hits / 517 cacheable tasks (84%), 82 missed', text)
             self.assertIn(f'- cache: {said}', text)
+        # Xcode 26.6's compact line for a build with no hits (tests/test_build_metrics.py XCODE_26_6_COMPACT).
+        log.write_text('note: 0/316 cacheable tasks\n')
+        summary.write_text('')
+        subprocess.run(['bash', str(script), str(log), 'fleet'], env=env, check=True)
+        self.assertIn('- compile cache: 0 hits / 316 cacheable tasks (0%), 316 missed', summary.read_text())
 
     def test_off_unless_the_slot_keeps_build_state(self):
         self.env['CMUX_NIGHTLY_HOST_BUILD_ROOT'] = ''
