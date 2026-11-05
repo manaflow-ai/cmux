@@ -57,7 +57,15 @@ xcrun dyld_info -fixups "$bin" | grep -oE '_\$s11CmuxNextApp[^ ]*' | sort -u > "
 comm -23 "$out/binds-2.txt" "$out/exports-2.txt" > "$out/missing-2.txt"
 missing="$(sed -n 1,5p "$out/missing-2.txt")"
 echo "live-code build: relinked: $(wc -l < "$out/binds-2.txt" | tr -d ' ') CmuxNextApp binds, $(wc -l < "$out/exports-2.txt" | tr -d ' ') exported"
-[[ -z "$missing" ]] || { echo "live-code build: the relinked app binds $(wc -l < "$out/missing-2.txt" | tr -d ' ') CmuxNextApp symbols it does not export, first:" >&2; echo "$missing" >&2; exit 1; }
+# dyld_info -fixups also names the target of a rebase, which needs no export: print the fixup lines
+# themselves, and leave the verdict to the launch (dyld says "Symbol not found" for a real bind).
+if [[ -n "$missing" ]]; then
+  echo "live-code build: $(wc -l < "$out/missing-2.txt" | tr -d ' ') CmuxNextApp symbols named by a fixup are not exported; their fixups:" >&2
+  xcrun dyld_info -fixups "$bin" | grep -F -f <(sed -n 1,5p "$out/missing-2.txt") | head -n 10 >&2 || true
+fi
+# Whether CmuxNextApp compiled a file at a time (reload.sh's live build) or whole-module.
+wmo="$(grep -E -- "-module-name CmuxNextApp " "$log" | grep -c -- "-whole-module-optimization" || true)"
+echo "live-code build: CmuxNextApp frontend commands: $(grep -cE -- "-module-name CmuxNextApp " "$log" || true), whole-module: $wmo"
 echo "live-code build: built in $((SECONDS - build_start)) s"
 grep -E -- "-module-name CmuxNextApp " "$log" > "$out/cmuxnextapp-commands.log" || true
 printf '%s\n' "$app" > "$out/app-path"
