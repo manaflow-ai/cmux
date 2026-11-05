@@ -6911,6 +6911,9 @@ export class AcpmuxDirectClient {
     } else if (event.kind === "plan") {
       const plan = planEntries(update.entries);
       const existing = this.planRow ? this.rows.get(this.planRow) : undefined;
+      // A plan update is the agent's next step: a reply held open past a steer or notice
+      // (`holdAssistantSegment`) ends here, so the text after it starts below what landed.
+      if (this.assistantCut) this.endAssistantSegment();
       // A cleared list (TodoWrite with no todos, Codex's empty plan) takes the checklist away.
       if (Array.isArray(update.entries) && plan.length === 0) {
         if (existing) this.rows.delete(existing.id);
