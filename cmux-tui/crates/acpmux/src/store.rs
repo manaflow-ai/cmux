@@ -2136,6 +2136,8 @@ mod head_tests;
 #[cfg(all(test, unix))]
 mod journal_meta_tests;
 #[cfg(all(test, unix))]
+mod journal_open_bench;
+#[cfg(all(test, unix))]
 mod journal_store_tests;
 #[cfg(all(test, unix))]
 mod journal_sync_tests;
