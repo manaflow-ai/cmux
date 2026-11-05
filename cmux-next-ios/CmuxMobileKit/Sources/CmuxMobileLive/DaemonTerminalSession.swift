@@ -615,20 +615,22 @@ public final class DaemonTerminalSession: TerminalSession {
             // allowance. A lane that refuses the allowance (a Mac app older
             // than its daemon) gets the same attach without it.
             func attachSurface(_ size: (columns: Int, rows: Int)?) async throws -> Data {
-                var params: [String: Any] = ["surface": surface]
-                if let size {
-                    params["cols"] = size.columns
-                    params["rows"] = size.rows
+                func params(historyRows: Int?) -> [String: Any] {
+                    var params: [String: Any] = ["surface": surface]
+                    if let size {
+                        params["cols"] = size.columns
+                        params["rows"] = size.rows
+                    }
+                    if let historyRows { params["replay_history_rows"] = historyRows }
+                    return params
                 }
                 guard tailReplay, let rows = historyAllowance else {
-                    return try await client.request("attach-surface", params: params)
+                    return try await client.request("attach-surface", params: params(historyRows: nil))
                 }
-                params["replay_history_rows"] = rows
-                let reply = try await client.request("attach-surface", params: params)
+                let reply = try await client.request("attach-surface", params: params(historyRows: rows))
                 guard let error = Self.error(in: reply), error.contains("replay_history_rows") else { return reply }
                 tailReplay = false
-                params["replay_history_rows"] = nil
-                return try await client.request("attach-surface", params: params)
+                return try await client.request("attach-surface", params: params(historyRows: nil))
             }
             sizing.clear()
             lastActivityNote = nil
