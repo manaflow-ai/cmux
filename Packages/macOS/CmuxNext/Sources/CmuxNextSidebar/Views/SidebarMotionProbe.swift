@@ -18,6 +18,14 @@ public struct SidebarMotionFrame: Sendable {
     public var views: [String: CGRect]
     /// Presented opacity by the same keys (a hidden or fading view is not a pop).
     public var opacity: [String: Float]
+    /// The row view object by the same keys (its `ObjectIdentifier` bits): a key whose value changes between
+    /// frames got a new view (a rebuilt row), and a fading row's id is its leaving view.
+    public var identity: [String: UInt]
+    /// The display link's vsync time of this tick (`FrameTick.timestamp`), the time it shows
+    /// (`FrameTick.targetTimestamp`) and the display's refresh period (nil for a synthesized, stalled frame).
+    public var linkTimestamp: CFTimeInterval
+    public var targetTimestamp: CFTimeInterval
+    public var refreshInterval: Double?
     /// Main-thread milliseconds the list spent in its last drag update (0 when none).
     public var dragWorkMs: Double
     /// The list's model structure (`SidebarModel.sectionsRevision`): a change marks a drop's optimistic model or its echo.
@@ -39,7 +47,7 @@ final class SidebarMotionProbe {
         // Stamped when the presentation is read (`presented` evaluates the springs now), not at the display
         // link's last vsync: the main thread runs the tick late by a varying delay, and a vsync stamp turned a
         // spring's steady motion into false 8-11 pt "jumps" between late and early samples (ptr8 scenario 3).
-        client = FrameClient(owner: "Sidebar.motionProbe", view: list) { [weak self] _ in self?.sample(CACurrentMediaTime()) ?? false }
+        client = FrameClient(owner: "Sidebar.motionProbe", view: list) { [weak self] tick in self?.sample(CACurrentMediaTime(), tick) ?? false }
     }
 
     func start() {
@@ -53,14 +61,16 @@ final class SidebarMotionProbe {
         return frames
     }
 
-    private func sample(_ time: CFTimeInterval) -> Bool {
+    private func sample(_ time: CFTimeInterval, _ tick: FrameTick) -> Bool {
         guard let list, frames.count < Self.capacity else { return false }
         var views: [String: CGRect] = [:]
         var opacity: [String: Float] = [:]
+        var identity: [String: UInt] = [:]
         let fading = list.fadingRows.values.map { (key: $0.key, view: $0) }
         for (key, view) in fading + list.rowViews.map({ (key: $0.key, view: $0.value) }) { // a live row wins over a fading one
             views[String(describing: key)] = Self.presented(view)
             opacity[String(describing: key)] = view.layer?.presentation()?.opacity ?? Float(view.alphaValue)
+            identity[String(describing: key)] = UInt(bitPattern: ObjectIdentifier(view).hashValue)
             guard let block = view as? SidebarBlockRowView else { continue }
             let origin = Self.presented(view).origin
             for (id, item) in block.region.itemViews where !id.isTransient {
@@ -70,7 +80,9 @@ final class SidebarMotionProbe {
         }
         let lift = list.drag?.lift ?? list.settling?.drag.lift ?? list.landing.flatMap { $0.lift.superview == nil ? nil : $0.lift }
         frames.append(SidebarMotionFrame(time: time, scrollY: list.enclosingScrollView?.contentView.bounds.minY ?? 0,
-                                         lift: lift.map(Self.presented), views: views, opacity: opacity, dragWorkMs: list.lastDragWorkMs,
+                                         lift: lift.map(Self.presented), views: views, opacity: opacity, identity: identity,
+                                         linkTimestamp: tick.timestamp, targetTimestamp: tick.targetTimestamp,
+                                         refreshInterval: tick.refreshInterval, dragWorkMs: list.lastDragWorkMs,
                                          revision: list.model.sectionsRevision, settling: list.settling != nil))
         return true
     }

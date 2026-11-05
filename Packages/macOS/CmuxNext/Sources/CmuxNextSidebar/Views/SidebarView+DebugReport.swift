@@ -31,11 +31,16 @@ extension SidebarViewComponents {
     }
 
     /// `{"motion": "start"|"stop"}`: the per-display-frame samples (SidebarMotionFrame); stop returns them as
-    /// {t, scroll, lift, work_ms, revision, settling, views: {key: [x, y, w, h, opacity]}}.
+    /// {t, link, target, refresh, scroll, lift, work_ms, revision, settling, views: {key: [x, y, w, h, opacity]},
+    /// ids: {key: view object id}}. `t` is when the presentation was read; `link` / `target` are the display link's
+    /// vsync and show times of the tick, `refresh` its period (null for a synthesized frame).
     public func debugMotionReport(start: Bool) -> [String: Any] {
         func box(_ r: CGRect) -> [Double] { [r.minX, r.minY, r.width, r.height].map { Double($0) } }
         return ["frames": debugMotion(start: start).map { frame -> [String: Any] in
-            ["t": frame.time, "scroll": Double(frame.scrollY), "lift": frame.lift.map(box) ?? NSNull(), "work_ms": frame.dragWorkMs,
+            ["t": frame.time, "link": frame.linkTimestamp, "target": frame.targetTimestamp,
+             "refresh": frame.refreshInterval.map { $0 as Any } ?? NSNull(),
+             "ids": frame.identity.mapValues { String($0) },
+             "scroll": Double(frame.scrollY), "lift": frame.lift.map(box) ?? NSNull(), "work_ms": frame.dragWorkMs,
              "revision": Double(frame.revision), "settling": frame.settling,
              "views": Dictionary(uniqueKeysWithValues: frame.views.map { key, rect in (key, box(rect) + [Double(frame.opacity[key] ?? 1)]) })]
         }]
