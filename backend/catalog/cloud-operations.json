@@ -3548,6 +3548,28 @@
               "name": "Timestamp"
             }
           }
+        },
+        "channel": {
+          "required": false,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "conversation": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "ConversationId"
+                }
+              },
+              "title": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -3718,6 +3740,14 @@
             "kind": "ref",
             "name": "ConversationKind"
           }
+        },
+        "channel_chief": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "A channel's own Chief (channel.create): it is woken only by this conversation."
         },
         "team": {
           "required": false,
@@ -22653,6 +22683,268 @@
         "$defs": {}
       }
     },
+    "channel.create": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "chief",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "title": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 200
+            }
+          },
+          "display_name": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 100
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "HomeChief"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "mutate-own",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "chat channel create",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "home"
+      },
+      "docs": "Create a channel: a group conversation you own with its own Chief, scoped to it (it is woken only by that conversation and keeps its own memory, instructions, personality and avatar). Answers the channel Chief; its channel.conversation is the channel. display_name defaults to \"<title> Chief\". Invite people with participants.add or invite.create on the channel.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "display_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/HomeChief",
+        "$defs": {
+          "ChiefId": {
+            "type": "string",
+            "pattern": "^agent_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          },
+          "InstallId": {
+            "type": "string",
+            "pattern": "^inst_[a-z0-9]{20}$",
+            "description": "One app, CLI or daemon install with its own keypair."
+          },
+          "ChiefBrainPlace": {
+            "type": "object",
+            "properties": {
+              "host": {
+                "$ref": "#/$defs/HostId"
+              },
+              "install": {
+                "$ref": "#/$defs/InstallId"
+              }
+            },
+            "required": [
+              "host",
+              "install"
+            ],
+            "additionalProperties": true
+          },
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          },
+          "Timestamp": {
+            "type": "string",
+            "description": "RFC 3339 UTC with milliseconds."
+          },
+          "HomeChief": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/ChiefId"
+              },
+              "owner_user": {
+                "type": "string"
+              },
+              "display_name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "is_default": {
+                "type": "boolean"
+              },
+              "brain": {
+                "type": "string",
+                "enum": [
+                  "cloud"
+                ]
+              },
+              "brain_place": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ChiefBrainPlace"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "main_conversation": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "harness": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "rev": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              },
+              "created_at": {
+                "$ref": "#/$defs/Timestamp"
+              },
+              "updated_at": {
+                "$ref": "#/$defs/Timestamp"
+              },
+              "archived_at": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Timestamp"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "channel": {
+                "type": "object",
+                "properties": {
+                  "conversation": {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  "title": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "conversation",
+                  "title"
+                ],
+                "additionalProperties": true
+              }
+            },
+            "required": [
+              "id",
+              "owner_user",
+              "display_name",
+              "is_default",
+              "brain",
+              "main_conversation",
+              "harness",
+              "rev",
+              "created_at",
+              "updated_at",
+              "archived_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
     "chief.archive": {
       "class": "mutation",
       "idempotency": "required",
@@ -22903,6 +23195,22 @@
                     "type": "null"
                   }
                 ]
+              },
+              "channel": {
+                "type": "object",
+                "properties": {
+                  "conversation": {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  "title": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "conversation",
+                  "title"
+                ],
+                "additionalProperties": true
               }
             },
             "required": [
@@ -23179,6 +23487,22 @@
                     "type": "null"
                   }
                 ]
+              },
+              "channel": {
+                "type": "object",
+                "properties": {
+                  "conversation": {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  "title": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "conversation",
+                  "title"
+                ],
+                "additionalProperties": true
               }
             },
             "required": [
@@ -23449,6 +23773,22 @@
                     "type": "null"
                   }
                 ]
+              },
+              "channel": {
+                "type": "object",
+                "properties": {
+                  "conversation": {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  "title": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "conversation",
+                  "title"
+                ],
+                "additionalProperties": true
               }
             },
             "required": [
@@ -23735,6 +24075,22 @@
                     "type": "null"
                   }
                 ]
+              },
+              "channel": {
+                "type": "object",
+                "properties": {
+                  "conversation": {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  "title": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "conversation",
+                  "title"
+                ],
+                "additionalProperties": true
               }
             },
             "required": [
@@ -24119,6 +24475,22 @@
                     "type": "null"
                   }
                 ]
+              },
+              "channel": {
+                "type": "object",
+                "properties": {
+                  "conversation": {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  "title": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "conversation",
+                  "title"
+                ],
+                "additionalProperties": true
               }
             },
             "required": [
@@ -34304,6 +34676,10 @@
               "kind": {
                 "$ref": "#/$defs/ConversationKind"
               },
+              "channel_chief": {
+                "type": "string",
+                "description": "A channel's own Chief (channel.create): it is woken only by this conversation."
+              },
               "team": {
                 "type": "string"
               },
@@ -36935,6 +37311,10 @@
               "kind": {
                 "$ref": "#/$defs/ConversationKind"
               },
+              "channel_chief": {
+                "type": "string",
+                "description": "A channel's own Chief (channel.create): it is woken only by this conversation."
+              },
               "team": {
                 "type": "string"
               },
@@ -38764,6 +39144,10 @@
               },
               "kind": {
                 "$ref": "#/$defs/ConversationKind"
+              },
+              "channel_chief": {
+                "type": "string",
+                "description": "A channel's own Chief (channel.create): it is woken only by this conversation."
               },
               "team": {
                 "type": "string"

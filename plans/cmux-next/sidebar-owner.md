@@ -1,5 +1,13 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-05: every workspace row's trailing glyph box ends the row inset before its fill's end, as its leading glyph
+  box starts the row inset after the fill's start. Lawrence, verbatim: "too much padding on right. padding on left/right
+  of every workspace needs to be even." The trailing column centers `horizontalInset + statusGlyphSize / 2` inside the
+  fill (11 compact, 14 comfortable; was 13 / 15). Its floor (`minTrailingCenterInset`) is now the exact resize-band
+  clamp `trailingColumnFrame` applies, sized for the largest control on the column (footer Search), not the full row
+  inset plus Search's excess, which held compact 2.5 pt short. Measured: running app (compact, 2x) pin 6 pt in, spinner
+  ink 9 pt short of the end; fleet test at the base: mark box 9 pt short (pinned band, Pinned section, grouped, loose).
+  Guard: SidebarEvenRowInsetsTests.
 - 2026-11-05: a collapsing group's text fades out fast. Leo, verbatim: "when you're collapsing a group, the text needs to
   fade faster. Otherwise, you just get a ton of text like just jumbled up inside ... you still see like overlapping text
   sometimes". The rows a collapse hides faded over the whole `.move` spring, as long as their slot takes to close; they
@@ -12,10 +20,17 @@
   nothing, which reads as data loss. Until the Earlier window's first answer (`AcpmuxChatWindows.Window.hasAnswered`),
   Earlier keeps its header and one quiet Loading row in the Show More slot (no click action); folded, only its header.
   An answered empty index still has no Earlier. Regression: `SidebarChatHistoryTests.earlierSaysLoadingUntilAcpmuxFirstSendsItsRows`.
+- 2026-11-05: a workspace row is as round as a tab, and the one corner radius defaults to the omnibar's 8 pt.
+  Lawrence, verbatim: "i think default roundness is too round now btw", "maybe default roundness should be omnibar
+  roundness", "sidebar workspaces is too rounded now", "workspace roundness needs to be same as tabs roundness".
+  `SidebarDensityTokens.rowCornerRadius` (workspace rows, pinned rows, group headers) is `Metrics.tabCornerRadius`, one
+  token with the tab pills (6 pt by default, was the outer 10 pt); `densityPaneCornerRadius` is 8 in every density (was
+  10 compact, 11 comfortable). Cards and edit boxes around a row stay that radius plus `space1`. The row insets are
+  a590's. Regression: `DefaultCornerRadiusTests`.
 - 2026-11-05: sidebar corners follow the one concentric corner rule. Lawrence, verbatim (2026-11-04): "all nested
   radius everywhere, for all types of panes where it applies, must be concentric, where inner radius is outer minus
   padding, where padding is configurable too". Rows and rail tiles take the one corner radius
-  (`Metrics.surfaceCornerRadius`, `layout.paneCornerRadius`: 10 compact, 11 comfortable, as before); a card or edit box
+  (`Metrics.surfaceCornerRadius`, `layout.paneCornerRadius`; superseded for rows by the entry above); a card or edit box
   around a row is that radius plus its `space1` gap; the notice, update and now-playing cards and the Needs You tray are
   the one radius (12 pt before, 10 now); rows inside them, the rename field and the drop outline the radius less the
   corner padding; buttons, toggles and small cards the radius less twice the padding; progress bars and dots capsules.

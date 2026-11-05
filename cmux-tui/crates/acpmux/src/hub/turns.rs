@@ -687,6 +687,9 @@ impl Hub {
             .noticed(super::prompt_line::is_notice(provenance.as_ref()))
             .by_person(persons);
         turn.trigger = trigger;
+        // Before the turn shows: a Stop from then on fences its unwritten prompt (`cancel.rs`).
+        *session.unwritten_prompt.lock().unwrap_or_else(|e| e.into_inner()) =
+            Some((turn_id.to_string(), false));
         let retry = super::subagent_retry::is_retry(run.provenance.as_ref());
         let mut cloud_exec = if let Some(envelope) = cloud_turn.as_ref() {
             if envelope.session != session.id

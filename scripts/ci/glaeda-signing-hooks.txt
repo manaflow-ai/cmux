@@ -32,3 +32,4 @@ aff786ca089a05cef2627a80d7fe4da0393a4814fc9619aca0e7384263d37ad9 glaeda 99d1e407
 bcdd1aacb203ac7ea9cbc2ecbd82b6bf552b65d99d0a2341609d5c4f281be0a4 glaeda 5ba90d7a: runner gate: an overload hold keeps new jobs off a mini past twice its cores (#1851)
 6d4ee21b17a0e12783022c35b91fe7f4344e3e63c311e02de07272bb9e0df760 glaeda d5ffd1c8: runner-hook: the job share writes no git config over a partial GIT_CONFIG_* env (#1873); the hook before #1862, kept so a forward revert of #1862 can still sign
 87e9ffc863384bb892c67ac0eafaee918c8b2a45fa72a9ca998f00676df9c749 glaeda #1862 (1297173f): one-mini nightly signing and main's classic auto-resume notarization admitted on the trusted signing runner
+7430aae2e88ee40ebe760349388ca02fb183ac1489e0c786bcc0c14c95a8c84a glaeda #1883 (182e1a7b): runner hook: the auto-resume tier comes from the signing and light allowlists

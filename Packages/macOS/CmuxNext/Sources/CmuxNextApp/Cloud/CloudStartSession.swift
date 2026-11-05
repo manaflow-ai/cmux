@@ -262,7 +262,7 @@ struct CloudStartSession {
                 started = try await Self.starting(name: name, id: id, agent: agent, account: account, now: { services.cloud.account }, asked: request.asked(machine: name)) {
                     try await CloudWait.retriedOnce({ try await remote.startNow(cwd: request.cwd, harness: agent) { @MainActor [services] in
                         try Self.check(account, now: services.cloud.account, CloudStartSessionStrings.Asked(machine: name, agent: agent, command: command))
-                    } }, closed: { if case DaemonError.connectionClosed = $0 { true } else { false } }, relink: { await session.linkUp(within: Self.connectWait) })
+                    } }, closed: { if case DaemonError.connectionClosed = $0 { true } else { false } }, relink: { await session.linkUp(within: Self.connectWait) && session.linkHeld() })
                 }
             case let refused as AgentTabRefusedHost: throw refused.refusal
             default: throw AgentRemoteStartRefusal.startUnsupported(machine: name)
@@ -406,12 +406,12 @@ struct CloudStartSession {
         }
         // An update of this machine already running when the start came (one that begins later finds the start in
         // ``CloudStartGate``) restarts the daemon: the agent starts once it ended and the link is back.
-        let up = await CloudWait.linked(within: Self.connectWait, { await session.linkUp(within: Self.connectWait) }) {
+        let up = await CloudWait.linkedAgain({ await CloudWait.linked(within: Self.connectWait, { await session.linkUp(within: Self.connectWait) }) {
             [policy = services.daemonUpdates.policy, id = CloudMachineUpdateTarget.id(session.machineID)] in await policy.turnRunning(id)
-        }
+        } }, held: session.linkHeld, redialable: { session.resumeFailure == nil && session.linkEnded != nil && session.dropRedial.lastEndRedialable }, again: session.retryNow)
         // A sign-out, team switch or cancellation during the wait is that, not a machine that didn't connect.
         try Self.checked(account, now: services.cloud.account, request.asked(machine: session.machine.title))
-        guard up, session.resumeFailure == nil, session.daemon.connection != nil else { throw failure() }
+        guard up else { throw failure() }
     }
 
     /// The machine takes the person's harness login before the session starts, as a composer start's does (+Login).

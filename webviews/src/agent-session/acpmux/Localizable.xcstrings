@@ -26,6 +26,798 @@
     "commandRules.connecting": {"comment":"Agent pane: a background ssh session with no command; {host} is the machine","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"جارٍ الاتصال بـ {host}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Povezivanje na {host}"}},"da":{"stringUnit":{"state":"needs_review","value":"Forbinder til {host}"}},"de":{"stringUnit":{"state":"needs_review","value":"Verbindung zu {host}"}},"en":{"stringUnit":{"state":"translated","value":"Connecting to {host}"}},"es":{"stringUnit":{"state":"needs_review","value":"Conectando a {host}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Connexion à {host}"}},"it":{"stringUnit":{"state":"needs_review","value":"Connessione a {host}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{host} に接続中"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងភ្ជាប់ទៅ {host}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{host}에 연결 중"}},"nb":{"stringUnit":{"state":"needs_review","value":"Kobler til {host}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Łączenie z {host}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Conectando a {host}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Подключение к {host}"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังเชื่อมต่อกับ {host}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{host} sunucusuna bağlanılıyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Підключення до {host}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang kết nối tới {host}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在连接 {host}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在連線至 {host}"}}}},
     "commandRules.startingSession": {"comment":"Agent pane: a background command that starts an agent session (the cmux-fleet preset)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"جارٍ بدء جلسة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pokretanje sesije"}},"da":{"stringUnit":{"state":"needs_review","value":"Starter en session"}},"de":{"stringUnit":{"state":"needs_review","value":"Sitzung wird gestartet"}},"en":{"stringUnit":{"state":"translated","value":"Starting a session"}},"es":{"stringUnit":{"state":"needs_review","value":"Iniciando una sesión"}},"fr":{"stringUnit":{"state":"needs_review","value":"Démarrage d'une session"}},"it":{"stringUnit":{"state":"needs_review","value":"Avvio di una sessione"}},"ja":{"stringUnit":{"state":"needs_review","value":"セッションを開始中"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងចាប់ផ្ដើមវគ្គ"}},"ko":{"stringUnit":{"state":"needs_review","value":"세션 시작 중"}},"nb":{"stringUnit":{"state":"needs_review","value":"Starter en økt"}},"pl":{"stringUnit":{"state":"needs_review","value":"Uruchamianie sesji"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Iniciando uma sessão"}},"ru":{"stringUnit":{"state":"needs_review","value":"Запуск сеанса"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังเริ่มเซสชัน"}},"tr":{"stringUnit":{"state":"needs_review","value":"Oturum başlatılıyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Запуск сеансу"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang bắt đầu phiên"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在启动会话"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在啟動工作階段"}}}},
     "commandRules.startingSessionNamed": {"comment":"Agent pane: a background command that starts an agent session (the cmux-fleet preset); {name} is the session's name","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"جارٍ بدء {name}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pokretanje: {name}"}},"da":{"stringUnit":{"state":"needs_review","value":"Starter {name}"}},"de":{"stringUnit":{"state":"needs_review","value":"{name} wird gestartet"}},"en":{"stringUnit":{"state":"translated","value":"Starting {name}"}},"es":{"stringUnit":{"state":"needs_review","value":"Iniciando {name}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Démarrage de {name}"}},"it":{"stringUnit":{"state":"needs_review","value":"Avvio di {name}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{name} を開始中"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងចាប់ផ្ដើម {name}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{name} 시작 중"}},"nb":{"stringUnit":{"state":"needs_review","value":"Starter {name}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Uruchamianie: {name}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Iniciando {name}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Запуск: {name}"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังเริ่ม {name}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{name} başlatılıyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Запуск: {name}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang bắt đầu {name}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在启动 {name}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在啟動 {name}"}}}},
+    "newTab.profile.placeholder": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ابحث في ملفات التعريف لفتح {site}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pretraži profile za otvaranje {site}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Søg i profiler for at åbne {site}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profile durchsuchen, um {site} zu öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search profiles to open {site}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Busca un perfil para abrir {site}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechercher un profil pour ouvrir {site}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerca un profilo per aprire {site}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{site} を開くプロファイルを検索"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្វែងរក​ប្រវត្តិរូប​ដើម្បី​បើក {site}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{site}을(를) 열 프로필 검색"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Søk i profiler for å åpne {site}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyszukaj profil, aby otworzyć {site}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pesquise perfis para abrir {site}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Найдите профиль, чтобы открыть {site}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ค้นหาโปรไฟล์เพื่อเปิด {site}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{site} adresini açmak için profil ara"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Знайдіть профіль, щоб відкрити {site}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tìm hồ sơ để mở {site}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜索用于打开 {site} 的配置文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜尋用來開啟 {site} 的設定檔"
+          }
+        }
+      }
+    },
+    "newTab.row.chooseProfile": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختيار"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odaberi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vælg"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auswählen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elegir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisir"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជ្រើសរើស"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Velg"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wybierz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolher"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выбрать"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เลือก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вибрати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chọn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選擇"
+          }
+        }
+      }
+    },
+    "newTab.row.openInNamedProfile": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح في ملف تعريف جديد ”{name}“"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otvori u novom profilu „{name}”"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åbn i ny profil “{name}”"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In neuem Profil „{name}“ öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open in New Profile “{name}”"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir en un perfil nuevo «{name}»"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir dans un nouveau profil « {name} »"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri nel nuovo profilo «{name}»"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいプロファイル「{name}」で開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើក​ក្នុង​ប្រវត្តិរូប​ថ្មី “{name}”"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 프로필 “{name}”에서 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åpne i ny profil «{name}»"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otwórz w nowym profilu „{name}”"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir no novo perfil “{name}”"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть в новом профиле «{name}»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดในโปรไฟล์ใหม่ “{name}”"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“{name}” adlı yeni profilde aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відкрити в новому профілі «{name}»"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mở trong hồ sơ mới “{name}”"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在新配置文件“{name}”中打开"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在新設定檔「{name}」中開啟"
+          }
+        }
+      }
+    },
+    "newTab.row.openInNewProfile": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح في ملف تعريف جديد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otvori u novom profilu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åbn i ny profil"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In neuem Profil öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open in New Profile"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir en un perfil nuevo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir dans un nouveau profil"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri in un nuovo profilo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいプロファイルで開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើក​ក្នុង​ប្រវត្តិរូប​ថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 프로필에서 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åpne i ny profil"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otwórz w nowym profilu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir em um novo perfil"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть в новом профиле"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดในโปรไฟล์ใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni profilde aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відкрити в новому профілі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mở trong hồ sơ mới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在新配置文件中打开"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在新設定檔中開啟"
+          }
+        }
+      }
+    },
+    "newTab.row.openInProfile": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح في ملف تعريف…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otvori u profilu…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åbn i profil…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In Profil öffnen…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open in Profile…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir en perfil…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir dans un profil…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri nel profilo…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロファイルで開く…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើក​ក្នុង​ប្រវត្តិរូប…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로필에서 열기…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åpne i profil…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otwórz w profilu…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir no perfil…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть в профиле…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดในโปรไฟล์…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profilde aç…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відкрити в профілі…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mở trong hồ sơ…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在配置文件中打开…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在設定檔中開啟…"
+          }
+        }
+      }
+    },
+    "newTab.row.openInThisProfile": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح في {name}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otvori u profilu {name}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åbn i {name}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In {name} öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open in {name}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir en {name}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir dans {name}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri in {name}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} で開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើក​ក្នុង {name}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name}에서 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åpne i {name}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otwórz w profilu {name}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir em {name}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть в профиле {name}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดใน {name}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} profilinde aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відкрити в профілі {name}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mở trong {name}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 {name} 中打开"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 {name} 中開啟"
+          }
+        }
+      }
+    },
     "planUsage.title": {"comment":"Agent pane: title of the plan usage popover the composer ring opens (the account's 5-hour and weekly limits).","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Plan usage limits"}},"ar":{"stringUnit":{"state":"needs_review","value":"حدود استخدام الخطة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ograničenja korištenja plana"}},"da":{"stringUnit":{"state":"needs_review","value":"Planens forbrugsgrænser"}},"de":{"stringUnit":{"state":"needs_review","value":"Nutzungslimits des Plans"}},"es":{"stringUnit":{"state":"needs_review","value":"Límites de uso del plan"}},"fr":{"stringUnit":{"state":"needs_review","value":"Limites d’utilisation du forfait"}},"it":{"stringUnit":{"state":"needs_review","value":"Limiti di utilizzo del piano"}},"ja":{"stringUnit":{"state":"needs_review","value":"プランの使用上限"}},"km":{"stringUnit":{"state":"needs_review","value":"ដែនកំណត់ការប្រើប្រាស់គម្រោង"}},"ko":{"stringUnit":{"state":"needs_review","value":"플랜 사용 한도"}},"nb":{"stringUnit":{"state":"needs_review","value":"Bruksgrenser for abonnementet"}},"pl":{"stringUnit":{"state":"needs_review","value":"Limity użycia planu"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Limites de uso do plano"}},"ru":{"stringUnit":{"state":"needs_review","value":"Лимиты использования тарифа"}},"th":{"stringUnit":{"state":"needs_review","value":"ขีดจำกัดการใช้งานแพ็กเกจ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Plan kullanım sınırları"}},"uk":{"stringUnit":{"state":"needs_review","value":"Ліміти використання тарифу"}},"vi":{"stringUnit":{"state":"needs_review","value":"Giới hạn sử dụng gói"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"套餐用量限制"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"方案用量限制"}}}},
     "planUsage.titlePlan": {"comment":"Agent pane: title of the plan usage popover with the plan's name; {plan} is the plan's name, such as Pro.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Plan usage limits · {plan}"}},"ar":{"stringUnit":{"state":"needs_review","value":"حدود استخدام الخطة · {plan}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ograničenja korištenja plana · {plan}"}},"da":{"stringUnit":{"state":"needs_review","value":"Planens forbrugsgrænser · {plan}"}},"de":{"stringUnit":{"state":"needs_review","value":"Nutzungslimits des Plans · {plan}"}},"es":{"stringUnit":{"state":"needs_review","value":"Límites de uso del plan · {plan}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Limites d’utilisation du forfait · {plan}"}},"it":{"stringUnit":{"state":"needs_review","value":"Limiti di utilizzo del piano · {plan}"}},"ja":{"stringUnit":{"state":"needs_review","value":"プランの使用上限 · {plan}"}},"km":{"stringUnit":{"state":"needs_review","value":"ដែនកំណត់ការប្រើប្រាស់គម្រោង · {plan}"}},"ko":{"stringUnit":{"state":"needs_review","value":"플랜 사용 한도 · {plan}"}},"nb":{"stringUnit":{"state":"needs_review","value":"Bruksgrenser for abonnementet · {plan}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Limity użycia planu · {plan}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Limites de uso do plano · {plan}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Лимиты использования тарифа · {plan}"}},"th":{"stringUnit":{"state":"needs_review","value":"ขีดจำกัดการใช้งานแพ็กเกจ · {plan}"}},"tr":{"stringUnit":{"state":"needs_review","value":"Plan kullanım sınırları · {plan}"}},"uk":{"stringUnit":{"state":"needs_review","value":"Ліміти використання тарифу · {plan}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Giới hạn sử dụng gói · {plan}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"套餐用量限制 · {plan}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"方案用量限制 · {plan}"}}}},
     "planUsage.source": {"comment":"Agent pane: plan usage popover's first line in Codex's layout; {plan} is the plan's name, such as Pro.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Usage source: Your {plan} plan"}},"ar":{"stringUnit":{"state":"needs_review","value":"مصدر الاستخدام: خطة {plan} الخاصة بك"}},"bs":{"stringUnit":{"state":"needs_review","value":"Izvor korištenja: vaš plan {plan}"}},"da":{"stringUnit":{"state":"needs_review","value":"Forbrugskilde: Dit {plan}-abonnement"}},"de":{"stringUnit":{"state":"needs_review","value":"Nutzungsquelle: Dein {plan}-Plan"}},"es":{"stringUnit":{"state":"needs_review","value":"Origen del uso: tu plan {plan}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Source d’utilisation : votre forfait {plan}"}},"it":{"stringUnit":{"state":"needs_review","value":"Origine dell’utilizzo: il tuo piano {plan}"}},"ja":{"stringUnit":{"state":"needs_review","value":"使用元: {plan} プラン"}},"km":{"stringUnit":{"state":"needs_review","value":"ប្រភពការប្រើប្រាស់៖ គម្រោង {plan} របស់អ្នក"}},"ko":{"stringUnit":{"state":"needs_review","value":"사용 출처: {plan} 플랜"}},"nb":{"stringUnit":{"state":"needs_review","value":"Bruk fra: {plan}-abonnementet ditt"}},"pl":{"stringUnit":{"state":"needs_review","value":"Źródło użycia: Twój plan {plan}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Origem do uso: seu plano {plan}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Источник использования: ваш тариф {plan}"}},"th":{"stringUnit":{"state":"needs_review","value":"แหล่งการใช้งาน: แพ็กเกจ {plan} ของคุณ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Kullanım kaynağı: {plan} planınız"}},"uk":{"stringUnit":{"state":"needs_review","value":"Джерело використання: ваш тариф {plan}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Nguồn sử dụng: Gói {plan} của bạn"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"用量来源：你的 {plan} 套餐"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"用量來源：你的 {plan} 方案"}}}},
@@ -254437,7 +255229,24 @@
     "cron.weekdays": {"comment":"Agent pane Session Info, Background tasks: a cron job that runs Monday to Friday; {time} is the time of day","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"weekdays at {time}"}},"ar":{"stringUnit":{"state":"needs_review","value":"أيام العمل عند {time}"}},"bs":{"stringUnit":{"state":"needs_review","value":"radnim danima u {time}"}},"da":{"stringUnit":{"state":"needs_review","value":"hverdage kl. {time}"}},"de":{"stringUnit":{"state":"needs_review","value":"werktags um {time}"}},"es":{"stringUnit":{"state":"needs_review","value":"entre semana a las {time}"}},"fr":{"stringUnit":{"state":"needs_review","value":"en semaine à {time}"}},"it":{"stringUnit":{"state":"needs_review","value":"nei giorni feriali alle {time}"}},"ja":{"stringUnit":{"state":"needs_review","value":"平日 {time}"}},"km":{"stringUnit":{"state":"needs_review","value":"ថ្ងៃធ្វើការ នៅ {time}"}},"ko":{"stringUnit":{"state":"needs_review","value":"평일 {time}"}},"nb":{"stringUnit":{"state":"needs_review","value":"hverdager kl. {time}"}},"pl":{"stringUnit":{"state":"needs_review","value":"w dni robocze o {time}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"em dias úteis às {time}"}},"ru":{"stringUnit":{"state":"needs_review","value":"по будням в {time}"}},"th":{"stringUnit":{"state":"needs_review","value":"วันธรรมดาเวลา {time}"}},"tr":{"stringUnit":{"state":"needs_review","value":"hafta içi {time}"}},"uk":{"stringUnit":{"state":"needs_review","value":"у будні о {time}"}},"vi":{"stringUnit":{"state":"needs_review","value":"ngày thường lúc {time}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"工作日 {time}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"平日 {time}"}}}},
     "cron.weekly": {"comment":"Agent pane Session Info, Background tasks: a cron job that runs once a week; {day} is the weekday's name, {time} the time of day","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"weekly on {day} at {time}"}},"ar":{"stringUnit":{"state":"needs_review","value":"أسبوعيًا يوم {day} عند {time}"}},"bs":{"stringUnit":{"state":"needs_review","value":"sedmično, {day} u {time}"}},"da":{"stringUnit":{"state":"needs_review","value":"ugentligt, {day} kl. {time}"}},"de":{"stringUnit":{"state":"needs_review","value":"wöchentlich, {day} um {time}"}},"es":{"stringUnit":{"state":"needs_review","value":"semanal, {day} a las {time}"}},"fr":{"stringUnit":{"state":"needs_review","value":"chaque semaine, {day} à {time}"}},"it":{"stringUnit":{"state":"needs_review","value":"ogni settimana, {day} alle {time}"}},"ja":{"stringUnit":{"state":"needs_review","value":"毎週{day} {time}"}},"km":{"stringUnit":{"state":"needs_review","value":"រៀងរាល់សប្ដាហ៍ {day} នៅ {time}"}},"ko":{"stringUnit":{"state":"needs_review","value":"매주 {day} {time}"}},"nb":{"stringUnit":{"state":"needs_review","value":"ukentlig, {day} kl. {time}"}},"pl":{"stringUnit":{"state":"needs_review","value":"co tydzień, {day} o {time}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"semanalmente, {day} às {time}"}},"ru":{"stringUnit":{"state":"needs_review","value":"еженедельно, {day}, в {time}"}},"th":{"stringUnit":{"state":"needs_review","value":"ทุกสัปดาห์ {day} เวลา {time}"}},"tr":{"stringUnit":{"state":"needs_review","value":"her hafta {day} {time}"}},"uk":{"stringUnit":{"state":"needs_review","value":"щотижня, {day}, о {time}"}},"vi":{"stringUnit":{"state":"needs_review","value":"hằng tuần, {day} lúc {time}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"每周{day} {time}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"每週{day} {time}"}}}},
     "cron.monthly": {"comment":"Agent pane Session Info, Background tasks: a cron job that runs once a month; {day} is the day of the month (a number), {time} the time of day","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"monthly on day {day} at {time}"}},"ar":{"stringUnit":{"state":"needs_review","value":"شهريًا في اليوم {day} عند {time}"}},"bs":{"stringUnit":{"state":"needs_review","value":"mjesečno, {day}. dan u {time}"}},"da":{"stringUnit":{"state":"needs_review","value":"månedligt d. {day} kl. {time}"}},"de":{"stringUnit":{"state":"needs_review","value":"monatlich am {day}. um {time}"}},"es":{"stringUnit":{"state":"needs_review","value":"mensual, el día {day} a las {time}"}},"fr":{"stringUnit":{"state":"needs_review","value":"tous les mois le {day} à {time}"}},"it":{"stringUnit":{"state":"needs_review","value":"ogni mese il giorno {day} alle {time}"}},"ja":{"stringUnit":{"state":"needs_review","value":"毎月{day}日 {time}"}},"km":{"stringUnit":{"state":"needs_review","value":"រៀងរាល់ខែ ថ្ងៃទី {day} នៅ {time}"}},"ko":{"stringUnit":{"state":"needs_review","value":"매월 {day}일 {time}"}},"nb":{"stringUnit":{"state":"needs_review","value":"månedlig den {day}. kl. {time}"}},"pl":{"stringUnit":{"state":"needs_review","value":"co miesiąc, {day}. dnia o {time}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"mensalmente no dia {day} às {time}"}},"ru":{"stringUnit":{"state":"needs_review","value":"ежемесячно, {day}-го числа в {time}"}},"th":{"stringUnit":{"state":"needs_review","value":"ทุกเดือนวันที่ {day} เวลา {time}"}},"tr":{"stringUnit":{"state":"needs_review","value":"her ay {day}. gün {time}"}},"uk":{"stringUnit":{"state":"needs_review","value":"щомісяця, {day}-го о {time}"}},"vi":{"stringUnit":{"state":"needs_review","value":"hằng tháng ngày {day} lúc {time}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"每月 {day} 日 {time}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"每月 {day} 日 {time}"}}}},
-    "cron.onDate": {"comment":"Agent pane Session Info, Background tasks: a cron job pinned to one date; {date} is the month and day, {time} the time of day","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"on {date} at {time}"}},"ar":{"stringUnit":{"state":"needs_review","value":"في {date} عند {time}"}},"bs":{"stringUnit":{"state":"needs_review","value":"{date} u {time}"}},"da":{"stringUnit":{"state":"needs_review","value":"{date} kl. {time}"}},"de":{"stringUnit":{"state":"needs_review","value":"am {date} um {time}"}},"es":{"stringUnit":{"state":"needs_review","value":"el {date} a las {time}"}},"fr":{"stringUnit":{"state":"needs_review","value":"le {date} à {time}"}},"it":{"stringUnit":{"state":"needs_review","value":"il {date} alle {time}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{date} {time}"}},"km":{"stringUnit":{"state":"needs_review","value":"នៅ {date} ម៉ោង {time}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{date} {time}"}},"nb":{"stringUnit":{"state":"needs_review","value":"{date} kl. {time}"}},"pl":{"stringUnit":{"state":"needs_review","value":"{date} o {time}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"em {date} às {time}"}},"ru":{"stringUnit":{"state":"needs_review","value":"{date} в {time}"}},"th":{"stringUnit":{"state":"needs_review","value":"{date} เวลา {time}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{date} {time}"}},"uk":{"stringUnit":{"state":"needs_review","value":"{date} о {time}"}},"vi":{"stringUnit":{"state":"needs_review","value":"ngày {date} lúc {time}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{date} {time}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{date} {time}"}}}}
+    "cron.onDate": {"comment":"Agent pane Session Info, Background tasks: a cron job pinned to one date; {date} is the month and day, {time} the time of day","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"on {date} at {time}"}},"ar":{"stringUnit":{"state":"needs_review","value":"في {date} عند {time}"}},"bs":{"stringUnit":{"state":"needs_review","value":"{date} u {time}"}},"da":{"stringUnit":{"state":"needs_review","value":"{date} kl. {time}"}},"de":{"stringUnit":{"state":"needs_review","value":"am {date} um {time}"}},"es":{"stringUnit":{"state":"needs_review","value":"el {date} a las {time}"}},"fr":{"stringUnit":{"state":"needs_review","value":"le {date} à {time}"}},"it":{"stringUnit":{"state":"needs_review","value":"il {date} alle {time}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{date} {time}"}},"km":{"stringUnit":{"state":"needs_review","value":"នៅ {date} ម៉ោង {time}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{date} {time}"}},"nb":{"stringUnit":{"state":"needs_review","value":"{date} kl. {time}"}},"pl":{"stringUnit":{"state":"needs_review","value":"{date} o {time}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"em {date} às {time}"}},"ru":{"stringUnit":{"state":"needs_review","value":"{date} в {time}"}},"th":{"stringUnit":{"state":"needs_review","value":"{date} เวลา {time}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{date} {time}"}},"uk":{"stringUnit":{"state":"needs_review","value":"{date} о {time}"}},"vi":{"stringUnit":{"state":"needs_review","value":"ngày {date} lúc {time}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{date} {time}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{date} {time}"}}}},
+    "whoElse.looking": {"comment":"Agent pane: who else works on these files","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"جارٍ البحث عمّن يعمل على هذه الملفات…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Traži se ko još radi na ovim datotekama…"}},"da":{"stringUnit":{"state":"needs_review","value":"Søger efter andre, der arbejder på disse filer…"}},"de":{"stringUnit":{"state":"needs_review","value":"Suche, wer noch an diesen Dateien arbeitet…"}},"en":{"stringUnit":{"state":"translated","value":"Looking for who else works on these files…"}},"es":{"stringUnit":{"state":"needs_review","value":"Buscando quién más trabaja en estos archivos…"}},"fr":{"stringUnit":{"state":"needs_review","value":"Recherche des autres sessions sur ces fichiers…"}},"it":{"stringUnit":{"state":"needs_review","value":"Ricerca di chi altro lavora su questi file…"}},"ja":{"stringUnit":{"state":"needs_review","value":"このファイルで作業中の他のセッションを検索中…"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងរកអ្នកផ្សេងដែលធ្វើការលើឯកសារទាំងនេះ…"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 파일을 작업 중인 다른 세션을 찾는 중…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Ser etter andre som jobber med disse filene…"}},"pl":{"stringUnit":{"state":"needs_review","value":"Szukanie, kto jeszcze pracuje nad tymi plikami…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Procurando quem mais trabalha nestes arquivos…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Поиск других сессий, работающих с этими файлами…"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังค้นหาว่าใครอีกบ้างที่ทำงานกับไฟล์เหล่านี้…"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu dosyalarda başka kimin çalıştığı aranıyor…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Пошук інших сесій, що працюють із цими файлами…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang tìm phiên khác làm việc trên các tệp này…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在查找还有谁在处理这些文件…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在尋找還有誰在處理這些檔案…"}}}},
+    "whoElse.none": {"comment":"Agent pane: who else works on these files","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"لا تعمل أي جلسة أخرى على هذه الملفات"}},"bs":{"stringUnit":{"state":"needs_review","value":"Nijedna druga sesija ne radi na ovim datotekama"}},"da":{"stringUnit":{"state":"needs_review","value":"Ingen anden session arbejder på disse filer"}},"de":{"stringUnit":{"state":"needs_review","value":"Keine andere Sitzung arbeitet an diesen Dateien"}},"en":{"stringUnit":{"state":"translated","value":"No other session works on these files"}},"es":{"stringUnit":{"state":"needs_review","value":"Ninguna otra sesión trabaja en estos archivos"}},"fr":{"stringUnit":{"state":"needs_review","value":"Aucune autre session ne travaille sur ces fichiers"}},"it":{"stringUnit":{"state":"needs_review","value":"Nessun'altra sessione lavora su questi file"}},"ja":{"stringUnit":{"state":"needs_review","value":"このファイルで作業中の他のセッションはありません"}},"km":{"stringUnit":{"state":"needs_review","value":"គ្មានវគ្គផ្សេងធ្វើការលើឯកសារទាំងនេះទេ"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 파일을 작업 중인 다른 세션이 없습니다"}},"nb":{"stringUnit":{"state":"needs_review","value":"Ingen andre økter jobber med disse filene"}},"pl":{"stringUnit":{"state":"needs_review","value":"Żadna inna sesja nie pracuje nad tymi plikami"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Nenhuma outra sessão trabalha nestes arquivos"}},"ru":{"stringUnit":{"state":"needs_review","value":"Другие сессии не работают с этими файлами"}},"th":{"stringUnit":{"state":"needs_review","value":"ไม่มีเซสชันอื่นทำงานกับไฟล์เหล่านี้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu dosyalarda başka oturum çalışmıyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Інші сесії не працюють із цими файлами"}},"vi":{"stringUnit":{"state":"needs_review","value":"Không có phiên nào khác làm việc trên các tệp này"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"没有其他会话在处理这些文件"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"沒有其他工作階段在處理這些檔案"}}}},
+    "whoElse.one": {"comment":"Agent pane: who else works on these files","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"جلسة أخرى واحدة تعمل على هذه الملفات"}},"bs":{"stringUnit":{"state":"needs_review","value":"Još 1 sesija radi na ovim datotekama"}},"da":{"stringUnit":{"state":"needs_review","value":"1 anden session arbejder på disse filer"}},"de":{"stringUnit":{"state":"needs_review","value":"1 weitere Sitzung arbeitet an diesen Dateien"}},"en":{"stringUnit":{"state":"translated","value":"1 other session works on these files"}},"es":{"stringUnit":{"state":"needs_review","value":"1 sesión más trabaja en estos archivos"}},"fr":{"stringUnit":{"state":"needs_review","value":"1 autre session travaille sur ces fichiers"}},"it":{"stringUnit":{"state":"needs_review","value":"1 altra sessione lavora su questi file"}},"ja":{"stringUnit":{"state":"needs_review","value":"他の 1 セッションがこのファイルで作業中"}},"km":{"stringUnit":{"state":"needs_review","value":"វគ្គ 1 ផ្សេងទៀតធ្វើការលើឯកសារទាំងនេះ"}},"ko":{"stringUnit":{"state":"needs_review","value":"다른 세션 1개가 이 파일을 작업 중"}},"nb":{"stringUnit":{"state":"needs_review","value":"1 annen økt jobber med disse filene"}},"pl":{"stringUnit":{"state":"needs_review","value":"1 inna sesja pracuje nad tymi plikami"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"1 outra sessão trabalha nestes arquivos"}},"ru":{"stringUnit":{"state":"needs_review","value":"Ещё 1 сессия работает с этими файлами"}},"th":{"stringUnit":{"state":"needs_review","value":"อีก 1 เซสชันทำงานกับไฟล์เหล่านี้"}},"tr":{"stringUnit":{"state":"needs_review","value":"1 başka oturum bu dosyalarda çalışıyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Ще 1 сесія працює з цими файлами"}},"vi":{"stringUnit":{"state":"needs_review","value":"1 phiên khác làm việc trên các tệp này"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"另有 1 个会话在处理这些文件"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"另有 1 個工作階段在處理這些檔案"}}}},
+    "whoElse.many": {"comment":"Agent pane: who else works on these files","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"{count} جلسات أخرى تعمل على هذه الملفات"}},"bs":{"stringUnit":{"state":"needs_review","value":"Još {count} sesija radi na ovim datotekama"}},"da":{"stringUnit":{"state":"needs_review","value":"{count} andre sessioner arbejder på disse filer"}},"de":{"stringUnit":{"state":"needs_review","value":"{count} weitere Sitzungen arbeiten an diesen Dateien"}},"en":{"stringUnit":{"state":"translated","value":"{count} other sessions work on these files"}},"es":{"stringUnit":{"state":"needs_review","value":"{count} sesiones más trabajan en estos archivos"}},"fr":{"stringUnit":{"state":"needs_review","value":"{count} autres sessions travaillent sur ces fichiers"}},"it":{"stringUnit":{"state":"needs_review","value":"Altre {count} sessioni lavorano su questi file"}},"ja":{"stringUnit":{"state":"needs_review","value":"他の {count} セッションがこのファイルで作業中"}},"km":{"stringUnit":{"state":"needs_review","value":"វគ្គ {count} ផ្សេងទៀតធ្វើការលើឯកសារទាំងនេះ"}},"ko":{"stringUnit":{"state":"needs_review","value":"다른 세션 {count}개가 이 파일을 작업 중"}},"nb":{"stringUnit":{"state":"needs_review","value":"{count} andre økter jobber med disse filene"}},"pl":{"stringUnit":{"state":"needs_review","value":"{count} innych sesji pracuje nad tymi plikami"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{count} outras sessões trabalham nestes arquivos"}},"ru":{"stringUnit":{"state":"needs_review","value":"Ещё {count} сессий работают с этими файлами"}},"th":{"stringUnit":{"state":"needs_review","value":"อีก {count} เซสชันทำงานกับไฟล์เหล่านี้"}},"tr":{"stringUnit":{"state":"needs_review","value":"{count} başka oturum bu dosyalarda çalışıyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Ще {count} сесій працюють із цими файлами"}},"vi":{"stringUnit":{"state":"needs_review","value":"{count} phiên khác làm việc trên các tệp này"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"另有 {count} 个会话在处理这些文件"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"另有 {count} 個工作階段在處理這些檔案"}}}},
+    "whoElse.more": {"comment":"Agent pane: who else works on these files","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"+{count} أخرى"}},"bs":{"stringUnit":{"state":"needs_review","value":"+{count} još"}},"da":{"stringUnit":{"state":"needs_review","value":"+{count} mere"}},"de":{"stringUnit":{"state":"needs_review","value":"+{count} weitere"}},"en":{"stringUnit":{"state":"translated","value":"+{count} more"}},"es":{"stringUnit":{"state":"needs_review","value":"+{count} más"}},"fr":{"stringUnit":{"state":"needs_review","value":"+{count} de plus"}},"it":{"stringUnit":{"state":"needs_review","value":"+{count} altri"}},"ja":{"stringUnit":{"state":"needs_review","value":"+{count} 件"}},"km":{"stringUnit":{"state":"needs_review","value":"+{count} ទៀត"}},"ko":{"stringUnit":{"state":"needs_review","value":"+{count}개 더"}},"nb":{"stringUnit":{"state":"needs_review","value":"+{count} til"}},"pl":{"stringUnit":{"state":"needs_review","value":"+{count} więcej"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"+{count} mais"}},"ru":{"stringUnit":{"state":"needs_review","value":"ещё {count}"}},"th":{"stringUnit":{"state":"needs_review","value":"+อีก {count}"}},"tr":{"stringUnit":{"state":"needs_review","value":"+{count} daha"}},"uk":{"stringUnit":{"state":"needs_review","value":"ще {count}"}},"vi":{"stringUnit":{"state":"needs_review","value":"+{count} nữa"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"另有 {count} 个"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"另有 {count} 個"}}}},
+    "whoElse.omitted": {"comment":"Agent pane: who else works on these files","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"{count} أخرى غير مدرجة"}},"bs":{"stringUnit":{"state":"needs_review","value":"još {count} nije navedeno"}},"da":{"stringUnit":{"state":"needs_review","value":"{count} mere er ikke vist"}},"de":{"stringUnit":{"state":"needs_review","value":"{count} weitere nicht aufgeführt"}},"en":{"stringUnit":{"state":"translated","value":"{count} more not listed"}},"es":{"stringUnit":{"state":"needs_review","value":"{count} más sin listar"}},"fr":{"stringUnit":{"state":"needs_review","value":"{count} de plus non listées"}},"it":{"stringUnit":{"state":"needs_review","value":"altre {count} non elencate"}},"ja":{"stringUnit":{"state":"needs_review","value":"ほか {count} 件は未表示"}},"km":{"stringUnit":{"state":"needs_review","value":"{count} ទៀតមិនបានបង្ហាញ"}},"ko":{"stringUnit":{"state":"needs_review","value":"{count}개 더 표시 안 됨"}},"nb":{"stringUnit":{"state":"needs_review","value":"{count} til er ikke vist"}},"pl":{"stringUnit":{"state":"needs_review","value":"{count} więcej nie pokazano"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"mais {count} não listadas"}},"ru":{"stringUnit":{"state":"needs_review","value":"ещё {count} не показаны"}},"th":{"stringUnit":{"state":"needs_review","value":"อีก {count} รายการไม่ได้แสดง"}},"tr":{"stringUnit":{"state":"needs_review","value":"{count} tane daha listelenmedi"}},"uk":{"stringUnit":{"state":"needs_review","value":"ще {count} не показано"}},"vi":{"stringUnit":{"state":"needs_review","value":"{count} phiên khác không được liệt kê"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"另有 {count} 个未列出"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"另有 {count} 個未列出"}}}},
+    "whoElse.edited": {"comment":"Agent pane: who else works on these files","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"عدّلت {files}"}},"bs":{"stringUnit":{"state":"needs_review","value":"uredila {files}"}},"da":{"stringUnit":{"state":"needs_review","value":"redigerede {files}"}},"de":{"stringUnit":{"state":"needs_review","value":"bearbeitete {files}"}},"en":{"stringUnit":{"state":"translated","value":"edited {files}"}},"es":{"stringUnit":{"state":"needs_review","value":"editó {files}"}},"fr":{"stringUnit":{"state":"needs_review","value":"a modifié {files}"}},"it":{"stringUnit":{"state":"needs_review","value":"ha modificato {files}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{files} を編集"}},"km":{"stringUnit":{"state":"needs_review","value":"បានកែ {files}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{files} 편집"}},"nb":{"stringUnit":{"state":"needs_review","value":"redigerte {files}"}},"pl":{"stringUnit":{"state":"needs_review","value":"edytowała {files}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"editou {files}"}},"ru":{"stringUnit":{"state":"needs_review","value":"изменила {files}"}},"th":{"stringUnit":{"state":"needs_review","value":"แก้ไข {files}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{files} düzenledi"}},"uk":{"stringUnit":{"state":"needs_review","value":"змінила {files}"}},"vi":{"stringUnit":{"state":"needs_review","value":"đã sửa {files}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"编辑了 {files}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"編輯了 {files}"}}}},
+    "whoElse.read": {"comment":"Agent pane: who else works on these files","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"قرأت {files}"}},"bs":{"stringUnit":{"state":"needs_review","value":"čitala {files}"}},"da":{"stringUnit":{"state":"needs_review","value":"læste {files}"}},"de":{"stringUnit":{"state":"needs_review","value":"las {files}"}},"en":{"stringUnit":{"state":"translated","value":"read {files}"}},"es":{"stringUnit":{"state":"needs_review","value":"leyó {files}"}},"fr":{"stringUnit":{"state":"needs_review","value":"a lu {files}"}},"it":{"stringUnit":{"state":"needs_review","value":"ha letto {files}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{files} を読み取り"}},"km":{"stringUnit":{"state":"needs_review","value":"បានអាន {files}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{files} 읽음"}},"nb":{"stringUnit":{"state":"needs_review","value":"leste {files}"}},"pl":{"stringUnit":{"state":"needs_review","value":"czytała {files}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"leu {files}"}},"ru":{"stringUnit":{"state":"needs_review","value":"читала {files}"}},"th":{"stringUnit":{"state":"needs_review","value":"อ่าน {files}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{files} okudu"}},"uk":{"stringUnit":{"state":"needs_review","value":"читала {files}"}},"vi":{"stringUnit":{"state":"needs_review","value":"đã đọc {files}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"读取了 {files}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"讀取了 {files}"}}}},
+    "whoElse.sameWorktree": {"comment":"Agent pane: who else works on these files","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"في شجرة العمل هذه"}},"bs":{"stringUnit":{"state":"needs_review","value":"u ovom radnom stablu"}},"da":{"stringUnit":{"state":"needs_review","value":"i dette worktree"}},"de":{"stringUnit":{"state":"needs_review","value":"in diesem Worktree"}},"en":{"stringUnit":{"state":"translated","value":"in this worktree"}},"es":{"stringUnit":{"state":"needs_review","value":"en este worktree"}},"fr":{"stringUnit":{"state":"needs_review","value":"dans ce worktree"}},"it":{"stringUnit":{"state":"needs_review","value":"in questo worktree"}},"ja":{"stringUnit":{"state":"needs_review","value":"この worktree 内"}},"km":{"stringUnit":{"state":"needs_review","value":"នៅក្នុង worktree នេះ"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 worktree에서"}},"nb":{"stringUnit":{"state":"needs_review","value":"i dette worktree"}},"pl":{"stringUnit":{"state":"needs_review","value":"w tym worktree"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"neste worktree"}},"ru":{"stringUnit":{"state":"needs_review","value":"в этом worktree"}},"th":{"stringUnit":{"state":"needs_review","value":"ใน worktree นี้"}},"tr":{"stringUnit":{"state":"needs_review","value":"bu worktree içinde"}},"uk":{"stringUnit":{"state":"needs_review","value":"у цьому worktree"}},"vi":{"stringUnit":{"state":"needs_review","value":"trong worktree này"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"在此 worktree 中"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"在此 worktree 中"}}}},
+    "whoElse.sameBranch": {"comment":"Agent pane: who else works on these files","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"على هذا الفرع"}},"bs":{"stringUnit":{"state":"needs_review","value":"na ovoj grani"}},"da":{"stringUnit":{"state":"needs_review","value":"på denne gren"}},"de":{"stringUnit":{"state":"needs_review","value":"auf diesem Branch"}},"en":{"stringUnit":{"state":"translated","value":"on this branch"}},"es":{"stringUnit":{"state":"needs_review","value":"en esta rama"}},"fr":{"stringUnit":{"state":"needs_review","value":"sur cette branche"}},"it":{"stringUnit":{"state":"needs_review","value":"su questo branch"}},"ja":{"stringUnit":{"state":"needs_review","value":"このブランチ上"}},"km":{"stringUnit":{"state":"needs_review","value":"នៅលើ branch នេះ"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 브랜치에서"}},"nb":{"stringUnit":{"state":"needs_review","value":"på denne grenen"}},"pl":{"stringUnit":{"state":"needs_review","value":"na tej gałęzi"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"neste branch"}},"ru":{"stringUnit":{"state":"needs_review","value":"в этой ветке"}},"th":{"stringUnit":{"state":"needs_review","value":"บน branch นี้"}},"tr":{"stringUnit":{"state":"needs_review","value":"bu dalda"}},"uk":{"stringUnit":{"state":"needs_review","value":"у цій гілці"}},"vi":{"stringUnit":{"state":"needs_review","value":"trên nhánh này"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"在此分支上"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"在此分支上"}}}},
+    "whoElse.topic": {"comment":"Agent pane: who else works on these files","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"الموضوع: {words}"}},"bs":{"stringUnit":{"state":"needs_review","value":"tema: {words}"}},"da":{"stringUnit":{"state":"needs_review","value":"emne: {words}"}},"de":{"stringUnit":{"state":"needs_review","value":"Thema: {words}"}},"en":{"stringUnit":{"state":"translated","value":"topic: {words}"}},"es":{"stringUnit":{"state":"needs_review","value":"tema: {words}"}},"fr":{"stringUnit":{"state":"needs_review","value":"sujet : {words}"}},"it":{"stringUnit":{"state":"needs_review","value":"argomento: {words}"}},"ja":{"stringUnit":{"state":"needs_review","value":"トピック: {words}"}},"km":{"stringUnit":{"state":"needs_review","value":"ប្រធានបទ៖ {words}"}},"ko":{"stringUnit":{"state":"needs_review","value":"주제: {words}"}},"nb":{"stringUnit":{"state":"needs_review","value":"emne: {words}"}},"pl":{"stringUnit":{"state":"needs_review","value":"temat: {words}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"tópico: {words}"}},"ru":{"stringUnit":{"state":"needs_review","value":"тема: {words}"}},"th":{"stringUnit":{"state":"needs_review","value":"หัวข้อ: {words}"}},"tr":{"stringUnit":{"state":"needs_review","value":"konu: {words}"}},"uk":{"stringUnit":{"state":"needs_review","value":"тема: {words}"}},"vi":{"stringUnit":{"state":"needs_review","value":"chủ đề: {words}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"主题：{words}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"主題：{words}"}}}},
+    "whoElse.unreached": {"comment":"Agent pane: who else works on these files","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"لم يُسأل: {hosts}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Nije pitano: {hosts}"}},"da":{"stringUnit":{"state":"needs_review","value":"Ikke spurgt: {hosts}"}},"de":{"stringUnit":{"state":"needs_review","value":"Nicht gefragt: {hosts}"}},"en":{"stringUnit":{"state":"translated","value":"Not asked: {hosts}"}},"es":{"stringUnit":{"state":"needs_review","value":"Sin consultar: {hosts}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Non interrogés : {hosts}"}},"it":{"stringUnit":{"state":"needs_review","value":"Non interpellati: {hosts}"}},"ja":{"stringUnit":{"state":"needs_review","value":"未確認: {hosts}"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនបានសួរ៖ {hosts}"}},"ko":{"stringUnit":{"state":"needs_review","value":"확인 못 함: {hosts}"}},"nb":{"stringUnit":{"state":"needs_review","value":"Ikke spurt: {hosts}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Nie zapytano: {hosts}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Não consultados: {hosts}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Не опрошены: {hosts}"}},"th":{"stringUnit":{"state":"needs_review","value":"ไม่ได้ถาม: {hosts}"}},"tr":{"stringUnit":{"state":"needs_review","value":"Sorulmadı: {hosts}"}},"uk":{"stringUnit":{"state":"needs_review","value":"Не опитані: {hosts}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Chưa hỏi: {hosts}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"未询问：{hosts}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"未詢問：{hosts}"}}}},
+    "whoElse.now": {"comment":"Agent pane: who else works on these files","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"الآن"}},"bs":{"stringUnit":{"state":"needs_review","value":"sada"}},"da":{"stringUnit":{"state":"needs_review","value":"nu"}},"de":{"stringUnit":{"state":"needs_review","value":"jetzt"}},"en":{"stringUnit":{"state":"translated","value":"now"}},"es":{"stringUnit":{"state":"needs_review","value":"ahora"}},"fr":{"stringUnit":{"state":"needs_review","value":"maintenant"}},"it":{"stringUnit":{"state":"needs_review","value":"ora"}},"ja":{"stringUnit":{"state":"needs_review","value":"今"}},"km":{"stringUnit":{"state":"needs_review","value":"ឥឡូវ"}},"ko":{"stringUnit":{"state":"needs_review","value":"지금"}},"nb":{"stringUnit":{"state":"needs_review","value":"nå"}},"pl":{"stringUnit":{"state":"needs_review","value":"teraz"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"agora"}},"ru":{"stringUnit":{"state":"needs_review","value":"сейчас"}},"th":{"stringUnit":{"state":"needs_review","value":"ตอนนี้"}},"tr":{"stringUnit":{"state":"needs_review","value":"şimdi"}},"uk":{"stringUnit":{"state":"needs_review","value":"зараз"}},"vi":{"stringUnit":{"state":"needs_review","value":"bây giờ"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"刚刚"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"剛剛"}}}},
+    "whoElse.minutes": {"comment":"Agent pane: who else works on these files","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"قبل {count} د"}},"bs":{"stringUnit":{"state":"needs_review","value":"prije {count} min"}},"da":{"stringUnit":{"state":"needs_review","value":"{count} min siden"}},"de":{"stringUnit":{"state":"needs_review","value":"vor {count} Min."}},"en":{"stringUnit":{"state":"translated","value":"{count}m ago"}},"es":{"stringUnit":{"state":"needs_review","value":"hace {count} min"}},"fr":{"stringUnit":{"state":"needs_review","value":"il y a {count} min"}},"it":{"stringUnit":{"state":"needs_review","value":"{count} min fa"}},"ja":{"stringUnit":{"state":"needs_review","value":"{count} 分前"}},"km":{"stringUnit":{"state":"needs_review","value":"{count} នាទីមុន"}},"ko":{"stringUnit":{"state":"needs_review","value":"{count}분 전"}},"nb":{"stringUnit":{"state":"needs_review","value":"{count} min siden"}},"pl":{"stringUnit":{"state":"needs_review","value":"{count} min temu"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"há {count} min"}},"ru":{"stringUnit":{"state":"needs_review","value":"{count} мин назад"}},"th":{"stringUnit":{"state":"needs_review","value":"{count} นาทีที่แล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"{count} dk önce"}},"uk":{"stringUnit":{"state":"needs_review","value":"{count} хв тому"}},"vi":{"stringUnit":{"state":"needs_review","value":"{count} phút trước"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{count} 分钟前"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{count} 分鐘前"}}}},
+    "whoElse.hours": {"comment":"Agent pane: who else works on these files","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"قبل {count} س"}},"bs":{"stringUnit":{"state":"needs_review","value":"prije {count} h"}},"da":{"stringUnit":{"state":"needs_review","value":"{count} t siden"}},"de":{"stringUnit":{"state":"needs_review","value":"vor {count} Std."}},"en":{"stringUnit":{"state":"translated","value":"{count}h ago"}},"es":{"stringUnit":{"state":"needs_review","value":"hace {count} h"}},"fr":{"stringUnit":{"state":"needs_review","value":"il y a {count} h"}},"it":{"stringUnit":{"state":"needs_review","value":"{count} h fa"}},"ja":{"stringUnit":{"state":"needs_review","value":"{count} 時間前"}},"km":{"stringUnit":{"state":"needs_review","value":"{count} ម៉ោងមុន"}},"ko":{"stringUnit":{"state":"needs_review","value":"{count}시간 전"}},"nb":{"stringUnit":{"state":"needs_review","value":"{count} t siden"}},"pl":{"stringUnit":{"state":"needs_review","value":"{count} godz. temu"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"há {count} h"}},"ru":{"stringUnit":{"state":"needs_review","value":"{count} ч назад"}},"th":{"stringUnit":{"state":"needs_review","value":"{count} ชั่วโมงที่แล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"{count} sa önce"}},"uk":{"stringUnit":{"state":"needs_review","value":"{count} год тому"}},"vi":{"stringUnit":{"state":"needs_review","value":"{count} giờ trước"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{count} 小时前"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{count} 小時前"}}}},
+    "whoElse.days": {"comment":"Agent pane: who else works on these files","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"قبل {count} ي"}},"bs":{"stringUnit":{"state":"needs_review","value":"prije {count} d"}},"da":{"stringUnit":{"state":"needs_review","value":"{count} d siden"}},"de":{"stringUnit":{"state":"needs_review","value":"vor {count} T."}},"en":{"stringUnit":{"state":"translated","value":"{count}d ago"}},"es":{"stringUnit":{"state":"needs_review","value":"hace {count} d"}},"fr":{"stringUnit":{"state":"needs_review","value":"il y a {count} j"}},"it":{"stringUnit":{"state":"needs_review","value":"{count} g fa"}},"ja":{"stringUnit":{"state":"needs_review","value":"{count} 日前"}},"km":{"stringUnit":{"state":"needs_review","value":"{count} ថ្ងៃមុន"}},"ko":{"stringUnit":{"state":"needs_review","value":"{count}일 전"}},"nb":{"stringUnit":{"state":"needs_review","value":"{count} d siden"}},"pl":{"stringUnit":{"state":"needs_review","value":"{count} dni temu"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"há {count} d"}},"ru":{"stringUnit":{"state":"needs_review","value":"{count} д назад"}},"th":{"stringUnit":{"state":"needs_review","value":"{count} วันที่แล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"{count} gün önce"}},"uk":{"stringUnit":{"state":"needs_review","value":"{count} дн тому"}},"vi":{"stringUnit":{"state":"needs_review","value":"{count} ngày trước"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{count} 天前"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{count} 天前"}}}},
+    "sessionInfo.alsoHere": {"comment":"Agent pane: who else works on these files","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"يعمل هنا أيضًا"}},"bs":{"stringUnit":{"state":"needs_review","value":"Takođe radi ovdje"}},"da":{"stringUnit":{"state":"needs_review","value":"Arbejder også her"}},"de":{"stringUnit":{"state":"needs_review","value":"Arbeitet auch hier"}},"en":{"stringUnit":{"state":"translated","value":"Also working here"}},"es":{"stringUnit":{"state":"needs_review","value":"También trabajan aquí"}},"fr":{"stringUnit":{"state":"needs_review","value":"Travaille aussi ici"}},"it":{"stringUnit":{"state":"needs_review","value":"Lavorano anche qui"}},"ja":{"stringUnit":{"state":"needs_review","value":"ここで作業中の他のセッション"}},"km":{"stringUnit":{"state":"needs_review","value":"ក៏កំពុងធ្វើការនៅទីនេះ"}},"ko":{"stringUnit":{"state":"needs_review","value":"여기서 함께 작업 중"}},"nb":{"stringUnit":{"state":"needs_review","value":"Jobber også her"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pracują tu także"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Também trabalhando aqui"}},"ru":{"stringUnit":{"state":"needs_review","value":"Также работают здесь"}},"th":{"stringUnit":{"state":"needs_review","value":"ทำงานที่นี่ด้วย"}},"tr":{"stringUnit":{"state":"needs_review","value":"Burada da çalışıyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Також працюють тут"}},"vi":{"stringUnit":{"state":"needs_review","value":"Cũng đang làm việc ở đây"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"也在这里工作"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"也在這裡工作"}}}}
   },
   "version": "1.0"
 }

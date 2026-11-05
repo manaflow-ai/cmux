@@ -123,15 +123,17 @@ struct HeaderSplitOrderTests {
     /// Leo, 2026-10-31: "like having it go split instead of just adding a third colujmn",
     /// "just open it on the existing". Terminal then Browser both open on the chat's right (a tab in the
     /// pane holding that kind, else a split below it, RightColumnPlacement), never Split Right beside
-    /// the terminal's pane.
+    /// the terminal's pane. Terminal toggles here (`agentChat.terminalButtonAdds` off), so it lights too.
     @Test func terminalThenBrowserOpenOnTheChatsRightNotAsAThirdColumn() {
-        let row = Row(), toggles = AgentChatSplitToggles()
-        row.click("splitRight", toggles: toggles)
-        row.click("splitBrowserRight", toggles: toggles)
-        #expect(row.tools.map(\.kind) == [.terminal, .browser])
-        #expect(row.tools.map(\.cwd) == [nil, row.cwd])
-        #expect(row.invocations["splitRight"] == nil && row.invocations["splitBrowserRight"] == nil)
-        #expect(toggles.headerState(chat: row.chat, store: row.store).lit == ["splitBrowserRight", "splitRight"])
+        HeaderTerminalAddsTests.with(adds: false) {
+            let row = Row(), toggles = AgentChatSplitToggles()
+            row.click("splitRight", toggles: toggles)
+            row.click("splitBrowserRight", toggles: toggles)
+            #expect(row.tools.map(\.kind) == [.terminal, .browser])
+            #expect(row.tools.map(\.cwd) == [nil, row.cwd])
+            #expect(row.invocations["splitRight"] == nil && row.invocations["splitBrowserRight"] == nil)
+            #expect(toggles.headerState(chat: row.chat, store: row.store).lit == ["splitBrowserRight", "splitRight"])
+        }
     }
 
     /// Terminal asks for a terminal: a person's Split Right from a chat opens the New Tab page
@@ -162,17 +164,19 @@ struct HeaderSplitOrderTests {
     }
 
     /// A split the user closed is forgotten: the button never claims, and later closes, a terminal
-    /// the user opened themselves.
+    /// the user opened themselves. The toggling Terminal (`agentChat.terminalButtonAdds` off).
     @Test func aButtonNeverClosesTheUsersOwnTerminal() {
-        let row = Row(), toggles = AgentChatSplitToggles()
-        row.click("splitRight", toggles: toggles)
-        row.userCloses(1)
-        row.click("splitRight", toggles: toggles)
-        row.userOpens(.pty)
-        let mine = row.tabs[2]
-        row.click("splitRight", toggles: toggles)
-        #expect(row.tabs == [row.chat, mine])
-        #expect(toggles.headerState(chat: row.chat, store: row.store).lit == [])
+        HeaderTerminalAddsTests.with(adds: false) {
+            let row = Row(), toggles = AgentChatSplitToggles()
+            row.click("splitRight", toggles: toggles)
+            row.userCloses(1)
+            row.click("splitRight", toggles: toggles)
+            row.userOpens(.pty)
+            let mine = row.tabs[2]
+            row.click("splitRight", toggles: toggles)
+            #expect(row.tabs == [row.chat, mine])
+            #expect(toggles.headerState(chat: row.chat, store: row.store).lit == [])
+        }
     }
 
     @Test func eachButtonClosesItsOwnPaneAndReopensAtTheEnd() {

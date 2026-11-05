@@ -42,6 +42,9 @@ struct ChatRow: Equatable, Identifiable, Sendable {
         /// The tagged ask a finished turn's answer ended on (the Mac's next-step card):
         /// `answer` once a prompt followed it (the card folds), `canAnswer` while its buttons send.
         case nextStep(NextStepAsk, answer: String?, canAnswer: Bool)
+        /// An acpmux "who else is working on these files" call (`toolCallID`) as its card
+        /// (`WhoElseCard`), in place of the tool row.
+        case whoElse(String, WhoElseCall)
     }
 
     /// The session line's text: "Session started …", or "Showing messages since …" when
@@ -211,8 +214,12 @@ final class ChatTranscriptBuilder {
             case .thought(_, let text):
                 add(row.id, .thought(text: text, isLive: running && isLastRow))
             case .tool(let call):
-                // A wrap-up call's row goes only where its card draws in its place.
-                if wrapUp == nil || !NextStepAsk.drawsWrapUp(call) { add(row.id, .tool(call)) }
+                if let whoElse = WhoElseCall(call) {
+                    add(row.id, .whoElse(call.id, whoElse))
+                } else if wrapUp == nil || !NextStepAsk.drawsWrapUp(call) {
+                    // A wrap-up call's row goes only where its card draws in its place.
+                    add(row.id, .tool(call))
+                }
             case .toolGroup(_, let calls):
                 let shown = wrapUp == nil ? calls : calls.filter { !NextStepAsk.drawsWrapUp($0) }
                 if !shown.isEmpty { add(row.id, .toolGroup(shown, turnRunning: running)) }

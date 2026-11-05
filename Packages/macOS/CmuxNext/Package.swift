@@ -65,9 +65,10 @@ import PackageDescription
 //     plans/cmux-next/react-pages.md)
 //   CmuxNextCodeRouter -> CmuxNextCloud (provider sign-in detection, the CodeRouter control-plane
 //     client, pasted-key Keychain store, account row state; no UI, no daemon; plans/cmux-next/coderouter.md)
-//   CmuxNextAccounts -> Actions, AgentPane, AgentUpdates, Cloud, CodeRouter, DaemonService, Design, Icons, Pages,
+//   CmuxNextAccounts -> Actions, AgentPane, AgentUpdates, Cloud, CodeRouter, DaemonService, Design, Icons, Onboarding, Pages,
 //     Settings, Wakeups (Settings > Accounts, the GitHub App connection and the onboarding step; the App supplies
-//     AccountsServices; Settings > Agents > Harnesses and the provider accounts routing may use)
+//     AccountsServices; Settings > Agents > Harnesses, the provider accounts routing may use, and the first-run
+//     Agents step's sign-in source)
 //   CmuxNextAgentIntegrations -> Daemon, Pages, Settings (Settings > Agents > Agent integrations: relays the bundled
 //     CLI's `agent hook status|install|uninstall`; the App supplies the CLI's location)
 //   CmuxNextBookmarks -> Design, Icons (bookmark tree per browser profile, Netscape HTML, ranking, file store,
@@ -469,7 +470,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // supplies `AccountsServices`.
         .target(
             name: "CmuxNextAccounts",
-            dependencies: ["CmuxNextActions", "CmuxNextAgentPane", "CmuxNextAgentUpdates", "CmuxNextCloud", "CmuxNextCodeRouter", "CmuxNextDaemonService", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextPages", "CmuxNextSettings", "CmuxNextWakeups", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
+            dependencies: ["CmuxNextActions", "CmuxNextAgentPane", "CmuxNextAgentUpdates", "CmuxNextCloud", "CmuxNextCodeRouter", "CmuxNextDaemonService", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextOnboarding", "CmuxNextPages", "CmuxNextSettings", "CmuxNextWakeups", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
                            .product(name: "CMUXAuthCore", package: "CMUXAuthCore")],
             resources: [
                 .process("Localizable.xcstrings"),
@@ -519,7 +520,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // the resumable import jobs. Pure model, no UI.
         .target(
             name: "CmuxNextImportSuggestions",
-            dependencies: ["CmuxNextBrowserImport"],
+            dependencies: ["CmuxNextBrowserImport", "CmuxNextCompat"],
             resources: [
                 .process("Resources"),
             ],
@@ -536,7 +537,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextImportCards",
             dependencies: ["CmuxNextActions", "CmuxNextBrowserImport", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesign",
-                           "CmuxNextImportSuggestions", "CmuxNextOnboarding", "CmuxNextSettings", "CmuxNextSidebar"],
+                           "CmuxNextImportSuggestions", "CmuxNextOnboarding", "CmuxNextSettings", "CmuxNextSidebar",
+                           "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         .target(
@@ -1265,6 +1267,11 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: ["CmuxNextCompat"],
             swiftSettings: uiSwiftSettings
         ),
+        .testTarget(
+            name: "CmuxNextLiveCodeTests",
+            dependencies: ["CmuxNextLiveCode"],
+            swiftSettings: uiSwiftSettings
+        ),
         // Web updates in the app (plans/cmux-next/web-ota.md): serves a signed web update from
         // a safe point and answers `updates.web.*`.
         .target(
@@ -1630,7 +1637,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // (plans/cmux-next/tab-lifecycle.md). Pure values; no engine, no I/O.
         .target(
             name: "CmuxNextHibernation",
-            dependencies: ["CmuxNextBridge", "CmuxNextCompat", "CmuxNextSettings"],
+            dependencies: ["CmuxNextBridge", "CmuxNextBrowserCore", "CmuxNextCompat", "CmuxNextSettings", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // The browser's engine-neutral half: tab and engine values, intents, capability protocols, omnibox

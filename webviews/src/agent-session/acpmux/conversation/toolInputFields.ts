@@ -43,7 +43,7 @@ export function inputFields(args: unknown, source?: string): InputField[] | unde
     if (value === undefined) continue;
     const spelled = exact?.get(key);
     if (spelled !== undefined && losesNumbers(spelled)) {
-      fields.push({ key, text: spelled, look: typeof value === "object" ? "tree" : "value" });
+      fields.push({ key, text: exactPretty(spelled), look: typeof value === "object" ? "tree" : "value" });
       continue;
     }
     // An empty argument is still one the agent passed: it shows as the JSON it is, so the opened
@@ -87,8 +87,54 @@ export function argsSource(tool: { title: string; inputSummary?: string }): stri
 /// The request as the MCP Raw view and Find show it: pretty, or as it came when parsing it would
 /// round a number.
 export function requestText(args: unknown, source: string | undefined): string | undefined {
-  if (source && losesNumbers(source) && parseObject(source) !== undefined) return source.trim();
+  if (source && losesNumbers(source) && parseJSONText(source) !== undefined) return exactPretty(source);
   return prettyValue(args);
+}
+
+/// One JSON token: a string, a number, a literal, or one punctuation mark.
+const TOKEN = /"(?:[^"\\]|\\.)*"|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null|[{}[\],:]/g;
+
+/// Valid JSON `text` indented as `JSON.stringify(value, null, 2)` indents it, each number as it is
+/// spelled (never parsed and rounded) and each string without the context a host injects into it
+/// (mcpCalls.ts cleanText), as prettyValue prints the rest.
+export function exactPretty(text: string): string {
+  const tokens = text.match(TOKEN) ?? [];
+  let out = "";
+  let depth = 0;
+  const line = () => `\n${"  ".repeat(depth)}`;
+  tokens.forEach((token, index) => {
+    const next = tokens[index + 1];
+    if (token === "{" || token === "[") {
+      const empty = next === (token === "{" ? "}" : "]");
+      out += token;
+      if (!empty) {
+        depth++;
+        out += line();
+      }
+    } else if (token === "}" || token === "]") {
+      const previous = tokens[index - 1];
+      if (previous !== "{" && previous !== "[") {
+        depth--;
+        out += line();
+      }
+      out += token;
+    } else if (token === ",") out += `,${line()}`;
+    else if (token === ":") out += ": ";
+    else if (token.startsWith('"')) {
+      const value = JSON.parse(token) as string;
+      // A key stays as it came; a value loses the injected context, as the fields show it.
+      out += next === ":" ? token : JSON.stringify(cleanText(value).replace(/\n$/, ""));
+    } else out += token;
+  });
+  return out;
+}
+
+function parseJSONText(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
 }
 
 /// Each top-level member of a JSON object's text, as it is spelled there, by key; undefined when

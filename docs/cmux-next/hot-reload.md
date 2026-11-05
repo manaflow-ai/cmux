@@ -322,6 +322,75 @@ daemon's process and its client connections, but on the same box it is slower: 6
 in cmux-tui-core (dx replays cmux-tui-core's rustc, then rebuilds the program crate), after a 353 s
 first build. So the loop swaps instead.
 
+### Editing while it runs: what survives
+
+`bun run hot-reload:proof` (in `webviews/`) checks this on the real agent pane with no app: it
+starts the dev server `server --local` runs and opens `/agent-pane/?mock`. For each source edit it
+sends a prompt so a fresh turn streams, types a draft, saves the edit, and checks that it shows up
+in the same page with the draft, the transcript and the streaming turn kept. `--audit` also saves every pane
+component the page loaded, one at a time, and lists the ones that reload the page instead. It
+edits a copy of your checkout in a temporary directory, not the checkout itself, so a file you save
+while it runs is never touched; the copy is deleted when it exits. Run it on the fleet with
+`cmux-ci test -- bash -c 'cd webviews && node scripts/hot-reload-proof.mjs --audit "$FAST_CHECKS_OUT"'`.
+
+Measured on `feat-cmux-next` (2026-11-05, fleet Linux runner, Chromium):
+
+| Edit, mid-turn | Result |
+|---|---|
+| A stylesheet (`bottomStack.css`) | Shown in 0.7 s, same page; the draft, transcript and turn are kept |
+| A component (`ComposerFoot.tsx`) | The page reloads (2.2 s); the draft and transcript are lost and the turn stops streaming |
+| Every loaded pane component (`--audit`) | 246 of 369 hot-swap in place; 123 reload the page |
+
+A component reloads the page when React Fast Refresh can't swap its module: the file also exports
+something that is not a component (a context, a constant, a helper), so Vite passes the update up
+to the files that import it. `ComposerFoot.tsx` exports the `InQuietRow` context; its importer
+`NewTabPage.tsx` (constants and helpers) can't take the update either, nor can `App.tsx`, which
+imports that (`applyPaneTheme`, `saveSnapshot` and others), and the update reaches the page root,
+which reloads. Vite logs
+`Could not Fast Refresh ("NAME" export is incompatible)` for each. Moving those exports into
+sibling `.ts` files makes the component edits swap in place.
+
+Beyond the web UI, Swift views take live code today only in the view shell
+(`Prototypes/ViewShell`, "Live code" in its README): function bodies and new files apply to the
+running shell with no relaunch. The app itself still needs a build for Swift; `try-pr.sh` says
+which PRs do.
+
+## Chromium's renderer code, live
+
+cmux's own pages and Chromium tabs run on the CEF fork (manaflow-ai/cef). An edit to Blink or other
+renderer code there can show in the running app without a relaunch: the app, its windows and every
+session stay up, and only the renderer processes start again on the new build.
+
+```sh
+cmux live start --chromium --build-host HOST --src ~/cef/chromium/src   # a warm CEF tree on HOST
+cmux live status                                                         # the last swap and its times
+cmux live stop --chromium                                                # put the tree back, stop watching
+```
+
+Put each file you edit under `.cmux-dev/chromium/<path in chromium/src>` in your checkout (or pass
+`--edits DIR`). On each save the loop (`scripts/cmux-next/chromium-live.py`):
+
+1. sends the file to the warm tree on the build host; the tree's own copy is kept and `stop` puts it
+   back;
+2. builds `libcef` incrementally (`--out`, `--target`), which relinks Chromium Embedded Framework;
+3. brings the framework back with rsync, so only the change crosses the network;
+4. signs the copy ad hoc and renames it over the framework inside the app. The app's browser process
+   keeps the file it mapped at launch; a helper started after the rename maps the new one;
+5. ends the app's renderer processes (and the GPU process with `--gpu`) and reloads every Chromium
+   tab with `cmux browser TAB reload`, which starts a renderer on the new code.
+
+Use it on a tagged DEV build, against a tree at the CEF commit the app was built with, so the new
+framework matches the app's CEF wrapper. Give the loop a tree of its own (an APFS clone of a warm
+tree with `cp -c -Rp`, which keeps the timestamps the build needs), never a CI worker's cache: the
+loop edits the tree while it runs. Browser-process code, and any edit that changes an interface both
+processes use, still needs a relaunch, because the browser process keeps the old framework.
+
+What sets the time is the relink of the one large framework, not the compile. On a fleet Mac (an
+M4 Pro) an incremental CEF build relinked Chromium Embedded Framework in 60 s, with its debug symbols,
+after a few seconds of compiling. Splitting Blink out of the framework in a development-only
+configuration is what would bring that down; see the notes for the CEF fork's owners in the PR that
+added this loop.
+
 ## Every merge, no checkout
 
 Settings > Updates > **Web UI Updates**:
