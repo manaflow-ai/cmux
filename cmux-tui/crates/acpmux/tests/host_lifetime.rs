@@ -406,7 +406,10 @@ async fn a_host_ended_by_sigterm_names_its_sender() {
     assert!(ended, "host {host} still ran 10 s after SIGTERM");
     assert!(gone_within(harness, Duration::from_secs(10)), "harness {harness} outlived its host");
     let log = std::fs::read_to_string(home.join("agent-host-signals.log")).unwrap_or_default();
-    let want = format!("agent host {host} (session {session}) stopping: SIGTERM from pid {} (", sender.id());
+    let want = format!(
+        "agent host {host} (session {session}) stopping: SIGTERM from pid {} (",
+        sender.id()
+    );
     assert!(log.contains(&want), "no {want:?} in agent-host-signals.log:\n{log}");
     assert!(log.contains("sleep 5"), "the sender's command line is not named:\n{log}");
     let _ = std::fs::remove_dir_all(&home);

@@ -131,7 +131,7 @@ case "$verdict" in
   daemon|swift-live|rebuild)
     case "$verdict" in
       daemon) echo "the daemon or CLI changes: it needs the PR's binary, so a dev build" ;;
-      swift-live) echo "Swift changes only inside function bodies: injectable once the app takes live code, a dev build until then" ;;
+      swift-live) echo "Swift changes only inside function bodies, or new Swift files: injectable once the app takes live code, a dev build until then" ;;
       rebuild) echo "the app needs a new binary: a dev build" ;;
     esac
     if [[ -n "$nobuild" ]]; then

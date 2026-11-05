@@ -53,12 +53,22 @@ class ClassifyTests(unittest.TestCase):
         added = {VIEW: [("+", "    func helper() -> Int {"), ("+", "        1"), ("+", "    }")]}
         self.assertEqual(self.verdict([("M", VIEW)], added), "swift-live")
 
-    def test_new_files_types_enum_cases_and_resources_need_a_rebuild(self):
-        self.assertEqual(self.verdict([("A", VIEW)]), "rebuild")
+    def test_new_types_enum_cases_and_resources_need_a_rebuild(self):
         self.assertEqual(self.verdict([("M", VIEW)], {VIEW: [("+", "struct Chip: View {")]}), "rebuild")
         self.assertEqual(self.verdict([("M", VIEW)], {VIEW: [("+", "    case pinned")]}), "rebuild")
         self.assertEqual(self.verdict([("M", "Resources/Localizable.xcstrings")]), "rebuild")
         self.assertEqual(self.verdict([("M", "Packages/macOS/CmuxNext/Package.swift")]), "rebuild")
+
+    def test_a_new_swift_file_is_live_unless_it_is_an_entry_point(self):
+        new = "Packages/macOS/CmuxNext/Sources/CmuxNextUI/Chip.swift"
+        diffs = {new: [("+", "struct Chip: View {"), ("+", "    let title: String"), ("+", "    var body: some View { Text(title) }"), ("+", "}")],
+                 VIEW: [("+", "        Chip(title: name)")]}
+        self.assertEqual(self.verdict([("A", new), ("M", VIEW)], diffs), "swift-live")
+        self.assertEqual(self.verdict([("A", new)], {new: [("+", "@main"), ("+", "struct App {}")]}), "rebuild")
+        self.assertEqual(self.verdict([("A", "Packages/macOS/CmuxNext/Sources/CmuxNextApp/main.swift")]), "rebuild")
+        self.assertEqual(self.verdict([("M", VIEW)], {VIEW: [("+", "@main")]}), "rebuild")
+        self.assertEqual(self.verdict([("M", VIEW)], {VIEW: [("+", "@MainActor @main")]}), "rebuild")
+        self.assertEqual(self.verdict([("A", new)], {new: [("+", "@available(macOS 14, *) @main struct App {}")]}), "rebuild")
 
     def test_a_deleted_swift_file_is_live_and_ios_alone_leaves_the_mac_app(self):
         self.assertEqual(self.verdict([("D", VIEW)]), "swift-live")

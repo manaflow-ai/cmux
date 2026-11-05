@@ -211,13 +211,15 @@ enum Event {
     Orphan(u64, Option<bool>),
 }
 
-/// How long a pooled host waits for its first controller. A daemon that
-/// started it attaches within its pool start budget (90 s, `hub/pool`) or
-/// ends it; one that died before it attached (SIGKILL right after the
-/// spawn) never will, and a pooled host never waits for a next daemon, so it
-/// ends. It never relied on the daemon's systemd unit for that: the host may
-/// be in its own scope (`scope.rs`).
-pub(crate) const POOLED_OWNER_WAIT: std::time::Duration = std::time::Duration::from_secs(120);
+/// How long a pooled host waits for its first controller. A daemon may be
+/// alive but starved while it attaches, so this is deliberately well beyond a
+/// normal start and is only a cleanup hazard for a host whose daemon never
+/// returns. A host that died before it attached (SIGKILL right after the
+/// spawn) still ends here; it never waits for a next daemon. It never relied
+/// on the daemon's systemd unit: the host may be in its own scope (`scope.rs`).
+// timeout: an unowned pooled host needs a finite leak bound when no daemon can
+// observe or end it; 30 minutes leaves a busy machine time to attach.
+pub(crate) const POOLED_OWNER_WAIT: std::time::Duration = std::time::Duration::from_secs(30 * 60);
 
 /// Debug builds only: [`POOLED_OWNER_WAIT`] in milliseconds, for the
 /// lifetime test; passed on by the host launch (`link.rs`). Release builds
@@ -316,6 +318,9 @@ struct State {
     /// The connection of the last controller that said `Hello`, also when
     /// a failed send already dropped it as the controller.
     last_owner: Option<u64>,
+    /// Close a controller that sends `Hello` (debug builds' test seam,
+    /// [`claim_hello_exit`]), exercising the process-exit/closed-link path.
+    hello_exit: bool,
     /// Never answer `Hello` (debug builds' test seam, [`claim_hello_stall`]).
     stall_hello: bool,
     /// Claude's output lines after a carry, read once the next turn's prompt came
@@ -347,6 +352,26 @@ fn claim_hello_stall() -> bool {
     {
         return entries.flatten().any(|e| {
             e.file_name().to_string_lossy().starts_with("stall-")
+                && std::fs::remove_file(e.path()).is_ok()
+        });
+    }
+    false
+}
+
+/// Debug builds only: `ACPMUX_TEST_HOST_HELLO_EXIT_DIR` names a directory of
+/// `exit-*` marker files. A host that removes one closes its controller
+/// connection before answering `Hello`, as an exited host does. Release
+/// builds have no seam.
+#[cfg(debug_assertions)]
+pub(super) const HELLO_EXIT_DIR_ENV: &str = "ACPMUX_TEST_HOST_HELLO_EXIT_DIR";
+
+fn claim_hello_exit() -> bool {
+    #[cfg(debug_assertions)]
+    if let Some(dir) = std::env::var_os(HELLO_EXIT_DIR_ENV)
+        && let Ok(entries) = std::fs::read_dir(dir)
+    {
+        return entries.flatten().any(|e| {
+            e.file_name().to_string_lossy().starts_with("exit-")
                 && std::fs::remove_file(e.path()).is_ok()
         });
     }
@@ -541,6 +566,7 @@ impl Started {
             unadoptable: false,
             under: Vec::new(),
             last_owner: None,
+            hello_exit: claim_hello_exit(),
             stall_hello: claim_hello_stall(),
             held: VecDeque::new(),
             hold: (0, false),
@@ -1085,6 +1111,13 @@ impl State {
         if let ControllerFrame::Hello { min, max, token, .. } = &frame {
             // An orphaned host that ends its harness answers once its exit is logged (`orphan.rs`).
             let waits = self.hello_waits();
+            if self.hello_exit {
+                // Drop the pending writer so the controller observes EOF. A
+                // live host remains available for the daemon's explicit
+                // cleanup, while a closed link is the terminal failure signal.
+                self.pending_conns.retain(|(pid, _)| *pid != id);
+                return;
+            }
             if self.stall_hello || self.orphan.hold_hello(id, &frame, waits) {
                 return;
             }
@@ -1268,10 +1301,8 @@ pub(crate) const SIGNALS_LOG: &str = "agent-host-signals.log";
 /// sender when the kernel named one. Best effort: a failed write changes nothing.
 fn note_term(log: &Path, session: &str, sender: Option<i32>) {
     use std::io::Write as _;
-    let from = sender.map_or_else(
-        || "an unknown sender".to_owned(),
-        crate::daemon::term_sender::describe,
-    );
+    let from =
+        sender.map_or_else(|| "an unknown sender".to_owned(), crate::daemon::term_sender::describe);
     let line = format!(
         "{} agent host {} (session {session}) stopping: SIGTERM from {from}\n",
         chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, true),

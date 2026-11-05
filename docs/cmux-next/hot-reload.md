@@ -96,14 +96,14 @@ chat with no folder runs in, so its Home chats see your Home chats' files) and `
   web UI to it, with no build. Later pushes and edits hot-reload.
 - A PR that changes only CI, tests or docs is reported as nothing to try.
 - A PR that changes the daemon, Swift, a resource or a manifest needs a new binary: the script says
-  why (a stored property, a changed signature, a new file, and so on), requests the fleet dev build
+  why (a stored property, a changed signature, a new type in an existing file, and so on), requests the fleet dev build
   tagged `pr-<N>`, waits for it and opens that build as the side instance. `--no-build` stops at
   the verdict.
 
 `--here` patches your running app instead (web-only PRs) and, for a rebuild, only says where the
 build is. The rules are in `scripts/cmux-next/live_apply.py`. Over the last 3,895 NEXT-era PRs,
 about half of the ones that touch the app changed only web code or nothing in the app, so they
-need no new binary. A Swift change confined to function bodies could be injected live once the
+need no new binary. A Swift change confined to function bodies and new files could be injected live once the
 app takes live code (the view shell does today); until then it takes the dev build.
 `scripts/measure/try-pr-side-instance.sh` times a set of PRs from the command to the PR's page
 loading in the side instance.

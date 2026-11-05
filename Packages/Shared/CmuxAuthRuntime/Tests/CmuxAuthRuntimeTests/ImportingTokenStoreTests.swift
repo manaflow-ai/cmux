@@ -115,8 +115,13 @@ import Testing
         let nightly = CountingSource(ImportedTokenPair(accessToken: "access-n", refreshToken: "refresh-n"))
         let store = ImportingTokenStore(primary: FileStackTokenStore(directory: directory), sources: [{ await nightly.read() }])
 
+        // Nothing adopted yet: nothing is shared, and the question reads no source.
+        #expect(!(await store.isShared(refreshToken: "refresh-n")))
+        #expect(await nightly.reads == 0)
+        #expect(await store.getStoredRefreshToken() == "refresh-n")
         #expect(await store.isShared(refreshToken: "refresh-n"))
         #expect(!(await store.isShared(refreshToken: "refresh-own")))
+        #expect(await nightly.reads == 1)
     }
 
     @Test func aPairWithoutARefreshTokenIsNoSession() {
@@ -125,10 +130,68 @@ import Testing
         #expect(ImportedTokenPair(accessToken: "", refreshToken: "refresh")?.accessToken == nil)
     }
 
-    @Test func aKeychainReaderWithoutTheAccessGroupReadsNothing() {
-        // The test bundle is not signed with this group: the data-protection Keychain refuses, quietly.
-        let reader = KeychainTokenReader(service: "com.cmuxterm.app.nightly.auth.test-\(UUID().uuidString)",
-                                         accessGroup: "7WLXT3NR37.com.cmuxterm.app.nightly")
-        #expect(reader.read() == nil)
+    /// A source whose session can go away (NIGHTLY quit or signed out).
+    private actor SwitchableSource {
+        var pair: ImportedTokenPair?
+        init(_ pair: ImportedTokenPair?) { self.pair = pair }
+        func read() -> ImportedTokenPair? { pair }
+        func set(_ pair: ImportedTokenPair?) { self.pair = pair }
     }
+
+    @Test func anAdoptedSessionStaysSharedAfterSignOutAndAfterTheSourceIsGone() async {
+        let nightly = SwitchableSource(ImportedTokenPair(accessToken: "access-n", refreshToken: "refresh-n"))
+        let store = ImportingTokenStore(primary: MemoryStackTokenStore(), sources: [{ await nightly.read() }])
+
+        #expect(await store.getStoredRefreshToken() == "refresh-n")
+        // The sign-out clears the store first, and NIGHTLY may have quit by the time revocation asks.
+        await store.clearTokens()
+        await nightly.set(nil)
+        #expect(await store.isShared(refreshToken: "refresh-n"))
+        #expect(!(await store.isShared(refreshToken: "refresh-other")))
+    }
+
+    @Test func aRefreshOfAnAdoptedSessionIsStillShared() async {
+        let nightly = SwitchableSource(ImportedTokenPair(accessToken: "access-n", refreshToken: "refresh-n"))
+        let store = ImportingTokenStore(primary: MemoryStackTokenStore(), sources: [{ await nightly.read() }])
+
+        #expect(await store.getStoredRefreshToken() == "refresh-n")
+        await store.compareAndSet(compareRefreshToken: "refresh-n", newRefreshToken: "refresh-n2", newAccessToken: "access-n2")
+        await nightly.set(nil)
+        #expect(await store.isShared(refreshToken: "refresh-n2"))
+        // A session this app signed in by itself is its own: a sign-out revokes it.
+        await store.setTokens(accessToken: "access-own", refreshToken: "refresh-own")
+        #expect(!(await store.isShared(refreshToken: "refresh-own")))
+    }
+
+    @Test func theMemoryStoreKeepsThePairInTheProcessOnly() async {
+        let store = MemoryStackTokenStore()
+        await store.setTokens(accessToken: "access", refreshToken: "refresh")
+        #expect(await store.getStoredRefreshToken() == "refresh")
+        await store.compareAndSet(compareRefreshToken: "stale", newRefreshToken: "x", newAccessToken: "y")
+        #expect(await store.getStoredAccessToken() == "access")
+        await store.compareAndSet(compareRefreshToken: "refresh", newRefreshToken: "refresh-2", newAccessToken: "access-2")
+        #expect(await store.getStoredRefreshToken() == "refresh-2")
+        #expect(await MemoryStackTokenStore().getStoredRefreshToken() == nil)
+        await store.clearTokens()
+        #expect(await store.getStoredRefreshToken() == nil)
+        #expect(await store.getStoredAccessToken() == nil)
+    }
+
+    #if DEBUG && os(macOS)
+    @Test func anAdoptedTokenNeverReachesTheAuthLogFile() async throws {
+        let refresh = "handoff-refresh-\(UUID().uuidString)"
+        let access = "handoff-access-\(UUID().uuidString)"
+        let store = ImportingTokenStore(primary: MemoryStackTokenStore(),
+                                        sources: [{ ImportedTokenPair(accessToken: access, refreshToken: refresh) }])
+        #expect(await store.getStoredRefreshToken() == refresh)
+        await store.clearTokens()
+        // AuthDebugLog's file sink in DEBUG macOS builds: the adoption wrote its line there.
+        let path = "/tmp/cmux-auth-debug.log"
+        let log = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+        // Another user's file there takes no lines (AuthDebugLog refuses it); then only absence is checked.
+        if FileManager.default.isWritableFile(atPath: path) { #expect(log.contains("importing.store: adopted a session")) }
+        #expect(!log.contains(refresh))
+        #expect(!log.contains(access))
+    }
+    #endif
 }

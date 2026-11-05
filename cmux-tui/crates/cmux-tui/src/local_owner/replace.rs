@@ -160,6 +160,34 @@ pub(crate) fn replace_if_wedged(spec: &OwnerSpec) -> Result<Option<Replaced>, Re
     stop(spec, key)
 }
 
+/// Replaces a healthy owner that was launched for another NEXT Cloud backend.
+/// The owner process is the only thing stopped; its terminal hosts stay alive
+/// and the replacement adopts them from the durable registry. `Ok(None)` means
+/// the socket disappeared or already reports the requested backend.
+pub(crate) fn replace_if_backend_changed(
+    spec: &OwnerSpec,
+    expected_backend: &str,
+) -> Result<Option<Replaced>, ReplaceError> {
+    let Ok(probe) =
+        cmux_tui_core::server::connect_session_socket(&spec.socket, spec.socket_is_derived)
+    else {
+        return Ok(None);
+    };
+    let key = probe.peer_process_key();
+    let mut connection = BufReader::new(probe);
+    let deadline = Instant::now() + PROBE_DEADLINE;
+    let Some(identity) = request(&mut connection, "identify", deadline) else {
+        return Ok(None);
+    };
+    if identity.get("session").and_then(|value| value.as_str()) != Some(spec.session.as_str()) {
+        return Ok(None);
+    }
+    if identity.get("cloud_backend").and_then(|value| value.as_str()) == Some(expected_backend) {
+        return Ok(None);
+    }
+    stop(spec, key)
+}
+
 /// Whether the owner on `stream` is wedged: its `server-stats` name one
 /// holder of the workspace registry lock for `WEDGED_HOLD`. With `session`,
 /// only an owner of that session counts (an owner of another session is
@@ -277,7 +305,9 @@ fn request(
     let remaining =
         deadline.saturating_duration_since(Instant::now()).max(Duration::from_millis(1));
     connection.get_ref().set_write_timeout(Some(remaining)).ok()?;
-    let request = serde_json::json!({"id":1,"cmd":command});
+    // `revisions` is opt-in on identify so older strict clients keep their
+    // wire shape. The backend handoff probe needs the optional NEXT identity.
+    let request = request_value(command);
     writeln!(connection.get_mut(), "{request}").and_then(|()| connection.get_mut().flush()).ok()?;
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
@@ -306,6 +336,14 @@ fn request(
             return None;
         }
         return reply.get_mut("data").map(serde_json::Value::take);
+    }
+}
+
+fn request_value(command: &str) -> serde_json::Value {
+    if command == "identify" {
+        serde_json::json!({"id":1,"cmd":command,"revisions":true})
+    } else {
+        serde_json::json!({"id":1,"cmd":command})
     }
 }
 
@@ -358,7 +396,7 @@ fn probe(stream: Box<dyn cmux_tui_core::platform::transport::Stream>, deadline: 
     if let Err(error) = connection.get_ref().set_write_timeout(Some(remaining)) {
         return closed(&mut connection, &error);
     }
-    let request = serde_json::json!({"id":1,"cmd":"identify"});
+    let request = serde_json::json!({"id":1,"cmd":"identify","revisions":true});
     match writeln!(connection.get_mut(), "{request}").and_then(|()| connection.get_mut().flush()) {
         Ok(()) => {}
         // A full send buffer for one short line: the owner reads nothing.
@@ -384,16 +422,25 @@ fn probe(stream: Box<dyn cmux_tui_core::platform::transport::Stream>, deadline: 
         let available = (super::identify::RESPONSE_LIMIT + 2).saturating_sub(line.len());
         let mut chunk = [0_u8; 4096];
         let read_len = available.min(chunk.len());
-        match connection.read(&mut chunk[..read_len]) {
+        // `read_len` never exceeds the chunk, and `Read` never reports more
+        // bytes than the buffer holds; a reader that breaks that contract
+        // is not evidence authorizing replacement either.
+        let Some(buffer) = chunk.get_mut(..read_len) else {
+            return Probe::Answered;
+        };
+        match connection.read(buffer) {
             Ok(0) => return Probe::Answered,
             Ok(count) => {
+                let Some(received) = buffer.get(..count) else {
+                    return Probe::Answered;
+                };
                 let previous_len = line.len();
-                line.extend_from_slice(&chunk[..count]);
+                line.extend_from_slice(received);
                 if line.len() > super::identify::RESPONSE_LIMIT {
                     // Malformed input is not evidence authorizing replacement.
                     return Probe::Answered;
                 }
-                if let Some(end) = chunk[..count].iter().position(|byte| *byte == b'\n') {
+                if let Some(end) = received.iter().position(|byte| *byte == b'\n') {
                     line.truncate(previous_len + end + 1);
                     return if super::identify::is_refusal(&line) {
                         Probe::Refused

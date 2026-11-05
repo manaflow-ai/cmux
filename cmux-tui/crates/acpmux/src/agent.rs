@@ -118,6 +118,7 @@ pub type Response = oneshot::Receiver<Result<Value, RpcError>>;
 /// How long [`ChildAgent::runs_claude`] waits for a host's answer. Shorter than
 /// `agent_host::QUERY_BUDGET`: adoption at the daemon's start waits on it, and a host that does
 /// not answer in time is judged by its profile, then asked again when a prompt reaches it.
+// timeout: never fails anything; a late host falls back to its profile and is asked again on its next prompt.
 const HOST_KIND_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// How long the reader waits for the Exit entry's ack to be written.

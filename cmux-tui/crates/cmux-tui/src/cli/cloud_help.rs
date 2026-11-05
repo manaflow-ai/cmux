@@ -15,9 +15,9 @@ const HIDDEN: &[(&str, &str)] = &[("new-machine", "cmux machine new")];
 pub(super) const START_CHAT: &str = "start-chat";
 
 /// The CLI-owned runtime backend selector (available before app startup).
-pub(super) const ENV_USAGE: &str = "usage: cmux cloud env get [--json]\n       cmux cloud env set local|dev|preview-N|staging|prod [--json]\n\nThe selection is isolated to this app bundle. DEV and NEXT nightly may switch;\nRelease and RC always use prod. Switching requires a fresh Cloud sign-in.\n";
+pub(super) const ENV_USAGE: &str = "usage: cmux cloud env get [--backend NAME|ORIGIN] [--json]\n       cmux cloud env set local|dev|preview-N|staging|prod [--json]\n       cmux cloud env check-create --backend NAME|ORIGIN --params JSON [--json]\n\nThe selection is isolated to this app bundle. DEV and NEXT nightly may switch;\nRelease and RC default to prod and accept allowlisted launch backends.\nLaunch the app with --cloud-backend NAME or CMUX_NEXT_CLOUD_BACKEND.\ncheck-create performs a capability-only preflight and never creates a machine.\nSwitching requires a fresh Cloud sign-in.\n";
 
-pub(super) const ENV_USAGE_JA: &str = "使い方: cmux cloud env get [--json]\n        cmux cloud env set local|dev|preview-N|staging|prod [--json]\n\n選択はこのアプリのバンドルごとに保存されます。DEV と NEXT nightly は切り替え可能です。\nRelease と RC は常に prod を使用します。切り替え後は Cloud に再度サインインしてください。\n";
+pub(super) const ENV_USAGE_JA: &str = "使い方: cmux cloud env get [--json]\n        cmux cloud env set local|dev|preview-N|staging|prod [--json]\n        cmux cloud env check-create --backend NAME|ORIGIN --params JSON [--json]\n\n選択はこのアプリのバンドルごとに保存されます。DEV と NEXT nightly は切り替え可能です。\ncheck-create は capability の事前確認だけを行い、マシンを作成しません。\nRelease と RC は既定で prod を使用し、許可された起動先へ切り替え可能です。切り替え後は Cloud に再度サインインしてください。\n";
 
 /// A machine action's target flag.
 const TARGET: &str = "--target machine:MACHINE_ID";
@@ -282,6 +282,18 @@ const GROUPS: &[Group] = &[
                 "ポートの転送を停止",
             ),
             verb(
+                "preview-share",
+                "{target} --port PORT",
+                "Copy a one-day link anyone can open to a port",
+                "誰でも開けるポートへの 1 日有効なリンクをコピー",
+            ),
+            verb(
+                "preview-revoke",
+                "{target} --port PORT --link-id ID",
+                "Revoke a port's shared link",
+                "ポートの共有リンクを無効にする",
+            ),
+            verb(
                 "open-browser",
                 "{target} --port PORT [--path /PATH]",
                 "Open a port in a browser tab",
@@ -488,7 +500,7 @@ const OUTRO_JA: &str = "\
 バックエンド（NEXT アプリのバンドルごと）
   cmux cloud env get --json
   cmux cloud env set local|dev|preview-N|staging|prod --json
-DEV と nightly は切り替え可能です。Release と RC は常に prod を使用します。
+DEV と nightly は切り替え可能です。Release と RC は既定で prod を使用し、許可された起動先へ切り替え可能です。
 
 シークレット（この Mac のキーチェーンに保存）
   cmux cloud secret set NAME [--repo OWNER/NAME]

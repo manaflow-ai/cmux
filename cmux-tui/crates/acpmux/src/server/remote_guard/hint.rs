@@ -63,26 +63,47 @@ pub(in crate::server) async fn new_on(
     let method = crate::rpc::method::SESSION_NEW;
     let web = via_web(&p);
     // Creation is interactive (New Tab and composer), unlike a prompt's unbounded turn, but
-    // the deadline outlasts the peer's own start budget (`LinkTimings::start`): the peer
-    // answers a slow valid start, or fails it itself, before this ends, so a start is never
-    // dropped while it completes there. Only a peer whose handler hangs past its own budget
-    // reaches this error. Dropping the request removes its pending reply through ForgetPending.
-    let budget = peer.timings().start;
-    let result = tokio::time::timeout(budget, peer.request(method, p))
-        .await
-        .map_err(|_| {
-            RpcError::internal(format!(
-                "session/new on peer {} did not answer within {} seconds; the session may still start there. Check that host's sessions before retrying",
-                peer.name, budget.as_secs()
-            ))
-            .with_data(json!({"reason": "peer_start_timeout", "host": peer.name}))
-        })?;
+    // this hazard bound outlasts the peer's own pooled-start envelope: the peer answers a slow
+    // valid start, or fails it itself, before this ends. A peer that stays connected and never
+    // answers is the remaining real hazard; dropping the request removes its pending reply.
+    // timeout: a remote handler that never answers needs a finite forwarding fallback, while a
+    // live start remains well beyond the old local 90-second budget.
+    // Match `peer::send_request`: the forwarded request must outlive both the
+    // generic peer budget and the peer's pooled-start hazard envelope.
+    let timings = peer.timings();
+    let budget = timings.request.max(timings.start);
+    let start_timeout = || {
+        RpcError::internal(format!(
+            "session/new on peer {} did not answer within {} seconds; the session may still start there. Check that host's sessions before retrying",
+            peer.name, budget.as_secs()
+        ))
+        .with_data(json!({"reason": "peer_start_timeout", "host": peer.name}))
+    };
+    let result =
+        tokio::time::timeout(budget, peer.request(method, p)).await.map_err(|_| start_timeout())?;
+    // `Peer::send_request` gives session/new this same budget, and a timeout polls its inner
+    // future first, so the request's own deadline usually ends it first: that is the same
+    // start timeout, said the same way.
+    if let Err(e) = &result
+        && e.data.is_none()
+        && is_request_timeout(&peer.name, &e.message)
+    {
+        return Err(start_timeout());
+    }
     result.map_err(|e| {
         let (build, served_peer) =
             (peer.remote_build(), peer.served_as().as_deref() == Some("peer"));
         update_first(&e, &peer.name, build.as_deref(), served_peer && !web, params)
             .unwrap_or_else(|| explain(peer, params, e))
     })
+}
+
+/// Whether `message` is `Peer::send_request`'s own deadline (`peer NAME timed out after Ns`).
+fn is_request_timeout(peer: &str, message: &str) -> bool {
+    message
+        .strip_prefix("peer ")
+        .and_then(|rest| rest.strip_prefix(peer))
+        .is_some_and(|rest| rest.starts_with(" timed out after "))
 }
 
 /// Whether this daemon forwarded `p` for a Web client (`mark_forwarded`'s `via: web`): the

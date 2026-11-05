@@ -41,7 +41,7 @@ from test_ci_fork_runner_routing import parse_expression  # noqa: E402
 from test_nightly_trusted_routing import evaluate  # noqa: E402
 import test_nightly_never_blacksmith as never_blacksmith  # noqa: E402
 from test_nightly_never_blacksmith import JOBS, ROOT, manaflow_route  # noqa: E402
-from test_ci_signing_owned_mac import CLAIM, CLAIM_GATE, CLAIM_GATE_ID, picker_ref_failures  # noqa: E402
+from test_ci_signing_owned_mac import CLAIM, CLAIM_GATE_ID, claim_gate_for, picker_ref_failures  # noqa: E402
 
 import yaml  # noqa: E402
 
@@ -157,7 +157,8 @@ class PublishersHoldTheWholeMini(unittest.TestCase):
         # minis' admission (glaeda-nightly-only-admit) refuses every signing-class job, so no publisher may land there.
         # on a nightly-next push vars.CI_NIGHTLY_SIGN_RUNNER (cmux15) comes first: test_nightly_signing_on_cmux15
         self.assertEqual(manaflow_route("promote-nightly-next"),
-                         "${{  github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && "
+                         "${{  vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER || "
+                         "github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && "
                          "vars.CI_NIGHTLY_SIGN_RUNNER || "
                          "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}")
         for name in EXCLUSIVE_PUBLISHERS:
@@ -178,7 +179,7 @@ class PublishersHoldTheWholeMini(unittest.TestCase):
                 job_steps = steps(name)
                 gate = job_steps[0]
                 self.assertEqual(gate.get("id"), CLAIM_GATE_ID)
-                self.assertEqual(str(gate.get("run", "")).strip(), CLAIM_GATE.strip())
+                self.assertEqual(str(gate.get("run", "")).strip(), claim_gate_for("nightly.yml").strip())
                 self.assertFalse(set(gate) - {"name", "run", "shell", "id"})
                 first_secret = next(i for i, step in enumerate(job_steps) if "secrets." in json.dumps(step))
                 claim = next((i for i, step in enumerate(job_steps) if CLAIM in str(step.get("run", ""))), None)

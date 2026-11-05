@@ -87,8 +87,8 @@ extension FeedItem {
                 })
             }
             if let allow {
-                // The allow asks for Face ID before it is sent (verify/phone-approvals.md).
-                actions.append(FeedSwipeAction(id: "allow", title: "Allow", systemImage: "faceid", tint: FeedSwipeTint.approve) {
+                // The allow is signed with the approval key, no prompt (verify/phone-approvals.md).
+                actions.append(FeedSwipeAction(id: "allow", title: "Allow", systemImage: "checkmark.shield", tint: FeedSwipeTint.approve) {
                     withAnimation(.cmuxMobileSmooth) { store.respond(id, option: allow) }
                 })
             }

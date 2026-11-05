@@ -96,7 +96,7 @@ import PackageDescription
 //     prototype engine, prototype registry, App Store window; no daemon; the App supplies the
 //     operation sink; plans/cmux-next/app-platform.md)
 //   CmuxNextFocus -> CCmuxAppFFI (the window focus machine: focus state view, events, effects,
-//     topology, and FocusMachine over cmux-focus-core's cmux_focus_* C ABI; no AppKit; cx-8w027.2)
+//     topology, and FocusMachine in the input router's cmux_input_* C ABI (FocusInput); no AppKit; cx-8w027.2)
 //   CmuxNextTasks -> Design, Icons, CCmuxAppFFI (Tasks pane: list, board and inbox prototypes over a
 //     mirror + intent log of the Tasks owner, whose reducer previews pending intents over the FFI;
 //     no daemon; the App supplies the source; plans/cmux-next/tasks.md)
@@ -175,8 +175,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-2e0b6acc359319c06eddc608d50e84895de41cc7/CCmuxAppFFI.xcframework.zip",
-    checksum: "62eb4a41502fd55f15b35bfd3e8be2056bfdfa01c4fe21eeff38d9a481923eba"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-728ed6cc8d33189189e9e129f5356958ddce5a16/CCmuxAppFFI.xcframework.zip",
+    checksum: "7e9a47f9ddaed5c291eceac157a6718b37f1133dcd9990c6be1d35e97c652081"
 )
 
 // Debug-only product consumed by Prototypes/UiLayerHost. Keeping this leaf
@@ -217,7 +217,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextCloudCredentials",
             // CCmuxAppFFI: the Cloud start's harness login decision (cmux-cloud-start-core).
-            dependencies: ["CmuxNextCloud", "CmuxNextDaemon", "CmuxNextCompat", "CCmuxAppFFI"],
+            dependencies: ["CmuxNextCloud", "CmuxNextDaemon", "CmuxNextCompat", "CmuxNextWakeups", "CCmuxAppFFI"],
             swiftSettings: daemonSwiftSettings
         ),
         .target(
@@ -1061,7 +1061,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextAppsTests",
-            dependencies: ["CmuxNextApps", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextApps", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextWakeups", "CmuxNextDesign"],
             swiftSettings: uiSwiftSettings
         ),
         // App permissions (plans/cmux-next/first-party-apps.md sections 4 and 5):
@@ -1154,6 +1154,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextRemoteViewTests",
             dependencies: ["CmuxNextRemoteView"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // The Mac Screen against cmux-rd-proto's golden app lines (cmux rd serve|connect stdout).
+        .testTarget(
+            name: "CmuxNextMacScreenTests",
+            dependencies: ["CmuxNextMacScreen", "CmuxNextRemoteView"],
             swiftSettings: uiSwiftSettings
         ),
         // Remote tab client (remote-tab.md r2): the page of a browser tab
@@ -1251,7 +1257,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextCloudTests",
-            dependencies: ["CmuxNextCloud", "CmuxNextDaemon"],
+            dependencies: ["CmuxNextCloud", "CmuxNextDaemon", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
             swiftSettings: daemonSwiftSettings
         ),
         .target(
@@ -1578,7 +1584,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextLayout",
-            dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextDesign", "CmuxNextIcons"],
+            // CCmuxAppFFI: the keyboard resize rules (cmux-layout-reducer shown_resize).
+            dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextDesign", "CmuxNextIcons", "CCmuxAppFFI"],
             resources: [
                 .process("Resources"),
             ],

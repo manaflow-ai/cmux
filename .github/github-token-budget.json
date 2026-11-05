@@ -26,7 +26,7 @@
     "auto-resume-nightly-notarization.yml: Verify source run and recovery artifacts": "baseline 2026-11-04",
     "auto-triage.yml: Label untriaged open issues": "polls (tests/test_ci_no_github_token_polling.py): a backfill, by hand: the same rate-limit and network retry, at most 4 tries",
     "auto-triage.yml: Propose severity and area": "polls (tests/test_ci_no_github_token_polling.py): retry only: a request sleeps after a rate-limit 403/429 or a network error, at most 4 tries",
-    "backend-migrations.yml: Changed files and head migrations": "baseline 2026-11-04",
+    "backend-migrations.yml: Changed files and head migrations": "lists the changed files only when backend/db/migrations differs from the base: pulls/N/files 100 a page (ceil(files/100) calls, at most 30), or one compare call in a merge group",
     "backend-migrations.yml: Consume the apply label": "baseline 2026-11-04",
     "build-ghosttykit.yml: Check if xcframework release already exists": "baseline 2026-11-04",
     "chief-evals.yml: Model cases": "baseline 2026-11-04",

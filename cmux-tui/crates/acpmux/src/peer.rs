@@ -1022,7 +1022,16 @@ impl Peer {
             || (m == method::MUX_DISPATCH
                 && params.get("durable").and_then(Value::as_bool) == Some(true)
                 && params.get("wait").and_then(Value::as_bool) == Some(true));
-        let deadline = started + self.timings.request;
+        // A forwarded session/new gets its dedicated start hazard envelope as
+        // well as the generic request budget. Keep the larger one so a caller
+        // cannot reintroduce the old short start cutoff through
+        // `ACPMUX_PEER_REQUEST_SECS`.
+        let budget = self.timings.request.max(if m == method::SESSION_NEW {
+            self.timings.start
+        } else {
+            Duration::ZERO
+        });
+        let deadline = started + budget;
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
         let key = Value::from(id).to_string();

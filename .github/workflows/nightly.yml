@@ -10,6 +10,7 @@ run-name: >-
   ${{ inputs.promote_nightly_next_sha && format('Promote nightly-next to {0}', inputs.promote_nightly_next_sha)
       || github.event_name == 'schedule' && format('Nightly macOS build · {0}', github.event.schedule)
       || inputs.nightly_next_unsigned_run && format('Resume nightly-next run {0} attempt {1}', inputs.nightly_next_unsigned_run, inputs.nightly_next_unsigned_attempt)
+      || inputs.nightly_next_republish_run && format('Republish nightly-next run {0} attempt {1}', inputs.nightly_next_republish_run, inputs.nightly_next_republish_attempt)
       || '' }}
 
 # Publish channels, resolved once in `decide`: `main` publishes cmux NIGHTLY, `rc/**` cmux RC,
@@ -112,6 +113,16 @@ on:
         required: false
         default: ''
         type: string
+      nightly_next_republish_run:
+        description: nightly-next only. Build, sign and notarize nothing. Publish this completed nightly-next push run's verified DMG again with this run's workflow and publication tooling, through the normal guarded publication.
+        required: false
+        default: ''
+        type: string
+      nightly_next_republish_attempt:
+        description: Exact attempt of nightly_next_republish_run whose verify jobs passed (required with it).
+        required: false
+        default: ''
+        type: string
       promote_nightly_next_sha:
         description: Main only. Move branch nightly-next to this green feat-cmux-next commit (40 hex) and build nothing in this run; the push run on nightly-next publishes it. Prefix it with "dry-run:" to only decide and print why, moving nothing.
         required: false
@@ -193,7 +204,7 @@ jobs:
       contents: read
     if: github.event_name != 'workflow_dispatch' || ((inputs.probe_mode || 'off') == 'off' && inputs.promote_nightly_next_sha == '')
     # Routing bootstrap: nothing places it first, so it takes the nightly-only pool (glaeda's light class).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     outputs:
       early_mini_runner: ${{ steps.place-early-mac.outputs.mini_runner || steps.place-reserved.outputs.mini_runner }}
       early_mini_jobs: ${{ steps.place-early-mac.outputs.mini_jobs || steps.place-reserved.outputs.mini_jobs }}
@@ -209,6 +220,8 @@ jobs:
       notary_test_browser_data: ${{ steps.decide.outputs.notary_test_browser_data }}
       no_publish: ${{ steps.decide.outputs.no_publish }}
       continue_only: ${{ steps.decide.outputs.continue_only }}
+      republish_run: ${{ steps.decide.outputs.republish_run }}
+      republish_attempt: ${{ steps.decide.outputs.republish_attempt }}
       import_variant: ${{ steps.decide.outputs.import_variant }}
       swift_import_flags: ${{ steps.decide.outputs.swift_import_flags }}
       empty_browser_sources: ${{ steps.decide.outputs.empty_browser_sources }}
@@ -287,6 +300,8 @@ jobs:
           UNSIGNED_RUN: ${{ inputs.nightly_next_unsigned_run }}
           UNSIGNED_ATTEMPT: ${{ inputs.nightly_next_unsigned_attempt }}
           CONTINUE_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.nightly_next_continue_only && 'true' || 'false' }}
+          REPUBLISH_RUN: ${{ inputs.nightly_next_republish_run }}
+          REPUBLISH_ATTEMPT: ${{ inputs.nightly_next_republish_attempt }}
         with:
           script: |
             // GitHub API rate limits (the installation's shared hourly budget, or a secondary limit) must not
@@ -324,7 +339,19 @@ jobs:
               core.setFailed('unsigned resume requires an exact run/attempt on nightly-next, with no other build or notary mode');
               return;
             }
-            const forceBuild = unsignedResume || process.env.FORCE_BUILD === 'true';
+            // A republish builds, signs and notarizes nothing: republish-nightly-next fetches the given run's
+            // verified build and publish-nightly publishes it as a recovered one, with this run's tooling.
+            const republish = Boolean(process.env.REPUBLISH_RUN || process.env.REPUBLISH_ATTEMPT);
+            if (republish && (unsignedResume || context.eventName !== 'workflow_dispatch' || context.ref !== 'refs/heads/nightly-next' ||
+                !/^[1-9][0-9]*$/.test(process.env.REPUBLISH_RUN || '') || !/^[1-9][0-9]?$/.test(process.env.REPUBLISH_ATTEMPT || '') ||
+                ['BUILD_ONLY', 'SEED_ONLY', 'FAST_BUILD', 'CONTINUE_ONLY', 'NOTARY_TEST_PASSWORDS', 'NOTARY_TEST_BROWSER_DATA', 'NOTARY_PROBE'].some(key => process.env[key] === 'true') ||
+                (process.env.NOTARY_IMPORT_PART || 'none') !== 'none')) {
+              core.setFailed('republish requires an exact run/attempt on nightly-next, with no other build or notary mode');
+              return;
+            }
+            core.setOutput('republish_run', republish ? process.env.REPUBLISH_RUN : '');
+            core.setOutput('republish_attempt', republish ? process.env.REPUBLISH_ATTEMPT : '');
+            const forceBuild = unsignedResume || republish || process.env.FORCE_BUILD === 'true';
             const seedOnly = process.env.SEED_ONLY === 'true';
             // A build-only run measures the unsigned universal app build (cold
             // or warm cache) and stops there: no helper, signing, notarization,
@@ -527,8 +554,10 @@ jobs:
             }
 
             // A nightly-next continuation run builds nothing of its own; it
-            // only publishes an earlier build Apple has since accepted.
-            const continueOnly = isNextRef && context.eventName === 'workflow_dispatch' && process.env.CONTINUE_ONLY === 'true';
+            // only publishes an earlier build Apple has since accepted. A
+            // republish builds and submits nothing either: continue_only skips
+            // every build job for both (find-nightly-next-recovery skips a republish).
+            const continueOnly = isNextRef && context.eventName === 'workflow_dispatch' && (process.env.CONTINUE_ONLY === 'true' || republish);
             if (process.env.CONTINUE_ONLY === 'true' && !continueOnly) {
               core.setFailed('nightly_next_continue_only runs only on nightly-next');
             }
@@ -663,6 +692,8 @@ jobs:
               decisionReason = 'Manual build-only measurement: build the unsigned app without publishing.';
             } else if (fastBuild) {
               decisionReason = 'Manual fast dogfood build: build an arm64 artifact without publishing the Nightly feed.';
+            } else if (republish) {
+              decisionReason = `Republish run ${process.env.REPUBLISH_RUN} attempt ${process.env.REPUBLISH_ATTEMPT}: build nothing; publish its verified DMG with this run's publication tooling.`;
             } else if (context.eventName === 'workflow_dispatch') {
               decisionReason = 'Manual dispatch bypasses the push throttle; build the selected revision.';
             } else {
@@ -859,7 +890,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && github.ref == 'refs/heads/main' && github.repository == 'manaflow-ai/cmux'
     # Holds only the release App credentials (CMUX_RELEASE_APP_*).
     environment: nightly-next-promote
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && vars.CI_NIGHTLY_SIGN_RUNNER || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER || github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && vars.CI_NIGHTLY_SIGN_RUNNER || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -886,7 +917,7 @@ jobs:
           if [ -d /Users/Shared/cmux-build-fleet ]; then owned=1; fi
           if [ -n "$owned" ]; then
             if [ "${GLAEDA_JOB_CLAIM:-}" != exclusive ]; then
-              echo "::error title=Signing runner::This owned Mac did not give the job the whole mini; this run's Blacksmith job signs instead."
+              echo "::error title=Signing runner::This owned Mac did not give the job the whole mini, so this job fails; nightly signing runs only on a trusted signing runner, never on Blacksmith."
               exit 1
             fi
             hooks=$(curl -fsS --proto '=https' --retry 3 --max-time 20 \
@@ -897,7 +928,7 @@ jobs:
               while read -r sha _; do if [ "$sha" = "$hook" ]; then listed=1; fi; done <<< "$hooks"
             fi
             if [ -z "$listed" ]; then
-              echo "::error title=Signing runner::glaeda hook ${hook:-unnamed} is not one scripts/ci/glaeda-signing-hooks.txt lists; this run's Blacksmith job signs instead."
+              echo "::error title=Signing runner::glaeda hook ${hook:-unnamed} is not one scripts/ci/glaeda-signing-hooks.txt lists, so this job fails; nightly signing runs only on a trusted signing runner, never on Blacksmith."
               exit 1
             fi
             echo "claim=owned" >> "$GITHUB_OUTPUT"
@@ -1028,7 +1059,7 @@ jobs:
     # if: (needs.promote-nightly-next.outputs.action == 'needs-ack' || needs.promote-nightly-next.outputs.action == 'promote') && needs.promote-nightly-next.outputs.dry_run != 'true'
     if: false
     environment: ${{ needs.promote-nightly-next.outputs.action == 'needs-ack' && 'release-surface-ack' || '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     timeout-minutes: 5
     permissions: {}
     concurrency:
@@ -1153,7 +1184,7 @@ jobs:
     # (tests/test_ci_nightly_no_hosted_mac.py). A seed_only dispatch still warms it on demand.
     if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && vars.CI_PR_POOL_OWNED != '1' || github.event_name == 'workflow_dispatch' && inputs.seed_only
     # Match the PR Release-build runner and Xcode so its compilation cache is reusable.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     # This job rebuilds the cache after the store drops it, so it runs cold
     # by design; scheduled run 35134963192 was cancelled at 45 minutes.
@@ -1298,7 +1329,7 @@ jobs:
       fail-fast: false
       matrix:
         pool:
-          - ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+          - ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     runs-on: ${{ matrix.pool }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     timeout-minutes: 75
@@ -1414,7 +1445,7 @@ jobs:
   resolve-nightly-ghostty-cli-helper:
     needs: [decide, resolve-nightly-cmux-tui-client]
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.decide.outputs.track == 'nightly-next' && (needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && contains(needs.decide.outputs.early_mini_jobs, ' resolve-nightly-ghostty-cli-helper ') && needs.decide.outputs.early_mini_runner) || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || needs.decide.outputs.track == 'nightly-next' && (needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && contains(needs.decide.outputs.early_mini_jobs, ' resolve-nightly-ghostty-cli-helper ') && needs.decide.outputs.early_mini_runner) || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -1482,7 +1513,7 @@ jobs:
     # CI_NIGHTLY_NEXT_BUILD_RUNNER: it holds every attempt on its label, and a
     # trusted NEXT runner admits only build-nightly-app. Never a hosted Mac past
     # the fork branch, never macOS 15. glaeda sizes it light at its measured cores.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || github.ref == 'refs/heads/nightly-next' && (needs.pick-nightly-build-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-build-runner.outputs.helper != needs.pick-nightly-build-runner.outputs.dedicated && needs.pick-nightly-build-runner.outputs.helper) || github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && vars.CI_PR_POOL_OWNED == '1' && github.ref == 'refs/heads/main' && vars.CI_SEED_TRUSTED_POOL || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || github.ref == 'refs/heads/nightly-next' && (needs.pick-nightly-build-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-build-runner.outputs.helper != needs.pick-nightly-build-runner.outputs.dedicated && needs.pick-nightly-build-runner.outputs.helper) || github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && vars.CI_PR_POOL_OWNED == '1' && github.ref == 'refs/heads/main' && vars.CI_SEED_TRUSTED_POOL || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}
     # zig-fetch-all.sh may retry each source-archive fetch (about 8.5 min at most per tree).
     timeout-minutes: 30
     env:
@@ -1615,7 +1646,7 @@ jobs:
     name: build nightly inputs
     needs: [decide, resolve-nightly-cmux-tui-client]
     if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.continue_only != 'true' && inputs.nightly_next_unsigned_run == '' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}
     permissions:
       contents: read
     timeout-minutes: 30
@@ -1706,7 +1737,7 @@ jobs:
     needs: [decide, resolve-nightly-cmux-tui-client]
     if: ${{ !cancelled() && needs.resolve-nightly-cmux-tui-client.result == 'success' }}
     continue-on-error: true
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && contains(needs.decide.outputs.early_mini_jobs, ' pick-nightly-build-runner ') && needs.decide.outputs.early_mini_runner || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && contains(needs.decide.outputs.early_mini_jobs, ' pick-nightly-build-runner ') && needs.decide.outputs.early_mini_runner || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     environment: ci-routing-agent
     timeout-minutes: 13
     permissions:
@@ -1837,7 +1868,7 @@ jobs:
     # nightly-next: pick-nightly-build-runner's dedicated builder, else an idle owned
     # label, else the moving Blacksmith label; never one label with no fallback. Main's
     # ci-cache-writer environment never follows NEXT onto that worker.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.ref == 'refs/heads/nightly-next' && (needs.pick-nightly-build-runner.outputs.attempt == github.run_attempt && (needs.pick-nightly-build-runner.outputs.trusted && fromJSON(needs.pick-nightly-build-runner.outputs.trusted) || needs.pick-nightly-build-runner.outputs.owned)) || github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && needs.decide.outputs.fast_build != 'true' && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI_BUILDER || github.ref == 'refs/heads/nightly-next' && (needs.pick-nightly-build-runner.outputs.attempt == github.run_attempt && (needs.pick-nightly-build-runner.outputs.trusted && fromJSON(needs.pick-nightly-build-runner.outputs.trusted) || needs.pick-nightly-build-runner.outputs.owned)) || github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && needs.decide.outputs.fast_build != 'true' && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     # The cloud cache is scoped per branch and also drops main's own
     # entry (runs 35179030871 and 35182663752 restored nothing and were
@@ -2647,7 +2678,7 @@ jobs:
     # 41683652930 took blacksmith-32vcpu-ubuntu-2404), else the nightly-only pool: never Blacksmith. Resume already retained these exact assets in build-nightly-app.
     needs: [decide, resolve-nightly-cmux-tui-client, pick-nightly-build-runner]
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true' && needs.decide.outputs.build_only != 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.ref == 'refs/heads/nightly-next' && needs.pick-nightly-build-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-build-runner.outputs.helper != needs.pick-nightly-build-runner.outputs.dedicated && needs.pick-nightly-build-runner.outputs.helper || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || github.ref == 'refs/heads/nightly-next' && needs.pick-nightly-build-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-build-runner.outputs.helper != needs.pick-nightly-build-runner.outputs.dedicated && needs.pick-nightly-build-runner.outputs.helper || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     permissions:
       contents: read
     timeout-minutes: 20
@@ -2700,7 +2731,7 @@ jobs:
     # The owned nightly-only Mac pool first (the all-nightly reservation, as route-visual-gate-nightly),
     # then the nightly-only pool variable or label, never Blacksmith (nightlies never use Blacksmith). Its OIDC token only
     # writes provenance for these assets; the pool already builds the nightly app those assets ship in.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     permissions:
       contents: read
       attestations: write
@@ -2760,7 +2791,7 @@ jobs:
   resolve-nightly-cmux-tui-client:
     needs: decide
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.decide.outputs.track == 'nightly-next' && (needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && contains(needs.decide.outputs.early_mini_jobs, ' resolve-nightly-cmux-tui-client ') && needs.decide.outputs.early_mini_runner) || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || needs.decide.outputs.track == 'nightly-next' && (needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && contains(needs.decide.outputs.early_mini_jobs, ' resolve-nightly-cmux-tui-client ') && needs.decide.outputs.early_mini_runner) || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     permissions:
       contents: read
       actions: read
@@ -2894,7 +2925,7 @@ jobs:
     needs: [decide, resolve-nightly-cmux-tui-client]
     if: needs.decide.outputs.track == 'nightly-next' && needs.resolve-nightly-cmux-tui-client.outputs.build_sha != ''
     # route-visual-gate-nightly's route: the all-nightly reservation, then the Linux pool, then Blacksmith.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -2929,7 +2960,7 @@ jobs:
       actions: read
     # Only moves and reads files; Mach-O checks run in verify-signed-nightly. build-nightly-app's light
     # placement's mini, else the nightly-only pool: it uses about one core (.github/runners.json).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.build-nightly-app.outputs.light_attempt == format('{0}', github.run_attempt) && contains(needs.build-nightly-app.outputs.light_mini_jobs, ' prepare-nightly-variant-primary ') && needs.build-nightly-app.outputs.light_mini_runner || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || needs.build-nightly-app.outputs.light_attempt == format('{0}', github.run_attempt) && contains(needs.build-nightly-app.outputs.light_mini_jobs, ' prepare-nightly-variant-primary ') && needs.build-nightly-app.outputs.light_mini_runner || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     timeout-minutes: 100
     strategy:
       fail-fast: false
@@ -3171,7 +3202,7 @@ jobs:
       actions: read
     # After a primary success it only reads that result: Linux 4 vCPU. A retry after a failed primary takes
     # the 16 vCPU pool, a label the primary did not use.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.build-nightly-app.outputs.light_attempt == format('{0}', github.run_attempt) && contains(needs.build-nightly-app.outputs.light_mini_jobs, ' prepare-nightly-variant ') && needs.build-nightly-app.outputs.light_mini_runner || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || needs.build-nightly-app.outputs.light_attempt == format('{0}', github.run_attempt) && contains(needs.build-nightly-app.outputs.light_mini_jobs, ' prepare-nightly-variant ') && needs.build-nightly-app.outputs.light_mini_runner || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     timeout-minutes: 100
     strategy:
       fail-fast: false
@@ -3290,7 +3321,7 @@ jobs:
     # A failed pick reads as success to the signing jobs, which then take the nightly pools.
     continue-on-error: true
     # The picker has no signing key: the nightly-only pool (tests/test_nightly_owned_minis_only.py).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     # The owned pick mints the routing token (GLAEDA_ROUTE_APP_KEY), so the key is read in the
     # routing environment, as pick-nightly-build-runner does (tests/test_supplychain_security.py).
     environment: ci-routing-agent
@@ -3434,6 +3465,8 @@ jobs:
       notary_pending: ${{ steps.notarize-nightly.outputs.submission_pending }}
       # The 6 h stapled-app fallback (notarize-nightly-dmg.sh) shipped the first DMG.
       stapled_app_fallback_id: ${{ steps.notarize-nightly.outputs.stapled_app_fallback == 'true' && steps.notarize-nightly.outputs.stapled_app_pending_id || '' }}
+      # This older build handed its sign slot to a newer one (nightly_sign_yield.py); report-nightly-failure skips it.
+      yielded: ${{ steps.sign-yield.outputs.yielded }}
     # Sign and notarize on the same macOS 26 lane proven by stable releases.
     # actions:read lets the parallel artifact download resolve the blob URL.
     permissions:
@@ -3442,7 +3475,7 @@ jobs:
     # Secret-bearing signing and notarization stay on the trusted Blacksmith
     # macOS pool; credentials remain in this protected environment and never
     # move through an artifact or worker disk.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && vars.CI_NIGHTLY_SIGN_RUNNER || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned && fromJSON(needs.pick-nightly-sign-runner.outputs.sign_owned) || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER || github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && vars.CI_NIGHTLY_SIGN_RUNNER || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned && fromJSON(needs.pick-nightly-sign-runner.outputs.sign_owned) || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}
     # Start the standalone Computer Use helper submission before Codesign apps
     # so Apple's first wait overlaps useful work; finish it before the final
     # DMG. The job budget covers both waits (see the notarize step).
@@ -3516,6 +3549,15 @@ jobs:
       # Before any secret: the same check again, and a signing keychain a killed job left is removed.
       - name: Claim the whole Mac for signing
         run: bash .nightly-signing-control/scripts/ci/signing-runner-claim.sh
+
+      # Before any secret: a newer nightly-next run whose sign job is already queued, running or
+      # signed takes this slot (cmuxterm-hq#7079); the newest never yields. scripts/ci/nightly_sign_yield.py.
+      - name: Yield the sign slot to a newer build
+        id: sign-yield
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NIGHTLY_NEXT_SIGN_YIELD: ${{ vars.NIGHTLY_NEXT_SIGN_YIELD }}
+        run: python3 .nightly-signing-control/scripts/ci/nightly_sign_yield.py
 
       - name: Install the current signing keychain controls
         if: inputs.nightly_next_unsigned_run != ''
@@ -4215,7 +4257,7 @@ jobs:
       contents: read
     # A failed-jobs rerun retains an older picker. Rejoin the fleet pool, never
     # that old runner choice, once; later attempts use the Blacksmith overflow.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}
     timeout-minutes: 40
     strategy:
       fail-fast: false
@@ -4318,7 +4360,7 @@ jobs:
     outputs:
       # 'true' only when this job's own launch smoke passed.
       smoked_in_job: ${{ steps.own-smoke.outcome == 'success' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -4409,8 +4451,8 @@ jobs:
 
   find-nightly-next-recovery:
     needs: [decide]
-    if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.decide.outputs.track == 'nightly-next' && (needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && contains(needs.decide.outputs.early_mini_jobs, ' find-nightly-next-recovery ') && needs.decide.outputs.early_mini_runner) || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.republish_run == ''
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || needs.decide.outputs.track == 'nightly-next' && (needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && contains(needs.decide.outputs.early_mini_jobs, ' find-nightly-next-recovery ') && needs.decide.outputs.early_mini_runner) || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     timeout-minutes: 70
     # The owned pick mints the routing token (GLAEDA_ROUTE_APP_KEY), so the key is read in the
     # routing environment, as pick-nightly-sign-runner does.
@@ -4480,7 +4522,7 @@ jobs:
     environment: ${{ needs.decide.outputs.environment }}
     needs: [decide, find-nightly-next-recovery]
     if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.find-nightly-next-recovery.outputs.found == 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && vars.CI_NIGHTLY_SIGN_RUNNER || needs.find-nightly-next-recovery.outputs.attempt == github.run_attempt && needs.find-nightly-next-recovery.outputs.sign_owned && fromJSON(needs.find-nightly-next-recovery.outputs.sign_owned) || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER || github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && vars.CI_NIGHTLY_SIGN_RUNNER || needs.find-nightly-next-recovery.outputs.attempt == github.run_attempt && needs.find-nightly-next-recovery.outputs.sign_owned && fromJSON(needs.find-nightly-next-recovery.outputs.sign_owned) || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}
     # An accepted continuation builds, signs and notarizes the DMG around the
     # stapled app (notarize-nightly-dmg.sh, CMUX_STAPLE_APP_IN_DMG): a 20m wait
     # and packaging per candidate; a failed one moves on to the next of 3.
@@ -4601,7 +4643,7 @@ jobs:
     if: "!cancelled() && needs.recover-nightly-next-notarization.outputs.accepted == 'true'"
     permissions:
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.find-nightly-next-recovery.outputs.attempt == github.run_attempt && needs.find-nightly-next-recovery.outputs.sign_owned && fromJSON(needs.find-nightly-next-recovery.outputs.sign_owned) || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || needs.find-nightly-next-recovery.outputs.attempt == github.run_attempt && needs.find-nightly-next-recovery.outputs.sign_owned && fromJSON(needs.find-nightly-next-recovery.outputs.sign_owned) || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}
     timeout-minutes: 40
     env:
       # Set only when the 6 h stapled-app fallback shipped the first DMG.
@@ -4640,14 +4682,75 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+  # nightly_next_republish_run: no secrets and no build. Fetches that completed nightly-next push run's
+  # verified build (scripts/ci/republish-verified-nightly.py: its signing and both verify jobs passed in
+  # the attempt, every artifact from its producer with GitHub's digest, every DMG one its verify job
+  # tested) and hands it over in the recovered layout. publish-nightly publishes it as a recovered build
+  # with this run's workflow and .publish-tooling, so a publication fix needs no rebuild (run 41815641855).
+  republish-nightly-next:
+    needs: [decide]
+    if: needs.decide.outputs.republish_run != '' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    timeout-minutes: 40
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      run_id: ${{ steps.fetch.outputs.run_id }}
+      build: ${{ steps.fetch.outputs.build }}
+      build_sha: ${{ steps.fetch.outputs.build_sha }}
+      tip_sha: ${{ steps.fetch.outputs.tip_sha }}
+      behind: ${{ steps.fetch.outputs.behind }}
+      behind_hours: ${{ steps.fetch.outputs.behind_hours }}
+      cef: ${{ steps.fetch.outputs.cef }}
+      source_archive: ${{ steps.fetch.outputs.source_archive }}
+    steps:
+      - *checkout-default
+
+      - name: Fetch the source run's verified build
+        id: fetch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN: ${{ needs.decide.outputs.republish_run }}
+          SOURCE_ATTEMPT: ${{ needs.decide.outputs.republish_attempt }}
+          CHANNEL_DMG_PREFIX: ${{ needs.decide.outputs.dmg_prefix }}
+        run: python3 -I scripts/ci/republish-verified-nightly.py --run-id "$SOURCE_RUN" --attempt "$SOURCE_ATTEMPT" --out "$RUNNER_TEMP/republished"
+
+      - name: Upload the republished variant
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-republished-variant-arm64
+          path: ${{ runner.temp }}/republished/variant/
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Upload the republished build's tested DMG digests
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-republished-tested-arm64
+          path: ${{ runner.temp }}/republished/tested/
+          if-no-files-found: error
+          retention-days: 3
+
+      # publish-nightly reads the pack by this run's name when the source build has one (its cef
+      # output), whatever CMUX_NEXT_CEF_ON_DEMAND says now: the app's pin names that pack.
+      - name: Upload the republished build's Chromium runtime pack
+        if: steps.fetch.outputs.cef == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cef-runtime-pack
+          path: ${{ runner.temp }}/republished/cef-runtime/
+          if-no-files-found: error
+          retention-days: 3
+
   # The visual gate (docs/ci/nightly-next-visual-gate.md): light and dark stills of a DEV build of
   # this run's commit on an idle owned Mac, checked beside the signed build. Skipped (`unavailable`)
   # with no idle runner; only `enforce` with a failing verdict holds this run's build.
   route-visual-gate-nightly:
     needs: [decide, resolve-nightly-cmux-tui-client]
-    if: github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.continue_only != 'true' && needs.decide.outputs.no_publish != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && vars.NIGHTLY_NEXT_VISUAL_GATE != '' && vars.NIGHTLY_NEXT_VISUAL_GATE != 'off'
+    if: github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.continue_only != 'true' && needs.decide.outputs.no_publish != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && vars.NIGHTLY_NEXT_VISUAL_GATE != '' && vars.NIGHTLY_NEXT_VISUAL_GATE != 'off' && vars.CI_NIGHTLY_MINI == ''
     # Credentials stay on the validated ephemeral set until exclusive owned-Mac admission exists.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     timeout-minutes: 5
     # GLAEDA_ROUTE_APP_KEY lives in the routing environment, like every other route job's.
     environment: ci-routing-agent
@@ -4818,7 +4921,7 @@ jobs:
     if: "!cancelled() && needs.verify-final-dmg-nightly.result == 'success' && needs.route-visual-gate-nightly.outputs.runs_on != '' && needs.route-visual-gate-nightly.outputs.mode != 'off' && needs.route-visual-gate-nightly.outputs.mode != 'invalid' && needs.route-visual-gate-nightly.outputs.mode != ''"
     # The declared nightly-only mini is enabled after live admission is verified.
     # Keep the existing fallback; never reuse the stale builder-only placement.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     # A re-run's 15 + 75 min, plus slack; attempt 1 waits at most 10.
     timeout-minutes: 100
     permissions:
@@ -4855,7 +4958,7 @@ jobs:
     if: always() && (needs.visual-gate-nightly.outputs.verdict == 'fail' || needs.visual-gate-nightly.outputs.verdict == 'pass')
     # The declared nightly-only mini is enabled after live admission is verified.
     # Keep the existing fallback; never reuse the stale builder-only placement.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     timeout-minutes: 5
     permissions:
       issues: write # the nightly-next visual gate issue
@@ -4888,7 +4991,7 @@ jobs:
   await-nightly-tree-marker:
     needs: [decide, resolve-nightly-cmux-tui-client, build-nightly-app]
     if: (needs.resolve-nightly-cmux-tui-client.outputs.tree_pending == 'true' || inputs.nightly_next_unsigned_run != '') && needs.build-nightly-app.result == 'success'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.build-nightly-app.outputs.light_attempt == format('{0}', github.run_attempt) && contains(needs.build-nightly-app.outputs.light_mini_jobs, ' await-nightly-tree-marker ') && needs.build-nightly-app.outputs.light_mini_runner || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || needs.build-nightly-app.outputs.light_attempt == format('{0}', github.run_attempt) && contains(needs.build-nightly-app.outputs.light_mini_jobs, ' await-nightly-tree-marker ') && needs.build-nightly-app.outputs.light_mini_runner || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     permissions:
       contents: read
     timeout-minutes: 60
@@ -4924,7 +5027,7 @@ jobs:
     concurrency:
       group: release-publish-${{ needs.decide.outputs.release_tag }}${{ needs.decide.outputs.track == 'nightly-next' && format('-run-{0}', github.run_id) || '' }}
       cancel-in-progress: false
-    needs: [decide, build-nightly-app, build-sign-notarize-nightly, verify-signed-nightly, verify-final-dmg-nightly, resolve-nightly-cmux-tui-client, recover-nightly-next-notarization, verify-recovered-nightly-next, await-nightly-tree-marker, pick-nightly-sign-runner, check-nightly-webviews]
+    needs: [decide, build-nightly-app, build-sign-notarize-nightly, verify-signed-nightly, verify-final-dmg-nightly, resolve-nightly-cmux-tui-client, recover-nightly-next-notarization, verify-recovered-nightly-next, republish-nightly-next, await-nightly-tree-marker, pick-nightly-sign-runner, check-nightly-webviews]
     outputs:
       tag_status: ${{ steps.tag-outcome.outputs.tag_status }}
       source: ${{ steps.source.outputs.source }}
@@ -4946,6 +5049,7 @@ jobs:
       # feed_written is false when a newer build was already on the feed.
       variant_pattern: ${{ steps.source.outputs.variant_pattern }}
       tested_pattern: ${{ steps.source.outputs.tested_pattern }}
+      source_archive: ${{ steps.source.outputs.source_archive }}
       tip_sha: ${{ steps.source.outputs.tip_sha }}
       behind: ${{ steps.source.outputs.behind }}
       behind_hours: ${{ steps.source.outputs.behind_hours }}
@@ -4954,11 +5058,11 @@ jobs:
       feed_check: ${{ steps.feedcheck.outcome }}
     # Visual coverage is advisory: route, capture, and verdict jobs still report findings, but
     # neither a display queue nor an enforce-mode verdict can hold publication.
-    if: "always() && !cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.no_publish != 'true' && ((needs.build-sign-notarize-nightly.result == 'success' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && needs.verify-signed-nightly.result == 'success' && needs.verify-final-dmg-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))"
+    if: "always() && !cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.no_publish != 'true' && ((needs.build-sign-notarize-nightly.result == 'success' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && needs.verify-signed-nightly.result == 'success' && needs.verify-final-dmg-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success') || needs.republish-nightly-next.result == 'success')"
     # The release App key remains scoped to this protected environment. Publication uploads and writes feeds
     # at about one core (publish-nightly 64 s on 32 vCPU at 1.39 cores, .github/runners.json): with no owned
     # pool it takes the signing picker's Linux label, as keep-published-dsyms does, else the Linux 4 vCPU pool.
-    runs-on: &pub-runner ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && vars.CI_NIGHTLY_SIGN_RUNNER || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}
+    runs-on: &pub-runner ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER || github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && vars.CI_NIGHTLY_SIGN_RUNNER || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}
     # 120 for the work (an hour of it for API rate-limit waits) plus the lease's 60-minute wait.
     timeout-minutes: 180
     env:
@@ -5002,8 +5106,26 @@ jobs:
           RECOVERED_TIP_SHA: ${{ needs.recover-nightly-next-notarization.outputs.tip_sha }}
           RECOVERED_BEHIND: ${{ needs.recover-nightly-next-notarization.outputs.behind }}
           RECOVERED_BEHIND_HOURS: ${{ needs.recover-nightly-next-notarization.outputs.behind_hours }}
+          REPUBLISHED: ${{ needs.republish-nightly-next.result }}
+          REPUBLISHED_RUN_ID: ${{ needs.republish-nightly-next.outputs.run_id }}
+          REPUBLISHED_BUILD: ${{ needs.republish-nightly-next.outputs.build }}
+          REPUBLISHED_BUILD_SHA: ${{ needs.republish-nightly-next.outputs.build_sha }}
+          REPUBLISHED_TIP_SHA: ${{ needs.republish-nightly-next.outputs.tip_sha }}
+          REPUBLISHED_BEHIND: ${{ needs.republish-nightly-next.outputs.behind }}
+          REPUBLISHED_BEHIND_HOURS: ${{ needs.republish-nightly-next.outputs.behind_hours }}
+          # Chromium on demand and the source offer: the switches as they are now, except that a
+          # republished build publishes the pack its source signed with (the app's pin names it), and
+          # no source archive when its source made none.
+          CEF_ON_DEMAND: ${{ vars.CMUX_NEXT_CEF_ON_DEMAND }}
+          PUBLISH_SOURCE_ARCHIVE: ${{ vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE }}
+          REPUBLISHED_CEF: ${{ needs.republish-nightly-next.outputs.cef }}
+          REPUBLISHED_SOURCE_ARCHIVE: ${{ needs.republish-nightly-next.outputs.source_archive }}
         run: |
           set -euo pipefail
+          run_id=
+          cef=false source_archive=false
+          [ "${CEF_ON_DEMAND:-}" = 1 ] && cef=true
+          [ "${PUBLISH_SOURCE_ARCHIVE:-}" = 1 ] && source_archive=true
           if [ "$OWN_RESULT" = success ] && [ "$OWN_PENDING" != true ] && [ "$OWN_VERIFIED" = success ] && [ "$OWN_DMG_VERIFIED" = success ] && [ "$OWN_TREE" = ok ]; then
             source=own build="$OWN_BUILD" build_sha="$OWN_BUILD_SHA" tip_sha="$OWN_TIP_SHA"
             behind="$OWN_BEHIND" behind_hours="$OWN_BEHIND_HOURS" pattern="cmux-nightly-variant-*"
@@ -5011,8 +5133,16 @@ jobs:
           elif [ "$RECOVERED" = true ] && [ "$RECOVERED_VERIFIED" = success ]; then
             source=recovered build="$RECOVERED_BUILD" build_sha="$RECOVERED_BUILD_SHA" tip_sha="$RECOVERED_TIP_SHA"
             behind="$RECOVERED_BEHIND" behind_hours="$RECOVERED_BEHIND_HOURS" pattern="cmux-nightly-recovered-variant-*"
-            tested_pattern="cmux-nightly-recovered-tested-*"
+            tested_pattern="cmux-nightly-recovered-tested-*" run_id="$RECOVERED_RUN_ID"
             echo "::notice title=Publishing an earlier nightly-next build::this run's build was not accepted in time; publishing build $build from run $RECOVERED_RUN_ID"
+          elif [ "${REPUBLISHED:-}" = success ]; then
+            # Published as a recovered build: the lineage and webview gate read its run.
+            source=recovered build="$REPUBLISHED_BUILD" build_sha="$REPUBLISHED_BUILD_SHA" tip_sha="$REPUBLISHED_TIP_SHA"
+            behind="$REPUBLISHED_BEHIND" behind_hours="$REPUBLISHED_BEHIND_HOURS" pattern="cmux-nightly-republished-variant-*"
+            tested_pattern="cmux-nightly-republished-tested-*" run_id="$REPUBLISHED_RUN_ID"
+            [ "${REPUBLISHED_CEF:-}" = true ] && cef=true || cef=false
+            [ "${REPUBLISHED_SOURCE_ARCHIVE:-}" = true ] || source_archive=false
+            echo "::notice title=Republishing a verified nightly-next build::build $build from run $REPUBLISHED_RUN_ID, with this run's publication tooling"
           else
             echo "nothing accepted to publish" >&2
             exit 1
@@ -5028,6 +5158,9 @@ jobs:
             echo "behind_hours=$behind_hours"
             echo "variant_pattern=$pattern"
             echo "tested_pattern=$tested_pattern"
+            echo "run_id=$run_id"
+            echo "cef=$cef"
+            echo "source_archive=$source_archive"
           } >> "$GITHUB_OUTPUT"
           echo "NIGHTLY_BUILD=$build" >> "$GITHUB_ENV"
 
@@ -5223,7 +5356,7 @@ jobs:
           BUILD_SHA: ${{ steps.source.outputs.build_sha }}
           WEBVIEW_CHECK: ${{ needs.check-nightly-webviews.result }}
           WEBVIEW_CHECK_SHA: ${{ needs.check-nightly-webviews.outputs.sha }}
-          RECOVERED_RUN_ID: ${{ needs.recover-nightly-next-notarization.outputs.run_id }}
+          RECOVERED_RUN_ID: ${{ steps.source.outputs.run_id }}
         run: bash .publish-tooling/scripts/ci/nightly-steps/publish-final-gate.sh
 
       - name: Prune old nightly release assets
@@ -5315,16 +5448,17 @@ jobs:
       # appcast enclosure and object key. It never receives CF_R2_* .
       # Chromium on demand: the pack the app's pin names goes up before the
       # appcast that offers the app. A recovered build from another run has no
-      # pack artifact here, so this fails and nothing is offered.
+      # pack artifact here, so this fails and nothing is offered. A republished
+      # build follows its source (steps.source.outputs.cef), not the switch.
       - name: Download the Chromium runtime pack
-        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_CEF_ON_DEMAND == '1' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
+        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.source.outputs.cef == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: cef-runtime-pack
           path: cef-runtime
 
       - name: Publish the Chromium runtime pack
-        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_CEF_ON_DEMAND == '1' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
+        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.source.outputs.cef == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
@@ -5518,24 +5652,26 @@ jobs:
         run: bash .publish-tooling/scripts/ci/nightly-steps/github-publish-release-assets.sh
 
       - name: Download the cmux-next source archive
-        if: vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1' && needs.publish-nightly.outputs.source == 'own'
+        if: needs.publish-nightly.outputs.source_archive == 'true' && needs.publish-nightly.outputs.source == 'own'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-next-source-archive
           path: source-archive
 
-      # Gated by vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE (the coordinator sets it).
+      # Gated by vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE (the coordinator sets it), through
+      # publish-nightly's source_archive, which is also false for a republished build whose
+      # source made no archive (republish-verified-nightly.py).
       # Tags the build commit cmux-next-src-<11 characters> and attaches
       # cmux-next-source-<build>.tar.gz to the nightly-next release. The prune
       # step removes it only together with the app assets of <build>, whose
       # source offer names it (prune_nightly_release_assets.py), never by age.
       # A recovered build carries its source archive in the recovered variant.
       - name: Take the recovered build's source archive
-        if: vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1' && needs.publish-nightly.outputs.source == 'recovered'
+        if: needs.publish-nightly.outputs.source_archive == 'true' && needs.publish-nightly.outputs.source == 'recovered'
         run: mv nightly-out/source-archive source-archive
 
       - name: Publish the cmux-next source archive
-        if: vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1'
+        if: needs.publish-nightly.outputs.source_archive == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_APP_TOKEN: ${{ steps.gh-app-token.outputs.token }} # App first, GH_TOKEN as fallback
@@ -5794,7 +5930,10 @@ jobs:
   # After publish-nightly (#25957).
   sign-nightly-identity-legacy:
     needs: [decide, build-nightly-app, legacy-identity-target, pick-nightly-sign-runner, publish-nightly]
-    if: "!cancelled() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && (needs.decide.outputs.notary_paused != 'true' || needs.legacy-identity-target.outputs.action == 'continue') && needs.legacy-identity-target.result == 'success' && needs.legacy-identity-target.outputs.build != '' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'"
+    # Only a build publish-nightly-identity-legacy can publish: this run's build that cmux NEXT published, a
+    # continued submission, or a target with no source run. A run whose sign yielded to a newer build (publish-nightly
+    # skipped) signed nothing for the old feed, yet held the only signing runner for it (run 41931011216).
+    if: "!cancelled() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && (needs.decide.outputs.notary_paused != 'true' || needs.legacy-identity-target.outputs.action == 'continue') && ((needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.build == needs.legacy-identity-target.outputs.build) || (needs.publish-nightly.result == 'skipped' && needs.legacy-identity-target.outputs.action == 'continue') || needs.legacy-identity-target.outputs.source_run == '') && needs.legacy-identity-target.result == 'success' && needs.legacy-identity-target.outputs.build != '' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'"
     continue-on-error: true
     environment: release-next
     # One signing slot per run: a newer run signs alongside an older one and
@@ -5834,7 +5973,7 @@ jobs:
     # Owned Macs only (Lawrence, 2026-10-30): a drained mini the picker chose on this attempt (sign_owned), held
     # whole for this job (the claim step below), else the owned nightly slot, the owned side lane, then the owned
     # std pool, so an unset or retired lane variable never leaves the job on one dead queue.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && vars.CI_NIGHTLY_SIGN_RUNNER || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned && fromJSON(needs.pick-nightly-sign-runner.outputs.sign_owned) || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER || github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && vars.CI_NIGHTLY_SIGN_RUNNER || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned && fromJSON(needs.pick-nightly-sign-runner.outputs.sign_owned) || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}
     # Apple's wait is 20 min, as for cmux NEXT (#20518). A submission still in
     # Apple's queue is kept (artifacts cmux-nightly-identity-pending-meta and
     # -bundle) and a later run continues that exact submission
@@ -6064,7 +6203,7 @@ jobs:
     # No environment and no secrets, like verify-signed-nightly: a free owned Mac first, then the
     # owned nightly slot, the owned side lane, then the owned std pool. Nightlies never use Blacksmith
     # (Lawrence, 2026-10-30).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}
     timeout-minutes: 30
     outputs:
       tested_sha256: ${{ steps.verify.outputs.tested_sha256 }}
@@ -6395,7 +6534,7 @@ jobs:
     if: "always() && !cancelled() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.notary_probe != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.fast_build != 'true' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'"
     # The declared nightly-only mini is enabled after live admission is verified.
     # Keep the existing fallback; never reuse the stale builder-only placement.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     timeout-minutes: 5
     permissions: {}
     env:
@@ -6458,7 +6597,7 @@ jobs:
       actions: read
     # Never Blacksmith (Lawrence, 2026-10-30). A Sparkle key: placed and held whole as the legacy sign. Optional:
     # a failed or refused delta never fails the run or holds the feed. NIGHTLY_DELTAS=off skips them.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && vars.CI_NIGHTLY_SIGN_RUNNER || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned && fromJSON(needs.pick-nightly-sign-runner.outputs.sign_owned) || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER || github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && vars.CI_NIGHTLY_SIGN_RUNNER || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned && fromJSON(needs.pick-nightly-sign-runner.outputs.sign_owned) || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}
     continue-on-error: true
     strategy:
       fail-fast: false
@@ -6737,7 +6876,7 @@ jobs:
     if: "!cancelled() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.no_publish != 'true' && needs.decide.outputs.published_sha != '' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.source != 'recovered'"
     # Hosted Ubuntu: the token stays on an ephemeral runner, and a paced job of up to five hours
     # must not hold a nightly-only mini. Never Blacksmith.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     # Each write is paced at 7.5 s under GitHub's hourly content limit.
     # A shared edit plus a legacy deletion for all 1,000 allowed PRs takes
     # 250 min; leave room for reads. This runs after publication.
@@ -6958,11 +7097,11 @@ jobs:
   # published build whose notes jobs did not both succeed is reported too
   # (run 37526646874 published with its notes job cancelled and no alarm).
   report-nightly-failure:
-    needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, build-nightly-remote-daemon, resolve-nightly-cmux-tui-client, prepare-nightly-variant, build-sign-notarize-nightly, verify-signed-nightly, verify-final-dmg-nightly, verify-recovered-nightly-next, publish-nightly, generate-nightly-deltas, republish-nightly-deltas, sign-release-notes, publish-release-notes]
+    needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, build-nightly-remote-daemon, resolve-nightly-cmux-tui-client, prepare-nightly-variant, build-sign-notarize-nightly, verify-signed-nightly, verify-final-dmg-nightly, verify-recovered-nightly-next, republish-nightly-next, publish-nightly, generate-nightly-deltas, republish-nightly-deltas, sign-release-notes, publish-release-notes]
     if: always() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.notary_test != 'true' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || needs.publish-nightly.outputs.feed_check == 'failure' || needs.publish-nightly.outputs.tag_status == 'stale' || needs.publish-nightly.outputs.refusal_reason != '' || (needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.source != 'recovered' && (needs.sign-release-notes.result != 'success' || needs.publish-release-notes.result != 'success')))
     # The declared nightly-only mini is enabled after live admission is verified.
     # Keep the existing fallback; never reuse the stale builder-only placement.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     permissions:
       contents: read
       issues: write
@@ -7014,9 +7153,16 @@ jobs:
                 core.warning(`Could not read this run's jobs (${error.message}); reporting the cancelled build.`);
               }
             }
+            // An older build that handed its sign slot to a newer one (nightly_sign_yield.py) is not a failure.
+            const yielded = results['build-sign-notarize-nightly']?.outputs?.yielded === 'true';
             const failed = Object.entries(results)
-              .filter(([k, v]) => (v.result === 'failure' || v.result === 'cancelled') && !(replaced && k === 'build-nightly-app'))
+              .filter(([k, v]) => (v.result === 'failure' || v.result === 'cancelled') && !(replaced && k === 'build-nightly-app')
+                && !(yielded && k === 'build-sign-notarize-nightly'))
               .map(([k, v]) => `${k} (${v.result})`);
+            if (yielded && failed.length === 0 && !process.env.REFUSAL_REASON && process.env.TAG_STATUS !== 'stale') {
+              core.info('build-sign-notarize-nightly gave its sign slot to a newer nightly-next build; nothing else failed.');
+              return;
+            }
             if (replaced && failed.length === 0 && !process.env.REFUSAL_REASON && process.env.TAG_STATUS !== 'stale') {
               core.info('build-nightly-app was replaced in its slot by a newer nightly-next push before it started; nothing else failed.');
               return;
@@ -7063,7 +7209,7 @@ jobs:
     if: always() && needs.decide.outputs.should_publish == 'true' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.tag_status == 'updated' && (needs.generate-nightly-deltas.result == 'success' || needs.generate-nightly-deltas.result == 'skipped') && (needs.republish-nightly-deltas.result == 'success' || needs.republish-nightly-deltas.result == 'skipped') && (needs.decide.outputs.track != 'nightly-next' || needs.publish-nightly.outputs.source == 'recovered' || (needs.sign-release-notes.result == 'success' && needs.publish-release-notes.result == 'success'))
     # The declared nightly-only mini is enabled after live admission is verified.
     # Keep the existing fallback; never reuse the stale builder-only placement.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     permissions:
       contents: read
       issues: write
