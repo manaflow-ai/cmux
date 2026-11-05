@@ -11,7 +11,7 @@ nonisolated final class RenderLoad: @unchecked Sendable {
     static let qos: QualityOfService = .userInteractive
     /// Tell Ghostty each test surface is focused, so its renderer thread runs at userInteractive (Ghostty's
     /// Thread.setQosClass: visible + unfocused is userInitiated, visible + focused is userInteractive).
-    static let focusSurfaces = false
+    static let focusSurfaces = true
     static let shared = RenderLoad()
     private let lock = NSLock()
     private var on = false
