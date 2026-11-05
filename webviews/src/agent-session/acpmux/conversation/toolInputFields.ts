@@ -21,6 +21,9 @@ export function inputFields(args: unknown): InputField[] | undefined {
     if (typeof value === "string") {
       const text = value.replace(/\n$/, "");
       fields.push({ key, text, look: text.includes("\n") && MARKDOWN.test(text) ? "markdown" : "prose" });
+    } else if (Array.isArray(value) && value.length > 0 && value.every(isScalar) && value.join(", ").length <= 120) {
+      // A short list of words or numbers reads as one line ("bug, frontend"), not a bracketed tree.
+      fields.push({ key, text: value.join(", "), look: "prose" });
     } else if (typeof value === "object") {
       const text = prettyValue(value);
       if (text) fields.push({ key, text, look: "tree" });
@@ -49,4 +52,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /// `plain`); the keys are labels it skips.
 export function fieldsText(fields: readonly InputField[], plain: (markdown: string) => string): string {
   return fields.map((field) => (field.look === "markdown" ? plain(field.text) : field.text)).join("\n");
+}
+
+function isScalar(value: unknown): value is string | number | boolean {
+  return (
+    (typeof value === "string" && !value.includes("\n")) || typeof value === "number" || typeof value === "boolean"
+  );
 }

@@ -4235,6 +4235,18 @@ a.cv-sha:focus-visible {
 .cv-tool-detail__value.is-markdown {
   white-space: normal;
 }
+/* A field is a value, not a document: its headings stay at the field's size, in the emphasis weight,
+   and its blocks sit close (Claude's tool sheet draws a prompt's Markdown at body size). */
+.cv-tool-detail__value.is-markdown :is(h1, h2, h3, h4, h5, h6) {
+  margin: var(--ds-space-2) 0 var(--ds-space-1);
+  font-size: inherit;
+  line-height: inherit;
+  font-weight: var(--weight-emphasis);
+}
+.cv-tool-detail__value.is-markdown > :first-child,
+.cv-tool-detail__value.is-markdown > :first-child > :first-child {
+  margin-top: 0;
+}
 .cv-tool-detail__value > pre {
   margin: 0;
   font: inherit;

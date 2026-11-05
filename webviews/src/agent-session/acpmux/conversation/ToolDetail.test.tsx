@@ -90,6 +90,11 @@ test("an object input reads as one field per argument, in the order it came, by 
   // Anything but an object with a field in it is shown as it came.
   expect(inputFields("ls -la")).toBeUndefined();
   expect(inputFields(["a", "b"])).toBeUndefined();
+  // A short list of words reads as one line; a list of objects stays a tree.
+  expect(inputFields({ labels: ["bug", "frontend"] })).toEqual([
+    { key: "labels", text: "bug, frontend", look: "prose" },
+  ]);
+  expect(inputFields({ edits: [{ a: 1 }] })?.[0]?.look).toBe("tree");
   expect(inputFields({ empty: "" })).toBeUndefined();
 });
 

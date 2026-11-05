@@ -30,7 +30,7 @@ const createIssue = () =>
     inputSummary: JSON.stringify({
       team: "WEB",
       title: "Landing page hydration warning",
-      description: "The server renders the date in UTC and the client in local time, so the first paint differs.",
+      body: "The server renders the date in UTC and the client in local time, so the first paint differs.",
       labels: ["bug", "frontend"],
       priority: 2,
     }),
