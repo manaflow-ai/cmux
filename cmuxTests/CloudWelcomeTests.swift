@@ -232,8 +232,8 @@ struct CloudWelcomeTests {
         }
         try #require(moviePlaying, "the movie never played, so the old code path would not run either: \(state)")
 
-        // Hosts without a ticking display never fire `.animation`, so each new
-        // input re-runs the TimelineView body directly; a live display adds frames.
+        // Each new input re-runs the TimelineView body, so this still exercises it
+        // on a host whose display is not delivering `.animation` frames.
         var fills = Set<Int>()
         for revision in 1...5 {
             hosting.rootView = card(headline: "\(revision)")
