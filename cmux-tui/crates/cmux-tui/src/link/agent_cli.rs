@@ -360,14 +360,14 @@ fn fresh(args: &Args, records: &Records) -> Result<Moved, Failed> {
         let capability = cmux_tui_core::server::agent_transfer::AGENT_TRANSFER_CAPABILITY;
         if let Some(outdated) = super::machine_gate::outdated(socket, &[capability]) {
             // Not "update the machine": the outdated side may be this Mac's own daemon.
-            let mut failed = Failed::new(
-                super::machine_gate::OUTDATED,
-                format!(
-                    "the {side} daemon runs an older cmux-tui ({}) without {}",
-                    outdated.build.as_deref().unwrap_or("unknown build"),
-                    outdated.missing.join(", ")
-                ),
-            );
+            let build = outdated.build.as_deref().unwrap_or("unknown build");
+            let missing = outdated.missing.join(", ");
+            let message = if outdated.older {
+                format!("the {side} daemon runs an older cmux-tui ({build}) without {missing}")
+            } else {
+                format!("the {side} daemon ({build}) is not older but does not serve {missing} on this connection")
+            };
+            let mut failed = Failed::new(outdated.code(), message);
             failed.side = Some(side);
             return Err(failed);
         }
