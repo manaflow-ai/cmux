@@ -264,8 +264,15 @@ fn normalize_schema(schema: &mut Value, open_enums: bool) {
 
     for key in SCHEMA_MAPS {
         if let Some(map) = obj.get_mut(*key).and_then(Value::as_object_mut) {
-            map.values_mut()
-                .for_each(|v| normalize_schema(v, open_enums));
+            for v in map.values_mut() {
+                // A property that can only be null (cmux-platform's placement
+                // accounting fields, reserved for later) has no 3.0 type: it
+                // reads as any value, which accepts the null it always is.
+                if is_null_schema(v) {
+                    *v = Value::Object(Map::new());
+                }
+                normalize_schema(v, open_enums);
+            }
         }
     }
     for key in SCHEMA_VALUES {
