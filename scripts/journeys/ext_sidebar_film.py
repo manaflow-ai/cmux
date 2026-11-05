@@ -371,6 +371,19 @@ def summarize(presses):
     return out
 
 
+def _frame_name(frame, deref):
+    """A frame's symbol; an address or a folded symbol (`0x10bb250d4`, `<deduplicated_symbol>`: a stripped binary such
+    as the app's linked Zig and Rust code, or the Chromium framework) is named by its binary, so the time still splits
+    by module ("cmux:0x10bb250d4", "Chromium Embedded Framework:0x157...")."""
+    name = frame.get("name") or frame.get("fmt") or "?"
+    if name.startswith("0x") or name.startswith("<"):
+        binary = frame.find("binary")
+        binary = deref(binary) if binary is not None else None
+        if binary is not None and binary.get("name"):
+            return f"{binary.get('name')}:{name}"
+    return name
+
+
 def _profile_rows(xml_path):
     """(thread name, weight ns, [frame names leaf first]) per sample of an xctrace time-profile export. Elements
     with `ref` point at an earlier element with that `id`."""
@@ -397,7 +410,7 @@ def _profile_rows(xml_path):
         if trace is not None and trace.tag != "backtrace":
             inner = next((deref(e) for e in trace.iter() if e.tag == "backtrace" and e is not trace), None)
             trace = inner if inner is not None else trace
-        frames = [deref(f).get("name") or deref(f).get("fmt") or "?" for f in (trace.iter("frame") if trace is not None else [])]
+        frames = [_frame_name(deref(f), deref) for f in (trace.iter("frame") if trace is not None else [])]
         try:
             ns = int((weight.text or "0").strip()) if weight is not None else 1000000
         except ValueError:

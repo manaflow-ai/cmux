@@ -72,6 +72,9 @@ XML = """<?xml version="1.0"?>
 <row><sample-time id="7">2</sample-time><thread ref="2"/><weight ref="3"/><backtrace ref="4"/></row>
 <row><sample-time id="8">3</sample-time><thread id="9" fmt="Thread 0x2 (cmux, pid: 9)"/><weight ref="3"/>
 <tagged-backtrace id="11"><backtrace id="10"><frame ref="6"/></backtrace></tagged-backtrace></row>
+<row><sample-time id="12">4</sample-time><thread ref="2"/><weight ref="3"/>
+<tagged-backtrace id="13"><backtrace id="14"><frame id="15" name="0x10bb250d4" addr="0x10bb261ac"><binary id="16" name="cmux"/></frame>
+<frame id="17" name="0x1aa" addr="0x1ab"><binary ref="16"/></frame><frame ref="6"/></backtrace></tagged-backtrace></row>
 </node></trace-query-result>"""
 
 
@@ -82,7 +85,8 @@ class ProfileRowsTests(unittest.TestCase):
             handle.write(XML)
         rows = film._profile_rows(handle.name)
         os.unlink(handle.name)
-        self.assertEqual(len(rows), 3)
+        self.assertEqual(len(rows), 4)
+        self.assertEqual(rows[3][2], ["cmux:0x10bb250d4", "cmux:0x1aa", "apply"])
         self.assertEqual(rows[1], ("Main Thread 0x1 (cmux, pid: 9)", 1000000, ["layoutRows", "apply"], 2))
         self.assertEqual(rows[2][0], "Thread 0x2 (cmux, pid: 9)")
         self.assertEqual(rows[2][2], ["apply"])
