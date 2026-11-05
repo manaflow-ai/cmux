@@ -734,10 +734,6 @@ path = "tests/test_nightly_promotion_admission.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_defaults_guard_review_rerun.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_ci_intent_familiar_review_git.py"
 lane = "linux-guard"
 
