@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 573,
+  "count": 574,
   "sections": [
     {
       "id": "general",
@@ -3114,6 +3114,19 @@
           }
         },
         {
+          "key": "layout.cornerPadding",
+          "title": "Corner Padding",
+          "help": "Space between a pane's edge and its tabs. Inner corners use the corner radius minus this.",
+          "kind": "number",
+          "default": null,
+          "group": "Panes",
+          "range": {
+            "min": 0,
+            "max": 12,
+            "unit": "points"
+          }
+        },
+        {
           "key": "layout.paneBorder",
           "title": "Border",
           "help": "",
@@ -3149,7 +3162,7 @@
         {
           "key": "layout.paneCornerRadius",
           "title": "Corner Radius",
-          "help": "",
+          "help": "One radius for panes and tabs. Shapes inside a pane use this radius minus the corner padding.",
           "kind": "number",
           "default": null,
           "group": "Panes",

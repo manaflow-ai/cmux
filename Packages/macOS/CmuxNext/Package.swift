@@ -65,8 +65,9 @@ import PackageDescription
 //     plans/cmux-next/react-pages.md)
 //   CmuxNextCodeRouter -> CmuxNextCloud (provider sign-in detection, the CodeRouter control-plane
 //     client, pasted-key Keychain store, account row state; no UI, no daemon; plans/cmux-next/coderouter.md)
-//   CmuxNextAccounts -> Actions, Cloud, CodeRouter, Design, Icons, Pages, Settings, Wakeups (Settings > Accounts, the
-//     GitHub App connection and the onboarding step; the App supplies AccountsServices)
+//   CmuxNextAccounts -> Actions, AgentPane, AgentUpdates, Cloud, CodeRouter, DaemonService, Design, Icons, Pages,
+//     Settings, Wakeups (Settings > Accounts, the GitHub App connection and the onboarding step; the App supplies
+//     AccountsServices; Settings > Agents > Harnesses and the provider accounts routing may use)
 //   CmuxNextAgentIntegrations -> Daemon, Pages, Settings (Settings > Agents > Agent integrations: relays the bundled
 //     CLI's `agent hook status|install|uninstall`; the App supplies the CLI's location)
 //   CmuxNextBookmarks -> Design, Icons (bookmark tree per browser profile, Netscape HTML, ranking, file store,
@@ -329,6 +330,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextBookmarks",
                 "CmuxNextAgentActivity",
                 "CmuxNextScreenshots",
+                "CmuxNextLiveCode",
                 "CmuxNextAgentLanes",
                 "CmuxNextChiefViews",
                 "CmuxNextAgentCursor",
@@ -466,7 +468,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // supplies `AccountsServices`.
         .target(
             name: "CmuxNextAccounts",
-            dependencies: ["CmuxNextActions", "CmuxNextCloud", "CmuxNextCodeRouter", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextPages", "CmuxNextSettings", "CmuxNextWakeups", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
+            dependencies: ["CmuxNextActions", "CmuxNextAgentPane", "CmuxNextAgentUpdates", "CmuxNextCloud", "CmuxNextCodeRouter", "CmuxNextDaemonService", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextPages", "CmuxNextSettings", "CmuxNextWakeups", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
                            .product(name: "CMUXAuthCore", package: "CMUXAuthCore")],
             resources: [
                 .process("Localizable.xcstrings"),
@@ -1231,6 +1233,13 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             swiftSettings: uiSwiftSettings
         ),
+        // Live code in the app: loads a patch of the app's own Swift functions without a rebuild or
+        // a relaunch, and redraws its windows (Sources/CmuxNextLiveCode/LiveCode.swift).
+        .target(
+            name: "CmuxNextLiveCode",
+            dependencies: ["CmuxNextCompat"],
+            swiftSettings: uiSwiftSettings
+        ),
         // Web updates in the app (plans/cmux-next/web-ota.md): serves a signed web update from
         // a safe point and answers `updates.web.*`.
         .target(
@@ -1802,6 +1811,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextVSCodeServer",
                 "CmuxNextWakeups",
                 "CmuxNextWakeupsTestSupport",
+                "CmuxNextWebUpdates",
                 "CmuxNextWorkspaceNaming",
                 "CmuxNextWorkspaceRepair",
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),

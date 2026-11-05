@@ -285,7 +285,7 @@ impl Inner {
     /// synced. A crash leaves the file whole or not there (review of #35562, D2: a file written in
     /// place could keep a torn last line); not there, its lines are still in the journal, as no
     /// checkpoint ran after it.
-    fn write_kept(
+    pub(super) fn write_kept(
         &self,
         id: &str,
         rest: &str,
@@ -321,7 +321,10 @@ impl Inner {
             for line in lines {
                 file.write_all(line)?;
             }
-            file.sync_all()?;
+            // A failed sync is a `SyncFailed`: inside a counted sync it freezes the store.
+            file.sync_all()
+                .map_err(SyncFailed)
+                .with_context(|| format!("sync {}", tmp.display()))?;
             drop(file);
             std::fs::rename(&tmp, &path)
                 .with_context(|| format!("rename to {}", path.display()))?;

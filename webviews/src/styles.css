@@ -108,8 +108,7 @@ html:has(.acpmux-shell[data-tab-row]) {
      ground: the window's shows through"): the window's own tint and blur over the image make its
      names readable. Its sticky folder rows keep the film, so rows scrolling under them do not show
      through their text; it takes the film while it slides, when it passes over code.
-   - The tree's own layers go clear so no tint stacks; a shortened name's marker keeps the solid
-     backdrop so the hidden text does not show under it.
+   - The tree's own layers go clear so no tint stacks; a long name fades out at its end.
    - File names keep their status color, mixed toward the text color for contrast. */
 @media not (prefers-reduced-transparency: reduce) {
   :root[data-cmux-see-through]:not([data-reduce-transparency]) {
@@ -117,7 +116,6 @@ html:has(.acpmux-shell[data-tab-row]) {
     --cmux-diff-files-sticky-bg: var(--cmux-diff-header-bg);
     --cmux-diff-files-float-bg: var(--cmux-diff-header-bg);
     --cmux-diff-files-layer-bg: transparent;
-    --cmux-diff-truncate-marker-bg: var(--cmux-diff-solid-bg);
     --cmux-diff-tree-name-strength: 65%;
     /* A tint of the text color, not the theme surface (no navy or other theme hue). */
     --cmux-diff-header-bg: color-mix(in srgb, var(--cmux-diff-fg) 5%, transparent);

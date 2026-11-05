@@ -130,6 +130,8 @@ pub mod session_state_import;
 pub mod terminal_host;
 pub mod terminal_host_protocol;
 pub mod terminal_host_runtime;
+#[cfg(any(target_vendor = "apple", target_os = "linux"))]
+pub mod test_owner;
 #[cfg(unix)]
 pub use cmux_tui_platform::unix_process_scope;
 pub use cmux_tui_util::user_settings;

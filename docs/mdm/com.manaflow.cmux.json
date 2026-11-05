@@ -2851,6 +2851,13 @@
       "title" : "Focus After Closing a Pane",
       "type" : "string"
     },
+    "layout.cornerPadding" : {
+      "description" : "Space between a pane's edge and its tabs. Inner corners use the corner radius minus this.",
+      "maximum" : 12,
+      "minimum" : 0,
+      "title" : "Corner Padding",
+      "type" : "number"
+    },
     "layout.defaultColumnWidth" : {
       "default" : 0.6666666666666666,
       "description" : "A share of the window width, for Fixed Width new columns.",
@@ -2985,7 +2992,7 @@
       "type" : "number"
     },
     "layout.paneCornerRadius" : {
-      "description" : "layout.paneCornerRadius",
+      "description" : "One radius for panes and tabs. Shapes inside a pane use this radius minus the corner padding.",
       "maximum" : 20,
       "minimum" : 0,
       "title" : "Corner Radius",
