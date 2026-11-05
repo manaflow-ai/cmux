@@ -3,7 +3,7 @@
 // Cmd and Ctrl chords never reach a page handler (`plain`): the app's key dispatcher owns them.
 import { useSyncExternalStore } from "react";
 import type { Strings } from "../shared/i18n";
-import { useLasting } from "../../ui/lasting";
+import { useLasting, useLoadingShown } from "../../ui/lasting";
 import { AccountPanel } from "./AccountPanel";
 import { CreateSheet } from "./CreateSheet";
 import { MachineDetailView } from "./MachineDetail";
@@ -21,6 +21,10 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
   const down = snap.connection === "disconnected";
   const failed = snap.connection === "failed";
   const downLasting = useLasting(down);
+  // The first read usually answers in well under a second: the page stays blank until then, and
+  // says Loading… only once it lasts (a failure still shows its own card at once).
+  const loading = !snap.auth || (snap.loading && snap.rows.length === 0);
+  const loadingShown = useLoadingShown(loading);
   const signedIn = !!snap.auth?.signedIn && snap.connection === "connected";
   const storefront = signedIn && (snap.view === "get" || (!snap.loading && snap.rows.length === 0));
   // The header switches between the list and the storefront once the team has a machine.
@@ -59,8 +63,7 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
           )}
         </div>
       );
-    if (!snap.auth || (snap.loading && snap.rows.length === 0))
-      return <div className="cloud-message cloud-loading">{t(L.loading)}</div>;
+    if (loading) return loadingShown ? <div className="cloud-message cloud-loading">{t(L.loading)}</div> : null;
     // Signed out, with no machines yet, or at `#/get`: the storefront (Storefront.tsx).
     if (!snap.auth.signedIn || storefront)
       return (
