@@ -29,6 +29,21 @@ import Testing
         #expect(answer.errorCode == nil)
     }
 
+    /// acpmux's type on the machine (cmux-host relay `final_event_of`) survives the stream: a closed daemon's
+    /// detail, cause and retry, an auth kind; an older machine's bare error has none of them.
+    @Test func anErrorKeepsItsTypeFromTheMachine() {
+        var answer = CloudRelayChat.Answer()
+        answer.apply(line: #"{"kind":"error","code":"chat.failed","message":"daemon connection closed","detail":"daemon_closed","acpmux_code":"runtime","retryable":true,"cause":"panicked","error_kind":"auth.signed_out"}"#, at: .seconds(2))
+        #expect(answer.errorCode == "chat.failed")
+        #expect(answer.errorDetail == "daemon_closed")
+        #expect(answer.errorCause == "panicked")
+        #expect(answer.errorKind == "auth.signed_out")
+        #expect(answer.errorRetryable == true)
+        var bare = CloudRelayChat.Answer()
+        bare.apply(line: #"{"kind":"error","code":"chat.failed","message":"x","detail":7,"retryable":"yes"}"#, at: .zero)
+        #expect(bare.errorDetail == nil && bare.errorCause == nil && bare.errorKind == nil && bare.errorRetryable == nil)
+    }
+
     @Test func anErrorEndsTheTurnAndJunkIsIgnored() {
         var answer = CloudRelayChat.Answer()
         answer.apply(line: "not json", at: .zero)

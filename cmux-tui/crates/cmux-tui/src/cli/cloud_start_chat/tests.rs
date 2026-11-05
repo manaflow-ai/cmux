@@ -912,3 +912,17 @@ pub(in crate::cli) fn contract_relay_words() -> Vec<String> {
     assert_eq!(&words[..2], &strings(&["cloud", "relay-chat"]), "{:?}", fake.ran);
     words
 }
+
+#[test]
+fn a_relay_turn_error_keeps_the_machines_type() {
+    let relayed = json!({"machine_id": "vm-1", "session_id": "s-1", "ended": true, "delivered": true,
+        "error_code": "chat.failed", "error_message": "daemon connection closed", "error_detail": "daemon_closed",
+        "error_cause": "panicked", "error_kind": "auth.signed_out", "error_retryable": true, "reply": ""});
+    let typed = typed_error(&relayed);
+    assert_eq!(
+        typed,
+        json!({"detail": "daemon_closed", "cause": "panicked", "kind": "auth.signed_out", "retryable": true})
+    );
+    // An older app's answer has none: nothing is made up.
+    assert_eq!(typed_error(&json!({"error_code": "chat.failed"})), json!({}));
+}
