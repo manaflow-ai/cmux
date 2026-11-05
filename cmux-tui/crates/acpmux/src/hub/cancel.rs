@@ -132,7 +132,7 @@ impl Hub {
     pub async fn person_stop(self: &Arc<Self>, session: &Arc<Session>) -> Result<(), RpcError> {
         let turn = session.turn().map(|t| t.turn_id);
         if turn.is_some() || session.queued() > 0 {
-            self.hold_agent_messages(session, turn.as_deref().unwrap_or_default());
+            self.hold_queue_for_person(session, turn.as_deref().unwrap_or_default());
         }
         self.cancel(session).await
     }
@@ -144,6 +144,16 @@ impl Hub {
     /// A daemon restart forgets the hold. None is dropped: each stays queued, as `held`, and is
     /// logged so (`queue_paused` with `reason: "stop"`).
     pub(super) fn hold_agent_messages(&self, session: &Arc<Session>, turn_id: &str) {
+        self.hold_queue(session, turn_id, false);
+    }
+
+    /// The person's Stop's hold: the other agents' messages as `hold_agent_messages` holds them,
+    /// and the person's own waiting prompts too, until the person sends them.
+    pub(super) fn hold_queue_for_person(&self, session: &Arc<Session>, turn_id: &str) {
+        self.hold_queue(session, turn_id, true);
+    }
+
+    fn hold_queue(&self, session: &Arc<Session>, turn_id: &str, persons: bool) {
         static HOLDS: AtomicU64 = AtomicU64::new(0);
         let held: Vec<String> = {
             // Begun under the queue lock, where a release checks and ends it (`digest.rs`).
@@ -157,7 +167,7 @@ impl Hub {
                     // One sent now waits too: the Stop came after it.
                     (q.held, q.sent_now) = (true, false);
                     held.push(q.prompt_id.clone());
-                } else if !q.held && !q.sent_now && !q.steer && !q.awaiting_owner {
+                } else if persons && !q.held && !q.sent_now && !q.steer && !q.awaiting_owner {
                     // The person's own waiting prompt: it waits for them to send it. One a failed
                     // turn or the owner holds already keeps that hold.
                     (q.held, q.held_by_stop) = (true, true);
