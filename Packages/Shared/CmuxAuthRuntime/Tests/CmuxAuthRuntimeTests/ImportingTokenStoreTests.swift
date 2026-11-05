@@ -35,6 +35,18 @@ import Testing
         #expect(await nightly.reads == 1)
     }
 
+    @Test func aSessionAdoptedFromThisAppsOwnEarlierStoreIsNotShared() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let earlier = CountingSource(ImportedTokenPair(accessToken: "access-e", refreshToken: "refresh-e"))
+        let store = ImportingTokenStore(primary: FileStackTokenStore(directory: directory),
+                                        sources: [{ await earlier.read() }], sharesSessions: false)
+
+        #expect(await store.getStoredRefreshToken() == "refresh-e")
+        // This app's own session: a sign-out revokes it on the server.
+        #expect(await store.isShared(refreshToken: "refresh-e") == false)
+    }
+
     @Test func aStoreWithItsOwnSessionNeverReadsASource() async throws {
         let directory = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
