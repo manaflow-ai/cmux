@@ -2,19 +2,20 @@
 import CoreGraphics
 import Foundation
 
-/// A grey copy of a delivered screenshot at half size, compared tile by tile
+/// A colour copy of a delivered screenshot at half size, compared tile by tile
 /// with the last screenshot the agent saw of the same window. Two equal
 /// screenshots give equal bytes (the same image drawn the same way), so
 /// "unchanged" never hides a change a tile can see. The idea follows
 /// `display_still`'s thumbnail signature (scripts/cmux-cua-display-still.patch),
-/// at a resolution that sees one typed character instead of a 32x20 mean.
+/// at a resolution that sees one typed character instead of a 32x20 mean, and
+/// per colour channel, so a red dot turning green of the same brightness counts.
 struct ScreenSignature: Equatable, Sendable {
     /// Screenshot pixels per signature cell, each way.
     static let cell = 2
     /// Signature cells per tile, each way: a tile covers 64x64 screenshot pixels.
     static let tileCells = 32
-    /// A tile is dirty when any cell in it moved by at least this much (of 255).
-    static let threshold: UInt8 = 24
+    /// A tile is dirty when any channel of any cell in it moved by at least this much (of 255).
+    static let threshold: UInt8 = 12
 
     /// The delivered screenshot's size in pixels.
     let width: Int
@@ -22,35 +23,36 @@ struct ScreenSignature: Equatable, Sendable {
     /// Signature size in cells.
     let columns: Int
     let rows: Int
-    let grey: [UInt8]
+    /// RGBX, four bytes per cell.
+    let pixels: [UInt8]
 
-    init(width: Int, height: Int, columns: Int, rows: Int, grey: [UInt8]) {
+    init(width: Int, height: Int, columns: Int, rows: Int, pixels: [UInt8]) {
         self.width = width
         self.height = height
         self.columns = columns
         self.rows = rows
-        self.grey = grey
+        self.pixels = pixels
     }
 
-    /// Draws `image` into a grey bitmap of half its size.
+    /// Draws `image` into an RGB bitmap of half its size.
     init?(image: CGImage) {
         let width = image.width
         let height = image.height
         guard width > 0, height > 0 else { return nil }
         let columns = max(1, width / Self.cell)
         let rows = max(1, height / Self.cell)
-        var grey = [UInt8](repeating: 0, count: columns * rows)
-        let drawn = grey.withUnsafeMutableBytes { buffer -> Bool in
+        var pixels = [UInt8](repeating: 0, count: columns * rows * 4)
+        let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
             guard let context = CGContext(data: buffer.baseAddress, width: columns, height: rows,
-                                          bitsPerComponent: 8, bytesPerRow: columns,
-                                          space: CGColorSpaceCreateDeviceGray(),
-                                          bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return false }
+                                          bitsPerComponent: 8, bytesPerRow: columns * 4,
+                                          space: CGColorSpaceCreateDeviceRGB(),
+                                          bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return false }
             context.interpolationQuality = .medium
             context.draw(image, in: CGRect(x: 0, y: 0, width: columns, height: rows))
             return true
         }
         guard drawn else { return nil }
-        self.init(width: width, height: height, columns: columns, rows: rows, grey: grey)
+        self.init(width: width, height: height, columns: columns, rows: rows, pixels: pixels)
     }
 
     /// What changed against `previous`: nil when the two cannot be compared
@@ -94,11 +96,30 @@ struct ScreenSignature: Equatable, Sendable {
         for row in (tileRow * tile)..<rowEnd {
             let base = row * columns
             for column in (tileColumn * tile)..<columnEnd {
-                let a = grey[base + column], b = previous.grey[base + column]
-                if (a > b ? a - b : b - a) >= Self.threshold { return true }
+                let cell = (base + column) * 4
+                for channel in cell..<(cell + 3) {
+                    let a = pixels[channel], b = previous.pixels[channel]
+                    if (a > b ? a - b : b - a) >= Self.threshold { return true }
+                }
             }
         }
         return false
+    }
+
+    /// This signature with the cells inside `rect` (screenshot pixels) taken
+    /// from `newer`: what the agent has after a crop of `rect`.
+    func replacing(_ rect: PixelRect, from newer: ScreenSignature) -> ScreenSignature {
+        guard newer.columns == columns, newer.rows == rows else { return newer }
+        var merged = pixels
+        let firstRow = max(0, rect.y / Self.cell), lastRow = min(rows, (rect.y + rect.height + Self.cell - 1) / Self.cell)
+        let firstColumn = max(0, rect.x / Self.cell)
+        let lastColumn = min(columns, (rect.x + rect.width + Self.cell - 1) / Self.cell)
+        guard firstRow < lastRow, firstColumn < lastColumn else { return self }
+        for row in firstRow..<lastRow {
+            let start = (row * columns + firstColumn) * 4, end = (row * columns + lastColumn) * 4
+            merged.replaceSubrange(start..<end, with: newer.pixels[start..<end])
+        }
+        return ScreenSignature(width: width, height: height, columns: columns, rows: rows, pixels: merged)
     }
 
     struct Change: Equatable {

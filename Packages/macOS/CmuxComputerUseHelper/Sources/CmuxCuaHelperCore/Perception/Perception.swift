@@ -6,26 +6,83 @@ import os
 private let perceptionLogger = Logger(subsystem: "com.cmuxterm.cua", category: "perception")
 
 /// What one helper connection (one agent session's `acpmux cua-mcp` bridge)
-/// has been shown, per window: the baseline for "unchanged", the frame a
-/// zoom region is measured in, and the last zoom this helper made.
+/// has been shown: per window, the baseline for "unchanged" and the frame a
+/// zoom region is measured in; and the last zoom this helper made, which,
+/// like the driver's own zoom context, is one per connection.
 public final class PerceptionSession: Sendable {
     struct Window: Sendable {
         var signature: ScreenSignature?
         var frame: ScreenshotFrame?
-        var zoom: ZoomMapping?
+        var pid: Int32?
     }
 
-    private let windows = OSAllocatedUnfairLock<[UInt32: Window]>(initialState: [:])
+    /// A native zoom and the target it was made of.
+    struct Zoom: Sendable {
+        let windowID: UInt32
+        let pid: Int32?
+        let mapping: ZoomMapping
+
+        func matches(windowID: UInt32?, pid: Int32?) -> Bool {
+            if let windowID { return windowID == self.windowID }
+            if let pid { return pid == self.pid }
+            // Neither: the driver resolves the one current zoom of this session.
+            return true
+        }
+    }
+
+    struct State: Sendable {
+        var windows: [UInt32: Window] = [:]
+        var zoom: Zoom?
+    }
+
+    private let state = OSAllocatedUnfairLock<State>(initialState: State())
 
     public init() {}
 
-    func window(_ id: UInt32) -> Window { windows.withLock { $0[id] ?? Window() } }
+    func window(_ id: UInt32) -> Window { state.withLock { $0.windows[id] ?? Window() } }
 
     func update(_ id: UInt32, _ change: @Sendable (inout Window) -> Void) {
-        windows.withLock { all in
-            var window = all[id] ?? Window()
+        state.withLock { all in
+            var window = all.windows[id] ?? Window()
             change(&window)
-            all[id] = window
+            all.windows[id] = window
+        }
+    }
+
+    /// The agent was shown a screenshot this layer did not see (or not of a
+    /// known window): no earlier one may be called "unchanged" any more.
+    func forgetScreens(window id: UInt32?) {
+        state.withLock { all in
+            if let id {
+                all.windows[id]?.signature = nil
+            } else {
+                for key in all.windows.keys { all.windows[key]?.signature = nil }
+            }
+        }
+    }
+
+    /// Compares `signature` with the window's baseline and stores the next
+    /// baseline in one step, so two reads at once never both pass for new.
+    func exchange<T: Sendable>(_ id: UInt32,
+                               _ decide: @Sendable (ScreenSignature?) -> (T, ScreenSignature?)) -> T {
+        state.withLock { all in
+            var window = all.windows[id] ?? Window()
+            let (decision, baseline) = decide(window.signature)
+            window.signature = baseline
+            all.windows[id] = window
+            return decision
+        }
+    }
+
+    var zoom: Zoom? { state.withLock { $0.zoom } }
+
+    func setZoom(_ zoom: Zoom?) { state.withLock { $0.zoom = zoom } }
+
+    /// A new read of a target ends its zoom, as the driver's new snapshot does.
+    func endZoom(windowID: UInt32?, pid: Int32?) {
+        state.withLock { all in
+            guard let zoom = all.zoom else { return }
+            if windowID.map({ $0 == zoom.windowID }) == true || (pid != nil && pid == zoom.pid) { all.zoom = nil }
         }
     }
 }
@@ -83,14 +140,29 @@ struct Perception: Sendable {
         guard var args = (try? JSONSerialization.jsonObject(with: arguments)) as? [String: Any] else {
             return try await tools.invoke(name: name, arguments: arguments)
         }
-        if let enabled = args.removeValue(forKey: "perception") as? Bool, !enabled {
-            Self.stripOwnArguments(name: name, &args)
-            return try await tools.invoke(name: name, arguments: HelperWire.json(args))
+        let bypass = (args.removeValue(forKey: "perception") as? Bool) == false
+        if Self.readTools.contains(name) {
+            guard !bypass else {
+                // The agent sees an image this layer never compared.
+                session.forgetScreens(window: Self.windowID(args))
+                session.endZoom(windowID: Self.windowID(args), pid: Self.pid(args))
+                Self.stripOwnArguments(name: name, &args)
+                return try await tools.invoke(name: name, arguments: HelperWire.json(args))
+            }
+            return try await read(name: name, args)
         }
-        if Self.readTools.contains(name) { return try await read(name: name, args) }
-        if name == "zoom" { return try await zoom(args) }
-        guard let translated = translateFromZoom(args) else { return try await tools.invoke(name: name, arguments: arguments) }
-        return try await tools.invoke(name: name, arguments: HelperWire.json(translated))
+        if name == "zoom" {
+            // Whatever this zoom returns replaces the last one, native or not.
+            session.setZoom(nil)
+            guard !bypass else { return try await tools.invoke(name: name, arguments: HelperWire.json(args)) }
+            return try await zoom(args)
+        }
+        // A from_zoom point is in this layer's zoom image whatever `perception` says.
+        if let translated = translateFromZoom(args) {
+            return try await tools.invoke(name: name, arguments: HelperWire.json(translated))
+        }
+        guard bypass else { return try await tools.invoke(name: name, arguments: arguments) }
+        return try await tools.invoke(name: name, arguments: HelperWire.json(args))
     }
 
     static func stripOwnArguments(name: String, _ args: inout [String: Any]) {
@@ -98,6 +170,15 @@ struct Perception: Sendable {
         args.removeValue(forKey: "ocr")
         args.removeValue(forKey: "force_screenshot")
         if args["capture_mode"] as? String == "som" { args.removeValue(forKey: "capture_mode") }
+    }
+
+    static func windowID(_ args: [String: Any]) -> UInt32? { (args["window_id"] as? NSNumber)?.uint32Value }
+    static func pid(_ args: [String: Any]) -> Int32? { (args["pid"] as? NSNumber)?.int32Value }
+
+    enum Shown: Sendable {
+        case unchanged
+        case crop(PixelRect)
+        case full
     }
 
     // MARK: get_window_state
@@ -112,12 +193,17 @@ struct Perception: Sendable {
         let driverTime = ContinuousClock.now - started
         guard var reply = (try? JSONSerialization.jsonObject(with: result)) as? [String: Any],
               reply["isError"] as? Bool != true,
-              var content = reply["content"] as? [[String: Any]],
-              let imageIndex = content.firstIndex(where: { $0["type"] as? String == "image" }),
-              let encoded = content[imageIndex]["data"] as? String,
-              let image = PerceptionImage.decode(base64: encoded) else { return result }
+              var content = reply["content"] as? [[String: Any]] else { return result }
         var structured = reply["structuredContent"] as? [String: Any] ?? [:]
-        let windowID = (structured["window_id"] as? NSNumber)?.uint32Value
+        let windowID = (structured["window_id"] as? NSNumber)?.uint32Value ?? Self.windowID(args)
+        let pid = (structured["pid"] as? NSNumber)?.int32Value ?? Self.pid(args)
+        session.endZoom(windowID: windowID, pid: pid)
+        guard let imageIndex = content.firstIndex(where: { $0["type"] as? String == "image" }) else { return result }
+        guard let encoded = content[imageIndex]["data"] as? String, let image = PerceptionImage.decode(base64: encoded) else {
+            // Passed on as is: the agent sees an image this layer could not compare.
+            session.forgetScreens(window: windowID)
+            return result
+        }
         var stats: [String: Any] = ["driver_ms": Self.milliseconds(driverTime),
                                     "driver_image_bytes": encoded.utf8.count,
                                     "image_width": image.width, "image_height": image.height]
@@ -128,7 +214,7 @@ struct Perception: Sendable {
             let frame = ScreenshotFrame(width: image.width, height: image.height,
                                         windowWidth: (bounds?["width"] as? NSNumber)?.doubleValue ?? Double(image.width),
                                         windowHeight: (bounds?["height"] as? NSNumber)?.doubleValue ?? Double(image.height))
-            session.update(windowID) { $0.frame = frame; $0.zoom = nil }
+            session.update(windowID) { $0.frame = frame; $0.pid = pid }
         }
 
         if wantsOCR {
@@ -148,11 +234,26 @@ struct Perception: Sendable {
         }
 
         let signature = ScreenSignature(image: image)
-        let previous = windowID.flatMap { session.window($0).signature }
-        let change = force ? nil : signature.flatMap { new in previous.flatMap { new.change(since: $0) } }
-        var baseline = signature
+        let shown: Shown
+        if let windowID, let signature {
+            let area = image.width * image.height
+            shown = session.exchange(windowID) { previous in
+                guard !force, let previous, let change = signature.change(since: previous) else { return (.full, signature) }
+                guard let rect = change.rect else { return (.unchanged, previous) }
+                // Outside the crop the agent still has the earlier pixels.
+                if rect.area * 100 <= area * Self.cropMaxPercent { return (.crop(rect), previous.replacing(rect, from: signature)) }
+                return (.full, signature)
+            }
+        } else {
+            if let windowID { session.forgetScreens(window: windowID) }
+            shown = .full
+        }
         var imageBytes = 0
-        if let change, change.rect == nil {
+        var cropData: (PixelRect, String)?
+        if case .crop(let rect) = shown, let crop = PerceptionImage.crop(image, to: rect), let jpeg = PerceptionImage.jpeg(crop) {
+            cropData = (rect, jpeg.base64EncodedString())
+        }
+        if case .unchanged = shown {
             content[imageIndex] = ["type": "text", "text":
                 "Screenshot unchanged: it looks the same as this window's last screenshot in this session " +
                 "(\(image.width)x\(image.height) px), so it is not sent again. Coordinates stay in that " +
@@ -160,10 +261,7 @@ struct Perception: Sendable {
             structured["screenshot_unchanged"] = true
             stats["screenshot"] = "unchanged"
             stats["image_tokens"] = 0
-            baseline = previous
-        } else if let rect = change?.rect, rect.area * 100 <= image.width * image.height * Self.cropMaxPercent,
-                  let crop = PerceptionImage.crop(image, to: rect), let jpeg = PerceptionImage.jpeg(crop) {
-            let data = jpeg.base64EncodedString()
+        } else if let (rect, data) = cropData {
             content[imageIndex] = ["type": "image", "mimeType": "image/jpeg", "data": data]
             content.insert(["type": "text", "text":
                 "Only part of the screenshot changed since this window's last one in this session: the image " +
@@ -177,6 +275,10 @@ struct Perception: Sendable {
             stats["image_tokens"] = PerceptionImage.estimatedTokens(width: rect.width, height: rect.height)
             imageBytes = data.utf8.count
         } else {
+            if case .crop = shown, let windowID, let signature {
+                // The crop could not be made: the whole image goes, and is the baseline.
+                session.update(windowID) { $0.signature = signature }
+            }
             if let jpeg = PerceptionImage.jpeg(image) {
                 let data = jpeg.base64EncodedString()
                 if data.utf8.count < encoded.utf8.count {
@@ -188,7 +290,6 @@ struct Perception: Sendable {
             stats["image_tokens"] = PerceptionImage.estimatedTokens(width: image.width, height: image.height)
             imageBytes = (content[imageIndex]["data"] as? String)?.utf8.count ?? encoded.utf8.count
         }
-        if let windowID, let baseline { session.update(windowID) { $0.signature = baseline } }
         stats["image_bytes"] = imageBytes
         stats["perception_ms"] = Self.milliseconds(ContinuousClock.now - processing)
         structured["perception"] = stats
@@ -226,7 +327,7 @@ struct Perception: Sendable {
 
     private func zoom(_ args: [String: Any]) async throws -> Data {
         let result = try await tools.invoke(name: "zoom", arguments: HelperWire.json(args))
-        guard let windowID = (args["window_id"] as? NSNumber)?.uint32Value,
+        guard let windowID = Self.windowID(args),
               let frame = session.window(windowID).frame,
               let region = PerceptionZoom.region(args, frame: frame),
               var reply = (try? JSONSerialization.jsonObject(with: result)) as? [String: Any],
@@ -250,7 +351,7 @@ struct Perception: Sendable {
                 "resolution: %dx%d px JPEG. A point (u,v) in this image is (%.0f + u*%.3f, %.0f + v*%.3f) in " +
                 "screenshot pixels; or pass from_zoom: true with the point in this image.",
             r.minX, r.minY, r.maxX, r.maxY, image.width, image.height,
-            mapping.originX, mapping.pixelsPerZoomPixel, mapping.originY, mapping.pixelsPerZoomPixel)])
+            mapping.originX, mapping.pixelsPerZoomPixelX, mapping.originY, mapping.pixelsPerZoomPixelY)])
         var structured = reply["structuredContent"] as? [String: Any] ?? [:]
         structured["width"] = image.width
         structured["height"] = image.height
@@ -258,10 +359,11 @@ struct Perception: Sendable {
         structured["mime_type"] = "image/jpeg"
         structured["native_resolution"] = true
         structured["zoom_origin"] = ["x": mapping.originX, "y": mapping.originY]
-        structured["zoom_screenshot_pixels_per_pixel"] = mapping.pixelsPerZoomPixel
+        structured["zoom_screenshot_pixels_per_pixel"] = ["x": mapping.pixelsPerZoomPixelX, "y": mapping.pixelsPerZoomPixelY]
         reply["content"] = content
         reply["structuredContent"] = structured
-        session.update(windowID) { $0.zoom = mapping }
+        session.setZoom(PerceptionSession.Zoom(windowID: windowID, pid: Self.pid(args) ?? session.window(windowID).pid,
+                                               mapping: mapping))
         return HelperWire.json(reply)
     }
 
@@ -270,9 +372,9 @@ struct Perception: Sendable {
     /// translated to screenshot pixels here and `from_zoom` is dropped.
     /// nil when the call is not such an action (it goes to the driver as sent).
     func translateFromZoom(_ arguments: [String: Any]) -> [String: Any]? {
-        guard arguments["from_zoom"] as? Bool == true,
-              let windowID = (arguments["window_id"] as? NSNumber)?.uint32Value,
-              let mapping = session.window(windowID).zoom else { return nil }
+        guard arguments["from_zoom"] as? Bool == true, let zoom = session.zoom,
+              zoom.matches(windowID: Self.windowID(arguments), pid: Self.pid(arguments)) else { return nil }
+        let mapping = zoom.mapping
         var args = arguments
         for (xKey, yKey) in Self.pointKeys {
             guard let x = (args[xKey] as? NSNumber)?.doubleValue, let y = (args[yKey] as? NSNumber)?.doubleValue else {

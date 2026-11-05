@@ -7,14 +7,15 @@ import os
 import Testing
 
 @Suite struct PerceptionTests {
-    /// A window screenshot: white, with black boxes at `marks` (pixel rects).
-    static func png(width: Int = 640, height: Int = 400, marks: [CGRect] = []) -> String {
+    /// A window screenshot: white, with boxes of `color` at `marks` (pixel rects).
+    static func png(width: Int = 640, height: Int = 400, marks: [CGRect] = [],
+                    color: CGColor = CGColor(red: 0, green: 0, blue: 0, alpha: 1)) -> String {
         let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
                                 space: CGColorSpaceCreateDeviceRGB(),
                                 bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
         context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: width, height: height))
-        context.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
+        context.setFillColor(color)
         for mark in marks {
             // Top-left rects into CG's bottom-left space.
             context.fill(CGRect(x: mark.minX, y: CGFloat(height) - mark.maxY, width: mark.width, height: mark.height))
@@ -64,8 +65,7 @@ import Testing
             // Native: twice the screenshot's pixels for the region.
             let width = Int(region.pixels.width * 2), height = Int(region.pixels.height * 2)
             let image = PerceptionImage.decode(base64: PerceptionTests.png(width: width, height: height))!
-            return (image, ZoomMapping(originX: region.pixels.minX, originY: region.pixels.minY,
-                                       pixelsPerZoomPixel: region.pixels.width / Double(width)))
+            return (image, ZoomMapping(region: region.pixels, width: width, height: height))
         }
     }
 
@@ -199,6 +199,102 @@ import Testing
         _ = try await perception.call(name: "click", arguments: sent)
         #expect(tools.calls.withLockUnchecked { $0.last?.1["from_zoom"] as? Bool } == true,
                 "the driver answers from_zoom itself (zoom_context_missing)")
+    }
+
+    struct FailingZoom: ZoomCapturing {
+        func capture(windowID: UInt32, region: PerceptionZoom.Region, frame: ScreenshotFrame) async throws
+            -> (CGImage, ZoomMapping) { throw ToolError("no capture") }
+    }
+
+    static let driverZoom = HelperWire.json(["content": [["type": "image", "mimeType": "image/jpeg",
+                                                         "data": PerceptionTests.png(width: 50, height: 50)]]])
+
+    /// After a native zoom of window 7 (pid 1), a click with `from_zoom`.
+    func clickAfterNativeZoom(_ click: [String: Any], zoomCapture: [any ZoomCapturing] = [FixedZoom()])
+        async throws -> [String: Any] {
+        let tools = ScriptedTools()
+        let session = PerceptionSession()
+        tools.queue(Self.windowState(Self.png()))
+        _ = try await Perception(tools: tools, session: session).call(name: "get_window_state", arguments: Self.read)
+        for capture in zoomCapture {
+            var perception = Perception(tools: tools, session: session)
+            perception.zoomCapture = capture
+            tools.queue(Self.driverZoom)
+            _ = try await perception.call(name: "zoom", arguments: HelperWire.json(
+                ["window_id": 7, "x1": 100, "y1": 100, "x2": 200, "y2": 150]))
+        }
+        tools.queue(Data(#"{"content":[]}"#.utf8))
+        _ = try await Perception(tools: tools, session: session).call(name: "click", arguments: HelperWire.json(click))
+        return try #require(tools.calls.withLockUnchecked { $0.last?.1 })
+    }
+
+    @Test func aPidOnlyFromZoomClickIsTranslatedToo() async throws {
+        let sent = try await clickAfterNativeZoom(["pid": 1, "x": 140, "y": 70, "from_zoom": true])
+        #expect((sent["x"] as? NSNumber)?.doubleValue == 150 && sent["from_zoom"] == nil)
+        let other = try await clickAfterNativeZoom(["pid": 2, "x": 140, "y": 70, "from_zoom": true])
+        #expect(other["from_zoom"] as? Bool == true, "another app's click is the driver's to answer")
+    }
+
+    @Test func aFailedNativeZoomEndsTheEarlierOnesTranslation() async throws {
+        let sent = try await clickAfterNativeZoom(["window_id": 7, "x": 10, "y": 10, "from_zoom": true],
+                                                  zoomCapture: [FixedZoom(), FailingZoom()])
+        #expect(sent["from_zoom"] as? Bool == true && (sent["x"] as? NSNumber)?.doubleValue == 10,
+                "the driver's own crop is what the agent sees, so the driver translates")
+    }
+
+    @Test func aBypassedReadEndsUnchanged() async throws {
+        let tools = ScriptedTools()
+        let perception = Perception(tools: tools, session: PerceptionSession())
+        let shot = Self.png()
+        tools.queue(Self.windowState(shot))
+        tools.queue(Self.windowState(Self.png(marks: [CGRect(x: 0, y: 0, width: 300, height: 300)])))
+        tools.queue(Self.windowState(shot))
+        _ = try await perception.call(name: "get_window_state", arguments: Self.read)
+        _ = try await perception.call(name: "get_window_state",
+                                      arguments: HelperWire.json(["pid": 1, "window_id": 7, "perception": false]))
+        let after = try Self.reply(try await perception.call(name: "get_window_state", arguments: Self.read))
+        #expect(Self.images(after.content).count == 1, "the agent last saw the bypassed image, not this one")
+        #expect(tools.calls.withLockUnchecked { $0[1].1["perception"] } == nil)
+    }
+
+    @Test func aColourOnlyChangeIsAChange() async throws {
+        let tools = ScriptedTools()
+        let perception = Perception(tools: tools, session: PerceptionSession())
+        let dot = [CGRect(x: 300, y: 200, width: 12, height: 12)]
+        // Red and green of about the same brightness.
+        tools.queue(Self.windowState(Self.png(marks: dot, color: CGColor(red: 0.9, green: 0.3, blue: 0.3, alpha: 1))))
+        tools.queue(Self.windowState(Self.png(marks: dot, color: CGColor(red: 0.3, green: 0.62, blue: 0.3, alpha: 1))))
+        _ = try await perception.call(name: "get_window_state", arguments: Self.read)
+        let after = try Self.reply(try await perception.call(name: "get_window_state", arguments: Self.read))
+        #expect(after.structured["screenshot_unchanged"] == nil)
+        #expect(after.structured["screenshot_dirty_rect"] as? [String: Int] == ["x": 256, "y": 192, "w": 64, "h": 64])
+    }
+
+    @Test func afterACropTheBaselineIsWhatTheAgentHas() throws {
+        let plain = try #require(PerceptionImage.decode(base64: Self.png()))
+        let a = try #require(ScreenSignature(image: plain))
+        let markedImage = try #require(PerceptionImage.decode(base64: Self.png(marks: [
+            CGRect(x: 10, y: 10, width: 10, height: 10), CGRect(x: 500, y: 300, width: 10, height: 10)])))
+        let b = try #require(ScreenSignature(image: markedImage))
+        let shown = PixelRect(x: 0, y: 0, width: 64, height: 64)
+        let baseline = a.replacing(shown, from: b)
+        #expect(b.change(since: baseline)?.rect == PixelRect(x: 448, y: 256, width: 64, height: 64),
+                "the change outside the crop is still unseen")
+    }
+
+    @Test func zoomPlanIsInWindowPointsAtTheDisplayScale() {
+        let frame = ScreenshotFrame(width: 1366, height: 880, windowWidth: 1440, windowHeight: 927.7)
+        let region = PerceptionZoom.Region(pixels: CGRect(x: 100, y: 200, width: 300, height: 30))
+        let plan = PerceptionZoom.plan(region, frame: frame, pointPixelScale: 2)
+        let k = 1440.0 / 1366.0
+        #expect(abs(plan.source.minX - 100 * k) < 1e-9 && abs(plan.source.width - 300 * k) < 1e-9)
+        #expect(plan.width == Int((300 * k * 2).rounded()) && plan.height == Int((30 * k * 2).rounded()))
+        let wide = PerceptionZoom.plan(PerceptionZoom.Region(pixels: CGRect(x: 0, y: 0, width: 1366, height: 100)),
+                                       frame: frame, pointPixelScale: 2)
+        #expect(wide.width == PerceptionZoom.maxLongEdge, "capped at the model's image limit")
+        let mapping = ZoomMapping(region: region.pixels, width: plan.width, height: plan.height)
+        let corner = mapping.screenshotPoint(x: Double(plan.width), y: Double(plan.height))
+        #expect(abs(corner.x - 400) < 1e-9 && abs(corner.y - 230) < 1e-9)
     }
 
     @Test func otherCallsReachTheDriverByteForByte() async throws {

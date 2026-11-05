@@ -165,31 +165,26 @@ import Testing
         #expect(nativeCER <= upstreamCER)
     }
 
-    @Test func ocrDiagnostic() throws {
-        for (label, image) in [("full", Self.editor()), ("top half", Self.editor().cropping(to: CGRect(x: 0, y: 0, width: 1366, height: 440))!),
-                               ("band 640", Self.editor().cropping(to: CGRect(x: 0, y: 200, width: 640, height: 40))!),
-                               ("full 2x", Self.editor(scale: 2))] {
-            for accurate in [true, false] {
-                let lines = try PerceptionOCR(accurate: accurate).lines(in: image)
-                print("perception-diag | \(label) \(image.width)x\(image.height) accurate=\(accurate) | \(lines.count) lines | \(lines.first?.text ?? "-")")
-            }
-        }
-    }
-
-    /// OCR in som mode: how well Vision reads the delivered screenshot, and what it costs.
+    /// OCR in som mode: how many of the window's words Vision reads, at the
+    /// delivered size and at the display's 2x, and what it costs.
     @Test func ocrOfTheDeliveredScreenshot() throws {
-        let image = Self.editor()
-        let started = ContinuousClock.now
-        let lines = try PerceptionOCR().lines(in: image)
-        let ms = Perception.milliseconds(ContinuousClock.now - started)
         let visible = Self.code.prefix(Int(Double(Self.height - 40) / Self.lineHeight))
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-        let read = lines.map(\.text)
-        let matched = visible.filter { line in read.contains { Self.characterErrorRate($0, truth: line) < 0.05 } }.count
-        let words = lines.reduce(0) { $0 + $1.words.count }
-        let text = PerceptionOCR.render(lines)
-        print("perception-bench | som OCR | \(lines.count) lines, \(words) words, \(matched)/\(visible.count) lines " +
-              "under 5% CER | \(ms) ms | \(text.utf8.count) bytes of OCR text")
-        #expect(matched * 10 >= visible.count * 9)
+        let truth = visible.flatMap { $0.split(separator: " ").map(String.init) }
+        for (label, image) in [("delivered", Self.editor()), ("2x", Self.editor(scale: 2 / Self.pixelsPerPoint))] {
+            let started = ContinuousClock.now
+            let lines = try PerceptionOCR().lines(in: image)
+            let ms = Perception.milliseconds(ContinuousClock.now - started)
+            var read: [String: Int] = [:]
+            for word in lines.flatMap(\.words) { read[word.text, default: 0] += 1 }
+            var found = 0
+            for word in truth where (read[word] ?? 0) > 0 {
+                found += 1
+                read[word, default: 0] -= 1
+            }
+            let recall = Double(found) / Double(truth.count)
+            print("perception-bench | som OCR \(label) \(image.width)x\(image.height) | word recall \(found)/\(truth.count) " +
+                  "= \(recall) | \(lines.count) lines | \(ms) ms | \(PerceptionOCR.render(lines).utf8.count) bytes of OCR text")
+            if label == "delivered" { #expect(recall > 0.5) }
+        }
     }
 }

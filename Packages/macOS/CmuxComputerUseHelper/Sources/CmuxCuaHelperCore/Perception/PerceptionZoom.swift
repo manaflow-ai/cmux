@@ -22,11 +22,26 @@ struct ZoomMapping: Equatable, Sendable {
     /// The zoom image's top-left, in full-screenshot pixels.
     let originX: Double
     let originY: Double
-    /// Full-screenshot pixels per zoom-image pixel (below 1: the zoom is sharper).
-    let pixelsPerZoomPixel: Double
+    /// Full-screenshot pixels per zoom-image pixel, each way (below 1: the zoom is sharper).
+    let pixelsPerZoomPixelX: Double
+    let pixelsPerZoomPixelY: Double
+
+    init(originX: Double, originY: Double, pixelsPerZoomPixelX: Double, pixelsPerZoomPixelY: Double) {
+        self.originX = originX
+        self.originY = originY
+        self.pixelsPerZoomPixelX = pixelsPerZoomPixelX
+        self.pixelsPerZoomPixelY = pixelsPerZoomPixelY
+    }
+
+    /// The mapping of a zoom image of `width` x `height` pixels showing `region`.
+    init(region: CGRect, width: Int, height: Int) {
+        self.init(originX: region.minX, originY: region.minY,
+                  pixelsPerZoomPixelX: region.width / Double(max(1, width)),
+                  pixelsPerZoomPixelY: region.height / Double(max(1, height)))
+    }
 
     func screenshotPoint(x: Double, y: Double) -> (x: Double, y: Double) {
-        (originX + x * pixelsPerZoomPixel, originY + y * pixelsPerZoomPixel)
+        (originX + x * pixelsPerZoomPixelX, originY + y * pixelsPerZoomPixelY)
     }
 }
 
@@ -64,6 +79,23 @@ struct PerceptionZoom: Sendable {
         return Region(pixels: CGRect(x: left, y: top, width: right - left, height: bottom - top))
     }
 
+    /// What to capture for `region`: the source rectangle in window points
+    /// (ScreenCaptureKit's `sourceRect`) and the output size in pixels, the
+    /// display's `pointPixelScale` pixels per point, capped at `maxLongEdge`.
+    static func plan(_ region: Region, frame: ScreenshotFrame, pointPixelScale scale: Double)
+        -> (source: CGRect, width: Int, height: Int) {
+        let k = frame.pointsPerPixel
+        let source = CGRect(x: region.pixels.minX * k, y: region.pixels.minY * k,
+                            width: region.pixels.width * k, height: region.pixels.height * k)
+        var width = source.width * scale, height = source.height * scale
+        let longEdge = max(width, height)
+        if longEdge > Double(maxLongEdge) {
+            width *= Double(maxLongEdge) / longEdge
+            height *= Double(maxLongEdge) / longEdge
+        }
+        return (source, max(1, Int(width.rounded())), max(1, Int(height.rounded())))
+    }
+
     /// Captures `region` of window `windowID` at native resolution (capped at `maxLongEdge`).
     func capture(windowID: UInt32, region: Region, frame: ScreenshotFrame) async throws -> (CGImage, ZoomMapping) {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
@@ -71,25 +103,15 @@ struct PerceptionZoom: Sendable {
             throw ToolError("zoom: window \(windowID) is not capturable")
         }
         let filter = SCContentFilter(desktopIndependentWindow: window)
-        let scale = Double(filter.pointPixelScale)
-        let k = frame.pointsPerPixel
-        let source = CGRect(x: region.pixels.minX * k, y: region.pixels.minY * k,
-                            width: region.pixels.width * k, height: region.pixels.height * k)
-        var width = source.width * scale, height = source.height * scale
-        let longEdge = max(width, height)
-        if longEdge > Double(Self.maxLongEdge) {
-            width *= Double(Self.maxLongEdge) / longEdge
-            height *= Double(Self.maxLongEdge) / longEdge
-        }
+        let plan = Self.plan(region, frame: frame, pointPixelScale: Double(filter.pointPixelScale))
         let configuration = SCStreamConfiguration()
-        configuration.sourceRect = source
-        configuration.width = max(1, Int(width.rounded()))
-        configuration.height = max(1, Int(height.rounded()))
+        configuration.sourceRect = plan.source
+        configuration.width = plan.width
+        configuration.height = plan.height
         configuration.showsCursor = false
         configuration.ignoreShadowsSingleWindow = true
         let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
-        let mapping = ZoomMapping(originX: region.pixels.minX, originY: region.pixels.minY,
-                                  pixelsPerZoomPixel: region.pixels.width / Double(image.width))
+        let mapping = ZoomMapping(region: region.pixels, width: image.width, height: image.height)
         return (image, mapping)
     }
 }
