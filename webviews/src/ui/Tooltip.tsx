@@ -5,12 +5,21 @@
 // "WHERE IS THE GLASS EVERYWHERE, all these hover tooltips and hover previews"), primary ink, an
 // optional shortcut hint. Every tooltip and hover card here is glass, never the solid popup surface
 // (webviews/scripts/check-glass-never-opaque.ts fails one that is not).
-import { useState, type PointerEventHandler, type ReactElement, type ReactNode, type Ref } from "react";
+import {
+  useCallback,
+  useRef,
+  useState,
+  type PointerEventHandler,
+  type ReactElement,
+  type ReactNode,
+  type Ref,
+} from "react";
 import { Tooltip as BaseTooltip } from "@base-ui/react/tooltip";
 import { usePopupHost, usePortalContainer } from "./UiProvider";
 import { useEscapingPopup } from "./popupHost";
 import { virtualAnchor, type UiAnchor } from "./Popover";
 import { cx } from "./cx";
+import { useSeeThroughBlur, type CoveredCandidates, type SeeThroughOptions } from "./glass/seeThroughBlur";
 import { HOVER_INTENT } from "./hoverIntent";
 import { UI_TOOLTIP_GAP, tooltipGap, tooltipScale } from "./tooltipTokens";
 
@@ -99,6 +108,11 @@ export interface AnchoredCardProps {
   popupRef?: Ref<HTMLDivElement>;
   /** Identifies this portal to a shared hover bridge. */
   hoverBridgeId?: number;
+  /** What the card covers on its page, blurred in place while it shows (glass/seeThroughBlur.ts):
+   * Chromium's backdrop leaves the text under a card reading through its tint. A module constant. */
+  under?: CoveredCandidates;
+  /** The in-place blur's options (a module constant): its owner word and what keeps the underlay. */
+  underOptions?: SeeThroughOptions;
   children: ReactNode;
 }
 
@@ -127,9 +141,21 @@ export function AnchoredCard({
   onPointerLeave,
   popupRef,
   hoverBridgeId,
+  under,
+  underOptions,
   children,
 }: AnchoredCardProps) {
   const container = usePortalContainer();
+  const self = useRef<HTMLDivElement | null>(null);
+  const setPopup = useCallback(
+    (node: HTMLDivElement | null) => {
+      self.current = node;
+      if (typeof popupRef === "function") popupRef(node);
+      else if (popupRef) popupRef.current = node;
+    },
+    [popupRef],
+  );
+  useSeeThroughBlur(self, under !== undefined && (open ?? anchor !== null), under, underOptions);
   return (
     <BaseTooltip.Root open={open ?? anchor !== null}>
       <BaseTooltip.Portal container={container}>
@@ -141,7 +167,7 @@ export function AnchoredCard({
           sideOffset={tooltipGap}
         >
           <BaseTooltip.Popup
-            ref={popupRef}
+            ref={setPopup}
             id={id}
             className={cx("ui-tooltip ui-card ui-glass", className)}
             data-state={state}
