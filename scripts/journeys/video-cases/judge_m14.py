@@ -134,8 +134,8 @@ def line_of(film: dict, classes) -> str:
         if contract == "m20" and v.get("lag_commits"):
             extra += f", page lag p95 {v['lag_p95']} max {v['lag_max']} refreshes over {v['lag_commits']} pane commits"
         if v.get("surface_frames"):
-            extra += f", surface {v['surface_frames']} frames (held worst {v['held_worst_pt']:g} pt" + \
-                (f", stale worst {v['stale_worst_px']:g} px" if v.get("stale_judged", True) else ", stale not judged") + ")"
+            extra += f", surface {v['surface_frames']} frames (held worst {v.get('held_worst_pt', 0.0):g} pt" + \
+                (f", stale worst {v.get('stale_worst_px', 0.0):g} px" if v.get("stale_judged", True) else ", stale not judged") + ")"
         parts.append(f"{kind}: {v['fail']} of {v['judged']} judged frames fail" + (f" ({by}; frames {v['fail_ranges']})" if v["fail"] else "")
                      + f", worst {v['worst_px']:g} px" + (f" (frame {v['worst_frame']}, {v['worst_edge']})" if v["worst_frame"] is not None else "")
                      + f", scaled {v['scaled']}, not judged {v['not_judged']} (+{v['touch_not_judged']} touching edges)" + extra)

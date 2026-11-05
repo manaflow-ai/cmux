@@ -2123,6 +2123,21 @@ class HeldSurfaceTests(unittest.TestCase):
         row = self.row("strip-surface-owned")
         self.assertEqual((row["held"], row["fail"], row["surface_phase"]), (0, 0, 1), row)
 
+    def test_the_verdict_line_of_a_terminal_film(self):
+        # the m20 verdict (judge_m14's default) of a film with terminal surfaces: the line names its held and stale frames
+        # (#36623 crashed here with KeyError 'held_worst_pt': the m20 surface row had no worst offsets)
+        import contextlib
+        import io
+        import judge_m14
+        for contract in ("m20", "m18"):
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                code = judge_m14.main([str(self.bases["strip-held"]), "--contract", contract])
+            self.assertEqual(code, 1 if contract == "m18" else 1, (contract, buf.getvalue()))
+            self.assertIn("held worst 14 pt", buf.getvalue(), contract)
+        row = self.row("strip-held", "m20")
+        self.assertEqual((row["held_worst_pt"], row["stale_worst_px"]), (14.0, 0.0), row)
+
     def test_an_owned_surface_that_keeps_its_old_size_is_held(self):
         held = set(range(MOVE[0] + 1, MOVE[0] + 6))  # the frames that show samples 10-14: their next rows keep A_REST
         row = self.row("strip-held-owned")
@@ -2205,12 +2220,17 @@ class TerminalBandTests(unittest.TestCase):
         shutil.rmtree(cls.tmp, ignore_errors=True)
 
     def test_a_ground_band_at_the_pane_edge_fails(self):
-        band = set(range(MOVE[0] + 3, MOVE[1] + 11))  # the frames whose band is wider than 25 px (from sample 12 on)
+        # the program's grid keeps the rest width (PAD + 18 cells = 292 px); the ground runs from there to the pane edge:
+        # a band in the frames whose run is wider than the limit (frame f shows sample f - 1)
+        grid_end = PAD + ((A_REST - 2 * PAD) // CW) * CW
+        runs = {s + 1: a_width(s, "strip-tui-band") - grid_end for s in range(MOVE[0], MOVE[1] + 10)}
+        band = {f for f, run in runs.items() if run > jp.BAND_LIMIT_PX}
+        self.assertEqual(min(band), MOVE[0] + 6)  # from sample 15 on (a 28 px run)
         for contract in ("m18", "m20"):
             row = self.reports["strip-tui-band"][contract]["kinds"]["terminal"]
             self.assertEqual(jp_frames(row["band_ranges"]), band, (contract, row.get("band_ranges")))
             self.assertLessEqual(band, jp_frames(row["fail_ranges"]), contract)
-            self.assertEqual(row["worst_px"], 80.0 + 24.0, contract)  # the 80 px growth and the rest ground (pad + remainder)
+            self.assertEqual(row["worst_px"], max(runs.values()), contract)  # 84 px: the 80 px growth and the 4 px rest ground
         self.assertEqual(self.reports["strip-tui-band"]["m14"]["kinds"]["terminal"]["fail"], 0)  # m14 does not change
 
     def test_a_terminal_at_rest_has_no_band(self):
