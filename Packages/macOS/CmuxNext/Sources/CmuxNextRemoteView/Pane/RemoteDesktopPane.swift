@@ -184,7 +184,7 @@ public final class RemoteDesktopPane {
 
     /// The toolbar's mode choice: applied, then told to the owner (a press of the mode already
     /// in force does nothing).
-    func selectMode(_ mode: RemoteControlMode) {
+    public func selectMode(_ mode: RemoteControlMode) {
         guard mode != state.requestedMode else { return }
         apply(.selectMode(mode))
         handlers.selectMode(mode)
