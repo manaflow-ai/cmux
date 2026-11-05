@@ -170,8 +170,7 @@ fn a_chat_tab_create_restates_no_other_chat_tab_of_its_pane() {
     assert!(tabs.len() <= 2, "one chat tab create restated {} tabs: {tabs:?}", tabs.len());
 }
 
-#[test]
-fn a_persons_requests_answer_while_busy_sessions_saturate_the_registry() {
+fn a_persons_requests_answer_while_busy_sessions_saturate_the_registry_body() {
     let session = Session::new("person-request-latency");
     let mux = session.open();
     let sidebar = sidebar(&mux);
@@ -342,6 +341,38 @@ fn a_persons_requests_answer_while_busy_sessions_saturate_the_registry() {
     mux.shutdown();
 
     assert!(over.is_empty(), "a person's request waited behind the busy sessions: {over:#?}");
+}
+#[test]
+fn a_persons_requests_answer_while_busy_sessions_saturate_the_registry_copy_0() {
+    a_persons_requests_answer_while_busy_sessions_saturate_the_registry_body()
+}
+#[test]
+fn a_persons_requests_answer_while_busy_sessions_saturate_the_registry_copy_1() {
+    a_persons_requests_answer_while_busy_sessions_saturate_the_registry_body()
+}
+#[test]
+fn a_persons_requests_answer_while_busy_sessions_saturate_the_registry_copy_2() {
+    a_persons_requests_answer_while_busy_sessions_saturate_the_registry_body()
+}
+#[test]
+fn a_persons_requests_answer_while_busy_sessions_saturate_the_registry_copy_3() {
+    a_persons_requests_answer_while_busy_sessions_saturate_the_registry_body()
+}
+#[test]
+fn a_persons_requests_answer_while_busy_sessions_saturate_the_registry_copy_4() {
+    a_persons_requests_answer_while_busy_sessions_saturate_the_registry_body()
+}
+#[test]
+fn a_persons_requests_answer_while_busy_sessions_saturate_the_registry_copy_5() {
+    a_persons_requests_answer_while_busy_sessions_saturate_the_registry_body()
+}
+#[test]
+fn a_persons_requests_answer_while_busy_sessions_saturate_the_registry_copy_6() {
+    a_persons_requests_answer_while_busy_sessions_saturate_the_registry_body()
+}
+#[test]
+fn a_persons_requests_answer_while_busy_sessions_saturate_the_registry_copy_7() {
+    a_persons_requests_answer_while_busy_sessions_saturate_the_registry_body()
 }
 
 /// The other side of the priority: agents can send personal writes too
