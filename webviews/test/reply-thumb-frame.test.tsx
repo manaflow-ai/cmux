@@ -53,10 +53,11 @@ afterAll(() => {
 
 const host = dom.window.document.getElementById("root")!;
 
-/// Renders a thumbnail, then loads its image at `width`×`height`, and answers the frame before and after.
-async function frames(viewer: boolean, width: number, height: number) {
+/// Renders a thumbnail of `src`, then loads its image at `width`×`height`, and answers the frame before
+/// and after.
+async function frames(viewer: boolean, width: number, height: number, src = "data:image/png;base64,AAAA") {
   const root = createRoot(host);
-  const thumb = <OpenableImage src="data:image/png;base64,AAAA" alt="" thumb />;
+  const thumb = <OpenableImage src={src} alt="" thumb />;
   await act(async () =>
     root.render(viewer ? <ImageViewerContext.Provider value={() => {}}>{thumb}</ImageViewerContext.Provider> : thumb),
   );
@@ -77,9 +78,22 @@ async function frames(viewer: boolean, width: number, height: number) {
 
 for (const viewer of [true, false])
   test(`a reply thumbnail keeps the fixed frame until its image loads (${viewer ? "with" : "without"} a viewer)`, async () => {
-    const { before, after } = await frames(viewer, 390, 844);
+    // Each its own source: the pane remembers the size a source drew at, and reserves it next time.
+    const { before, after } = await frames(viewer, 390, 844, `data:image/png;base64,${viewer ? "AAAA" : "AAAB"}`);
     expect(before.className).toBe("cv-thumb");
     expect(before.width).toBe("");
     expect(after.className).toBe("cv-thumb cv-thumb--sized");
     expect([after.width, after.height]).toEqual(["390", "844"]);
   });
+
+// A data URL whose header names its size draws its own shape from the first paint: nothing moves when
+// it loads (the image viewer's gallery replies, an agent's SVG chart).
+const svg = (width: number, height: number) =>
+  `data:image/svg+xml;base64,${btoa(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"></svg>`)}`;
+test("a thumbnail whose header names its size has its own shape before it loads", async () => {
+  const { before, after } = await frames(true, 640, 400, svg(640, 400));
+  expect(before.className).toBe("cv-thumb cv-thumb--sized");
+  expect(before.width).toBe("640");
+  expect(after.className).toBe("cv-thumb cv-thumb--sized");
+  expect([after.width, after.height]).toEqual(["640", "400"]);
+});

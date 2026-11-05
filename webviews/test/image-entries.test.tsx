@@ -77,6 +77,17 @@ try {
     expect(images.dataUrlImageSize(png(1280, 720))).toEqual({ width: 1280, height: 720 });
     const gif = new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x40, 0x01, 0xf0, 0x00, 0, 0]);
     expect(images.dataUrlImageSize(`data:image/gif;base64,${base64(gif)}`)).toEqual({ width: 320, height: 240 });
+    // SVG: the root's pixel width and height, else its viewBox; base64 or percent-encoded.
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="1568" height="74px" viewBox="0 0 10 10"></svg>';
+    expect(images.dataUrlImageSize(`data:image/svg+xml;base64,${btoa(svg)}`)).toEqual({ width: 1568, height: 74 });
+    const boxed = '<svg viewBox="0 0 390 844" stroke-width="2" xmlns="http://www.w3.org/2000/svg"></svg>';
+    expect(images.dataUrlImageSize(`data:image/svg+xml,${encodeURIComponent(boxed)}`)).toEqual({
+      width: 390,
+      height: 844,
+    });
+    expect(
+      images.dataUrlImageSize(`data:image/svg+xml,${encodeURIComponent('<svg width="100%"></svg>')}`),
+    ).toBeUndefined();
     // A baseline JPEG: SOI, an APP0 segment, then SOF0 with 480 tall by 640 wide.
     const jpeg = new Uint8Array([
       0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0x00, 0x00, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x01, 0xe0, 0x02, 0x80, 0x03,

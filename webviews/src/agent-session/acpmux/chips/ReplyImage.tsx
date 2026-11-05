@@ -19,6 +19,7 @@
 import { useContext, useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { ImageIcon, Lock } from "../conversation/icons";
+import { knownImageSize, rememberImageSize } from "../conversation/imageEntries";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
 import { callChipHost } from "./host";
 import { DataUrlCache, IMAGE_CACHE_MAX_CHARS, IMAGE_CACHE_MAX_ENTRIES } from "./imageCache";
@@ -147,10 +148,11 @@ export function OpenableImage({
 }) {
   const t = useT();
   const openImage = useContext(ImageViewerContext);
-  // A thumbnail's frame takes the drawn image's own shape: its natural size once it loads (chips.css
-  // .cv-thumb--sized), so a phone shot is a narrow column, not a centred column in a wide box. Until
-  // then it keeps the fixed frame, so a slow image holds its place.
-  const [natural, setNatural] = useState<{ width: number; height: number }>();
+  // A thumbnail's frame takes the drawn image's own shape (chips.css .cv-thumb--sized), so a phone shot
+  // is a narrow column, not a centred column in a wide box: from its first paint when its size is known
+  // (its data URL's header, or the size it drew at before), else once it loads. Until then it keeps the
+  // fixed frame, so a slow image holds its place.
+  const [natural, setNatural] = useState(() => (thumb ? knownImageSize(src) : undefined));
   const image = (
     <img
       className={thumb ? "cv-thumb__img" : "cv-img"}
@@ -161,7 +163,9 @@ export function OpenableImage({
         thumb
           ? (event) => {
               const { naturalWidth: width, naturalHeight: height } = event.currentTarget;
-              if (width > 0 && height > 0) setNatural({ width, height });
+              if (!(width > 0 && height > 0)) return;
+              rememberImageSize({ src }, { width, height });
+              setNatural((known) => (known?.width === width && known.height === height ? known : { width, height }));
             }
           : undefined
       }
