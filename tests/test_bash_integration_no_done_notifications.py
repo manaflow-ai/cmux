@@ -260,6 +260,131 @@ def test_bash_integration_does_not_emit_done_notifications() -> None:
         _remove_tree_after_reporters_exit(tmp)
 
 
+def test_bash_prompt_history_ignores_other_terminals_history() -> None:
+    """Bash before 4.4 reads PR commands from history at the prompt.
+
+    With shared history (`history -a; history -n` in PROMPT_COMMAND), another
+    terminal's `gh pr merge` becomes this shell's newest history entry. It must
+    not be reported as this terminal's action; only commands typed here count.
+    CMUX_BASH_TEST_PROMPT_HISTORY=1 selects the pre-4.4 path on a newer bash.
+    """
+    repo_root = Path(__file__).resolve().parents[1]
+    integration_script = repo_root / "Resources/shell-integration/cmux-bash-integration.bash"
+
+    tmp = tempfile.mkdtemp()
+    try:
+        tmp_path = Path(tmp)
+        socket_path = tmp_path / "cmux.sock"
+        repo_path = tmp_path / "repo"
+        bin_path = tmp_path / "bin"
+        gh_stub = bin_path / "gh"
+        send_log = tmp_path / "send.log"
+        shared_history = tmp_path / "shared_history"
+        shared_history.write_text("", encoding="utf-8")
+
+        (repo_path / ".git").mkdir(parents=True)
+        (repo_path / ".git" / "HEAD").write_text("ref: refs/heads/feature/x\n", encoding="utf-8")
+        bin_path.mkdir()
+        gh_stub.write_text('#!/bin/sh\n[ "$3" != "456" ]\n', encoding="utf-8")
+        gh_stub.chmod(0o755)
+
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            sock.bind(str(socket_path))
+            sock.listen(1)
+
+            env = {
+                key: value
+                for key, value in os.environ.items()
+                if not key.startswith("CMUX")
+            }
+            env.update(
+                {
+                    "LC_ALL": "C",
+                    "LANG": "C",
+                    "PATH": f"{bin_path}{os.pathsep}{os.environ.get('PATH', '')}",
+                    "HISTFILE": str(shared_history),
+                    "CMUX_BASH_TEST_PROMPT_HISTORY": "1",
+                }
+            )
+
+            def other_terminal_runs(command: str) -> None:
+                with shared_history.open("a", encoding="utf-8") as handle:
+                    handle.write(command + "\n")
+
+            with InteractiveBash(env) as bash:
+                bash.run("HISTCONTROL=ignorespace; shopt -s histappend")
+                bash.run(f" export CMUX_SOCKET_PATH={shlex.quote(str(socket_path))}")
+                bash.run(" export CMUX_TAB_ID=tab-test CMUX_PANEL_ID=panel-test")
+                bash.run(f" cd {shlex.quote(str(repo_path))}")
+                bash.run(
+                    f" source {shlex.quote(str(integration_script))}; "
+                    "_cmux_send() { printf '%s\\n' \"$1\" >> "
+                    f"{shlex.quote(str(send_log))}; }}; "
+                    '_cmux_send_bg() { _cmux_send "$1"; }'
+                )
+                # A user hook appended after cmux's, as .bashrc setups do.
+                bash.run(' PROMPT_COMMAND="$PROMPT_COMMAND;history -a;history -n"')
+                bash.run("gh pr merge 7")
+                bash.run("true")
+
+                other_terminal_runs("gh pr merge")
+                bash.run("echo b")
+                bash.run("")
+                bash.run(" true")
+                bash.run("gh pr close 456")
+                bash.run("")
+
+                # A hook appended later with a newline, the way starship does.
+                bash.run(' PROMPT_COMMAND="$PROMPT_COMMAND"$\'\\n\'"history -a; history -n"')
+                bash.run("true")
+                other_terminal_runs("gh pr close 5")
+                bash.run("echo b")
+                bash.run("")
+                bash.run("gh pr merge 9")
+                bash.run("")
+
+                # A hook ending in a comment must not swallow cmux's mark.
+                bash.run(' PROMPT_COMMAND="$PROMPT_COMMAND"$\'\\n\'"history -a; history -n # sync"')
+                bash.run("true")
+                other_terminal_runs("gh pr merge")
+                bash.run("echo b")
+                bash.run("")
+                bash.run("gh pr merge 11")
+                bash.run("")
+                bash.run("false")
+                bash.run("echo status=$?")
+
+            sent_payloads = send_log.read_text(encoding="utf-8") if send_log.exists() else ""
+            actual_payloads = [
+                line for line in sent_payloads.splitlines()
+                if line.startswith("report_pr_action ")
+            ]
+            expected_payloads = [
+                f'report_pr_action merge --tab=tab-test --panel=panel-test --target="{target}"'
+                for target in ("7", "9", "11")
+            ]
+            if actual_payloads != expected_payloads:
+                raise AssertionError(
+                    "prompt-history PR reporting must report only this terminal's "
+                    "successful gh commands.\n\n"
+                    f"Expected:\n{expected_payloads}\n\n"
+                    f"Observed:\n{actual_payloads}\n\n"
+                    f"Full PTY output:\n{bash.text}"
+                )
+            if "status=1" not in bash.text:
+                raise AssertionError(
+                    "prompt hooks must preserve the previous command's exit status.\n\n"
+                    f"Full PTY output:\n{bash.text}"
+                )
+        finally:
+            sock.close()
+    finally:
+        _remove_tree_after_reporters_exit(tmp)
+
+
 if __name__ == "__main__":
     test_bash_integration_does_not_emit_done_notifications()
     print("PASS: no bash job completion notifications observed")
+    test_bash_prompt_history_ignores_other_terminals_history()
+    print("PASS: prompt-history PR reporting ignores other terminals' history")

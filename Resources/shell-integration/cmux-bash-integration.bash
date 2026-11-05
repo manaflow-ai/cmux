@@ -584,11 +584,21 @@ _CMUX_BASH_STATE_DIR="${_CMUX_BASH_STATE_DIR%/}/cmux-bash-$EUID"
 _cmux_private_dirs 1 "$_CMUX_BASH_STATE_DIR" || _CMUX_BASH_STATE_DIR=""
 _CMUX_PR_ACTION_HINT_FILE=""
 _CMUX_BASH_HISTORY_LAST_FILE=""
+_CMUX_BASH_HISTORY_ENTRY_FILE=""
 _CMUX_PWD_REREPORT_FILE=""
 if [[ -n "$_CMUX_BASH_STATE_DIR" ]]; then
     _CMUX_PR_ACTION_HINT_FILE="$_CMUX_BASH_STATE_DIR/pr-action-$$"
     _CMUX_BASH_HISTORY_LAST_FILE="$_CMUX_BASH_STATE_DIR/history-last-$$"
+    _CMUX_BASH_HISTORY_ENTRY_FILE="$_CMUX_BASH_STATE_DIR/history-entry-$$"
     _CMUX_PWD_REREPORT_FILE="$_CMUX_BASH_STATE_DIR/pwd-rereport-$$"
+fi
+# Bash before 4.4 has no PS0, so PR commands are read from history at the
+# prompt instead. CMUX_BASH_TEST_PROMPT_HISTORY=1 selects that path on a newer
+# bash so Linux CI covers it.
+_CMUX_BASH_PROMPT_HISTORY=0
+if (( BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4) )) ||
+   [[ "${CMUX_BASH_TEST_PROMPT_HISTORY:-}" == "1" ]]; then
+    _CMUX_BASH_PROMPT_HISTORY=1
 fi
 
 _CMUX_PORTS_LAST_RUN="${_CMUX_PORTS_LAST_RUN:-0}"
@@ -1314,23 +1324,89 @@ _cmux_terminal_history_prompt() {
     printf '%s\n' "${BASH_REMATCH[2]}" >>"$CMUX_HISTORY_FILE"
 }
 
+# Bash before 4.4: find the command line this shell just ran, without PS0.
+# A hook such as `history -n` in PROMPT_COMMAND adds other terminals' commands
+# to this shell's history after _cmux_prompt_command runs, so "the newest
+# history entry" is not necessarily ours. _cmux_bash_pr_history_mark therefore
+# stays the last PROMPT_COMMAND entry and records the newest history number
+# once every prompt hook has run. Between that mark and the next
+# _cmux_prompt_command only the user's command line runs, so an entry past the
+# mark is this shell's own command. Until a trusted mark exists (the first
+# prompt, or after the mark had to be moved back to the end), fall back to the
+# number this hook saw last. $HISTCMD cannot be used: bash suspends history
+# while PROMPT_COMMAND runs, so it reads 1 there.
+
+# Sets _CMUX_BASH_HISTORY_NUMBER and _CMUX_BASH_HISTORY_TEXT from `history 1`
+# without a subshell.
+_cmux_bash_read_last_history_entry() {
+    _CMUX_BASH_HISTORY_NUMBER=""
+    _CMUX_BASH_HISTORY_TEXT=""
+    [[ -n "${_CMUX_BASH_HISTORY_ENTRY_FILE:-}" ]] || return 1
+    local line="" HISTTIMEFORMAT=
+    builtin history 1 >| "$_CMUX_BASH_HISTORY_ENTRY_FILE" 2>/dev/null || return 1
+    IFS= read -r line < "$_CMUX_BASH_HISTORY_ENTRY_FILE" || line=""
+    [[ "$line" =~ ^[[:space:]]*([0-9]+)\*?[[:space:]]+(.*)$ ]] || return 1
+    _CMUX_BASH_HISTORY_NUMBER="${BASH_REMATCH[1]}"
+    _CMUX_BASH_HISTORY_TEXT="${BASH_REMATCH[2]}"
+}
+
+_cmux_bash_pr_history_prompt() {
+    local base="${_CMUX_BASH_PR_HISTORY_TAIL:-${_CMUX_BASH_PR_HISTORY_HEAD:-}}"
+    local cmd=""
+    _CMUX_BASH_PR_HISTORY_TAIL=""
+    _cmux_bash_read_last_history_entry
+    if [[ "$_CMUX_BASH_HISTORY_NUMBER" =~ ^[0-9]+$ && "$base" =~ ^[0-9]+$ ]] &&
+       (( _CMUX_BASH_HISTORY_NUMBER > base )); then
+        cmd="$_CMUX_BASH_HISTORY_TEXT"
+    fi
+    # The first prompt only primes the number; anything earlier is restored history.
+    _CMUX_BASH_PR_HISTORY_HEAD="$_CMUX_BASH_HISTORY_NUMBER"
+    _cmux_record_pr_command_hint "$cmd"
+    _cmux_bash_pr_history_keep_mark_last
+}
+
+# The mark sits on its own line so a user entry ending in `&` or a comment
+# cannot swallow or break it.
+_cmux_bash_pr_history_mark_is_last() {
+    local pc="${PROMPT_COMMAND-}"
+    while [[ "$pc" == *[[:space:]\;] ]]; do pc="${pc%?}"; done
+    [[ "$pc" == *$'\n'"_cmux_bash_pr_history_mark" ]]
+}
+
+# Move only cmux's own mark; the user's PROMPT_COMMAND entries keep their order.
+_cmux_bash_pr_history_keep_mark_last() {
+    _cmux_bash_pr_history_mark_is_last && return 0
+    local pc="${PROMPT_COMMAND-}"
+    pc="${pc//$'\n'_cmux_bash_pr_history_mark/}"
+    while [[ "$pc" == *[[:space:]\;] ]]; do pc="${pc%?}"; done
+    PROMPT_COMMAND="${pc}"$'\n'"_cmux_bash_pr_history_mark"
+    # Bash already copied this prompt's PROMPT_COMMAND, so this prompt's mark
+    # (if any) still runs at its old place and must not be trusted.
+    _CMUX_BASH_PR_HISTORY_MOVED=1
+}
+
+_cmux_bash_pr_history_mark() {
+    local last_status=$?
+    _CMUX_BASH_PR_HISTORY_TAIL=""
+    # A hook appended after the mark could still change history this prompt.
+    if [[ -z "${_CMUX_BASH_PR_HISTORY_MOVED:-}" ]] &&
+       _cmux_bash_pr_history_mark_is_last && _cmux_bash_read_last_history_entry; then
+        _CMUX_BASH_PR_HISTORY_TAIL="$_CMUX_BASH_HISTORY_NUMBER"
+    fi
+    _CMUX_BASH_PR_HISTORY_MOVED=""
+    return "$last_status"
+}
+
 _cmux_prompt_command() {
     local last_status=$?
     _cmux_terminal_history_prompt
     _cmux_tmux_sync_cmux_environment
 
     # Bash before 4.4 has no PS0 preexec hook. Recover new PR commands at the
-    # prompt instead, using the same history cursor and parser as the PS0 path.
-    # Consume failed or unreportable commands so later history-ignored prompts
-    # cannot replay them. The first prompt only primes the restored-history cursor.
-    if [[ $- == *i* ]] &&
-       (( BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4) )); then
-        local pr_command=""
-        pr_command="$(_cmux_bash_history_command 2>/dev/null || true)"
-        if [[ -n "${_CMUX_BASH_PR_HISTORY_INITIALIZED:-}" ]]; then
-            _cmux_record_pr_command_hint "$pr_command"
-        fi
-        _CMUX_BASH_PR_HISTORY_INITIALIZED=1
+    # prompt instead, using the same parser as the PS0 path. Consume failed or
+    # unreportable commands so later history-ignored prompts cannot replay them.
+    if [[ $- == *i* && "${_CMUX_BASH_PROMPT_HISTORY:-0}" == "1" ]]; then
+        _cmux_bash_pr_history_prompt
     fi
 
     local cmux_has_unix_socket=0
@@ -1512,7 +1588,7 @@ _cmux_install_prompt_command() {
         esac
     fi
 
-        if (( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4) )); then
+        if [[ "${_CMUX_BASH_PROMPT_HISTORY:-0}" != "1" ]]; then
         if (( BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 3) )); then
             builtin readonly _CMUX_BASH_PS0='${ _cmux_bash_preexec_hook; }'
         else
