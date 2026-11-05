@@ -7,6 +7,9 @@
 //! terminal agent takes its messages from the daemon through its hooks. Messages reach agents as their own input or
 //! context, never as keystrokes typed into a terminal.
 
+/// What can carry a queued message to each recipient.
+#[path = "agent_message_capability.rs"]
+mod capability;
 use std::io::{BufReader, Read};
 use std::time::Duration;
 
@@ -364,8 +367,19 @@ pub(super) fn send_and_deliver(
         .map(str::to_owned)
         .collect();
     let mut sent = Sent { message, ..Sent::default() };
-    deliver_to_codex_terminals(&mut connection, &recipients, &mut sent);
+    let agents = recipients
+        .iter()
+        .any(|recipient| recipient.starts_with("term_"))
+        .then(|| connection.read(ResourceOperation::AgentList, json!({})).ok())
+        .flatten();
+    deliver_to_codex_terminals(&mut connection, &recipients, agents.as_ref(), &mut sent);
     await_pump(&mut connection, &recipients, &mut sent);
+    // What can carry each queued message (issue 36496): beside the receipt,
+    // never in place of it.
+    let capabilities = capability::capabilities(&recipients, agents.as_ref());
+    if let Some(message) = sent.message.as_object_mut() {
+        message.insert("delivery_capabilities".into(), capabilities);
+    }
     Ok(sent)
 }
 
@@ -438,17 +452,19 @@ fn await_pump(connection: &mut Connection, recipients: &[String], sent: &mut Sen
 /// to Codex through its shared app-server (`codex_app_server`). Other terminal
 /// agents, and a Codex agent the daemon cannot reach now, keep them queued
 /// for their hooks.
-fn deliver_to_codex_terminals(connection: &mut Connection, recipients: &[String], sent: &mut Sent) {
+fn deliver_to_codex_terminals(
+    connection: &mut Connection,
+    recipients: &[String],
+    agents: Option<&Value>,
+    sent: &mut Sent,
+) {
     let terminals: Vec<&String> =
         recipients.iter().filter(|recipient| recipient.starts_with("term_")).collect();
-    if terminals.is_empty() {
-        return;
-    }
-    let Ok(agents) = connection.read(ResourceOperation::AgentList, json!({})) else {
+    let Some(agents) = agents.filter(|_| !terminals.is_empty()) else {
         return;
     };
     for terminal in terminals {
-        let Some(thread) = codex_thread(&agents, terminal) else { continue };
+        let Some(thread) = codex_thread(agents, terminal) else { continue };
         let session = match codex_app_server::open(&thread) {
             Ok(session) => session,
             Err(codex_app_server::Unavailable::NoDaemon) => continue,
@@ -626,10 +642,14 @@ fn sent_summary(message: &Value) -> String {
         .map(|delivery| {
             let recipient = delivery["recipient"].as_str().unwrap_or_default();
             let state = delivery["state"].as_str().unwrap_or_default();
+            let how = message["delivery_capabilities"][recipient]["text"].as_str();
             match state {
-                "queued" if recipient.starts_with("term_") => {
-                    format!("queued for {recipient}; it reaches the agent at its next hook")
-                }
+                "queued" if recipient.starts_with("term_") => match how {
+                    Some(how) => format!("queued for {recipient} ({how})"),
+                    None => {
+                        format!("queued for {recipient}; it reaches the agent at its next hook")
+                    }
+                },
                 "held" => format!("held for {recipient} until you approve it in the cmux app"),
                 _ => format!("{state} to {recipient}"),
             }
