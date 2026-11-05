@@ -119,7 +119,20 @@ struct ParkedPageWindowResizeLayoutTests {
         }
     }
 
+    /// `body` with `motion.frameOwner.parkedPages` on where Debug Settings has it (off by default).
+    static func withSwitch(_ body: () throws -> Void) rethrows {
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(DesignTunables.all)
+        TunableStore.shared.set("motion.frameOwner.parkedPages", .bool(true))
+        defer { TunableStore.shared.set("motion.frameOwner.parkedPages", nil) }
+        try body()
+    }
+
     @Test func aParkedPageDoesNoLayoutWhileTheWindowResizesAndLaysOutOnceAtItsPanesSizeWhenItShows() throws {
+        try Self.withSwitch { try parkAndResize() }
+    }
+
+    private func parkAndResize() throws {
         let window = Self.window()
         defer { window.close() }
         let pane = PaneContentView(stripModel: TabStripModel(tabs: [TabItem(id: TabID("home"), title: "Home"),
