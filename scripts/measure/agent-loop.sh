@@ -25,7 +25,8 @@ for arg in "$@"; do
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
-rm -rf "$out" && mkdir -p "$out"
+# Only what this script writes goes before a run: OUT may be a folder the caller owns.
+mkdir -p "$out" && rm -f "$out"/{result.json,report.json,report.tgz,run.log,bun-install.log,ocr-build.log,live-apply-*.log,*.png}
 if [[ -z "$url" ]]; then
   url="$(curl -fsSL --retry 3 -H 'Cache-Control: no-cache' "$feed" | grep -o -E 'enclosure url="https://[^"]+\.dmg"' | head -n 1 | cut -d'"' -f2)"
   [[ -n "$url" ]] || { echo "AGENT-LOOP no DMG in $feed"; exit 3; }

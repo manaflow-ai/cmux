@@ -48,6 +48,7 @@ import argparse
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -134,14 +135,16 @@ def restore(state: dict) -> None:
     for gen, copy in state["kept"].items():
         if not (overlay / gen).is_dir() and copy.is_dir():
             os.replace(copy, overlay / gen)  # the install pruned it: the copy taken before goes back
+    # Every target first, so a rollback that cannot finish leaves every surface where it was.
+    gone = [str(overlay / t) for t in state["links"].values() if t is not None and not (overlay / t).exists()]
+    if gone:
+        raise RuntimeError(f"{', '.join(gone)} gone: every surface stays on the new generation")
     for name, target in state["links"].items():
         path = overlay / name
         if target is None:
             if path.is_symlink():
                 path.unlink()
             continue
-        if not (overlay / target).exists():
-            raise RuntimeError(f"{overlay / target} is gone: {name} stays on the new generation")
         temp = overlay / f".{name}.rollback"
         if temp.is_symlink() or temp.exists():
             temp.unlink()
@@ -229,23 +232,27 @@ def main(argv: list[str] | None = None) -> int:
         return done(0)
 
     before = overlay_state()
+    try:
+        return apply_and_probe(args, result, phases, before, done)
+    finally:
+        drop_kept(before)  # every way out, an interrupted build or probe included
+
+
+def apply_and_probe(args, result: dict, phases: dict, before: dict, done) -> int:
     t = time.monotonic()
     built = subprocess.run([str(ROOT / "scripts/cmux-next/web-overlay.sh"), "build"], stdout=sys.stderr, stderr=sys.stderr)
     phases["build_swap"] = round(time.monotonic() - t, 2)
     if built.returncode != 0:
-        drop_kept(before)
         result["needs"] = f"web-overlay.sh build exited {built.returncode}"
         return done(4)
     result["applied"], result["generation"] = True, generation()
     if not args.probe:
-        drop_kept(before)
         return done(0)
 
     t = time.monotonic()
     result["probe"], result["probe_detail"] = run_probe(args.probe, args.probe_seconds)
     phases["probe"] = round(time.monotonic() - t, 2)
     if result["probe"] == "pass":
-        drop_kept(before)
         return done(0)
     if not args.no_rollback:
         t = time.monotonic()
@@ -257,9 +264,9 @@ def main(argv: list[str] | None = None) -> int:
             result["needs"] = f"rollback incomplete: {error}"
             log(result["needs"])
         phases["rollback"] = round(time.monotonic() - t, 2)
-    drop_kept(before)
     return done(1)
 
 
 if __name__ == "__main__":
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))  # a harness timeout still runs the finally
     sys.exit(main())
