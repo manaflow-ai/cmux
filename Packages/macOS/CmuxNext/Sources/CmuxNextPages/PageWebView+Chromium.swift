@@ -165,6 +165,8 @@ extension PageWebView {
             }
         } catch {
             session.end()
+            // A start cancelled meanwhile (the page fell back or closed) has nothing left to fall back from.
+            guard chromiumStart?.isCancelled == false else { return }
             fallBackToWebKit(.chromiumFailed, detail: "setup: \(error)")
             return
         }

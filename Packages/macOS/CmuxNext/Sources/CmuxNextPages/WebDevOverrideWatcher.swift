@@ -83,13 +83,14 @@ public final class WebDevOverrideWatcher {
     ///   - hosting: The Chromium host (the app's ``PageWebView/chromiumHosting``).
     ///   - pages: The open pages (nil: every live one, ``PageRegistry``).
     ///   - served: The WebKit views the scheme handlers served.
+    ///   - watcher: The watcher whose reload count supersedes earlier engine moves (tests pass their own).
     /// - Returns: The work still running for pages that change engine, nil for none (tests wait on it).
     @discardableResult
     static func reloadPages(live: Bool = WebDevOverride.current.isActive,
                             hosting: (any PageChromiumHosting)? = PageWebView.chromiumHosting,
                             pages: [PageWebView]? = nil,
-                            served: WebBundleServedViews = .shared) -> Task<Void, Never>? {
-        let watcher = shared
+                            served: WebBundleServedViews = .shared,
+                            watcher: WebDevOverrideWatcher = .shared) -> Task<Void, Never>? {
         watcher.reloadGeneration &+= 1
         let chromiumLive = live && (hosting?.setLivePages(true) ?? false)
         if !live { _ = hosting?.setLivePages(false) }

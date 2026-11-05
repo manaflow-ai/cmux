@@ -294,8 +294,8 @@ def main(argv: list[str] | None = None) -> int:
                                                           "smoke_exit")}
     if later["required"] and not later["pass"]:
         result["failures"].append("settings-first: " + ", ".join(later["failures"] or ["failed"]))
-        if later_code == smoke.CANNOT_RUN:
-            code = smoke.CANNOT_RUN
+        if later_code == smoke.CANNOT_RUN and code == 0:
+            code = smoke.CANNOT_RUN  # only when the first case passed: a real failure stays a failure
     result["total_s"] = round(time.time() - started, 2)
     result["pass"] = code == 0 and not result["failures"]
     (out / "result.json").write_text(json.dumps(result, indent=2) + "\n")

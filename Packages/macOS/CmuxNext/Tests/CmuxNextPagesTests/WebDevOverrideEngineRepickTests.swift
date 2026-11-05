@@ -11,7 +11,7 @@ import Testing
 /// until it next opens. An agent's loop on a NIGHTLY found Settings, opened before the overlay was
 /// installed, never showing the applied change (cmuxterm-hq#7149 L8).
 @MainActor
-@Suite(.closesItsWindows)
+@Suite(.serialized, .closesItsWindows)
 struct WebDevOverrideEngineRepickTests {
     private let root: URL
     private let descriptor = PageDescriptor(id: "test.live-repick", resource: "live-repick", namespaces: [])
@@ -53,7 +53,7 @@ struct WebDevOverrideEngineRepickTests {
             view.close()
         }
 
-        await WebDevOverrideWatcher.reloadPages(live: true, hosting: hosting, pages: [view], served: WebBundleServedViews())?.value
+        await WebDevOverrideWatcher.reloadPages(live: true, hosting: hosting, pages: [view], served: WebBundleServedViews(), watcher: WebDevOverrideWatcher())?.value
 
         #expect(view.chromiumPage == nil, "the page stayed in Chromium, which serves only its bundled files")
         #expect(page.closed)
@@ -73,7 +73,7 @@ struct WebDevOverrideEngineRepickTests {
             view.close()
         }
 
-        await WebDevOverrideWatcher.reloadPages(live: true, hosting: hosting, pages: [view], served: WebBundleServedViews())?.value
+        await WebDevOverrideWatcher.reloadPages(live: true, hosting: hosting, pages: [view], served: WebBundleServedViews(), watcher: WebDevOverrideWatcher())?.value
 
         #expect(view.chromiumPage === page)
         #expect(page.reloads == 1, "Chromium serves the loop: the page reloads in place")
@@ -88,7 +88,7 @@ struct WebDevOverrideEngineRepickTests {
             view.close()
         }
 
-        await WebDevOverrideWatcher.reloadPages(live: false, hosting: hosting, pages: [view], served: WebBundleServedViews())?.value
+        await WebDevOverrideWatcher.reloadPages(live: false, hosting: hosting, pages: [view], served: WebBundleServedViews(), watcher: WebDevOverrideWatcher())?.value
 
         #expect(view.chromiumPage === page)
         #expect(!page.closed)
