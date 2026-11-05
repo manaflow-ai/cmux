@@ -28187,6 +28187,34 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "accounts slack-connect",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "accounts.slackConnect",
+      "main_menu" : null,
+      "mcp" : "credentials",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Connect Slack",
+      "title_key" : "action.accounts.slackConnect",
+      "title_table" : "AccountsActions"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "accounts github-connect",
       "context_menu" : "noObject",
       "context_menus" : [

@@ -7,6 +7,11 @@ nonisolated enum AccountActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
         var actions = [
             ActionDescriptor(
+                id: "accounts.slackConnect", title: text("action.accounts.slackConnect", "Connect Slack"),
+                keywords: ["slack", "chief", "integration"], category: .cloud, symbol: "link",
+                surfaces: [.palette], cliName: "accounts slack-connect"
+            ),
+            ActionDescriptor(
                 id: "accounts.githubConnect", title: text("action.accounts.githubConnect", "Connect GitHub"),
                 keywords: ["github", "repositories", "integration"], category: .cloud, symbol: "link",
                 surfaces: [.palette], cliName: "accounts github-connect"

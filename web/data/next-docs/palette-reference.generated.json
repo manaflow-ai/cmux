@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1293,
+    "entries": 1294,
     "shortcuts": 189
   },
   "sections": [
@@ -6506,6 +6506,12 @@
           "title": "Connect GitHub",
           "shortcut": null,
           "command": "cmux accounts github-connect"
+        },
+        {
+          "id": "accounts.slackConnect",
+          "title": "Connect Slack",
+          "shortcut": null,
+          "command": "cmux accounts slack-connect"
         },
         {
           "id": "cloudCopyMachineID",

@@ -55,6 +55,7 @@ import { MockAgents } from "./mockAgents";
 import { mockChannels } from "./mockChannels";
 import { mockThemeColors } from "./mockThemes";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
+import type { SlackConnection } from "./slackConnection";
 
 export type MockOptions = {
   chatFolders?: ListRow["folders"];
@@ -166,6 +167,7 @@ export const mockCmuxAccount: Record<"signedIn" | "signedOut" | "signingIn", Acc
 };
 
 export class MockSettingsProvider {
+  slack: SlackConnection = { connected: false, teams: [] };
   readonly log: Array<{ op: string; params: unknown }> = [];
   /** The colors `cmux.settings.theme.colors` answers (the gallery installs every bundled theme). */
   themeColors: GhosttyTheme[] = mockThemeColors;
@@ -231,6 +233,12 @@ export class MockSettingsProvider {
       "cmux.settings.sound.play": () => ({}),
       "cmux.settings.host.lists": () => this.host,
       "cmux.settings.accounts.state": () => this.accountsState(),
+      "cmux.settings.slack.request": (params) => {
+        if (params.method === "POST") return { url: "https://platform.example/v1/slack/install?ticket=example" };
+        if (params.method === "DELETE") this.slack = { connected: false, teams: [] };
+        return this.slack;
+      },
+      "cmux.settings.slack.open": () => ({}),
       "cmux.settings.server.restart": () => ({}),
       "cmux.settings.server.pair": () => ({}),
       "cmux.settings.mobile.allow_again": () => {
@@ -575,6 +583,8 @@ export class MockSettingsProvider {
       "cmux.settings.machines.vm_host",
       "cmux.settings.accounts.state",
       "cmux.settings.accounts.run",
+      "cmux.settings.slack.request",
+      "cmux.settings.slack.open",
       "cmux.settings.channels.state",
       "cmux.settings.channels.go_back",
       "cmux.settings.channels.update_machine",

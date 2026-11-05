@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 801,
+    "verbs": 802,
     "mcp": 716
   },
   "nouns": [
@@ -49,6 +49,13 @@
           "id": "accounts.show",
           "mcp": true,
           "mcpTool": "app_accounts_show"
+        },
+        {
+          "command": "cmux accounts slack-connect",
+          "title": "Connect Slack",
+          "id": "accounts.slackConnect",
+          "mcp": false,
+          "mcpTool": null
         }
       ]
     },
@@ -5844,7 +5851,7 @@
     }
   ],
   "mcpExempt": {
-    "credentials": 7,
+    "credentials": 8,
     "endsApp": 4,
     "systemChange": 74
   }

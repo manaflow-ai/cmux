@@ -13,6 +13,7 @@ import { PAGE_CONNECTION } from "../shared/pageStreams";
 import type { DaemonError, DaemonSocket } from "../shared/daemonSocket";
 import { CloudHome, WS_CLOUD_CAPABILITY } from "./cloudHome";
 import { DaemonPeople } from "./daemonPeople";
+import { slackThreadSource } from "./slackThread";
 import { AttachmentService, messageGroups } from "./attachmentService";
 import { INLINE_TEXT_BYTES, TextUpload } from "./textUpload";
 import {
@@ -214,7 +215,7 @@ export function message(raw: Json): HomeMessage {
   if (raw.edited_at) result.editedAt = time(raw.edited_at);
   const thread = raw.thread as Json | undefined;
   if (thread && typeof thread === "object") {
-    const object: HomeThreadObject = {};
+    const object: HomeThreadObject = { ...slackThreadSource(thread) };
     if (typeof thread.title === "string") object.title = thread.title;
     if (typeof thread.owner === "string") object.owner = thread.owner;
     const resolved = thread.resolved as Json | undefined;

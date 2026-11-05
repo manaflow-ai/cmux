@@ -97,7 +97,7 @@ nonisolated final class VideoJob: @unchecked Sendable {
                 // The requester may call once more after the input is marked finished; resume once.
                 guard !finished else { return }
                 // A writer that failed (its encoder went away, say) takes no more frames and will
-                // not ask again: stop feeding it, so no frame comes from its torn-down pool.
+                // not ask again: stop feeding a failed encoder.
                 while writer.status == .writing, input.isReadyForMoreMediaData, next < frames {
                     if let buffer = frame(next),
                        !adaptor.append(buffer, withPresentationTime: CMTime(value: CMTimeValue(next), timescale: 30)) { break }
@@ -113,10 +113,10 @@ nonisolated final class VideoJob: @unchecked Sendable {
     }
 
     private func frame(_ i: Int) -> CVPixelBuffer? {
-        guard let pool = adaptor.pixelBufferPool else { return nil }
         var buffer: CVPixelBuffer?
-        CVPixelBufferPoolCreatePixelBuffer(nil, pool, &buffer)
-        guard let buffer else { return nil }
+        guard CVPixelBufferCreate(nil, width, height, kCVPixelFormatType_32BGRA, nil, &buffer) == kCVReturnSuccess,
+              let buffer
+        else { return nil }
         CVPixelBufferLockBaseAddress(buffer, [])
         defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
         guard let space = CGColorSpace(name: CGColorSpace.sRGB),

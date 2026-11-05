@@ -2,6 +2,7 @@ import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextPalette
 import CmuxNextSettings
+import CmuxNextSettingsWindow
 import Foundation
 import os
 
@@ -100,7 +101,7 @@ final class SettingsPaletteSource: PaletteSettingsSource {
             Self.themeOptions(current: current?.stringValue, names: themes.names, defaultLabel: descriptor.defaultLabel ?? "",
                               strip: themes.swatches(for:))
         } else if isFont {
-            settings.recentFonts.options(current: current?.stringValue, families: SettingsPageDomains.fontFamilies, defaultLabel: descriptor.defaultLabel ?? descriptor.title)
+            settings.recentFonts.options(current: current?.stringValue, families: SettingsPageDomains().fontFamilies, defaultLabel: descriptor.defaultLabel ?? descriptor.title)
         } else {
             settings.paletteOptions(descriptor, current: current, themeColors: colors)
         }
