@@ -29094,6 +29094,84 @@
         }
       }
     },
+    "settings.layout.cornerPadding": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Corner Padding"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "角のパディング"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "حشوة الزاوية"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Razmak uglova"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Hjørneafstand"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Eckabstand"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Margen de esquina"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Marge des coins"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Spaziatura degli angoli"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "គម្លាតជ្រុង"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "모서리 여백"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Hjørneavstand"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Odstęp narożnika"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Espaçamento do canto"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Отступ углов"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ระยะห่างมุม"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Köşe boşluğu"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Відступ кутів"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Khoảng đệm góc"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "圆角内边距"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "圓角內距"}}
+      }
+    },
+    "settings.layout.paneCornerRadius.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "One radius for panes and tabs. Shapes inside a pane use this radius minus the corner padding."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ペインとタブに共通の半径です。ペイン内の図形はこの半径から角のパディングを引いた値を使います。"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "نصف قطر واحد للأجزاء وعلامات التبويب. تستخدم الأشكال داخل الجزء هذا النصف مطروحًا منه حشوة الزاوية."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Jedan radijus za panele i kartice. Oblici unutar panela koriste ovaj radijus umanjen za razmak uglova."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Én radius for ruder og faner. Former i en rude bruger denne radius minus hjørneafstanden."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Ein Radius für Bereiche und Tabs. Formen in einem Bereich nutzen diesen Radius minus den Eckabstand."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Un radio para paneles y pestañas. Las formas dentro de un panel usan este radio menos el margen de esquina."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Un seul rayon pour les volets et les onglets. Les formes d'un volet utilisent ce rayon moins la marge des coins."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Un raggio per pannelli e schede. Le forme in un pannello usano questo raggio meno la spaziatura degli angoli."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "កាំតែមួយសម្រាប់ផ្ទាំង និងផ្ទាំងរង។ រូបរាងក្នុងផ្ទាំងប្រើកាំនេះដកគម្លាតជ្រុង។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "창과 탭에 쓰는 하나의 반경입니다. 창 안의 도형은 이 반경에서 모서리 여백을 뺀 값을 씁니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Én radius for ruter og faner. Former i en rute bruker denne radiusen minus hjørneavstanden."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Jeden promień dla paneli i kart. Kształty w panelu używają tego promienia minus odstęp narożnika."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Um raio para painéis e abas. As formas dentro de um painel usam este raio menos o espaçamento do canto."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Один радиус для панелей и вкладок. Фигуры внутри панели используют этот радиус минус отступ углов."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "รัศมีเดียวสำหรับบานหน้าต่างและแท็บ รูปทรงในบานหน้าต่างใช้รัศมีนี้ลบระยะห่างมุม"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Bölmeler ve sekmeler için tek yarıçap. Bölme içindeki şekiller bu yarıçaptan köşe boşluğunu çıkarır."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Один радіус для панелей і вкладок. Фігури всередині панелі використовують цей радіус мінус відступ кутів."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Một bán kính cho ô và thẻ. Hình bên trong ô dùng bán kính này trừ khoảng đệm góc."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "窗格和标签页共用一个半径。窗格内的形状使用此半径减去圆角内边距。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "窗格與分頁共用一個半徑。窗格內的形狀使用此半徑減去圓角內距。"}}
+      }
+    },
+    "settings.layout.cornerPadding.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Space between a pane's edge and its tabs. Inner corners use the corner radius minus this."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ペインの端とタブの間隔です。内側の角は角丸の半径からこの値を引いたものです。"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "المسافة بين حافة الجزء وعلامات التبويب. تستخدم الزوايا الداخلية نصف قطر الزاوية مطروحًا منه هذه القيمة."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Razmak između ruba panela i kartica. Unutrašnji uglovi koriste radijus uglova umanjen za ovo."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Afstand mellem en rudes kant og dens faner. Indre hjørner bruger hjørneradius minus denne."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Abstand zwischen dem Rand eines Bereichs und seinen Tabs. Innere Ecken nutzen den Eckradius minus diesen Wert."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Espacio entre el borde de un panel y sus pestañas. Las esquinas internas usan el radio de esquina menos este valor."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Espace entre le bord d'un volet et ses onglets. Les coins intérieurs utilisent le rayon des coins moins cette valeur."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Spazio tra il bordo di un pannello e le sue schede. Gli angoli interni usano il raggio meno questo valore."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "គម្លាតរវាងគែមផ្ទាំង និងផ្ទាំងរងរបស់វា។ ជ្រុងខាងក្នុងប្រើកាំជ្រុងដកតម្លៃនេះ។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "창 가장자리와 탭 사이의 간격입니다. 안쪽 모서리는 모서리 반경에서 이 값을 뺍니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Avstand mellom kanten av en rute og fanene. Indre hjørner bruker hjørneradius minus denne."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Odstęp między krawędzią panelu a jego kartami. Wewnętrzne narożniki używają promienia minus ta wartość."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Espaço entre a borda de um painel e suas abas. Os cantos internos usam o raio do canto menos este valor."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Расстояние между краем панели и её вкладками. Внутренние углы используют радиус углов минус это значение."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ระยะห่างระหว่างขอบบานหน้าต่างกับแท็บ มุมด้านในใช้รัศมีมุมลบค่านี้"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Bölme kenarı ile sekmeleri arasındaki boşluk. İç köşeler köşe yarıçapından bunu çıkarır."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Відстань між краєм панелі та її вкладками. Внутрішні кути використовують радіус кутів мінус це значення."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Khoảng cách giữa cạnh ô và các thẻ của nó. Góc bên trong dùng bán kính góc trừ giá trị này."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "窗格边缘与其标签页之间的间距。内侧圆角使用圆角半径减去此值。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "窗格邊緣與其分頁之間的間距。內側圓角使用圓角半徑減去此值。"}}
+      }
+    },
     "settings.layout.paneCornerRadius": {
       "extractionState": "manual",
       "localizations": {

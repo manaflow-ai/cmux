@@ -47,8 +47,13 @@ public struct Metrics {
     /// traffic lights inside it.
     public static var titlebarHeight: CGFloat { MetricTunables.titlebarHeight.value }
 
-    /// Height of a pane's tab strip.
-    public static var tabStripHeight: CGFloat { MetricTunables.tabStripHeight.value }
+    /// Height of a pane's tab strip: the density token, or, when `layout.cornerPadding` is set, the
+    /// tab height with that gap above and below the pills (`PaneChromeMetrics`: the pill top is
+    /// `(strip - tab - stripTopOutset) / 2`, so the padding is the gap the corners nest across).
+    public static var tabStripHeight: CGFloat {
+        guard let padding = DesignSettings.shared.paneChrome.cornerPadding else { return MetricTunables.tabStripHeight.value }
+        return tabHeight + 2 * scale(padding) + stripTopOutset
+    }
 
     /// Space reserved at the leading edge of the titlebar for traffic lights.
     public static var trafficLightInset: CGFloat { scale(ChromeTunables.trafficLightInset.value) }
@@ -170,17 +175,32 @@ public struct Metrics {
 
     // MARK: Shape
 
-    /// Corner radius of a pane's rounded rect (`layout.paneCornerRadius`; 0 is
-    /// square). Without padding and border the default is 0, so panes are
-    /// exactly edge to edge unless the radius is set explicitly.
-    public static var paneCornerRadius: CGFloat {
-        let chrome = DesignSettings.shared.paneChrome
-        if let radius = chrome.cornerRadius { return scale(radius) }
-        if panePadding == 0 && paneBorder == .none { return 0 }
-        return densityPaneCornerRadius
+    /// The one outer corner radius (`layout.paneCornerRadius`, else the density's
+    /// ``densityPaneCornerRadius``): every rounded pane card, the curved main
+    /// pane and, less ``cornerPadding``, every tab pill (Lawrence 2026-11-04: "radius
+    /// of tabbar tabs ... + radius of panes, both need to be same setting").
+    public static var cornerRadius: CGFloat {
+        DesignSettings.shared.paneChrome.cornerRadius.map(scale) ?? densityPaneCornerRadius
     }
-    /// The density's rounded pane corner radius, used when padding or a
-    /// border shows and `layout.paneCornerRadius` is unset.
+    /// The gap between a pane's rounded edge and the tab pills nested in it, which
+    /// nested corners subtract from ``cornerRadius``: the first pill's inset from the
+    /// card's top and leading edges (``tabStripCardInset``), set by `layout.cornerPadding`.
+    public static var cornerPadding: CGFloat { tabStripCardInset }
+    /// The concentric corner rule of the pane chrome: ``cornerRadius`` outside,
+    /// ``cornerPadding`` between each nested level. Every pane and tab bar radius is
+    /// read from it (``ConcentricCorners``).
+    public static var corners: ConcentricCorners { ConcentricCorners(outer: cornerRadius, padding: cornerPadding) }
+    /// Corner radius of a pane's rounded rect: ``cornerRadius``, or 0 (square)
+    /// when panes are edge to edge (no padding and no border), where neighbors
+    /// meet with no gap for a curve to show in.
+    public static var paneCornerRadius: CGFloat {
+        if panePadding == 0 && paneBorder == .none { return 0 }
+        return cornerRadius
+    }
+    /// The density's outer corner radius, used when `layout.paneCornerRadius` is unset:
+    /// 10 pt compact and 11 pt comfortable, so the tab pills nested 2 and 3 pt inside
+    /// keep Helium's 8 pt (``heliumTabCornerRadius``), and the compact main pane is
+    /// concentric with the 16 pt window across its 6 pt gutter.
     public static var densityPaneCornerRadius: CGFloat { MetricTunables.densityPaneCornerRadius.value }
     /// How panes are told apart (`layout.paneSeparation`, else the legacy
     /// `layout.paneBorder` and padding).
