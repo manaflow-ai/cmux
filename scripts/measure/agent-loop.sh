@@ -17,7 +17,7 @@ export GIT_TERMINAL_PROMPT=0  # a public fetch never waits on a credential promp
 cd "$(dirname "$0")/../.." || exit 3
 root="$PWD"
 out="$root/.build/agent-loop"
-feed="https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml"
+feed="https://files-next.cmux.com/nightly-next/appcast-arm64.xml"  # the one feed since #36287
 url=""
 for arg in "$@"; do
   case "$arg" in
