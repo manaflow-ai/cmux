@@ -3,6 +3,8 @@ import AppKit
 import CmuxNextBridge
 import CmuxNextDesign
 @testable import CmuxNextLayout
+import CmuxNextTabs
+import CmuxNextTerminal
 import CmuxNextTestSupport
 import ObjectiveC
 import Testing
@@ -136,5 +138,50 @@ struct PaneMotionPointerAreasTests {
         #expect(Spy.invalidations.isEmpty, "\(frames) key-resize frames made AppKit invalidate cursor rects: \(inMotion)")
         #expect(Spy.trackingUpdates.isEmpty, "\(frames) key-resize frames updated tracking areas: \(inMotion)")
         #expect(Spy.dragMarginResets == 0, "\(frames) key-resize frames rebuilt the window's drag margins \(Spy.dragMarginResets) times")
+    }
+
+    /// The first view of type `T` in `view`'s subtree.
+    static func first<T: NSView>(_: T.Type, in view: NSView) -> T? {
+        if let match = view as? T { return match }
+        for child in view.subviews { if let match = first(T.self, in: child) { return match } }
+        return nil
+    }
+
+    /// The cursor over a terminal is the one it asks for (the I-beam), and over its tab strip the arrow, before and after
+    /// a key resize; the terminal hears the pointer. The screen's one tracking area sets them from its hit test, as the
+    /// terminal's own cursor rect did.
+    @Test func theCursorOverATerminalAndItsStripIsTheSameBeforeAndAfterAKeyResize() throws {
+        let rig = PaneGroundCoversPaneTests.Rig(Self.grid, focused: "p2")
+        defer { rig.close() }
+        let window = Self.shellWindow(rig)
+        defer { window.closeAfterTest() }
+        window.orderFrontRegardless()
+        try #require(window.isVisible, "the window is not on screen: this test needs a display worker")
+        window.displayIfNeeded()
+        let screen = try rig.screen
+        let host = try #require(rig.root.context.hosts["p1"])
+        let surface = try #require(Self.first(TerminalSurfaceView.self, in: host), "p1 shows no terminal")
+        let strip = try #require(Self.first(TabStripView.self, in: host), "p1 shows no tab strip")
+        func move(over view: NSView) throws -> NSCursor {
+            let point = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
+            let event = try #require(NSEvent.mouseEvent(with: .mouseMoved, location: point, modifierFlags: [], timestamp: 0,
+                                                        windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+                                                        clickCount: 0, pressure: 0))
+            screen.dividerPointer.mouseMoved(with: event)
+            return NSCursor.current
+        }
+        #expect(try move(over: surface) === NSCursor.iBeam, "over the terminal at rest: \(NSCursor.current.debugName)")
+        #expect(screen.dividerPointer.contentTarget === surface, "the terminal did not hear the pointer")
+        #expect(try move(over: strip) === NSCursor.arrow, "over the strip at rest: \(NSCursor.current.debugName)")
+
+        try #require(PaneResize.press("p2", .right, model: rig.model, view: rig.root), "the press was refused")
+        rig.root.syncWithModel()
+        var frames = 0
+        while frames < 240, rig.frame() { frames += 1 }
+        rig.commit()
+        try #require(frames > 3, "the press did not spring (\(frames) frames)")
+        #expect(try move(over: surface) === NSCursor.iBeam, "over the terminal after the resize: \(NSCursor.current.debugName)")
+        #expect(screen.dividerPointer.contentTarget === surface, "the terminal did not hear the pointer after the resize")
+        #expect(try move(over: strip) === NSCursor.arrow, "over the strip after the resize: \(NSCursor.current.debugName)")
     }
 }
