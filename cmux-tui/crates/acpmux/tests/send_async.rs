@@ -658,6 +658,7 @@ async fn send_queue_to_a_peer_that_is_down_acks_at_once_and_keeps_trying() {
     let queued =
         ca.call(SEND_QUEUE, json!({"request": prompt("gone/lane", "hi", "p-down")})).await.unwrap();
     assert!(started.elapsed() < ACK, "send_queue took {:?}", started.elapsed());
+    assert_eq!(queued["hostUnreachable"], true, "the answer says the machine is down: {queued}");
     let delivery = queued["deliveryId"].as_str().unwrap().to_owned();
     let status =
         ca.call(SEND_STATUS, json!({"deliveryId": delivery, "waitMs": 3000})).await.unwrap();
@@ -670,6 +671,88 @@ async fn send_queue_to_a_peer_that_is_down_acks_at_once_and_keeps_trying() {
         .await
         .unwrap_err();
     assert!(e.contains("no session"), "{e}");
+}
+
+/// A send to a session a reachable machine does not have is refused at once, naming the
+/// closest names there, never queued (2026-11-05: a send to a process title, not the session's
+/// name, said "queued" and then failed 17 attempts unseen).
+#[tokio::test]
+async fn send_queue_to_a_missing_session_fails_fast_with_the_closest_names() {
+    let (a, _b, _id) = busy_peer("nosession", "feed-lane-items").await;
+    let mut ca = C::new(a.clone()).await;
+    let started = Instant::now();
+    let e = ca
+        .call(SEND_QUEUE, json!({"request": prompt("b/feed-lane", "hi", "p-missing")}))
+        .await
+        .unwrap_err();
+    assert!(started.elapsed() < ACK, "the refusal took {:?}", started.elapsed());
+    assert!(e.contains("no session feed-lane on b"), "{e}");
+    assert!(e.contains("did you mean: feed-lane-items"), "{e}");
+    // A name nothing contains still gets the closest names on that machine.
+    let e = ca
+        .call(SEND_QUEUE, json!({"request": prompt("b/proc-title", "hi", "p-title")}))
+        .await
+        .unwrap_err();
+    assert!(e.contains("no session proc-title on b; did you mean: feed-lane-items"), "{e}");
+    // A session here: the same, with this machine's names.
+    ca.call(
+        method::SESSION_NEW,
+        json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "alpha"}}}),
+    )
+    .await
+    .unwrap();
+    let e = ca
+        .call(SEND_QUEUE, json!({"request": prompt("alpah", "hi", "p-local")}))
+        .await
+        .unwrap_err();
+    assert!(e.contains("no session alpah on ") && e.contains("did you mean: alpha"), "{e}");
+}
+
+/// A message queued while its machine was down, which then answers that it has no such
+/// session, fails on that first answer, `failed: no_session` with the closest names, and is
+/// never tried again.
+#[tokio::test]
+async fn a_queued_message_that_meets_no_session_fails_once_and_stops() {
+    let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let a = hub();
+    a.add_peer("late", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
+        .await
+        .unwrap();
+    let mut ca = C::new(a.clone()).await;
+    let queued =
+        ca.call(SEND_QUEUE, json!({"request": prompt("late/proc-title", "hi", "p-late")})).await.unwrap();
+    assert_eq!(queued["hostUnreachable"], true, "{queued}");
+    let delivery = queued["deliveryId"].as_str().unwrap().to_owned();
+    // The machine comes up, with a session of another name.
+    let b = hub();
+    let l = bind_ws(&format!("127.0.0.1:{port}")).await.unwrap();
+    tokio::spawn(serve_ws_with(b.clone(), l, "tok".into(), WsAuth { local_app: None, peer: None }));
+    let mut cb = C::new(b).await;
+    cb.call(
+        method::SESSION_NEW,
+        json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+               "_meta": {"acpmux": {"name": "feed-lane-items"}}}),
+    )
+    .await
+    .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(90);
+    let failed = loop {
+        let status =
+            ca.call(SEND_STATUS, json!({"deliveryId": delivery, "waitMs": 10_000})).await.unwrap();
+        if status["status"] == "failed" {
+            break status;
+        }
+        assert!(Instant::now() < deadline, "never settled: {status}");
+    };
+    assert_eq!(failed["reason"], "no_session", "{failed}");
+    let error = failed["error"].as_str().unwrap();
+    assert!(error.starts_with("no_session: no session proc-title on late"), "{error}");
+    assert!(error.contains("did you mean: feed-lane-items"), "{error}");
+    let attempts = failed["attempts"].as_u64().unwrap();
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    let later = ca.call(SEND_STATUS, json!({"deliveryId": delivery})).await.unwrap();
+    assert_eq!(later["attempts"].as_u64().unwrap(), attempts, "tried again: {later}");
+    assert_eq!(later["status"], "failed", "{later}");
 }
 
 /// A session repeating itself to another is paused (`hub/agent_pairs.rs`): the delivery settles
