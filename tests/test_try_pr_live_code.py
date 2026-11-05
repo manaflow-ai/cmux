@@ -87,8 +87,8 @@ class TryPrLiveCodeTests(unittest.TestCase):
         self.record = tc / "swift-frontend.record"
         # The build's own checkout, as reload.sh's log names it.
         build = self.tmp / "build"
-        (build / APP_FILE).parent.mkdir(parents=True)
-        (build / APP_FILE).write_text(BASE_SWIFT)
+        subprocess.run(["git", "clone", "-q", str(origin), str(build)], check=True)
+        self.build = build
         filelist = self.tmp / "CmuxNextApp.SwiftFileList"
         filelist.write_text(f"{build / APP_FILE}\n{self.tmp}/DerivedData/resource_bundle_accessor.swift\n")
         self.log = self.tmp / "reload.log"
@@ -203,6 +203,38 @@ class TryPrLiveCodeTests(unittest.TestCase):
         self.assertIn("so a dev build", out.stdout)
         self.assertFalse(self.record.exists(), "nothing was compiled")
         self.assertEqual(len(self.worktrees()), 1)
+
+    def unrecorded(self):
+        """The app as a reload or DEV build: no CMUXCommit."""
+        with open(self.app / "Contents/Info.plist", "wb") as f:
+            plistlib.dump({"CFBundleIdentifier": "com.cmuxterm.app.debug.live", "CFBundleVersion": "1"}, f)
+
+    def test_a_build_with_no_recorded_commit_uses_its_checkouts_head(self):
+        self.unrecorded()
+        self.push_pr(lambda w: (w / APP_FILE).write_text(BASE_SWIFT.replace('"hello"', '"hello from the PR"')))
+        self.answer_patches()
+        out = self.try_pr()
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertRegex(out.stdout, r"live code: applied patch-")
+        self.assertIn("hello from the PR", self.record.read_text())
+
+    def test_an_edited_build_checkout_takes_the_dev_build(self):
+        self.unrecorded()
+        (self.build / APP_FILE).write_text(BASE_SWIFT.replace('"hello"', '"local edit"'))
+        self.push_pr(lambda w: (w / APP_FILE).write_text(BASE_SWIFT.replace('"hello"', '"hi"')))
+        out = self.try_pr("--no-build")
+        self.assertIn("uncommitted CmuxNextApp changes", out.stdout)
+        self.assertIn("so a dev build", out.stdout)
+        self.assertFalse(self.record.exists())
+
+    def test_a_build_checkout_that_moved_since_the_build_takes_the_dev_build(self):
+        self.unrecorded()
+        then = time.time() - 3600
+        os.utime(self.log, (then, then))  # the build is older than the checkout's last HEAD move
+        self.push_pr(lambda w: (w / APP_FILE).write_text(BASE_SWIFT.replace('"hello"', '"hi"')))
+        out = self.try_pr("--no-build")
+        self.assertIn("moved to another commit after the build", out.stdout)
+        self.assertIn("so a dev build", out.stdout)
 
     def test_a_build_of_a_commit_this_checkout_lacks_takes_the_dev_build(self):
         with open(self.app / "Contents/Info.plist", "wb") as f:
