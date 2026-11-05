@@ -142,6 +142,8 @@ prepare_reserved_remote_state() {
 # Best effort: a daemon on the root filesystem still runs while that has room.
 bind_remote_state() {
   [ -f "$STATE_RESERVATION_MARKER" ] || return 0
+  # Never into a state dir that is really the root filesystem.
+  is_mounted || return 0
   remote="$home/.local/state/cmux/remote"
   reserved="$state/.cmux-remote"
   if mountpoint -q "$remote" 2>/dev/null; then
@@ -149,7 +151,7 @@ bind_remote_state() {
     return 0
   fi
   # The daemon holds files in the current directory; it binds at the next start.
-  if pgrep -f 'cmux-tui server [s]tart' >/dev/null 2>&1; then
+  if pgrep -f 'cmux-tui server [s]tart --session cloud' >/dev/null 2>&1; then
     echo "cmux-tui-state-mount: daemon is running; remote state moves at its next start" >&2
     return 0
   fi
@@ -159,13 +161,14 @@ bind_remote_state() {
   if [ -d "$reserved" ]; then
     prepare_reserved_remote_state
   else
-    # The old copy stays underneath, hidden by the bind, so a helper rollback
-    # still finds an identity after its next reboot.
     rm -rf "$reserved.new"
     if ! { mkdir "$reserved.new" && cp -a "$remote/." "$reserved.new/" && chown "$user:$user" "$reserved.new" && chmod 0700 "$reserved.new" && mv "$reserved.new" "$reserved"; }; then
       rm -rf "$reserved.new"
       return 1
     fi
+    # Keep one copy. One hidden under the bind would escape a fork's identity
+    # reset and come back if this machine ever ran without the bind.
+    find "$remote" -mindepth 1 -delete || true
   fi
   mount --bind "$reserved" "$remote" || return 1
   record_remote_instance
@@ -187,7 +190,8 @@ prepare_daemon_tmp_dirs() {
 }
 
 ensure_and_bind_locked() {
-  ensure_locked || return 1
+  # Not in a condition: `set -e` must stop here when the image cannot mount.
+  ensure_locked
   bind_remote_state || echo "cmux-tui-state-mount: remote state stays on the root filesystem" >&2
   prepare_daemon_tmp_dirs
 }
