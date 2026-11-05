@@ -2566,8 +2566,7 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_sign_yield.py"
-lane = "manual"
-reason = "No new CI tests (Lawrence, 2026-10-23); run by the change's author: python3 -m unittest tests/test_nightly_sign_yield.py."
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_next_identity_probe.py"
@@ -2598,3 +2597,7 @@ reason = "Lawrence 2026-10-23: no new CI tests. Drives scripts/ci/lib/notary-wai
 path = "tests/test_cloud_chat_proof_failure_evidence.py"
 lane = "manual"
 reason = "Run by hand when cloud-chat-proof.py changes: python3 tests/test_cloud_chat_proof_failure_evidence.py (fake app CLI and log tool, no app)."
+
+[[test]]
+path = "tests/test_nightly_never_blacksmith.py"
+lane = "linux-guard"
