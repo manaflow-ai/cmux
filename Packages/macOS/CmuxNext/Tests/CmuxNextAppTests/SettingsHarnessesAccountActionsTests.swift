@@ -40,7 +40,10 @@ import Testing
         let harnesses = SettingsHarnesses(environment: { environment },
             fetch: { _ in [.init(id: "claude", kind: "claude-stdio", source: "path")] },
             fetchHealth: { _, _ in Data(#"{"harnesses":[]}"#.utf8) },
-            openTerminal: { terminal.lines.append($0) },
+            openTerminal: { line in
+                terminal.lines.append(line)
+                return true
+            },
             accountsCall: { _, method, params in
                 let flat = params.compactMapValues { value -> String? in
                     if let text = value as? String { return text }

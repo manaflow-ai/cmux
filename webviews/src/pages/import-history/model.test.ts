@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, jest, test } from "bun:test";
 import { canImport, ImportHistoryStore, OPS, type ImportReport } from "./model";
 
 const report = (added = 3, written?: number): ImportReport => ({
@@ -69,6 +69,31 @@ describe("Bring your history", () => {
     notice = null;
     await store.findExports();
     expect(store.getSnapshot().notice).toBeUndefined();
+  });
+  test("the host's line about Conductor goes at its end while the page stays open", async () => {
+    jest.useFakeTimers();
+    try {
+      const notice = "Conductor workspaces: import them from Settings › Import.";
+      const noticeUntil = Date.now() + 60_000;
+      const client = host(({ op }) => (op === OPS.detect ? { sources: [], notice, noticeUntil } : undefined));
+      const store = new ImportHistoryStore(client);
+      await store.start();
+      expect(store.getSnapshot().notice).toBe(notice);
+      jest.advanceTimersByTime(59_000);
+      expect(store.getSnapshot().notice).toBe(notice);
+      jest.advanceTimersByTime(1_000);
+      expect(store.getSnapshot().notice).toBeUndefined();
+
+      // Already past its end when detected: not shown.
+      const late = host(({ op }) =>
+        op === OPS.detect ? { sources: [], notice, noticeUntil: Date.now() - 1 } : undefined,
+      );
+      const lateStore = new ImportHistoryStore(late);
+      await lateStore.start();
+      expect(lateStore.getSnapshot().notice).toBeUndefined();
+    } finally {
+      jest.useRealTimers();
+    }
   });
   test("export discovery is opt-in after the passive mount scan", async () => {
     const client = host(({ op, params }) =>
