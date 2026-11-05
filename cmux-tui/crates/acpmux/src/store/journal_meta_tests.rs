@@ -1356,3 +1356,43 @@ fn a_kill_while_the_frozen_record_waits_in_the_queue_keeps_the_lines() {
         "a kill while the frozen record waited in the journal's queue: the restart trusted the log's pages and lost acked lines"
     );
 }
+
+/// Delta review 2 of #35866, finding D2, window 2 (found by reading; this is its test): a log's
+/// close (`close_log`, an eviction, a segment's end) fails its sync and only notes it in the store's
+/// `sync_failed` flag; the store freezes at the next checkpoint, which reads the flag (up to 30 s
+/// later). A kill before that checkpoint leaves no frozen record and no marker, so the restart in
+/// the same boot finds a whole log and must still not trust the pages the failed sync dropped:
+/// after its checkpoint and an OS crash, every acknowledged line is there.
+#[test]
+fn a_kill_after_a_failed_log_close_before_any_checkpoint_keeps_the_lines() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(102);
+    let store = open(home.path(), &journal);
+    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    for seq in 2..=5 {
+        store.append(CHAT, &record(seq, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    // Acknowledged: their records are durable.
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    // The chat's log closes and its sync fails: only the flag notes it.
+    FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(true));
+    store.close_log(CHAT);
+    FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(false));
+    // A kill now, before any checkpoint reads the flag.
+    let killed = journal.restart(Crash::Process);
+    drop(store);
+    // The restart in the same boot; its first checkpoint runs.
+    let store = open(home.path(), &killed);
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    let crashed = killed.restart(Crash::Os);
+    drop(store);
+    sync_model::os_crash(&home.path().join("sessions"));
+    let store = open(home.path(), &crashed);
+    assert_eq!(
+        seqs(store.as_ref(), CHAT),
+        (1..=5).collect::<Vec<_>>(),
+        "a kill after a failed log close and before any checkpoint: the restart trusted the log's pages and lost acked lines"
+    );
+}
