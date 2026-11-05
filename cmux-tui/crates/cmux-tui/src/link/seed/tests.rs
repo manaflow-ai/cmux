@@ -622,21 +622,22 @@ fn a_delta_seed_needs_the_previous_commits() {
 
 #[test]
 fn untracked_heavy_folders_and_big_files_stay_here_and_are_named() {
+    // The fixture's .gitignore names node_modules/, so the heavy folder here is one it doesn't.
     let f = Fixture::new();
     let work = &f.work;
     write(&work.join("notes.txt"), "ordinary untracked work\n");
     write(&work.join("web/package.json"), "{}\n");
-    write(&work.join("web/node_modules/left-pad/index.js"), "module.exports = 1;\n");
-    write(&work.join("web/node_modules/left-pad/package.json"), "{}\n");
+    write(&work.join("web/.next/server/page.js"), "module.exports = 1;\n");
+    write(&work.join("web/.next/build-manifest.json"), "{}\n");
     write(&work.join("assets/model.bin"), vec![7_u8; 6 * 1024 * 1024]);
     write(&work.join("assets/icon.png"), vec![7_u8; 64 * 1024]);
 
     let planned = plan(work, &f.path("seed.bundle")).unwrap();
     let skipped: Vec<(&str, &str)> =
         planned.skipped.iter().map(|item| (item.path.as_str(), item.why.as_str())).collect();
-    let heavy = skipped.iter().filter(|(path, _)| path.contains("node_modules")).collect::<Vec<_>>();
+    let heavy = skipped.iter().filter(|(path, _)| path.contains(".next")).collect::<Vec<_>>();
     assert_eq!(heavy.len(), 1, "one entry for the heavy folder, none for its files: {skipped:?}");
-    assert_eq!(heavy[0].0, "web/node_modules/");
+    assert_eq!(heavy[0].0, "web/.next/");
     assert!(heavy[0].1.contains("heavy folder"), "{skipped:?}");
     let big = skipped.iter().find(|(path, _)| *path == "assets/model.bin");
     assert!(big.is_some_and(|(_, why)| why.contains("6.3 MB")), "{skipped:?}");
@@ -646,6 +647,6 @@ fn untracked_heavy_folders_and_big_files_stay_here_and_are_named() {
     assert!(work_paths.lines().any(|path| path == "notes.txt"), "{work_paths}");
     assert!(work_paths.lines().any(|path| path == "web/package.json"), "{work_paths}");
     assert!(work_paths.lines().any(|path| path == "assets/icon.png"), "{work_paths}");
-    assert!(!work_paths.contains("node_modules"), "{work_paths}");
+    assert!(!work_paths.contains(".next"), "{work_paths}");
     assert!(!work_paths.contains("model.bin"), "{work_paths}");
 }
