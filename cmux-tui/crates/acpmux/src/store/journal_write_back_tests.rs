@@ -11,7 +11,6 @@ use super::sync_model;
 use super::*;
 use cmux_journal::{Crash, SimStorage};
 use serde_json::json;
-use std::io::Write as _;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
 use std::sync::Arc;
 use std::time::Duration;
