@@ -49,12 +49,12 @@ extension CEFSparePageSuites.CEFSparePageTests {
         try? FileManager.default.removeItem(at: root)
     }
 
-    /// Debug Settings `browserPage.sparePage` (nil: the default, off).
+    /// Debug Settings `browserPage.sparePage` (nil: the default, on).
     static func setSparePage(_ on: Bool?) {
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register([CEFSpareWindow.pageSetting.descriptor])
         TunableStore.shared.set(CEFSpareWindow.pageSetting.key, on.map { .bool($0) })
-        #expect(CEFSpareWindow.pageSetting.value == on ?? false)
+        #expect(CEFSpareWindow.pageSetting.value == on ?? true)
     }
 
     /// A pane showing a Chromium page in its live window (browser 10, window 1).

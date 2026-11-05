@@ -54,12 +54,12 @@ final class CEFSpareWindow {
     /// extension navigated it, `unownedLoadEvent`). At most one.
     private(set) var page: (browser: Int32, host: CEFPaneHost, freeze: CEFPageFreeze, loaded: Bool)?
     /// Debug Settings > Browser Page Loading > "Make new Chromium tab pages ahead" (`BrowserPageTunables.all`).
-    /// Off (the default) until the real-fork journey `chromium-tab-takes-spare-page` passes (#34252): no
+    /// On by default since the real-fork journey `chromium-tab-takes-spare-page` passed (#34252's gate). Off: no
     /// spare page is made, no tab takes one, and one left waiting closes at the next new tab (`takePage`).
     nonisolated static let pageSetting = Tunable<Bool>.toggle(
         "browserPage.sparePage", BrowserPageTunables.section, "Make new Chromium tab pages ahead",
         help: "One Chromium page is made ahead at an idle moment, frozen and hidden, and the next new tab you open takes it instead of waiting for Chromium to make its page. A new page is made at the next idle moment after each take. Off makes each tab's page when the tab opens.",
-        default: false, code: "CEFSpareWindow.pageSetting")
+        default: true, code: "CEFSpareWindow.pageSetting")
     static var makesPages: Bool { pageSetting.value }
     /// Non-nil inside the `tab_add` that makes the spare page: the browsers Chromium created during the
     /// call (`CEFRuntime.browserCreated`). The page's is not a Chromium tab to adopt; any other one is,

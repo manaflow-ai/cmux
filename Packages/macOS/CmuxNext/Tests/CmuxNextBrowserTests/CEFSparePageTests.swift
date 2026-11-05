@@ -189,8 +189,8 @@ extension CEFSparePageSuites {
             #expect(SpareSpy.added.count == 2, "with no tab_add")
         }
 
-        /// The take is behind the `browserPage.sparePage` Debug Setting, off by default until the
-        /// real-fork journey passes (review of #34252 at b4b2abd2, item 1). Off, the spare window makes
+        /// The take is behind the `browserPage.sparePage` Debug Setting (review of #34252 at b4b2abd2,
+        /// item 1), on by default since its real-fork journey passed. Turned off, the spare window makes
         /// no page at all, and a new tab joins with `tab_add` as before.
         @Test func withTheSwitchOffNoSparePageIsMadeAndANewTabUsesTabAdd() throws {
             let (runtime, root) = try Self.runtime()
