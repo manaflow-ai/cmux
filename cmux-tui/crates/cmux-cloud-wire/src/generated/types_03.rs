@@ -4,6 +4,9 @@
 #[allow(unused_imports)]
 use super::*;
 
+/// A normalized invite code: 10 Crockford base32 symbols, no hyphen.
+pub type PairingInviteCode = String;
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PairingPreview {
     pub code: PairingCode,

@@ -1,5 +1,13 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-05: sidebar corners follow the one concentric corner rule. Lawrence, verbatim (2026-11-04): "all nested
+  radius everywhere, for all types of panes where it applies, must be concentric, where inner radius is outer minus
+  padding, where padding is configurable too". Rows and rail tiles take the one corner radius
+  (`Metrics.surfaceCornerRadius`, `layout.paneCornerRadius`: 10 compact, 11 comfortable, as before); a card or edit box
+  around a row is that radius plus its `space1` gap; the notice, update and now-playing cards and the Needs You tray are
+  the one radius (12 pt before, 10 now); rows inside them, the rename field and the drop outline the radius less the
+  corner padding; buttons, toggles and small cards the radius less twice the padding; progress bars and dots capsules.
+  Regression: `ConcentricSurfaceCornerTests`.
 - 2026-11-05: Update in One Click (`updates.oneClickInstall`, off by default; #35951). Leo, verbatim, on the Codex app's
   Update available pill: "codex having this update available and then me clicking it enabling it to auto install and
   restart is... interesting". On, the footer's Update Available button (tooltip "…: Click to Update and Restart") and
@@ -424,6 +432,20 @@ header and keeps its no-gap drop fill (`drawsAsOneRow`, asked of the model with 
   view showed either row's content. `SidebarLayout.make` lists a repeated id once, in the first section that lists it
   (this Mac's first), and the list's row content comes from that same section. Leo: "why is there all this weird
   stuff at the bottom of the sidebar", "the rendering gets borked there too :(". Regression: `SidebarOneRowPerWorkspaceTests`.
+
+- 2026-10-29: in one list each Cloud machine with workspaces keeps its machine header (name, status dot, fold), as a
+  remote group does (its rows keep the machine and status on their second line); a Cloud machine with no workspace
+  lists nothing, as before. As the only machine it keeps its own name, icon and status, not the "Projects" title.
+  Other computers' sections stay headerless. Leo: "why is there all this weird stuff at the
+  bottom of the sidebar", "a whole lot of this cloud stuff ought to get better...". Regression:
+  `SidebarCloudMachineHeaderTests`.
+- 2026-10-30: a Cloud machine's section draws like every other group: its header is the name, chevron and +, with no
+  status dot while connected (a down machine keeps its mark and words: Disconnected, Paused, Failed to start), and its
+  rows are one line, their title, and keep the machine mark where #29833 put it (the trailing status column, Leo
+  2026-11-01: "I HATE THAT THEY'RE ON THE LEFT"). An unnamed Cloud workspace whose shell idles at the machine's home
+  reads "Terminal", never "cmux" or the machine's name; a shell whose own title (OSC) reads like the home folder keeps
+  that title. This Mac and SSH computers are unchanged. Leo: "JUST DEPICT IT SIMILARLY TO EVERYTHING ELSE".
+  Regression: `SidebarCloudRowLookTests`.
 
 - 2026-10-29 (https://github.com/manaflow-ai/cmux/issues/27701): Shift-click, Cmd-click and Cmd-Shift-click select
   pinned workspaces as list rows, as classic: the range runs over the drawn order, pinned tiles and rows alike. A pinned

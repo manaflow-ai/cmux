@@ -87,6 +87,11 @@ public final class CEFEngine: BrowserEngine {
     /// True once CEF has been initialized in this process.
     public var isRunning: Bool { CEFRuntime.shared.state == .ready }
 
+    /// Sends every first-party page file to its page host while `live` (the live web loop,
+    /// web-dev.json); false when this Chromium cannot.
+    @discardableResult
+    public func setLivePages(_ live: Bool) -> Bool { CEFRuntime.shared.setLivePages(live) }
+
     public func makeTab(_ configuration: BrowserTabConfiguration) async throws -> any BrowserTab {
         adoptStores()
         try await CEFRuntime.shared.start(layout: layout)

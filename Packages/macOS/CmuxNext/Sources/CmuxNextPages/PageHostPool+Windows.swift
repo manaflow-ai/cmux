@@ -5,6 +5,8 @@ extension PageHostPool {
     public func follow(_ window: NSWindow) {
         guard window !== target else { return }
         target = window
+        // No spare while a projection is open (``projectionIsOpen``): parked there it would load the worktree.
+        if projectionIsOpen() { dropSpare() }
         if let spare, let content = window.contentView { park(spare, in: content) }
         scheduleBuild()
     }

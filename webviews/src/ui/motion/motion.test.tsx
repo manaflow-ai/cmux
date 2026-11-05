@@ -4,6 +4,7 @@ import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { MOTION_EASE_OUT, MOTION_MS, MOTION_SPRING } from "../../motion/scale.generated";
+import { DepthLayer } from "./DepthLayer";
 import { motionMode } from "./motionMode";
 import { SlidingIndicator } from "./SlidingIndicator";
 import { swapFrames, ViewSwap } from "./ViewSwap";
@@ -237,6 +238,121 @@ test("every swap look moves paint only and comes from the side it is told", () =
   const first = (direction: "forward" | "back") => (swapFrames("slide", direction).content![0] as Keyframe).transform;
   expect(first("forward")).toBe("translateX(8px)");
   expect(first("back")).toBe("translateX(-8px)");
+});
+
+test("the depth layer's drift takes the shared motion reading, at mount and when the page shows", async () => {
+  const mount = installDom();
+  const doc = mount.ownerDocument;
+  await act(async () => {
+    root = createRoot(mount);
+    root.render(<DepthLayer look="drift" />);
+  });
+  const layer = mount.querySelector<HTMLElement>(".ui-depth")!;
+  expect(layer.dataset.motion).toBe("full");
+  await act(async () => root!.unmount());
+  root = undefined;
+
+  // A zero motion token stills it, though no root attribute says so.
+  doc.documentElement.style.setProperty("--agent-motion-in", "0ms");
+  await act(async () => {
+    root = createRoot(mount);
+    root.render(<DepthLayer look="drift-parallax" />);
+  });
+  expect(mount.querySelector<HTMLElement>(".ui-depth")!.dataset.motion).toBe("none");
+  await act(async () => root!.unmount());
+  root = undefined;
+  doc.documentElement.style.removeProperty("--agent-motion-in");
+
+  // Mounted while hidden: paused with no reading; the reading arrives when the page shows.
+  let state: DocumentVisibilityState = "hidden";
+  Object.defineProperty(doc, "visibilityState", { configurable: true, get: () => state });
+  await act(async () => {
+    root = createRoot(mount);
+    root.render(<DepthLayer look="drift" />);
+  });
+  const hidden = mount.querySelector<HTMLElement>(".ui-depth")!;
+  expect(hidden.dataset.motion).toBeUndefined();
+  expect(hidden.dataset.paused).toBe("");
+  state = "visible";
+  await act(async () => void doc.dispatchEvent(new dom!.window.Event("visibilitychange")));
+  expect(hidden.dataset.motion).toBe("full");
+  expect(hidden.dataset.paused).toBeUndefined();
+});
+
+/** Specificity (ids, classes, types) of one complex selector: :where() weighs nothing, :is() and :not()
+ *  weigh their heaviest argument. Enough for motion.css's selectors. */
+function specificity(selector: string): [number, number, number] {
+  const total: [number, number, number] = [0, 0, 0];
+  let rest = selector;
+  for (;;) {
+    const open = /:(where|is|not)\(/.exec(rest);
+    if (!open) break;
+    let depth = 1;
+    let end = open.index + open[0].length;
+    while (depth > 0) {
+      if (rest[end] === "(") depth++;
+      else if (rest[end] === ")") depth--;
+      end++;
+    }
+    const inner = rest.slice(open.index + open[0].length, end - 1);
+    if (open[1] !== "where") {
+      const heaviest = splitTop(inner)
+        .map(specificity)
+        .sort((a, b) => b[0] - a[0] || b[1] - a[1] || b[2] - a[2])[0]!;
+      for (const i of [0, 1, 2] as const) total[i] += heaviest[i];
+    }
+    rest = rest.slice(0, open.index) + " " + rest.slice(end);
+  }
+  total[0] += (rest.match(/#[\w-]+/g) ?? []).length;
+  total[1] += (rest.match(/\.[\w-]+|\[[^\]]*\]|:(?!:)[\w-]+/g) ?? []).length;
+  total[2] += (rest.replace(/\[[^\]]*\]/g, "").match(/(^|[\s>+~])[a-z][\w-]*/gi) ?? []).length;
+  return total;
+}
+
+/** Splits a selector list on its top-level commas. */
+function splitTop(list: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < list.length; i++) {
+    if (list[i] === "(") depth++;
+    else if (list[i] === ")") depth--;
+    else if (list[i] === "," && depth === 0) {
+      parts.push(list.slice(start, i));
+      start = i + 1;
+    }
+  }
+  parts.push(list.slice(start));
+  return parts.map((part) => part.trim());
+}
+
+test("every motion-off and Reduce Motion rule outranks the depth layer's drift and lean", () => {
+  const sheet = readFileSync(new URL("./motion.css", import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+  const rules = [...sheet.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((match) => ({
+    selectors: splitTop(match[1]!.replace(/\s+/g, " ").trim()),
+    body: match[2]!,
+  }));
+  const weight = (s: [number, number, number]) => s[0] * 10000 + s[1] * 100 + s[2];
+  const moving = rules
+    .filter((rule) => /\b(animation|translate):/.test(rule.body) && !/:\s*none/.test(rule.body))
+    .flatMap((rule) => rule.selectors)
+    .filter((selector) => selector.includes(".ui-depth__wash"));
+  const stills = rules.filter((rule) => /animation: none/.test(rule.body)).flatMap((rule) => rule.selectors);
+  expect(moving.length).toBeGreaterThanOrEqual(4);
+  // Off, Reduce Motion by attribute (both hosts' spellings), and the media query.
+  expect(stills.length).toBe(2);
+  for (const flag of [
+    'data-agent-motion="off"',
+    'data-agent-motion="reduced"',
+    'data-cmux-motion="off"',
+    'data-cmux-motion="reduced"',
+  ])
+    expect(stills[0]).toContain(flag);
+  for (const still of stills)
+    for (const move of moving) expect(weight(specificity(still))).toBeGreaterThan(weight(specificity(move)));
+  // The drift itself waits for a full motion reading.
+  for (const move of moving.filter((selector) => selector.includes("drift")))
+    expect(move).toContain('[data-motion="full"]');
 });
 
 test("a control that is both revealed and hover-filled keeps both fades", () => {
