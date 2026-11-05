@@ -101,7 +101,7 @@ import Testing
     @Test func aChangedSpacingTokenMeasuresTheCardAgain() throws {
         _ = NSApplication.shared
         TunableStore.shared.activate(file: nil)
-        TunableStore.shared.register(ChromeTunables.all)
+        TunableStore.shared.register(DesignTunables.all)
         defer { _ = TunableStore.shared.set(ChromeTunables.space6.key, nil) }
         let notice = SidebarNoticeCard(id: "update.downloading", title: "Downloading Update", detail: "115.0 MB of 265.3 MB",
                                        progress: .fraction(0.4), trailing: SidebarNoticeCard.Trailing(id: "cancel", symbol: "xmark.circle.fill", label: "Cancel"))
