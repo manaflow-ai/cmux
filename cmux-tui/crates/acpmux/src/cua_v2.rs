@@ -295,6 +295,8 @@ pub async fn run_bridge() -> Result<()> {
 #[cfg(unix)]
 pub async fn run_bridge() -> Result<()> {
     let dir = dir_from_env().ok_or_else(|| anyhow!("{ENDPOINT_DIR_ENV} is not set"))?;
+    // Stdin may stay open after the agent died (`parent_watch.rs`).
+    crate::parent_watch::exit_with_parent();
     let stdin = BufReader::new(tokio::io::stdin());
     let stdout = tokio::io::stdout();
     serve(stdin, stdout, || async { Helper::connect(&read_endpoint(&dir)?).await }).await

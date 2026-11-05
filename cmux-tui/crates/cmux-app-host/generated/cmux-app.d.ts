@@ -84,6 +84,9 @@ declare namespace Cmux {
   type CommandSpec = unknown
   type CommitSha = string
   type Concurrency = { max: number; on_limit: "queue" | "skip" }
+  type ConductorImportFound = { database: string | null; workspaces: string | null; app: string | null }
+  type ConductorImportPlanResult = { found: Cmux.ConductorImportFound; plan: Cmux.JsonValue | null; error?: string }
+  type ConductorImportRecordResult = { workspace: string; stage: "pending" | "done"; cmux_workspace: string | null; runs: number }
   type ConfirmationRequiredDetails = { confirmation_token: string; revision: string; closes_panes: Array<string /* pane_… */> }
   type ConfirmLevel = "strict" | "destructive-only" | "off"
   type Connection = { id: Cmux.ConnectionId; owner: Cmux.TeamId; created_by: Cmux.UserId; provider: Cmux.IntegrationProvider; account: { key: string; name: string; url?: string } | null; scopes_requested: Array<string>; scopes_granted: Array<string>; status: Cmux.ConnectionStatus; status_detail?: string; sharing: "private" | "team"; resources?: { repos: Array<string> | null }; created_at: number; updated_at: number }
@@ -159,7 +162,7 @@ declare namespace Cmux {
   type GitCheckpointSkipCode = "not_selected" | "over_limit" | "excluded" | "credential" | "ignored" | "nested_repository" | "submodule" | "unsupported_type" | "unreadable"
   type GitCommitResult = { root: string; commit: string; branch?: string; parent?: string; summary: string; files_changed: number; additions: number; deletions: number }
   type GitDiffResult = { scope: Cmux.GitDiffScope; root: string; head?: string; base?: string; files: Array<Cmux.GitChangedFile>; additions: number; deletions: number; total_files: number; files_omitted: number; untracked_skipped?: number; patch_page?: Cmux.GitPatchPage; next_path?: string }
-  type GitDiffScope = "uncommitted" | "unstaged" | "staged" | "committed" | "branch"
+  type GitDiffScope = "uncommitted" | "unstaged" | "staged" | "committed" | "branch" | "commits"
   type GitFileEntry = { name: string; kind: "file" | "directory" }
   type GitFileMatch = { path: string; matches: Array<number> }
   type GitFilesListResult = { root: string; folder: string; entries: Array<Cmux.GitFileEntry>; truncated: boolean }
@@ -757,7 +760,7 @@ interface CmuxGlobal {
     machine: {
       /** `cloud.machine.connect` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Open the one private link (carrier) to a machine and return it. A second call while the link is up returns the same carrier and starts no new link. A paused machine is started first. Not a focus change. When the link goes down nothing reconnects by itself and nothing queues: call connect again, also with the same key: connect is never replayed from the ledger. */
       connect: CmuxOp<{ machine: string }, { machine: string; carrier: string; generation: number; state: "up"; socket: string; vm_kind: "owner" | "team" }>
-      /** `cloud.machine.connect_info` (read, scope `cloud:read`): How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. A read never mints a credential: the dial token comes from cloud.machine.link_token. vm_kind is the caller's kind on this machine (owner only for its creator on the creator's personal team; every shared-team machine is team). */
+      /** `cloud.machine.connect_info` (read, scope `cloud:read`): How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. A read never mints a credential: the dial token comes from cloud.machine.link_token. vm_kind is the caller's kind on this machine (owner for its creator on any team, never an agent token; every other member is team). */
       connect_info: CmuxOp<{ machine?: Cmux.MachineId; host?: Cmux.HostId }, Cmux.CloudConnectInfo>
       /** `cloud.machine.disconnect` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): End the link to a machine and forget it, also after a revocation. Every terminal of that machine on this Mac shows the disconnected state. The machine keeps running. */
       disconnect: CmuxOp<{ machine: string }, { machine: string; disconnected: boolean }>
@@ -983,7 +986,7 @@ interface CmuxGlobal {
     /** `git.commit` (mutation, scope `git:execute`) */
     commit: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; message: string; paths?: Array<string>; all?: boolean; include_untracked?: boolean; amend?: boolean; no_verify?: boolean; expected_head?: string }, Cmux.MutationResult<Cmux.GitCommitResult>>
     /** `git.diff` (read, scope `git:read`) */
-    diff: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; scope: Cmux.GitDiffScope; paths?: Array<string>; include_patch?: boolean; max_patch_bytes?: number; context_lines?: number; max_files?: number; after_path?: string; patch_offset?: string; patch_revision?: string }, Cmux.GitDiffResult>
+    diff: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; scope: Cmux.GitDiffScope; base?: string; head?: string; paths?: Array<string>; include_patch?: boolean; max_patch_bytes?: number; context_lines?: number; max_files?: number; after_path?: string; patch_offset?: string; patch_revision?: string }, Cmux.GitDiffResult>
     files: {
       /** `git.files.list` (read, scope `git:read`) */
       list: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; limit?: number }, Cmux.GitFilesListResult>

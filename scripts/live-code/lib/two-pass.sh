@@ -23,6 +23,32 @@ live_code_list() { # BIN OUT
   [[ -s "$out/interposable.txt" ]] || { echo "live-code build: the app exports no CmuxNext symbol (LD_EXPORT_SYMBOLS?)" >&2; return 1; }
 }
 
+# dyld_info -fixups prints a bind's target as "<this-image>/NAME" in 4096 bytes, so a name longer
+# than 4082 characters (a Swift initializer with many labeled arguments, say) is cut there, and the
+# cut name matches no export. A missing name of that length that starts an exported name is that
+# export, unless the symbol table (nm, which prints whole names) has a symbol of exactly that name: a
+# name of 4082 characters fits uncut. OUT/missing-2.txt keeps the others, OUT/truncated-2.txt has these.
+live_code_untruncate() { # BIN OUT
+  python3 - "$1" "$2" <<'PY'
+import os, subprocess, sys
+bin, out = sys.argv[1], sys.argv[2]
+cut = 4096 - len("<this-image>/") - 1
+lines = lambda name: [line.rstrip("\n") for line in open(os.path.join(out, name))]
+missing = lines("missing-2.txt")
+long_exports = [name for name in lines("exports-2.txt") if len(name) > cut]
+truncated = [name for name in missing if len(name) == cut and any(e.startswith(name) for e in long_exports)]
+if truncated:
+    whole = set(subprocess.run(["nm", "-j", bin], capture_output=True, text=True, check=True).stdout.split("\n"))
+    truncated = [name for name in truncated if name not in whole]
+with open(os.path.join(out, "missing-2.txt"), "w") as f:
+    f.writelines(name + "\n" for name in missing if name not in truncated)
+with open(os.path.join(out, "truncated-2.txt"), "w") as f:
+    f.writelines(name + "\n" for name in truncated)
+if truncated:
+    print(f"live-code build: {len(truncated)} bind names cut at {cut} characters by dyld_info start an exported name; counted as exported", file=sys.stderr)
+PY
+}
+
 live_code_check() { # BIN OUT
   local bin="$1" out="$2" failed=0
   xcrun dyld_info -exports "$bin" | live_code_ours > "$out/exports-2.txt" || true
@@ -37,6 +63,7 @@ live_code_check() { # BIN OUT
     grep -F -f <(sed -n 1,5p "$out/unexported-rebases-2.txt") "$out/fixups-2.txt" | head -n 10 >&2 || true
   fi
   comm -23 "$out/binds-2.txt" "$out/exports-2.txt" > "$out/missing-2.txt"
+  live_code_untruncate "$bin" "$out"
   if [[ ! -s "$out/binds-2.txt" ]]; then
     # The interposable list makes the modules' calls bind through the app; none read means the bind
     # lines were not recognized, and the check would pass blind.
@@ -48,7 +75,10 @@ live_code_check() { # BIN OUT
     grep -F -f <(sed -n 1,5p "$out/missing-2.txt") "$out/fixups-2.txt" | head -n 10 >&2 || true
     # Why: whether the first link listed it, and how the relinked symbol table has it.
     while read -r symbol; do
+      address="$(nm -m "$bin" | grep -F -- " ${symbol}" | awk 'NR == 1 { print $1 }')"
       echo "live-code build: $symbol: in the first link's list: $(grep -cxF -- "$symbol" "$out/interposable.txt" || true); nm -m: $(nm -m "$bin" | grep -F -- " ${symbol}" | head -n 2 | tr -s ' ' | tr '\n' ';')" >&2
+      # Other symbols at the same address: a fold (ld's deduplication) shows here.
+      [[ -n "$address" ]] && echo "live-code build:   also at $address: $(nm -m "$bin" | awk -v a="$address" '$1 == a' | grep -vF -- " ${symbol}" | head -n 3 | tr -s ' ' | tr '\n' ';')" >&2
     done < <(sed -n 1,5p "$out/missing-2.txt")
     failed=1
   fi

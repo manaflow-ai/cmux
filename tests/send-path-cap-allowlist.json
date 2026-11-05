@@ -157,6 +157,7 @@
     "cmux-tui/crates/acpmux/src/acpmux_mcp_artifacts.rs": {"count": 2, "reason": "debt: 4 MiB metadata responses (cmux#33018); 200000-character text pages always include the complete local file reference"},
     "cmux-tui/crates/acpmux/src/adopt_replay.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "cmux-tui/crates/acpmux/src/adopt_replay_page.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
+    "cmux-tui/crates/acpmux/src/agent_guidance.rs": {"count": 3, "reason": "safe: limits only how many files, how large each, and how many bytes in all (32 MiB), are copied from the person's ~/.config/cmux/skills folder into the session plugin, and how long a skill description is in the first-turn index (the full SKILL.md stays readable); no message, prompt or attachment is refused"},
     "cmux-tui/crates/acpmux/src/agent.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "cmux-tui/crates/acpmux/src/artifacts_sync.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "cmux-tui/crates/acpmux/src/catalog/schema.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},

@@ -139,6 +139,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.SizeStateEvent, "self_participant");
     try expectExplicitNullRejected(protocol.TitleChangedEvent, "title");
     try expectExplicitNullRejected(protocol.VtStateEvent, "colors");
+    try expectExplicitNullRejected(protocol.VtStateEvent, "history_rows_omitted");
     try expectExplicitNullRejected(protocol.VtStateEvent, "kitty_graphics_state");
     try expectExplicitNullRejected(protocol.VtStateEvent, "kitty_image_aliases");
     try expectExplicitNullRejected(protocol.WorkspaceAddedEvent, "mutation_id");

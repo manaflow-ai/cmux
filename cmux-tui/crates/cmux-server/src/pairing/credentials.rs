@@ -87,6 +87,7 @@ mod tests {
                 team: "team_abcdefghijklmnopqrst".into(),
                 user: "user_abcdefghijklmnopqrst".into(),
                 install: "inst_abcdefghijklmnopqrst".into(),
+                machine_join: None,
             },
             wireguard_key: Zeroizing::new([0; 32]),
             signing_key: key,

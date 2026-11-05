@@ -99,8 +99,7 @@ public final class OverlayPlane: NSView {
     }
 
     /// The nearest view at or above `view` whose layer clips with a corner
-    /// radius, or above `view` clips square (the main pane while a sidebar
-    /// slide holds content at another width, `MainPaneCardView.contentHold`): its
+    /// radius, or above `view` clips square: its
     /// bounds in window coordinates and its radius. `view`'s own square clip
     /// is its bounds, which the plane's frame already is.
     static func roundedClip(around view: NSView) -> (rect: CGRect, radius: CGFloat)? {
