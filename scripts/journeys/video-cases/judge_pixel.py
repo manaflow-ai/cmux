@@ -98,8 +98,9 @@ import video_judge as vj  # noqa: E402  (the scan and trace formats: read_scan, 
 HI, LO = 160, 96            # a channel >= HI is on, <= LO is off; between: "other"
 OTHER = -1
 CUE = -2                    # the divider's drag cue
+OUTSIDE = -3                # 3e.2: past the window's edge (the capture runs on over the desktop): never the app's pixels
 CLASS = {0: "black", 1: "blue", 2: "green", 3: "cyan", 4: "red", 5: "magenta", 6: "yellow", 7: "white", OTHER: "other",
-         CUE: "cue"}
+         CUE: "cue", OUTSIDE: "outside"}
 CODE = {v: k for k, v in CLASS.items()}
 ROLE_DEFAULT = {"shell": "#FF00FF", "theme": "#00FFFF", "ring1": "#FF0000", "ring2": "#FFFFFF", "ring3": "#000000", "strip": "#000000"}
 SHELL_TOL = 4               # an exact shell pixel: every channel this close to the shell's color
@@ -362,7 +363,7 @@ def walk_side(codes, start, step, kind, roles, fill, skip_px, stop=None):
         return j
 
     expected = ["ring3", "ring2", "ring1"] + (["theme"] if kind == "tui" else [])
-    widths, edges, pos, cue_px, touch = {}, {}, i, 0.0, False
+    widths, edges, pos, cue_px, touch, clipped = {}, {}, i, 0.0, False, False
     cell = 0.0  # ring 1's width: one terminal cell along this line
     merged = False
     for role in expected:
@@ -377,6 +378,7 @@ def walk_side(codes, start, step, kind, roles, fill, skip_px, stop=None):
             pos += step  # one anti-aliased pixel before the run
         if codes[pos] != want:
             widths[role] = 0.0
+            clipped = clipped or (codes[pos] == OUTSIDE and role != "theme")  # 3e.2: a ring past the window's edge
             continue
         a = pos
         pos = run_end(pos, want)
@@ -417,11 +419,14 @@ def walk_side(codes, start, step, kind, roles, fill, skip_px, stop=None):
     return {"rings": [widths["ring1"], widths["ring2"], widths["ring3"]],
             "strip": widths["theme"] if kind == "tui" else None, "ring_edge": ring_edge, "view_edge": view_edge,
             "beyond": beyond, "beyond_px": beyond_px, "gap": gap, "skipped": skipped, "found": found, "cue_px": cue_px,
-            "merged": merged, "touch": touch}
+            "merged": merged, "touch": touch, "clipped": clipped}
 
 
 TOUCH_NOT_JUDGED = ("its ground strip runs on into another pane's ground past its own edge (two grounds of one color: "
                     "the edge between them is not in the pixels)")
+
+
+WINDOW_CLIPPED = "its rings run past the window's edge (the window clips them): its content edge is not in the pixels"
 
 
 def find_side(codes, a, b, edge, step, kind, roles, fill, near, skip, stop=None):
@@ -430,6 +435,8 @@ def find_side(codes, a, b, edge, step, kind, roles, fill, near, skip, stop=None)
     runs on past it is not found (not judged, never a pass)."""
 
     def touched(w):
+        if w.get("clipped"):
+            return {"status": "not found", "why": WINDOW_CLIPPED}  # 3e.2
         return {"status": "not found", "why": TOUCH_NOT_JUDGED} if w.get("touch") else None
 
     L = len(codes)
@@ -448,6 +455,8 @@ def find_side(codes, a, b, edge, step, kind, roles, fill, near, skip, stop=None)
     e = int(round(edge))
     for c in candidates(e - near, e + near):
         w = walk_side(codes, c, step, kind, roles, fill, skip, stop)
+        if w["clipped"]:
+            return touched(w)  # 3e.2: the nearest walk to the pane edge reaches the window's edge before its rings end
         if w["found"] >= 2 and w["merged"]:
             return {"status": "not found", "why": "its ground strip runs on into a neighbour's ground"}
         if w["found"] >= 2:
@@ -862,6 +871,23 @@ def row_summary(what, key, label, kind, line, side, track=None, **extra):
     return row
 
 
+def outside_window(film, codes, axis, k):
+    """CODES with OUTSIDE past the window's edge along the line (3e.2): the capture runs on past the window (2872 px of
+    scan for a 2722 px window on the minis), and the desktop there is no pixel of the app. The edge is the trace's window
+    size in samples k-1 to k+1, the largest (a frame may show the sample before or after on the film's clock): only what
+    is past every window the frame can show is masked."""
+    near = [film.samples[j].window for j in range(max(0, k - 1), min(len(film.samples), k + 2))]
+    sizes = [float(w[0] if axis == "row" else w[1]) for w in near if w and len(w) >= 2 and float(w[0]) > 0 and float(w[1]) > 0]
+    if not sizes:
+        return codes
+    limit = int(math.ceil(max(sizes) * film.scale - 1e-6))
+    if limit >= len(codes):
+        return codes
+    out = codes.copy()
+    out[max(0, limit):] = OUTSIDE
+    return out
+
+
 def measure_lines(film, lines, shown):
     """(measured, inside, line_codes) of every scan line with the clock SHOWN (per frame, the sample it shows): per line
     and frame the classes (with the divider cue) and the measurements of every fixture pane the line crosses.
@@ -878,7 +904,8 @@ def measure_lines(film, lines, shown):
             if k is None:
                 per_line.append(codes_all[f])
                 continue
-            codes = with_cue(codes_all[f], near_shell[f], divider_bands(film, film.samples[k], axis, coord))
+            codes = outside_window(film, with_cue(codes_all[f], near_shell[f], divider_bands(film, film.samples[k], axis, coord)),
+                                   axis, k)
             per_line.append(codes)
             for pid, m in measure(film, codes, axis, coord, film.samples[k], film.closing_rows[k]).items():
                 inside.setdefault((pid, name, axis), [None] * film.n)[f] = (m["shell_in"], m["has_fill"])
