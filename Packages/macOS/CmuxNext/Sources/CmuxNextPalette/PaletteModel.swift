@@ -319,7 +319,7 @@ public final class PaletteModel {
     /// or when the App's data changed). The selection stays on its row.
     public func reload() {
         guard let current else { return }
-        load(current)
+        load(current, defers: false)
         send(.refresh)
     }
 
