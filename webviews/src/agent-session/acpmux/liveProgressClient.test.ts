@@ -166,13 +166,14 @@ test("an explicitly cleared Progress section stays gone when older history loads
   record(started);
   record(plan(["Old work", "completed"]));
   record(ended);
-  for (let index = 0; index < 96; index++) record(say(`old filler ${index}`));
+  // Keep enough turn-starting records after the historical plan to put it just beyond the attach
+  // page while leaving the current clear in that page. The older read takes two pages and folds it.
+  for (let index = 0; index < 600; index++) record(prompt(`history filler ${index}`));
   record(prompt("Current turn"));
   record(started);
   record(plan(["Current work", "in_progress"]));
   record({ update: { sessionUpdate: "plan", entries: [] } });
   record(say("Cleared."));
-  for (let index = 0; index < 1995; index++) record(say(`current filler ${index}`));
 
   let last: AcpmuxSnapshot | undefined;
   const wakes: Array<() => void> = [];
@@ -190,6 +191,7 @@ test("an explicitly cleared Progress section stays gone when older history loads
     const current = last!;
     expect(current.progress).toBeUndefined();
     await client.loadOlder();
+    expect(last!.rows.some((row) => row.plan?.some((step) => step.content === "Old work"))).toBe(true);
     expect(last!.progress).toBeUndefined();
   } finally {
     client.close?.();
