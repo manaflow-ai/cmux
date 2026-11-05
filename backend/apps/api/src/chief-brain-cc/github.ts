@@ -363,7 +363,7 @@ type GithubStub = {
   ccGithubTurn(agent: string): Promise<{ token: string | null; status: GithubStatus }>
 }
 /** The Chief's GitHub object (`<agent>/github`; a conversation id always starts with conv_). */
-export const githubOf = (env: Env, agent: string): GithubStub => env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(`${agent}/github`)) as unknown as GithubStub
+export const githubOf = (env: Env, agent: string): GithubStub => env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(`${agent}/github`))
 
 /**
  * `chief-github`: the Chief's client in its turn machine (curl to chief-turn-runner on 127.0.0.1:4018, which forwards

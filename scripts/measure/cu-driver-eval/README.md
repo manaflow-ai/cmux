@@ -66,7 +66,9 @@ docstrings of `eval.py` and `input_ab.py`):
 - `suites.input_ab`: `arms`, `targets`, `grants`, `errors`, `rows["ARM|TARGET|GESTURE|CONDITION"]`
   (`n`, `delivered`, `delivered_rate`, `clean`, `clean_rate`, `duplicates`, `focus_steals`,
   `key_losses`, `raises`, `pointer_moved`, `stray`, `loc_err_max`, `call_ms_p50`, `unsupported`,
-  `errors`) and `wins[TARGET][GESTURE]`.
+  `errors`), `wins[TARGET][GESTURE]`, and `obstruction`: the first driver refusal of the run
+  because a window was in front, with every on-screen window at that moment (owner, number, layer,
+  alpha, frame), or null.
 
 A count nobody could measure is null, never left out, so two runs line up key by key.
 

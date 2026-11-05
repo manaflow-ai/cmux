@@ -1723,7 +1723,13 @@ const NextStepRow = memo(
   function NextStepRow({ row }: RowProps) {
     const { answer, nextStepKey } = useContext(TurnActionsContext);
     return row.nextStep ? (
-      <NextStepCard ask={row.nextStep.ask} answer={row.nextStep.answer} onAnswer={answer} registerKey={nextStepKey} />
+      <NextStepCard
+        ask={row.nextStep.ask}
+        answer={row.nextStep.answer}
+        superseded={row.nextStep.superseded}
+        onAnswer={answer}
+        registerKey={nextStepKey}
+      />
     ) : null;
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
@@ -1731,7 +1737,9 @@ const NextStepRow = memo(
 /// The same card where this pane cannot send: the question and its answer, no buttons.
 const ReadOnlyNextStepRow = memo(
   function ReadOnlyNextStepRow({ row }: RowProps) {
-    return row.nextStep ? <NextStepCard ask={row.nextStep.ask} answer={row.nextStep.answer} /> : null;
+    return row.nextStep ? (
+      <NextStepCard ask={row.nextStep.ask} answer={row.nextStep.answer} superseded={row.nextStep.superseded} />
+    ) : null;
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );

@@ -280,6 +280,15 @@ pub struct MyDevice {
     pub device_id: String,
     #[serde(default)]
     pub kind: String,
+    /// The device's display name.
+    #[serde(default)]
+    pub name: String,
+    /// Live presence for a Mac; `None` for a phone.
+    #[serde(default)]
+    pub online: Option<bool>,
+    /// A Mac's machine id (one computer's builds share it).
+    #[serde(default)]
+    pub machine_id: Option<String>,
     /// When the device first registered (ISO 8601).
     #[serde(default)]
     pub created_at: Option<String>,
