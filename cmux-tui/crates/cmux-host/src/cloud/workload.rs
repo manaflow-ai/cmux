@@ -332,22 +332,31 @@ mod reader {
             .ok()?
             .filter_map(|e| e.ok()?.file_name().to_str()?.parse().ok())
             .collect();
-        let procs: Vec<ProcStat> = pids
-            .iter()
-            .filter_map(|pid| {
+        let mut procs: Vec<ProcStat> = Vec::with_capacity(pids.len());
+        for pid in pids {
+            match fs::read_to_string(proc_dir.join(format!("{pid}/stat"))) {
                 // A process that exited between the listing and the read is gone, not unknown.
-                parse_stat(*pid, &fs::read_to_string(proc_dir.join(format!("{pid}/stat"))).ok()?)
-            })
-            .collect();
+                Err(e) if gone(&e) => {}
+                // Any other failure could hide a running process: the workload is unknown.
+                Err(_) => return None,
+                Ok(text) => procs.push(parse_stat(pid, &text)?),
+            }
+        }
         if procs.is_empty() {
             return None;
         }
         let mut sockets: Vec<(u16, u64)> = Vec::new();
         let mut any_table = false;
         for table in ["net/tcp", "net/tcp6"] {
-            if let Ok(text) = fs::read_to_string(proc_dir.join(table)) {
-                any_table = true;
-                sockets.extend(parse_listeners(&text));
+            match fs::read_to_string(proc_dir.join(table)) {
+                Ok(text) => {
+                    any_table = true;
+                    sockets.extend(parse_listeners(&text));
+                }
+                // No such table (a kernel without IPv6): nothing listens there.
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                // A table that exists but does not read could hide a listener: unknown.
+                Err(_) => return None,
             }
         }
         if !any_table {
@@ -365,6 +374,11 @@ mod reader {
             listeners,
             timers: timers(root),
         })
+    }
+
+    /// A read failed because the process exited (its `/proc` entry is gone).
+    fn gone(e: &std::io::Error) -> bool {
+        e.kind() == std::io::ErrorKind::NotFound || e.raw_os_error() == Some(libc::ESRCH)
     }
 
     /// The `comm` of the process holding each wanted socket inode (`/proc/<pid>/fd`).
@@ -459,6 +473,12 @@ mod reader {
             }
         }
         timer_units(&root.join("run/systemd/transient"), "transient", &mut out);
+        // `systemd-run --user --on-calendar=...`: each user manager's own transient units.
+        if let Ok(users) = fs::read_dir(root.join("run/user")) {
+            for user in users.flatten() {
+                timer_units(&user.path().join("systemd/transient"), "transient", &mut out);
+            }
+        }
         timer_units(&root.join("etc/systemd/system"), "systemd", &mut out);
         timer_units(&root.join("root/.config/systemd/user"), "user", &mut out);
         if let Ok(homes) = fs::read_dir(root.join("home")) {

@@ -223,6 +223,8 @@ fn the_reader_finds_processes_listener_owners_and_timers_under_a_root() {
     symlink("/dev/null", r.join("etc/systemd/system/masked.timer")).unwrap();
     fs::create_dir_all(r.join("home/cmux/.config/systemd/user")).unwrap();
     fs::write(r.join("home/cmux/.config/systemd/user/sync.timer"), "").unwrap();
+    fs::create_dir_all(r.join("run/user/1000/systemd/transient")).unwrap();
+    fs::write(r.join("run/user/1000/systemd/transient/run-r9.timer"), "").unwrap();
     fs::create_dir_all(r.join("var/spool/cron/atjobs")).unwrap();
     fs::write(r.join("var/spool/cron/atjobs/.SEQ"), "1").unwrap();
     fs::write(r.join("var/spool/cron/atjobs/a0000101"), "").unwrap();
@@ -242,6 +244,7 @@ fn the_reader_finds_processes_listener_owners_and_timers_under_a_root() {
             "cron:cmux",
             "systemd:apt-daily.timer",
             "systemd:cmux-machine-health.timer",
+            "transient:run-r9.timer",
             "user:sync.timer"
         ]
     );
@@ -249,8 +252,17 @@ fn the_reader_finds_processes_listener_owners_and_timers_under_a_root() {
     t.observe(&s, 1);
     let w = t.observe(&Snapshot { mono_ms: 30_005, ..s }, 2).unwrap();
     assert_eq!(w.listening_ports, [3000, 8080]);
-    assert_eq!(w.timers, ["at:a0000101", "cron:cmux", "user:sync.timer"]);
+    assert_eq!(w.timers, ["at:a0000101", "cron:cmux", "transient:run-r9.timer", "user:sync.timer"]);
     assert!(w.busy_processes.is_empty());
 
     assert!(read_snapshot(&r.join("nowhere"), 5).is_none(), "no /proc: unknown");
+
+    // A missing IPv6 table is no listener; a table that exists but does not read is unknown.
+    assert!(!r.join("proc/net/tcp6").exists());
+    fs::create_dir_all(r.join("proc/net/tcp6")).unwrap();
+    assert!(read_snapshot(r, 5).is_none(), "an unreadable listener table: unknown");
+    fs::remove_dir(r.join("proc/net/tcp6")).unwrap();
+    // A process whose stat exists but does not read is unknown, not gone.
+    fs::create_dir_all(r.join("proc/300/stat")).unwrap();
+    assert!(read_snapshot(r, 5).is_none(), "an unreadable process: unknown");
 }
