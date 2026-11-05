@@ -38,6 +38,7 @@ test("the latest completed turn keeps Retry beside its reply", () => {
     prompt: "Finish the task",
     retryRowId: "prompt-1",
     retryable: true,
+    retryTarget: true,
   };
   const markup = renderToStaticMarkup(
     <TurnActionsContext.Provider value={{ retry: () => undefined }}>
@@ -54,6 +55,7 @@ test("Retry calls out a known file change without changing the action", () => {
     prompt: "Finish the task",
     retryRowId: "prompt-1",
     retryable: true,
+    retryTarget: true,
     changedFiles: true,
   };
   const markup = renderToStaticMarkup(

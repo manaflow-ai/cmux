@@ -45,6 +45,7 @@ import { RESUME_NOTE_DELAY_MS, useAfterDelay } from "./afterDelay";
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "./icons/Icon";
 import { QueuedImages, type QueuedVideo } from "./QueuedImages";
+import { framesNoteVideo } from "./composer/videoPrompt";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import type { ComposerAttachment } from "./attachments";
 import type { Translate } from "./i18n";
@@ -139,13 +140,23 @@ function reveal(list: HTMLElement, row: HTMLElement) {
   if (Math.abs(to - list.scrollTop) > 0.5) list.scrollTop = to;
 }
 
-/// A prompt's videos in order, as its parts carry them, for their tiles (QueuedImages.tsx).
+/// A prompt's videos in order, as its parts carry them, for their tiles (QueuedImages.tsx): a file
+/// part's `video`, or after a reload, when the parts keep no `video`, the frames note that came after
+/// it (composer/videoPrompt.ts `framesNote`).
 function promptVideos(entry: QueuedEntry): QueuedVideo[] | undefined {
-  const videos = (entry.inlineParts ?? []).flatMap((part): QueuedVideo[] =>
-    part.kind !== "image" && part.kind !== "text" && part.video
-      ? [{ name: part.name, durationMs: part.video.durationMs, frames: part.video.frames.length }]
-      : [],
-  );
+  const videos: QueuedVideo[] = [];
+  // The last video a file part described, whose own note comes next and adds nothing.
+  let described: string | undefined;
+  for (const part of entry.inlineParts ?? []) {
+    if (part.kind === "text") {
+      const noted = framesNoteVideo(part.text);
+      if (noted && noted.name !== described) videos.push(noted);
+      if (noted) described = undefined;
+    } else if (part.kind !== "image" && part.video) {
+      videos.push({ name: part.name, durationMs: part.video.durationMs, frames: part.video.frames.length });
+      described = part.name;
+    }
+  }
   return videos.length ? videos : undefined;
 }
 
@@ -1038,9 +1049,8 @@ export function ComposerQueue({
       {/* Under the text, in its column. */}
       <QueuedImages
         videos={promptVideos(entry)}
-        images={
-          editing === entry.id ? (entry.images ?? []).filter((image) => !dropped.has(image.id)) : (entry.images ?? [])
-        }
+        images={entry.images ?? []}
+        dropped={editing === entry.id ? dropped : undefined}
         t={t}
         read={readImage}
         onRemove={editing === entry.id ? (id) => setDropped((current) => new Set(current).add(id)) : undefined}

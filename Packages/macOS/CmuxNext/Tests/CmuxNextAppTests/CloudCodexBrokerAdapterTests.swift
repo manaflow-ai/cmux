@@ -129,6 +129,120 @@ done
         await adapter.shutdown()
     }
 
+    /// Leo, 2026-11-05: "those subscriptions should all be detectable". Once the person says yes, a
+    /// machine gets the access the Mac's own Codex holds: no device code, and the private holder never
+    /// signs in, so nothing but the Mac's Codex ever refreshes the Mac's sign-in.
+    @Test func theMacsOwnCodexSignInReplacesTheDeviceCodeOnceAllowed() async throws {
+        let (root, launch) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let files = Files()
+        let scope = CloudCodexBrokerScope(userID: "user", teamID: nil)
+        let adapter = CloudCodexBrokerAdapter(root: root, registry: .init(), currentScope: { scope }, launch: { launch }, target: { _, id in files.target(id) })
+        let allowed = Flag()
+        adapter.localSignIn = {
+            guard await allowed.value else { return nil }
+            return CloudCodexAccessGrant(accessToken: "mac-access", chatgptAccountID: "account", expiresAt: Date().addingTimeInterval(3600))
+        }
+        var asked = 0, prompts = 0
+        try await adapter.run(machineID: "vm", scope: scope, confirmed: true,
+                              askLocalSignIn: { asked += 1; await allowed.set(); return true },
+                              presentDeviceCode: { _ in prompts += 1; return false })
+        #expect(asked == 1 && prompts == 0)
+        let delivered = try #require(await files.read("vm", CloudCodexBroker.accessPath))
+        #expect(String(decoding: delivered, as: UTF8.self).contains("mac-access"))
+        #expect(!String(decoding: delivered, as: UTF8.self).contains("refresh"))
+        // Silent after the yes: a second machine is asked nothing.
+        try await adapter.run(machineID: "vm2", scope: scope, confirmed: true,
+                              askLocalSignIn: { asked += 1; return true }, presentDeviceCode: { _ in prompts += 1; return false })
+        #expect(asked == 1 && prompts == 0)
+        await adapter.shutdown()
+    }
+
+    /// A grant from the Mac's Codex renews while a newer Mac token still qualifies (15 min left), not
+    /// 2 minutes before its end, when nothing from the Mac would be accepted any more.
+    @Test func aMacGrantRenewsBeforeTheLocalCutoff() async throws {
+        let (root, launch) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let files = Files()
+        let scope = CloudCodexBrokerScope(userID: "user", teamID: nil)
+        let registry = CloudCodexBrokerRegistry()
+        let adapter = CloudCodexBrokerAdapter(root: root, registry: registry, currentScope: { scope }, launch: { launch }, target: { _, id in files.target(id) })
+        let expiry = Date().addingTimeInterval(3600)
+        adapter.localSignIn = { CloudCodexAccessGrant(accessToken: "mac-access", chatgptAccountID: "account", expiresAt: expiry) }
+        try await adapter.run(machineID: "vm", scope: scope, confirmed: true, askLocalSignIn: { true }, presentDeviceCode: { _ in false })
+        let broker = try #require(await registry.existing(for: scope))
+        let renewal = try #require(await broker.scheduledRenewal)
+        #expect(renewal <= expiry.addingTimeInterval(-CloudCodexLocalAccess.minimumLifetime))
+        await adapter.shutdown()
+    }
+
+    /// Taking the yes back stops the Mac's token at once: a later machine never gets the cached one.
+    @Test func aTakenBackYesNeverDeliversTheCachedMacToken() async throws {
+        let (root, launch) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let files = Files()
+        let scope = CloudCodexBrokerScope(userID: "user", teamID: nil)
+        let adapter = CloudCodexBrokerAdapter(root: root, registry: .init(), currentScope: { scope }, launch: { launch }, target: { _, id in files.target(id) })
+        let allowed = Flag()
+        await allowed.set()
+        adapter.localSignIn = {
+            guard await allowed.value else { return nil }
+            return CloudCodexAccessGrant(accessToken: "mac-access", chatgptAccountID: "account", expiresAt: Date().addingTimeInterval(3600))
+        }
+        try await adapter.run(machineID: "vm", scope: scope, confirmed: true, askLocalSignIn: { true }, presentDeviceCode: { _ in false })
+        await allowed.clear()
+        var prompts = 0
+        try await adapter.run(machineID: "vm2", scope: scope, confirmed: true,
+                              askLocalSignIn: { false }, presentDeviceCode: { _ in prompts += 1; return true })
+        #expect(prompts == 1)
+        let delivered = try #require(await files.read("vm2", CloudCodexBroker.accessPath))
+        #expect(!String(decoding: delivered, as: UTF8.self).contains("mac-access"))
+        await adapter.shutdown()
+    }
+
+    /// The Mac signed in to another Codex account: the cached token of the first is never delivered again.
+    @Test func anotherMacAccountDropsTheCachedToken() async throws {
+        let (root, launch) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let files = Files()
+        let scope = CloudCodexBrokerScope(userID: "user", teamID: nil)
+        let adapter = CloudCodexBrokerAdapter(root: root, registry: .init(), currentScope: { scope }, launch: { launch }, target: { _, id in files.target(id) })
+        let switched = Flag(), expiry = Date().addingTimeInterval(3600)
+        adapter.localSignIn = {
+            await switched.value ? CloudCodexAccessGrant(accessToken: "mac-b", chatgptAccountID: "b", expiresAt: expiry)
+                                 : CloudCodexAccessGrant(accessToken: "mac-a", chatgptAccountID: "a", expiresAt: expiry)
+        }
+        try await adapter.run(machineID: "vm", scope: scope, confirmed: true, askLocalSignIn: { true }, presentDeviceCode: { _ in false })
+        await switched.set()
+        try await adapter.run(machineID: "vm2", scope: scope, confirmed: true, askLocalSignIn: { true }, presentDeviceCode: { _ in false })
+        let delivered = String(decoding: try #require(await files.read("vm2", CloudCodexBroker.accessPath)), as: UTF8.self)
+        #expect(delivered.contains("mac-b") && !delivered.contains("mac-a"))
+        await adapter.shutdown()
+    }
+
+    /// A no (or no Mac sign-in) keeps the device code exactly as before.
+    @Test func aDeclinedMacSignInFallsBackToTheDeviceCode() async throws {
+        let (root, launch) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let files = Files()
+        let scope = CloudCodexBrokerScope(userID: "user", teamID: nil)
+        let adapter = CloudCodexBrokerAdapter(root: root, registry: .init(), currentScope: { scope }, launch: { launch }, target: { _, id in files.target(id) })
+        adapter.localSignIn = { nil }
+        var prompts = 0
+        try await adapter.run(machineID: "vm", scope: scope, confirmed: true,
+                              askLocalSignIn: { false }, presentDeviceCode: { _ in prompts += 1; return true })
+        #expect(prompts == 1)
+        let delivered = try #require(await files.read("vm", CloudCodexBroker.accessPath))
+        #expect(String(decoding: delivered, as: UTF8.self).contains("short-access"))
+        await adapter.shutdown()
+    }
+
+    actor Flag {
+        var value = false
+        func set() { value = true }
+        func clear() { value = false }
+    }
+
     @Test func reusesLoginAcrossVMsAndAppRestartAndCleansDeliveredFiles() async throws {
         let (root, launch) = try fixture()
         defer { try? FileManager.default.removeItem(at: root) }

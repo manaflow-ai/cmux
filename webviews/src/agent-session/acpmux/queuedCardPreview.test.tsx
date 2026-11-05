@@ -8,7 +8,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { ComposerQueue } from "./ComposerQueue";
 import { queuedTiles } from "./QueuedImages";
-import type { QueuedPromptImage } from "./model";
+import type { QueueEdit, QueuedPromptImage } from "./model";
+import { framesNote } from "./composer/videoPrompt";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -126,4 +127,91 @@ test("past one row's tiles, the rest is one +N", async () => {
   const row = container.querySelector('[data-prompt-id="p-1"]')!;
   expect(row.querySelectorAll(".acpmux-queued-image-slot").length).toBe(5);
   expect(row.querySelector(".acpmux-queued-images-more")?.textContent).toBe("multiplayer.more(5)");
+});
+
+// Codex review of #35960's follow-ups: two videos of one name in one queued prompt keep their own
+// tiles after a reload (its parts keep the frames notes, not the videos) and through an edit.
+const clip = (id: string, time: string) => image(id, `clip.mov frame at ${time}`);
+const SHORT = [clip("a0", "0:00.2"), clip("a1", "0:00.5"), clip("a2", "0:00.8")];
+const LONG = [clip("b0", "0:01.5"), clip("b1", "0:02.0"), clip("b2", "0:03.0"), clip("b3", "0:04.0")];
+const clipPart = (video?: { durationMs: number; times: number[] }) => ({
+  kind: "file" as const,
+  name: "clip.mov",
+  uri: "file:///tmp/clip.mov",
+  mimeType: "video/quicktime",
+  ...(video
+    ? {
+        video: {
+          durationMs: video.durationMs,
+          width: 320,
+          height: 180,
+          poster: "data:image/jpeg;base64,QQ==",
+          frames: video.times.map((atMs) => ({ atMs, data: "QQ==" })),
+        },
+      }
+    : {}),
+});
+const lengths = (container: HTMLElement) =>
+  [...container.querySelectorAll('[data-prompt-id="p-1"] .acpmux-queued-video')].map((chip) => chip.textContent);
+
+test("after a reload two videos of one name are two tiles, each with its length from its frames note", async () => {
+  const container = await render([
+    {
+      id: "p-1",
+      prompt: "look",
+      images: [...SHORT, ...LONG],
+      inlineParts: [
+        { kind: "text", text: "look" },
+        clipPart(),
+        { kind: "text", text: framesNote("clip.mov", 1_000, 320, 180, [200, 500, 800]) },
+        clipPart(),
+        { kind: "text", text: framesNote("clip.mov", 16_000, 320, 180, [1_500, 2_000, 3_000, 4_000]) },
+      ],
+    },
+  ]);
+  expect(lengths(container)).toEqual(["0:01", "0:16"]);
+});
+
+test("removing the first of two videos of one name in an edit keeps the other whole, with its length", async () => {
+  const edits: [string, QueueEdit][] = [];
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ComposerQueue
+        queue={[
+          {
+            id: "p-1",
+            prompt: "look",
+            images: [...SHORT, ...LONG],
+            inlineParts: [
+              { kind: "text", text: "look" },
+              clipPart({ durationMs: 1_000, times: [200, 500, 800] }),
+              clipPart({ durationMs: 16_000, times: [1_500, 2_000, 3_000, 4_000] }),
+            ],
+          },
+        ]}
+        chat="c"
+        t={t as never}
+        onChange={async (id, edit) => {
+          edits.push([id, edit]);
+          return true;
+        }}
+        onRemove={async () => true}
+      />,
+    );
+  });
+  const row = container.querySelector<HTMLElement>('[data-prompt-id="p-1"]')!;
+  row.focus();
+  await act(async () => {
+    row.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  });
+  const [first] = container.querySelectorAll<HTMLButtonElement>('[data-prompt-id="p-1"] .acpmux-queued-image-remove');
+  await act(async () => first!.click());
+  expect(lengths(container)).toEqual(["0:16"]);
+  const field = container.querySelector<HTMLTextAreaElement>('[data-prompt-id="p-1"] textarea')!;
+  await act(async () => {
+    field.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  });
+  expect(edits).toEqual([["p-1", { op: "update", text: "look", images: LONG.map((frame) => frame.id) }]]);
 });

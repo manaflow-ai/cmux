@@ -17,6 +17,9 @@ extension CmuxConfigSnapshot {
     /// `labs.machineJoin`: Any machine joins with one pasted line (contract: cmux machine join, J6-J8): Add Device's "Any machine: one line" way, joined rows in the Machines sidebar with Check, Rotate and Revoke, and This Mac's Screen sharing and Control consent switches in Settings > Devices. Off by default while the join routes answer only on the development platform. The person turns it on: agents may not (not in SettingsSchema agent-writable keys).
     public nonisolated static let machineJoinPath = ["labs", "machineJoin"]
     public nonisolated static let machineJoinDefault = false
+    /// `labs.liveCode`: Live code (docs/cmux-next/live-code.md): an opt-in, temporary switch. On, a live code build (CMUX_LIVE_CODE_BUILD=1 scripts/reload.sh: CmuxNextApp at -Onone, linked -interposable) watches ~/Library/Caches/cmux-next/live-code and applies Swift patches compiled from the person's checkout (scripts/live-code/patch.py) with no new build. Off, nothing is watched or loaded; Debug and bench builds only until a patch's signer is checked (cmux#13742). Read at launch. The person turns it on: agents may not (it loads code into the app).
+    public nonisolated static let liveCodePath = ["labs", "liveCode"]
+    public nonisolated static let liveCodeDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -74,6 +77,16 @@ nonisolated enum LabsSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.machineJoinDefault),
                 keywords: ["labs", "machine", "join", "add", "device", "line", "curl", "remote", "mesh"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.liveCodePath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.labs.liveCode", "Live Code"),
+                help: SettingsText.keyed("settings.labs.liveCode.help", "In a live code build of cmux, Swift changes you compile from your own checkout apply to the running app without waiting for a new build. Turn it off to go back to normal. Takes effect after cmux restarts."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.liveCodeDefault),
+                keywords: ["labs", "live", "code", "hot", "reload", "patch", "inject", "swift", "develop"]
             ),
         ]
     }

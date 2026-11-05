@@ -6,7 +6,7 @@ HQ#7146 G5 ("terminal cell grid instead of video"):
 | Path | What it is in cmux today |
 |---|---|
 | `vt` | the PTY bytes as they arrive: the live frames of the `terminal_bytes` channel (`CmuxTerminalStream`, cmux-tui `snapshot_attach.rs`), which the iPhone and Mac viewers feed to their own libghostty |
-| `render-delta` | the daemon's render attach (`cmux-tui-core/src/server/render_messages.rs`): dirty rows as styled-run JSON at the 8 ms frame cadence (`frame_producer.rs`), which the web frontend draws; the bench leaves out `scrollback_rows` and `history_epoch` (a few dozen bytes when they change) |
+| `render-delta` | the daemon's render attach (`cmux-tui-core/src/server/render_messages.rs`): dirty rows as styled-run JSON at the 8 ms frame cadence (`frame_producer.rs`), which the web frontend draws: a `render-state` first, then deltas with the daemon's full-frame rule and optional fields |
 | `rowdiff` | a candidate cell wire: rows diffed against what the viewer holds, plus a scroll op |
 | `h264-KBPS[-refreshMS]` | the pane's pixels through cmux-encode's OpenH264 (cmux.rd's Linux encoder settings: screen content, real time, frame skip), captured on a 60 Hz grid; `refresh500ms` also re-encodes every 500 ms while idle, as WebRTC's `ScreenStream` does |
 
@@ -26,7 +26,7 @@ recorded time through ghostty-vt (the host), then through each path to a viewer.
 
 - `kbps`, `kbps_deflate`: bytes sent in the window, and the same messages through
   one deflate stream with a sync flush per message (what a compressed channel carries).
-- `key_to_view_ms`: from the first output after a typed key (the program's echo)
+- `key_to_view_ms`: for keys whose echo falls in the window, from the first output after a typed key (the program's echo)
   to the viewer holding it, per key; `key_stages_p50_ms` splits it into:
   - `wait`: pacing before the path sends: the cell cadence, or the next 60 Hz capture;
   - `host`: building the message, or I420 conversion plus encode;
@@ -48,7 +48,7 @@ recorded time through ghostty-vt (the host), then through each path to a viewer.
   whatever `--window` is. The video viewer's CPU includes converting each decoded picture back to
   BGRX on the CPU, which a real viewer does on the GPU.
 - `attach`: what a viewer joining at `--attach-at` (default: the end) needs before live frames, all
-  of the same screen: the GHOSTSNP READY, a full render-delta, and a 12 Mbps H.264 IDR.
+  of the same screen: the GHOSTSNP READY, the daemon's `render-state`, and a 12 Mbps H.264 IDR.
 
 Not covered: images (kitty graphics ride `terminal_bytes` and render-graphics; Ghostty has
 no sixel) and real networks (see HQ#7146 G2).
