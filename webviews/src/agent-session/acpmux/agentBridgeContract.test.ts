@@ -177,9 +177,10 @@ function sentMethods(files: { path: string; text: string }[]): Sent[] {
             : ts.isShorthandPropertyAssignment(property)
               ? property.name
               : undefined;
-          const key = property.name && (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name))
-            ? property.name.text
-            : undefined;
+          const key =
+            property.name && (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name))
+              ? property.name.text
+              : undefined;
           if (!key || !value || !ts.isIdentifier(value) || !senders.has(value.text)) continue;
           const byIndex = passedProps.get(callee) ?? new Map<number, Set<string>>();
           const keys = byIndex.get(index) ?? new Set<string>();
@@ -215,9 +216,10 @@ function sentMethods(files: { path: string; text: string }[]): Sent[] {
         if (ts.isObjectBindingPattern(parameter.name)) {
           for (const element of parameter.name.elements) {
             if (!ts.isIdentifier(element.name)) continue;
-            const key = element.propertyName && ts.isIdentifier(element.propertyName)
-              ? element.propertyName.text
-              : element.name.text;
+            const key =
+              element.propertyName && ts.isIdentifier(element.propertyName)
+                ? element.propertyName.text
+                : element.name.text;
             const initial = element.initializer;
             if (initial && ts.isIdentifier(initial) && senders.has(initial.text))
               callbacks.set(element.name.text, senders.get(initial.text)!);
@@ -245,9 +247,10 @@ function sentMethods(files: { path: string; text: string }[]): Sent[] {
           const props = objectParams.get(inner.initializer.text)!;
           for (const element of inner.name.elements) {
             if (!ts.isIdentifier(element.name)) continue;
-            const key = element.propertyName && ts.isIdentifier(element.propertyName)
-              ? element.propertyName.text
-              : element.name.text;
+            const key =
+              element.propertyName && ts.isIdentifier(element.propertyName)
+                ? element.propertyName.text
+                : element.name.text;
             if (props.has(key)) callbacks.set(element.name.text, true);
           }
         }
