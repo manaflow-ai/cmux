@@ -272,7 +272,8 @@ final class TabContentCache {
         if let adopted = pageRequests.takeAdoption(for: tab) { return tracked(install(adopted, for: key), tab) }
         // A stand-in's page and chrome come once its first frame (the tab selected on its themed pane) committed.
         if ProvisionalTab.isProvisional(surface: tab.surface), framedStandIns.insert(key).inserted, pendingBrowsers.insert(key).inserted {
-            afterFrame { [weak self] in if self?.pendingBrowsers.remove(key) != nil { self?.onBrowserReady?(key) } }
+            // Shown after its frame committed: its Chromium browser starts when this ends, not at the next idle pass.
+            afterFrame { [weak self] in self?.cef.afterFrameCommitted { if self?.pendingBrowsers.remove(key) != nil { self?.onBrowserReady?(key) } } }
             return nil
         }
         let url = MachineBrowserPages(cache: self).recordURL(tab) ?? recordURL(tab)

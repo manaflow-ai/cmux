@@ -45,6 +45,8 @@ final class CEFRuntime {
     var pendingWindows: [Int32: CEFPaneHost] = [:]
     /// The tab inside a synchronous cmux_tab_add call.
     var tabBeingAdded: CEFTab?
+    /// Creations asked for by the after-frame work running now (`afterFrameCommitted`); nil outside it.
+    var afterFrameWork: [@MainActor () -> Void]?
     /// Tabs Chromium created itself, until a pane adopts them.
     private(set) lazy var orphans = CEFOrphanTabs(runtime: self)
     /// The spare window and the page made ahead in it (`CEFSpareWindow`): this runtime's own.

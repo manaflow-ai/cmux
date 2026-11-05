@@ -27,8 +27,7 @@ private typealias JSON = CmuxNextSettings.JSONValue
 /// first frame after its page painted (first contentful paint, or its load ended); the spans
 /// include Chromium's main-thread steps (`CEFBenchMarks`: `cef.create_window`, `cef.tab_add`, ...).
 /// `link_right` opens `url` (default example.com) from the focused pane as a link opened to the right (split right):
-/// visible once the window shows another pane, `page_ms` once that pane's page painted (with `untimed`: the link opens and
-/// the reply is at once, no timing: the bench's quick arm's first press). `dock_respawn` docks the focused pane's lone tab into a new left
+/// visible once the window shows another pane, `page_ms` once that pane's page painted (quick arm: ``openLinkRight(_:_:_:)``). `dock_respawn` docks the focused pane's lone tab into a new left
 /// dock and leaves a fresh terminal (a lone chat's new tab, ``ChatColumnPlacement``): visible once the window shows another pane.
 @MainActor
 enum DebugInstantCreateBench {
@@ -53,14 +52,10 @@ enum DebugInstantCreateBench {
         guard let command = params["command"]?.stringValue.flatMap(Command.init(rawValue:)) else {
             return .object(["error": .string("command: one of \(Command.allCases.map(\.rawValue).joined(separator: ", "))")])
         }
-        // The quick arm's first, untimed press of a command with no key (`link_right`): the link opens and the reply
-        // comes at once, so the timed press that follows finds the spare window this one took.
-        if params["untimed"]?.boolValue == true, command == .linkRight {
-            openLinkRight(params, controller, services)
-            return .object(["command": .string(command.rawValue), "untimed": .bool(true)])
-        }
+        if params["untimed"]?.boolValue == true, command == .linkRight { return openLinkRight(params, controller, services) } // replies at once
         let before = Probe(controller)
         let shownBrowsers = Probe.browserTabs(controller) // a page painted before the press is never the new one
+        let pageQuery = params["from_pane"] != nil ? params["url"]?.stringValue.flatMap(URL.init(string:))?.query : nil // its own page only
         let (key, modifiers) = command.key
         frames.start()
         BenchSpans.begin()
@@ -81,7 +76,7 @@ enum DebugInstantCreateBench {
         // A link or browser opened to the right: its new pane's page (any shown pane of the window), first paint or load end.
         let opensRight = command == .linkRight || command == .splitBrowser
         let page = visible == nil || (command != .newBrowser && !opensRight) ? nil
-            : await frames.settled(until: { opensRight ? Probe.anyPagePainted(controller, services, besides: shownBrowsers) : Probe(controller).pagePainted(services) },
+            : await frames.settled(until: { opensRight ? Probe.anyPagePainted(controller, services, besides: shownBrowsers, query: pageQuery) : Probe(controller).pagePainted(services) },
                                    start: start, window: 0, deadline: 5_000)
         let confirmed = visible == nil ? nil
             : await frames.settled(until: { Probe(controller).confirmed(command) }, start: start, window: 0, deadline: 5_000)
@@ -104,13 +99,15 @@ enum DebugInstantCreateBench {
         ])
     }
 
-    /// `url` (default example.com) opened from the focused pane as a link opened to the right (split right).
-    private static func openLinkRight(_ params: [String: CmuxNextSettings.JSONValue], _ controller: WindowController, _ services: AppServices) {
-        guard let url = URL(string: params["url"]?.stringValue ?? "https://example.com/") else { return }
+    /// `url` opened to the right (split right) from the focused pane, or the pane `from_pane` names: the quick arm's untimed press (`untimed`, the reply at once with its `source_pane`, so the spare window is taken) moved the focus to that link's browser pane, where a link is a tab, no pane to time.
+    @discardableResult private static func openLinkRight(_ params: [String: CmuxNextSettings.JSONValue], _ controller: WindowController, _ services: AppServices) -> CmuxNextSettings.JSONValue {
+        let named = params["from_pane"]?.stringValue.flatMap(UInt64.init).flatMap { handle in controller.content?.panes.values.first { $0.pane.handle.rawValue == handle } }
+        guard let source = named ?? controller.content?.focusedPane, let url = URL(string: params["url"]?.stringValue ?? "https://example.com/") else { return .null }
         let placement = services.linkOpener.placement
         services.linkOpener.placement = { .splitRight }
-        services.linkOpener.openWeb(url, from: controller.content?.focusedPane, background: false)
+        services.linkOpener.openWeb(url, from: source, background: false)
         services.linkOpener.placement = placement
+        return .object(["command": .string(Command.linkRight.rawValue), "untimed": .bool(true), "source_pane": .string(String(source.pane.handle.rawValue))])
     }
 
     /// What the window shows, read each frame.
@@ -144,11 +141,12 @@ enum DebugInstantCreateBench {
             } ?? [])
         }
 
-        /// Whether a pane of the window shows a browser, other than `besides`, whose page painted (``pagePainted(_:)``).
-        static func anyPagePainted(_ controller: WindowController, _ services: AppServices, besides: Set<String>) -> Bool {
+        /// Whether a pane of the window shows a browser, other than `besides` (with `query`: at that query), whose page painted (``pagePainted(_:)``).
+        static func anyPagePainted(_ controller: WindowController, _ services: AppServices, besides: Set<String>, query: String? = nil) -> Bool {
             controller.content?.panes.values.contains { pane in
                 guard pane.view.hostsContent, case .browser(let entry) = pane.currentContent,
                       !besides.contains(entry.tab.id.rawValue) else { return false }
+                if let query, entry.tab.state.url?.query != query { return false }
                 if case .finished = entry.tab.state.phase { return true }
                 return services.cache.cef.benchMarks.firstPaints[entry.tab.id.rawValue] != nil
             } ?? false

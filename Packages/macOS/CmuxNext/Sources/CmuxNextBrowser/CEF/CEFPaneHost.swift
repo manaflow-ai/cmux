@@ -193,12 +193,13 @@ final class CEFPaneHost {
 
     /// Creates `tab`'s browser after the current run-loop pass committed its frame: one main
     /// run loop observer after every other one of the pass (Core Animation's commit runs before
-    /// it), once. The run loop is woken after, so what the creation changed commits in the next pass.
+    /// it), once, or when the after-frame work that showed the tab ends (`CEFRuntime.afterCommit`).
+    /// The run loop is woken after, so what the creation changed commits in the next pass.
     private func createAfterCommit(_ tab: CEFTab) {
         guard !deferredCreations.contains(where: { $0.tab === tab }) else { return }
         deferredCreations.append(WeakCEFTab(tab))
         guard deferredCreations.count == 1 else { return }
-        AfterFrameCommit().run { [weak self] in self?.createDeferred() }
+        runtime.afterCommit { [weak self] in self?.createDeferred() }
     }
 
     /// Makes the browsers of the tabs shown before theirs existed (the observer of `createAfterCommit`; tests call it).
