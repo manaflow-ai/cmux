@@ -50,9 +50,11 @@ extension TerminalSurfaceView: PaneMotionTargeting {
     /// whose pane its host follows (FRAME OWNER S3) with `motion.frameOwner.terminals` on, only the grid goes (cmux-ad m6:
     /// the program's size per press); the surface takes its pane's size in every frame
     /// (``TerminalHostView/followedSurfaceFrame(_:in:)``), never held at the final size. One exception, as for a split
-    /// or a close: a pane that grows down with the prompt in its lower half (`motionAnchor` answers `.bottom`) keeps the
-    /// surface at its final size on the moving bottom edge, so the prompt on the final grid's last row stays in view (a
-    /// surface at the pane's size shows the final grid's top rows; review of #35470, F2).
+    /// or a close: a pane that grows down with the prompt in its lower half (`motionAnchor` answers `.bottom`) keeps a
+    /// bottom hold at the final size. With the switch on the host uses only its height, at the area's width, and only while
+    /// that height is more than the area's: the surface's bottom rides the moving bottom edge, so the prompt on the final
+    /// grid's last row stays in view (a surface at the pane's size shows the final grid's top rows; review of #35470, F2
+    /// and H1). With the switch off the surface keeps the whole final size on that edge.
     private func restAt(_ size: NSSize, growing: Bool) -> PaneMotionAnchor {
         guard let surface else { return .top }
         let pixels = convertToBacking(size)
