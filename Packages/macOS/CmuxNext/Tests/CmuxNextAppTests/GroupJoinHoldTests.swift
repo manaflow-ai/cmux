@@ -72,11 +72,15 @@ import Testing
     @Test func aJoinIsSentOnce() {
         var hold = GroupJoinHold()
         hold.hold("n", group: "lanes")
-        #expect(hold.claim("n"), "the placement sends it")
+        let placed = hold.claim("n")
+        #expect(placed, "the placement sends it")
         let first = Self.pass(&hold, Self.created, catchingUp: true)
         #expect(first.sent.isEmpty && !Self.loose(first.drawn).contains("n"))
-        #expect(!hold.claim("n"))
-        #expect(GroupJoinHold().claim("x"), "a workspace not held joins as before")
+        let again = hold.claim("n")
+        #expect(!again)
+        var empty = GroupJoinHold()
+        let loose = empty.claim("x")
+        #expect(loose, "a workspace not held joins as before")
     }
 
     @Test func aSlowCreateIsHeldUntilItLists() {
