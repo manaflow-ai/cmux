@@ -183,7 +183,7 @@ extension HomeChiefSettingsView {
     }
 
     /// The pickers, in the card's order.
-    var pickers: [NSPopUpButton] { [harness, model, effort, speed] }
+    var pickers: [NSPopUpButton] { [harness, model, effort, speed, computerPicker] }
 
     /// The rows' items for `snapshot`, with this harness's recent models.
     func titles(_ snapshot: HomeChiefSnapshot) -> HomeChiefEngineTitles {

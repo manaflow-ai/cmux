@@ -429,7 +429,11 @@ pub fn parse_computer(value: &str) -> Result<Option<String>, String> {
         return Ok(None);
     }
     let id = value.strip_prefix("machine:").unwrap_or(value);
-    let ok = !id.is_empty()
+    // Other machines' ids (`MachineRegistry`): `ssh-…` hosts, `server-…`
+    // paired servers and `local` are not Cloud machines.
+    let cloud = !id.starts_with("ssh-") && !id.starts_with("server-") && id != "local";
+    let ok = cloud
+        && !id.is_empty()
         && id.len() <= 128
         && id
             .chars()
@@ -446,7 +450,9 @@ pub fn parse_computer(value: &str) -> Result<Option<String>, String> {
 /// in the turn's tail, after the cached prompt, so attaching one never
 /// changes the cached system text); None without one.
 pub fn computer_line(choice: &EngineChoice) -> Option<String> {
-    let target = choice.computer.as_deref()?;
+    // A hand edit of engine.json skips the set's check: check it again here,
+    // so the line can only ever carry a Cloud machine id.
+    let target = parse_computer(choice.computer.as_deref()?).ok()??;
     Some(format!(
         "Your computer: the owner attached the Cloud machine {target} for computer use. Do desktop, browser and app work there with the chief-cloud-machines skill (--target {target}), not on this Mac, unless the owner asks for this Mac."
     ))

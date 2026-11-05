@@ -719,6 +719,9 @@ impl Brain {
         if let Some(line) = &at_work {
             layout["at_work"] = serde_json::json!(line);
         }
+        if let Some(line) = &computer {
+            layout["computer"] = serde_json::json!(line);
+        }
         if let Some(block) = &home {
             layout["home_workspace"] = serde_json::json!(block);
         }

@@ -109,8 +109,8 @@ private final class ComputerChief: HomeChiefEngineSource, @unchecked Sendable {
     func read() async throws(HomeChiefEngineError) -> HomeChiefSnapshot { snapshot }
 
     func set(_ fields: [String: String?]) async throws(HomeChiefEngineError) -> HomeChiefSnapshot {
-        writes.yield(fields)
         if case let value?? = fields["computer"] { computer = value == "none" ? nil : value }
+        writes.yield(fields)
         return snapshot
     }
 }

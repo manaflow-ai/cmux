@@ -51,26 +51,30 @@ extension HomeChiefSettingsView {
     }
 
     /// Fills the picker for `computer` (engine.json's `machine:<id>`, nil: this Mac). A machine the
-    /// list no longer has (deleted, or the list still loading) stays shown by its id.
+    /// list no longer has (deleted, or the list still loading) stays shown by its id. Items are added
+    /// as menu items, never by title: two machines may share a name (`addItem(withTitle:)` keeps one).
     func showComputer(_ computer: String?) {
         shownComputer = computer
         let machines = cloudComputers()
-        computerPicker.removeAllItems()
-        computerPicker.addItem(withTitle: HomeEngineStrings.computerThisMac)
-        computerPicker.lastItem?.representedObject = nil
-        for machine in machines {
-            computerPicker.addItem(withTitle: machine.title)
-            computerPicker.lastItem?.representedObject = machine.target
+        let menu = NSMenu()
+        func add(_ title: String, _ target: String?, tag: Int = 0) {
+            let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+            item.representedObject = target
+            item.tag = tag
+            menu.addItem(item)
         }
-        if let computer, !machines.contains(where: { $0.target == computer }) {
-            computerPicker.addItem(withTitle: computer)
-            computerPicker.lastItem?.representedObject = computer
-        }
-        computerPicker.menu?.addItem(.separator())
-        computerPicker.addItem(withTitle: HomeEngineStrings.computerNew)
-        computerPicker.lastItem?.tag = Self.newComputerTag
-        let index = computerPicker.itemArray.firstIndex { ($0.representedObject as? String) == computer } ?? 0
+        add(HomeEngineStrings.computerThisMac, nil)
+        for machine in machines { add(machine.title, machine.target) }
+        if let computer, !machines.contains(where: { $0.target == computer }) { add(computer, computer) }
+        menu.addItem(.separator())
+        add(HomeEngineStrings.computerNew, nil, tag: Self.newComputerTag)
+        computerPicker.menu = menu
+        let index = computer.flatMap { target in menu.items.firstIndex { ($0.representedObject as? String) == target } } ?? 0
         computerPicker.selectItem(at: index)
+        // A Chief that moved off this Mac keeps the computer it took here: its row stays while one is
+        // set, so the owner can still detach it.
+        let hidden = !source.isLocal && computer == nil
+        if computerRow.isHidden != hidden { computerRow.isHidden = hidden }
         let attached = computer != nil
         computerNote.stringValue = attached ? HomeEngineStrings.computerCloudNote : HomeEngineStrings.computerMacNote
         if computerDesktop.isHidden == attached { computerDesktop.isHidden = !attached }

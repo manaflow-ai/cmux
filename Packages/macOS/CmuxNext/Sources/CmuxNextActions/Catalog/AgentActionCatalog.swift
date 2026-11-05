@@ -582,7 +582,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.familyMember), contextMenuExemption: .noObject)
             ),
             // Roll Back Chief Move (chief-migration-DESIGN.md 4): this Mac's Chief answers here again and the
-            // target is marked moved back; the Teleport menu (the Home header's location chip, the Chief card)
+            // target is marked moved back; the Teleport menu (the Chief card's location chip)
             // offers it while the Chief's home is marked moved.
             ActionDescriptor(
                 id: "chief.moveRollback",
