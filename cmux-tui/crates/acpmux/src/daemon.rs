@@ -49,6 +49,8 @@ mod handover;
 mod home_watch;
 mod notify;
 pub(crate) mod owner_exit;
+/// A process's start time, which with its pid names it (the test owner, `owner_exit.rs`).
+pub use owner_exit::process_start;
 mod persist_retry;
 #[cfg(unix)]
 mod socket_rebind;
