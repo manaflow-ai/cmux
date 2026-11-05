@@ -125,5 +125,11 @@ import Testing
         clock.advance(by: .seconds(60))
         for _ in 0..<50 { await Task.yield() }
         #expect(socket.asks == 1)
+        // Turning connections off afterwards still stops the host and shows off (review of #36130).
+        toggle.on = false
+        await Self.until { host.phase == .off }
+        // And back on asks for the socket again.
+        toggle.on = true
+        await Self.until { socket.asks == 2 }
     }
 }

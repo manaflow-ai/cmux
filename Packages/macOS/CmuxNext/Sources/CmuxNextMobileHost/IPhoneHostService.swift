@@ -570,11 +570,12 @@ public final class IPhoneHostService {
                 self?.daemonBackoff.reset()
             } catch let blocked as DaemonSocketBlocked {
                 // The organization turned cmux-tui's endpoint off: that does not pass by itself, so no
-                // retry (review of #36099). A later account or toggle change tries again.
+                // retry (review of #36099). `running` keeps the key: a toggle off or a sign-out then
+                // differs from it and stops the host as usual, and an account change or toggle back on
+                // starts again. Clearing it would let reconcile see nil == nil and skip that stop.
                 guard !Task.isCancelled, self?.running == key else { return }
                 logger.error("iPhone host not started: \(blocked.reason, privacy: .public)")
                 await supervisor.stop(phase: .unavailable(blocked.reason))
-                if self?.running == key { self?.running = nil }
                 return
             } catch {
                 // cmux-tui is not connected yet (launch, a daemon restart or update). hostd needs its
