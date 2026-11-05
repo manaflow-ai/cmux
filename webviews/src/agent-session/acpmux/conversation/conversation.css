@@ -2234,6 +2234,31 @@ pre.cv-math-source {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Reserve the widest configured label in both shimmer layers. Generated, inert sizing samples
+   never enter copy, Find or the live region; a long custom phrase still shrinks to the row. */
+.cv-status-verb {
+  display: inline-grid;
+  grid-template-columns: minmax(0, 1fr);
+  width: max-content;
+  max-width: 100%;
+  min-width: 0;
+  vertical-align: top;
+}
+.cv-status-verb > *,
+.cv-status-verb::before {
+  grid-area: 1 / 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cv-status-verb__size {
+  visibility: hidden;
+  pointer-events: none;
+  user-select: none;
+}
+.cv-status-verb__size::before {
+  content: attr(data-text);
+}
 /* The live line's action in full ink, the rest of its words at the line's muted tone, as Claude Code
    desktop draws "Using repo: repo grep" (Thinking.tsx `liveLead`). */
 .cv-worked__lead {

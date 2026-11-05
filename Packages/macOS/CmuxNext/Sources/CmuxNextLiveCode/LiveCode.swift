@@ -29,6 +29,18 @@ public final class LiveCode {
         return live
     }
 
+    /// Labs > Live Code (`labs.liveCode`, read at launch): with the switch on, watches the person's
+    /// live folder, ~/Library/Caches/cmux-next/live-code, unless CMUX_LIVE_CODE_DIR already named one.
+    /// Off, nothing changes. Debug and bench builds only, as `fromEnvironment`.
+    public func labsSwitch(_ on: Bool) {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        guard on, folder == nil else { return }
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Caches")
+        watch(LiveFolder(url: caches.appendingPathComponent("cmux-next/live-code", isDirectory: true)))
+        #endif
+    }
+
     /// Patches applied so far.
     public private(set) var generation = 0
     private var folder: LiveFolder?

@@ -352,6 +352,17 @@ press) and `video-cases/judge_scan.py` (repeated pictures in motion). They run o
 (`/work/tmp/bv-venv/bin/python -I`, numpy and imageio_ffmpeg), never on a mini. This folder holds the one copy;
 the kit branches' copies are older (REWRITE R-HARNESS, handoff/rewrites/R-HARNESS/DESIGN.md).
 
+`video-cases/judge_pixel.py` judges the pixel fixture films (the FRAME OWNER's kit, `cp/pixel-perfect-kit`
+`ext_pixel.py` `px_record_start`: terminals that run `pixel/tui_border.py` and pages that show `pixel/page.html`):
+each pane side's content edge on each scan line against the pane edge that cmux's own layer shows in the same film
+frame (the tab strip), on the film's own clock. Its JSON has the m6 rows (`m6`) and the cmux-ad m14 rows (`m14`);
+`video-cases/judge_m14.py BASE ...` gives the m14 verdict per film (exit 0 every film passes, 1 a film fails, 2 a film
+is not judged and none fails; a usage error also exits 2). Each rule in `video-cases/test_judge_pixel.py` came as a
+red-then-green pair with an independent review (the FRAME OWNER's; m14's by R-HARNESS); a change to a rule does the
+same. Its unit tests run with the goldens' TRUTH tier below (as every `video-cases/test_judge_*.py`); its film results
+are not in the goldens yet. `video-cases/m14_known_films.py` holds the m14 known-film checks, which read films outside
+the store: run them yourself after an m14 change.
+
 Every change to a judge reproduces the judge goldens. They have two tiers:
 
 - BASELINE: every gallery film, frozen read-only in `/work/goldens/judge-films` (sha256-pinned by

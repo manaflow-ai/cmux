@@ -10,6 +10,9 @@
 # Output: CU-DRIVER-EVAL lines, the summary, and artifacts/cu-driver-eval.tgz (results.json,
 # summary.md, trials.jsonl and every app's log). No gate: it reports, and exits non-zero only when
 # it could not measure at all (3: no Accessibility or event-posting grant; 4: nothing ran).
+# In a VM (scripts/measure/cu-driver-bench.sh suite=input-ab) the copy is not a git checkout:
+# CU_DRIVER_EVAL_ROOT and CU_DRIVER_EVAL_REV name the tree and its commit, and CU_DRIVER_EVAL_GRANT
+# names a command that is given every executable the A/B runs, before the grants are checked.
 set -uo pipefail
 reps=3 drivers="cmux-cua,cua-driver-0.38.0" electron=1
 for arg in "$@"; do
@@ -22,7 +25,7 @@ for arg in "$@"; do
 done
 [[ "$reps" =~ ^[1-9][0-9]?$ ]] || { echo "cu-driver-eval.sh: reps= is 1..99" >&2; exit 2; }
 [[ "$drivers" =~ ^[a-z0-9.,-]*$ ]] || { echo "cu-driver-eval.sh: drivers= is a comma list of names" >&2; exit 2; }
-root="$(git rev-parse --show-toplevel)"
+root="${CU_DRIVER_EVAL_ROOT:-$(git rev-parse --show-toplevel)}"
 cd "$root"
 here="$root/scripts/measure/cu-driver-eval"
 out="$root/artifacts/cu-driver-eval"
@@ -39,7 +42,7 @@ keys, values = sys.argv[1::2], sys.argv[2::2]
 run = dict(zip(keys, values))
 run["at"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 print(json.dumps(run))' host "$(scutil --get ComputerName 2>/dev/null || hostname)" cpu "$(sysctl -n machdep.cpu.brand_string)" \
-  macos "$(sw_vers -productVersion) ($(sw_vers -buildVersion))" rev "$(git rev-parse HEAD)" display "$display" reps "$reps")
+  macos "$(sw_vers -productVersion) ($(sw_vers -buildVersion))" rev "${CU_DRIVER_EVAL_REV:-$(git rev-parse HEAD)}" display "$display" reps "$reps")
 echo "CU-DRIVER-EVAL-MACHINE $run"
 
 finish() {
@@ -70,17 +73,9 @@ pin() { python3 -I -c 'import functools, json, sys; print(functools.reduce(lambd
 echo "CU-DRIVER-EVAL-STAGE tools"
 swiftc -O -o "$work/bin/cu-eval-app" "$here/apps.swift" || { finish "could not build apps.swift"; exit 4; }
 swiftc -O -o "$work/bin/cu-eval-inject" "$here/inject.swift" || { finish "could not build inject.swift"; exit 4; }
-grants=$("$work/bin/cu-eval-inject" grants)
-echo "CU-DRIVER-EVAL-GRANTS $grants"
-# Both: with Accessibility but no event posting, every per-pid post is dropped and would read as a
-# measured zero instead of a blocked run.
-if ! grep -q '"accessibility":true' <<<"$grants" || ! grep -q '"post_event":true' <<<"$grants"; then
-  finish "the step's processes lack Accessibility or event posting on this worker ($grants)"
-  exit 3
-fi
-
 echo "CU-DRIVER-EVAL-STAGE downloads"
 driver_args=()
+driver_bins=()
 names=()
 [[ -n "$drivers" ]] && IFS=',' read -r -a names <<<"$drivers"
 for name in ${names[@]+"${names[@]}"}; do
@@ -118,6 +113,7 @@ for name in ${names[@]+"${names[@]}"}; do
   # An unsigned arm64 binary does not run; an ad-hoc signature is enough for a step process.
   codesign -v "$binary" 2>/dev/null || codesign -s - -f "$binary" >/dev/null 2>&1
   driver_args+=(--driver "$label=$binary")
+  driver_bins+=("$binary")
 done
 electron_args=()
 if [[ "$electron" == 1 ]]; then
@@ -128,6 +124,21 @@ if [[ "$electron" == 1 ]]; then
   else
     echo "CU-DRIVER-EVAL-ERROR electron: could not fetch; the electron target is skipped" | tee -a "$out/input-ab/download-errors.txt"
   fi
+fi
+
+if [[ -n "${CU_DRIVER_EVAL_GRANT:-}" ]]; then
+  echo "CU-DRIVER-EVAL-STAGE grant"
+  $CU_DRIVER_EVAL_GRANT "$work/bin/cu-eval-inject" "$work/bin/cu-eval-app" \
+    "$(python3 -I -c 'import os, sys; print(os.path.realpath(sys.executable))')" ${driver_bins[@]+"${driver_bins[@]}"} ||
+    echo "CU-DRIVER-EVAL-ERROR the grant command exited $?"
+fi
+grants=$("$work/bin/cu-eval-inject" grants)
+echo "CU-DRIVER-EVAL-GRANTS $grants"
+# Both: with Accessibility but no event posting, every per-pid post is dropped and would read as a
+# measured zero instead of a blocked run.
+if ! grep -q '"accessibility":true' <<<"$grants" || ! grep -q '"post_event":true' <<<"$grants"; then
+  finish "the step's processes lack Accessibility or event posting on this worker ($grants)"
+  exit 3
 fi
 
 echo "CU-DRIVER-EVAL-STAGE input-ab"

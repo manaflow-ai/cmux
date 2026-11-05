@@ -7148,5 +7148,54 @@
       "es": "Manual is the Spanish adjective for a hand-set order (as sidebar.groupSort.manual).",
       "pt-BR": "Manual is the Portuguese adjective for a hand-set order, spelled as in English."
     }
+  },
+  "remote.status.title": {
+    "class": "brand",
+    "source": "cmux Remote"
+  },
+  "settings.group.cmuxRemote": {
+    "class": "brand",
+    "source": "cmux Remote"
+  },
+  "remote.status.computerUse": {
+    "source": "Computer Use: %@",
+    "identityLocales": {
+      "de": {
+        "reason": "Computer Use is the cmux feature name (a brand, as settings.section.computerUse); %@ is the worker state.",
+        "values": [
+          "Computer Use: %@"
+        ]
+      },
+      "ar": {
+        "reason": "Computer Use is the cmux feature name (a brand, as settings.section.computerUse); %@ is the worker state.",
+        "values": [
+          "Computer Use: %@"
+        ]
+      },
+      "es": {
+        "reason": "Computer Use is the cmux feature name (a brand, as settings.section.computerUse); %@ is the worker state.",
+        "values": [
+          "Computer Use: %@"
+        ]
+      },
+      "ko": {
+        "reason": "Computer Use is the cmux feature name (a brand, as settings.section.computerUse); %@ is the worker state.",
+        "values": [
+          "Computer Use: %@"
+        ]
+      },
+      "ja": {
+        "reason": "Computer Use is the cmux feature name (a brand, as settings.section.computerUse); %@ is the worker state.",
+        "values": [
+          "Computer Use: %@"
+        ]
+      }
+    }
+  },
+  "remote.status.host": {
+    "source": "Host: %@",
+    "identityLocales": {
+      "de": "Host is the usual German term for the computer that shares its screen."
+    }
   }
 }
