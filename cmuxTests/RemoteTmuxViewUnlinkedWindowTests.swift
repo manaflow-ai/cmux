@@ -54,6 +54,23 @@ import Testing
         #expect(host.linkedIntoView == ["@5"], "both of the dead session's windows are destroyed")
     }
 
+    /// A window tmux refuses to link is not cmux's: it gets no mark, which the next bringup would
+    /// read as cmux's and use to destroy the window with `unlink-window -k` once it sat in the
+    /// view alone. The mark was written right behind the link, and tmux ran it even when the link
+    /// failed.
+    @Test func aWindowTmuxRefusesToLinkGetsNoMark() async {
+        let host = ScriptedViewHost(sessions: [
+            .init(name: "work", id: 1, windowIds: ["@1", "@2"]),
+        ], prelinked: false)
+        host.failingLinks = ["@2"]
+        defer { host.close() }
+        await host.connect()
+
+        #expect(host.linkedIntoView == ["@1"])
+        #expect(host.marked == ["@1"])
+        #expect(host.markWrites["@2"] == nil, "a refused link must not be followed by its mark")
+    }
+
     /// The same outage, but the mark is refused only once. The bringup writes it again before it
     /// reads the view, so tmux holds the mark again and later bringups can rely on it.
     @Test func aRefusedMarkIsWrittenAgainBeforeTheBringupReadsTheView() async {
@@ -208,6 +225,8 @@ private final class ScriptedViewHost {
     /// Windows whose mark write tmux answers with `%error`, every time or only the first time.
     var failingMarks: Set<String> = []
     var failingMarksOnce: Set<String> = []
+    /// Windows whose `link-window` into the view tmux answers with `%error`, leaving them out.
+    var failingLinks: Set<String> = []
     /// Windows that carry this view's mark, and how many mark writes each received.
     private(set) var marked: Set<String> = []
     private(set) var markWrites: [String: Int] = [:]
@@ -322,7 +341,7 @@ private final class ScriptedViewHost {
             }
             let command = sentCommands[answeredCount]
             answeredCount += 1
-            let refused = refusesMark(command)
+            let refused = refusesMark(command) || refusesLink(command)
             connection.handleMessageForTesting(
                 .commandResult(commandNumber: answeredCount + 1, lines: refused ? ["refused"] : reply(to: command),
                                isError: refused)
@@ -355,6 +374,14 @@ private final class ScriptedViewHost {
         if failingMarksOnce.remove(windowId) != nil { return true }
         marked.insert(windowId)
         return false
+    }
+
+    /// Refuses a scripted link into the view.
+    private func refusesLink(_ command: String) -> Bool {
+        guard command.hasPrefix("link-window") else { return false }
+        let tokens = command.split(separator: " ").map(String.init)
+        guard let flag = tokens.firstIndex(of: "-s"), flag + 1 < tokens.count else { return false }
+        return failingLinks.contains(tokens[flag + 1])
     }
 
     private func indexInView(_ windowId: String) -> Int {
