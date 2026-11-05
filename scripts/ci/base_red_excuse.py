@@ -1370,6 +1370,217 @@ def quarantined_only(job: dict, head_log: str, known: dict) -> bool:
     return errors <= diagnostics
 
 
+# teamleaderleo/leo-workspace's `ws-check` (2026-11-05). That repo's Actions are off, so its checks run in
+# manaflow-ai/cmuxterm-hq Actions (fast-checks.yml through cmux-ci, or fleet-reconciler-ws-check.yml's per-head check
+# job) and come back as one commit status, `ws-check`, whose target_url is that run. The head has no Actions job or
+# check run of its own, so every red read "no failed job found on the head to compare with the base" and none could
+# be excused. Its verdict is judged here per test, from the run's log: tools/ws_check_run.py prints each step between
+# `##[group]STEP` and `ws-check step FAILED: STEP (exit ...)`, then one WS_CHECK_RESULT=<json> line whose `failed`
+# lists the red steps. A red step's tests are unittest's `FAIL: ...`/`ERROR: ...` lines (their count must equal its
+# FAILED (...) summary, else the step's list is unreadable); a red step with none (a lint) is compared by every line
+# it printed, numbers and the runner's checkout root masked, so a new violation is a new line.
+# A head red is excused only when each of its failing tests (and its step's own `ws-check: ...` lines) fails on the
+# base too, judged the way Actions jobs are: the newest base commit with a ws-check verdict decides (a pass there means
+# the base is green: the head's red is its own, or fixed on the base when that pass is after the merge-base); a red one
+# is compared first, then older red verdicts, at most BASE_WINDOW within BASE_WINDOW_HOURS, never past a pass. A
+# pending, error (ws-check's "no verdict") or missing status is no result: never excused on the head, skipped on the
+# base. A failure whose description, run, job or log cannot be read as above is refused, never guessed.
+WS_CHECK = "ws-check"
+WS_CHECK_REPOS = {"teamleaderleo/leo-workspace": "manaflow-ai/cmuxterm-hq"}  # repo: the repo its runs are in
+WS_CHECK_COMMITS = 30  # base commits read for a verdict, newest first (most main commits get none)
+WS_CHECK_DESCRIPTION = re.compile(r"(\d+) of (\d+) steps failed: (.*)", re.S)
+UNITTEST_RED = re.compile(r"^(?:FAIL|ERROR): (\S.*)$")
+UNITTEST_SUMMARY = re.compile(r"^FAILED \(([^)]*)\)$")
+# The checkout root a ws-check run's paths start with: fast-checks.yml's workspace, or ws-check-heads.yml's clone.
+WS_CHECK_ROOT = re.compile(r"(?:/[\w.-]+)*/_work/(?:cmuxterm-hq/cmuxterm-hq|_temp/lw)/")
+
+
+def ws_check_status(repo: str, sha: str, github) -> dict | None:
+    statuses = github.json(f"repos/{repo}/commits/{sha}/status?per_page=100").get("statuses") or []
+    # The combined status lists the newest per context.
+    return next((found for found in statuses if found.get("context") == WS_CHECK), None)
+
+
+def ws_check_step(lines: list[str], end: int, step: str) -> dict:
+    """{"tests", "lines"} for red STEP, whose closing line is LINES[END]; Refused when its output cannot be read."""
+    start = next((n for n in range(end - 1, -1, -1) if lines[n] in (f"##[group]{step}", f"::group::{step}")), None)
+    if start is None:
+        raise Refused(f"no '##[group]{step}' line before its result")
+    section = [text for text in lines[start + 1:end] if text and text not in ("##[endgroup]", "::endgroup::")]
+    reds = [match[1] for text in section if (match := UNITTEST_RED.match(text))]
+    counted = 0
+    for text in section:
+        if match := UNITTEST_SUMMARY.match(text):
+            for part in match[1].split(","):
+                key, _, value = part.strip().partition("=")
+                if key in ("failures", "errors", "unexpected successes"):
+                    counted += int(value) if value.isdigit() else 0
+    if len(reds) != counted:
+        raise Refused(f"'{step}' prints {len(reds)} FAIL/ERROR line(s) but its unittest summaries count {counted}; "
+                      "its failing tests cannot be listed")
+
+    def norm(text: str) -> str:
+        return normalise_error(WS_CHECK_ROOT.sub("", text))
+
+    own = {norm(text) for text in section if text.startswith("ws-check: ")}
+    if not reds and not section:
+        raise Refused(f"'{step}' failed with no failing test and no output to compare")
+    return {"tests": frozenset(reds), "lines": frozenset(own if reds else {norm(text) for text in section})}
+
+
+def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
+    """(kind, verdict) of SHA's ws-check status: kind "none" (no result), "pass" or "fail". A fail's verdict has
+    "steps" ({step: {"tests", "lines"}}), "url" and "at" (the status time); Refused when a failure cannot be read."""
+    status = ws_check_status(repo, sha, github)
+    if status is None:
+        return "none", {"why": "no ws-check status"}
+    state, description = status.get("state"), status.get("description") or ""
+    found = {"url": status.get("target_url") or "", "at": status.get("updated_at") or status.get("created_at") or ""}
+    if state in ("pending", "error"):
+        return "none", dict(found, why=f"ws-check is {state} ({description or 'no description'})")
+    if state == "success":
+        return "pass", found
+    where = f"'{WS_CHECK}' on {sha}"
+    if state != "failure":
+        raise Refused(f"{where}: an unknown status state {state!r}")
+    named = WS_CHECK_DESCRIPTION.fullmatch(description)
+    if not named:
+        raise Refused(f"{where}: failure \"{description}\" names no failed steps; only 'N of M steps failed: ...' is "
+                      "read per test")
+    host = WS_CHECK_REPOS[repo]
+    link = re.fullmatch(r"https://github\.com/" + re.escape(host) + r"/actions/runs/(\d+)(?:/job/\d+)?/?", found["url"])
+    if not link:
+        raise Refused(f"{where}: its status links {found['url'] or 'nothing'}, not a {host} Actions run")
+    run = github.json(f"repos/{host}/actions/runs/{link[1]}")
+    jobs = last_real_jobs(host, int(link[1]), github)
+    # fleet-reconciler-ws-check.yml runs one check job per head, named for it; fast-checks.yml runs one, `checks`.
+    picked = ([job for job in jobs if sha in (job.get("name") or "")]
+              or [job for job in jobs if job.get("name") == "checks"])
+    if len(picked) != 1:
+        raise Refused(f"{where}: run {link[1]} has {len(picked)} ws-check jobs for it, not one")
+    job = picked[0]
+    if job.get("status") != "completed" or job.get("conclusion") not in ("success", "failure"):
+        raise Refused(f"{where}: job '{job.get('name')}' in run {link[1]} is {job.get('status')}/"
+                      f"{job.get('conclusion')}: no result to read")
+    lines = lines_of(github.log(host, job))
+    at = next((n for n in range(len(lines) - 1, -1, -1) if lines[n].startswith("WS_CHECK_RESULT=")), None)
+    try:
+        result = json.loads(lines[at].split("=", 1)[1]) if at is not None else None
+    except ValueError:
+        result = None
+    failed = result.get("failed") if isinstance(result, dict) else None
+    if (not isinstance(failed, list) or not failed or not all(isinstance(step, str) and step for step in failed)
+            or result.get("ok") is not False or len(set(failed)) != len(failed)):
+        raise Refused(f"{where}: run {link[1]} has no WS_CHECK_RESULT line listing its failed steps")
+    if result.get("head") != sha:
+        # Through cmux-ci the run tests a snapshot commit of the head: its own receipt must name that snapshot and run.
+        receipt = next((text for text in reversed(lines) if text.startswith("FAST_CHECKS_RECEIPT=")), "")
+        try:
+            receipt = json.loads(receipt.split("=", 1)[1]) if receipt else {}
+        except ValueError:
+            receipt = {}
+        if not (isinstance(receipt, dict) and result.get("head") and receipt.get("source_sha") == result.get("head")
+                and str(receipt.get("run_id")) == link[1]
+                and run.get("display_title") == f"Fast checks {result.get('head')}"):
+            raise Refused(f"{where}: the WS_CHECK_RESULT of run {link[1]} is from another checkout")
+    if (int(named[1]), int(named[2])) != (len(failed), result.get("steps")) or not failed[0].startswith(named[3]):
+        raise Refused(f"{where}: its status (\"{description}\") does not match run {link[1]}'s WS_CHECK_RESULT")
+    steps = {}
+    for step in failed:
+        end = next((n for n in range(at - 1, -1, -1) if lines[n].startswith(f"ws-check step FAILED: {step} (exit ")),
+                   None)
+        if end is None:
+            raise Refused(f"{where}: run {link[1]} has no 'ws-check step FAILED: {step}' line")
+        try:
+            steps[step] = ws_check_step(lines, end, step)
+        except Refused as error:
+            raise Refused(f"{where}: run {link[1]}: {error}") from None
+    return "fail", dict(found, steps=steps)
+
+
+def ws_check_units(steps: dict) -> list[tuple[str, str, str]]:
+    """(step, kind, item) for each thing a red must match on the base: each failing test, and each compared line."""
+    return [(step, "test", test) for step, red in steps.items() for test in sorted(red["tests"])] + [
+        (step, "line", line) for step, red in steps.items() for line in sorted(red["lines"])]
+
+
+def ws_check(repo: str, base: str, sha: str, github) -> list[str]:
+    """Audit lines excusing SHA's red ws-check status, one per failing test; Refused (with a line per test) else."""
+    kind, head = ws_check_verdict(repo, sha, github)
+    if kind == "none":
+        raise Refused(f"'{WS_CHECK}' has no result on {sha}: {head['why']}; never excused, wait for its verdict")
+    if kind == "pass":
+        raise Refused(f"'{WS_CHECK}' passed on {sha}: nothing red to excuse")
+    units = ws_check_units(head["steps"])
+    diff = github.json(f"repos/{repo}/compare/{base}...{sha}?per_page=1")
+    merge_base = ((diff.get("merge_base_commit") or {}).get("sha")) or ""
+    verdicts = ((commit["sha"], *ws_check_verdict(repo, commit["sha"], github))
+                for commit in github.json(f"repos/{repo}/commits?sha={base}&per_page={WS_CHECK_COMMITS}") or []
+                if isinstance(commit, dict) and isinstance(commit.get("sha"), str))
+    verdicts = (found for found in verdicts if found[1] != "none")
+    newest = next(verdicts, None)
+    if newest is None:
+        raise Refused(f"'{WS_CHECK}': none of the {WS_CHECK_COMMITS} newest {base} commits has a ws-check verdict to "
+                      "compare with")
+    tip, tip_kind, tip_verdict = newest
+    tested = f"{base} {tip[:12]} ({tip_verdict['url'] or 'no run'})"
+    if tip_kind == "pass":
+        after = (merge_base == tip or (re.fullmatch(r"[0-9a-f]{40}", merge_base) and github.json(
+            f"repos/{repo}/compare/{merge_base}...{tip}?per_page=1").get("status") in ("ahead", "identical")))
+        why = (f"passes on {tested}, the newest {base} verdict: fixed on {base}; merge {base}" if after else
+               f"the newest {base} verdict, a pass at {tested}, is before the merge-base {merge_base[:12]}; "
+               f"re-check once a {base} commit at or after it has a ws-check verdict")
+        lines = [f"not excused '{WS_CHECK}' test '{step} :: {test}': {why}"
+                 for step, red in head["steps"].items() for test in sorted(red["tests"])]
+        lines += [f"not excused '{WS_CHECK}' step '{step}' (no test names): {why}"
+                  for step, red in head["steps"].items() if not red["tests"]]
+        raise Refused(f"'{WS_CHECK}' is green on {base} {tip[:12]}, red on {sha[:12]}\n" + "\n".join(lines))
+    window, when = [(tip, tip_verdict)], created({"created_at": tip_verdict["at"]})
+
+    def on(unit) -> tuple[str, dict] | None:
+        step, kind, item = unit
+        return next(((commit, verdict) for commit, verdict in window if step in verdict["steps"]
+                     and item in verdict["steps"][step]["tests" if kind == "test" else "lines"]), None)
+
+    def older() -> str:
+        return f" or the {len(window) - 1} red {base} verdict(s) before it" if len(window) > 1 else ""
+
+    while any(on(unit) is None for unit in units) and len(window) < BASE_WINDOW:
+        before = next(verdicts, None)
+        if before is None or before[1] != "fail":
+            break
+        then = created({"created_at": before[2]["at"]})
+        if when and then and when - then > timedelta(hours=BASE_WINDOW_HOURS):
+            break
+        window.append((before[0], before[2]))
+    lines, missing = [], []
+    for step, red in head["steps"].items():
+        # One line per failing test; a step with none (a lint) is one line, matched by every line it printed.
+        for test in sorted(red["tests"]):
+            if (found := on((step, "test", test))) is not None:
+                lines.append(f"excused '{WS_CHECK}' test '{step} :: {test}': red on {base} {found[0][:12]} too "
+                             f"({found[1]['url'] or 'no run'})")
+            else:
+                missing.append(f"'{step} :: {test}'")
+                lines.append(f"not excused '{WS_CHECK}' test '{step} :: {test}': not red on {tested}{older()}; "
+                             "this head's own red")
+        unmatched = [line for line in sorted(red["lines"]) if on((step, "line", line)) is None]
+        label = f"step '{step}'" + (" (its ws-check lines)" if red["tests"] else " (no test names: its output)")
+        if unmatched:
+            missing.append(f"'{step}' line '{unmatched[0][:200]}'")
+            lines.append(f"not excused '{WS_CHECK}' {label}: {len(unmatched)} of {len(red['lines'])} line(s) not on "
+                         f"{tested}{older()}, first '{unmatched[0][:200]}'; this head's own red")
+        elif not red["tests"]:
+            found = {on((step, "line", line))[0] for line in red["lines"]}
+            lines.append(f"excused '{WS_CHECK}' {label}: its {len(red['lines'])} line(s) are red on {base} "
+                         f"{', '.join(sorted(commit[:12] for commit in found)) or tip[:12]} too")
+    if missing:
+        raise Refused(f"'{WS_CHECK}': {len(missing)} failure(s) not on {base}: {'; '.join(missing)[:600]}\n"
+                      + "\n".join(lines))
+    return [f"excused '{WS_CHECK}': every failure on {sha[:12]} is red on {base} too (newest {base} verdict "
+            f"{tested})"] + lines
+
+
 def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: list[str] = (),
           flake_state: dict | None = None) -> list[str]:
     """Audit lines for every excused failure; raises Refused on the first that is not, or RateLimitedRead
@@ -1381,7 +1592,14 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
     job_reads: dict[int, int] = {}
     merge_bases: dict[str, str] = {}
     load_rollups(repo, base, github)
-    jobs = head_jobs(repo, sha, runs, list(checks), github, base=base, excused=audit)
+    checks = list(checks)
+    if repo in WS_CHECK_REPOS and (WS_CHECK in checks or not (runs or checks)):
+        # Its one gate is a commit status judged per test (WS_CHECK); with no run or check named it is the one.
+        checks = [name for name in checks if name != WS_CHECK]
+        audit.extend(ws_check(repo, base, sha, github))
+        if not (runs or checks):
+            return audit
+    jobs = head_jobs(repo, sha, runs, checks, github, base=base, excused=audit)
     if not jobs and not audit:
         # A red run or check with no failed job to show has nothing the base can excuse.
         raise Refused("no failed job found on the head to compare with the base")
