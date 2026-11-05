@@ -61,9 +61,9 @@ import Testing
     @Test(arguments: ["promptId", "prompt-id", "prompt_id"])
     func anySpellingOfAnArgumentNamesIt(_ given: String) throws {
         let descriptor = try #require(ActionCatalog.all.first { $0.id.rawValue == "cloudRelayChat" })
-        let request = try Self.validated(Self.info(descriptor), [given: .string("p-1"), "prompt": .string("hi")])
+        let request = try Self.validated(Self.info(descriptor), [given: .string("p-1"), "prompt": .string("hi"), "agent": .string("claude")])
         #expect(request.arguments["promptId"] != nil)
-        #expect(request.arguments.count == 2)
+        #expect(request.arguments.count == 3)
     }
 
     /// The renamed snake_case arguments keep their old spelling for a release.

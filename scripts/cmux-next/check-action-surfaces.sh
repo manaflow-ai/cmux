@@ -10,6 +10,7 @@
 #   ActionContractTests       unique CLI names and shortcuts, menus resolve
 #   ActionCatalogTests        catalog IDs and inventory domain counts
 #   CLISurfaceParityTests     every CLI verb runs its own handler by name
+#   ActionArgumentContractTests  argument names canonical (camelCase), exported, old spellings fold
 #
 # This check deliberately runs without CMUX_UPDATE_ACTION_SURFACES. CI must
 # inspect the committed exports rather than rewriting them and hiding drift.
@@ -33,7 +34,7 @@ root="$PWD"
 # CMUX_ACTION_SURFACES_SKIP_BUILD=1: the package and its tests are already built
 # (the CI jobs run `swift build --build-tests` first), so swift test does not
 # plan the whole graph again.
-filter='ActionSurfaceParityTests|ActionCatalogTests|ActionContractTests|CLISurfaceParityTests|LinkExportTests'
+filter='ActionSurfaceParityTests|ActionCatalogTests|ActionContractTests|ActionArgumentContractTests|CLISurfaceParityTests|LinkExportTests'
 if [[ "${CMUX_ACTION_SURFACES_SKIP_BUILD:-}" == 1 ]]; then
   CMUX_CHECK_GENERATED_EXPORTS=1 exec swift test -j "${CMUX_NEXT_SWIFT_JOBS:-4}" --skip-build --filter "$filter"
 fi
