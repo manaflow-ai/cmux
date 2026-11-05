@@ -621,23 +621,22 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 /* acpmux's ask to resume a failed subagent (ComposerQueue.tsx `entry.retry`): "Resume subagent"
    before the subagent's name, the prompt's own words never drawn (Leo, 2026-10-30: "this looks weird
    and unrendered"). Opened, the error follows on its own line. */
-.acpmux-queued-kind[data-kind="retry"] {
+.acpmux-queued-kind[data-kind="retry"],
+.acpmux-queued-kind[data-kind="waits"] {
   vertical-align: top;
   margin-right: 6px;
 }
 /* A steer acpmux queued (ComposerQueue.tsx `steerQueued`): "Queued until the agent's turn ends"
    leads its text, and its Steer shows without hover, so one click sends it now; the row's other
    actions still show on hover only. */
-.acpmux-queued-kind[data-kind="waits"] {
-  vertical-align: top;
-  margin-right: 6px;
-}
 .acpmux-queued[data-steer-queued] .acpmux-queued-actions {
   opacity: 1;
 }
-.acpmux-queued[data-steer-queued]:not(:hover, :focus-within, :has([data-popup-open]))
-  .acpmux-queued-action:not([data-action="steer"]) {
-  visibility: hidden;
+@media (hover: hover) {
+  .acpmux-queued[data-steer-queued]:not(:hover, :focus-within, :has([data-popup-open]))
+    .acpmux-queued-action:not([data-action="steer"]) {
+    visibility: hidden;
+  }
 }
 .acpmux-queued-detail {
   display: block;
@@ -799,38 +798,33 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 }
 /* A video's tile (QueuedImages.tsx): its first frame, with a play glyph and its length over the
    frame's foot, as the composer's video chip draws them; past one row, "+N" (Leo, 2026-11-05). */
+.acpmux-queued-tiles {
+  display: contents;
+}
 .acpmux-queued-images:not(:has(.acpmux-queued-image-remove)) {
-  /* Not edited: one row, never wrapping (an edit wraps, so each remove control shows). The inline
-     padding keeps a focused tile's ring inside the clip. */
+  /* Not edited: one row, never wrapping (an edit wraps, so each remove control shows). A pane too
+     narrow for the tiles cuts the last of them, never the "+N" after them. */
   flex-wrap: nowrap;
+}
+.acpmux-queued-images:not(:has(.acpmux-queued-image-remove)) > .acpmux-queued-tiles {
+  display: flex;
+  gap: inherit;
+  min-width: 0;
   overflow: hidden;
-  margin-inline: -2px;
-  padding-inline: 2px;
+  /* Room for a focused tile's ring (1.5px and 1px out) inside the clip. */
+  margin: -4px;
+  padding: 4px;
 }
 .acpmux-queued-image-slot[data-video] .acpmux-queued-image {
   position: relative;
 }
-.acpmux-queued-video {
-  position: absolute;
-  inset: auto 0 0 0;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 1px 3px;
-  border-radius: 0 0 6px 6px;
-  background: linear-gradient(transparent, rgb(0 0 0 / 0.55));
-  color: #fff;
-  font-size: var(--text-detail);
-  font-variant-numeric: tabular-nums;
-  line-height: 12px;
-  pointer-events: none;
-}
-.acpmux-queued-video svg {
-  width: 9px;
-  height: 9px;
+.acpmux-queued-image-slot[data-video] .acpmux-attachment-video-length {
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .acpmux-queued-images-more {
   flex: none;
+  white-space: nowrap;
   align-self: center;
   color: var(--acpmux-composer-dim);
   font-size: var(--text-detail);

@@ -27,29 +27,29 @@ export type QueuedTile =
   | { kind: "image"; image: QueuedPromptImage }
   | { kind: "video"; name: string; poster: QueuedPromptImage; ids: string[]; durationMs?: number };
 
-/// `images` as tiles, in order: a video's frames go in the tile of their video, at its first frame.
-/// `lengths` gives a video's length by its name, where the prompt's parts name it.
-export function queuedTiles(
-  images: readonly QueuedPromptImage[],
-  lengths?: ReadonlyMap<string, number>,
-): QueuedTile[] {
+/// `images` as tiles, in order: a video's frames go in one tile, at its first frame. A video's frames
+/// come together and in time order (composer/videoPrompt.ts `videoFrameBlocks`), so a frame joins
+/// the tile just before it only when that tile is its video's and the time goes on; two videos of
+/// one name stay two tiles. `lengths` gives a video's length by its name, where the prompt's parts
+/// name it.
+export function queuedTiles(images: readonly QueuedPromptImage[], lengths?: ReadonlyMap<string, number>): QueuedTile[] {
   const tiles: QueuedTile[] = [];
-  const videos = new Map<string, Extract<QueuedTile, { kind: "video" }>>();
+  let lastAt = -1;
   for (const image of images) {
-    const name = isVideoFrameName(image.name) ? image.name!.replace(/ frame at [\d:.]+$/, "") : undefined;
-    if (name === undefined) {
+    const frame = isVideoFrameName(image.name) ? image.name!.match(/^(.+) frame at ([\d:.]+)$/) : null;
+    if (!frame) {
       tiles.push({ kind: "image", image });
       continue;
     }
-    const known = videos.get(name);
-    if (known) {
-      known.ids.push(image.id);
-      continue;
+    const name = frame[1]!;
+    const at = frame[2]!.split(":").reduce((total, part) => total * 60 + Number(part), 0);
+    const last = tiles.at(-1);
+    if (last?.kind === "video" && last.name === name && at > lastAt) last.ids.push(image.id);
+    else {
+      const durationMs = lengths?.get(name);
+      tiles.push({ kind: "video", name, poster: image, ids: [image.id], ...(durationMs ? { durationMs } : {}) });
     }
-    const durationMs = lengths?.get(name);
-    const tile = { kind: "video" as const, name, poster: image, ids: [image.id], ...(durationMs ? { durationMs } : {}) };
-    videos.set(name, tile);
-    tiles.push(tile);
+    lastAt = at;
   }
   return tiles;
 }
@@ -110,28 +110,30 @@ export function QueuedImages({
         if (to || document.hasFocus()) onLeave?.();
       }}
     >
-      {shown.map((tile, index) => {
-        const image = tile.kind === "video" ? tile.poster : tile.image;
-        return (
-          <QueuedImage
-            // The same picture attached twice has one id, so its copies count up to keep keys unique
-            // (removing it drops every copy: the edit keeps images by id).
-            key={`${image.id}-${shown.slice(0, index).filter((other) => idOf(other) === image.id).length}`}
-            image={image}
-            video={tile.kind === "video" ? tile : undefined}
-            t={t}
-            read={read}
-            editing={editing}
-            onEscape={escape}
-            // An image acpmux has not named yet (sent a moment ago) cannot be kept or dropped by id.
-            onRemove={
-              onRemove && !image.local
-                ? () => (tile.kind === "video" ? tile.ids : [image.id]).forEach((id) => onRemove(id))
-                : undefined
-            }
-          />
-        );
-      })}
+      <span className="acpmux-queued-tiles">
+        {shown.map((tile, index) => {
+          const image = tile.kind === "video" ? tile.poster : tile.image;
+          return (
+            <QueuedImage
+              // The same picture attached twice has one id, so its copies count up to keep keys unique
+              // (removing it drops every copy: the edit keeps images by id).
+              key={`${image.id}-${shown.slice(0, index).filter((other) => idOf(other) === image.id).length}`}
+              image={image}
+              video={tile.kind === "video" ? tile : undefined}
+              t={t}
+              read={read}
+              editing={editing}
+              onEscape={escape}
+              // An image acpmux has not named yet (sent a moment ago) cannot be kept or dropped by id.
+              onRemove={
+                onRemove && !image.local
+                  ? () => (tile.kind === "video" ? tile.ids : [image.id]).forEach((id) => onRemove(id))
+                  : undefined
+              }
+            />
+          );
+        })}
+      </span>
       {more > 0 && <span className="acpmux-queued-images-more">{t("multiplayer.more", { count: more })}</span>}
     </span>
   );
@@ -219,9 +221,15 @@ function QueuedImage({
         ) : (
           <span className="acpmux-queued-image-empty" />
         )}
+        {/* The composer's own video glyph and length (composerAttachments.css), so the tile reads as
+            the video chip that was sent. */}
         {video && (
-          <span className="acpmux-queued-video" aria-hidden="true">
+          <span className="acpmux-attachment-video-play" aria-hidden="true">
             <PlayTriangle />
+          </span>
+        )}
+        {length && (
+          <span className="acpmux-attachment-video-length" aria-hidden="true">
             {length}
           </span>
         )}

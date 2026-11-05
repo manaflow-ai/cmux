@@ -702,6 +702,14 @@ function queuedEntry(
   };
 }
 
+/// `entry` still marked `steerQueued` while `from` was: a steer acpmux queued stays one through an
+/// edit, a reorder and a list, none of which say so. Another agent's message never is.
+function keepSteerQueued(entry: QueuedPrompt, from: QueuedPrompt | undefined): QueuedPrompt {
+  return from?.steerQueued && !entry.steerQueued && !entry.message && !entry.inbox
+    ? { ...entry, steerQueued: true }
+    : entry;
+}
+
 /// `entry` with `from`'s Stop hold (`heldByStop`): an entry rebuilt from a record or a list keeps it
 /// while it is still another agent's message. An edit makes it the person's (hub/queue_edit.rs), and
 /// a person's Stop holds only other agents' messages.
@@ -985,8 +993,7 @@ export function mergeQueue(
           : keepStopHold(built, had);
     // An entry the list left as it was stays the same object: the transcript keys a waiting message's
     // card by its entry (queuedMessages.ts), so an unchanged one draws nothing again.
-    // A steer acpmux queued (`steerQueued`) stays one while it waits; the list does not say so.
-    const steered = had?.steerQueued && !next.message && !next.inbox ? { ...next, steerQueued: true as const } : next;
+    const steered = keepSteerQueued(next, had);
     return had && sameQueuedEntry(had, steered) ? had : steered;
   });
   // The chat's own change carries its whole queue each time (a step, its usage): the same entries
@@ -5326,6 +5333,7 @@ export class AcpmuxDirectClient {
       this.optimisticPromptInputs.delete(id);
       this.optimisticPromptAttachments.delete(id);
       if (parts && this.optimisticPromptParts.has(id)) this.optimisticPromptParts.set(id, parts);
+      const before = this.queue.find((entry) => entry.id === id);
       this.queue = this.queue.map((entry) =>
         entry.id === id
           ? keepStopHold(
@@ -5349,6 +5357,9 @@ export class AcpmuxDirectClient {
             )
           : entry,
       );
+      // An edit of a steer acpmux queued leaves it one.
+      const edited = this.queue.findIndex((entry) => entry.id === id);
+      if (edited >= 0) this.queue[edited] = keepSteerQueued(this.queue[edited]!, before);
     } else if (event.kind === "queue_order" && Array.isArray(msg.order)) {
       const at = new Map(msg.order.map((id: unknown, index: number) => [String(id), index]));
       // A prompt sent now goes first and stops the turn: only the last one sent now is next.
@@ -5380,6 +5391,12 @@ export class AcpmuxDirectClient {
                 // Sent now, it is no longer held (hub/queue.rs `put_next`).
                 entry.id === next ? undefined : entry,
               ),
+        )
+        .map((rebuilt) =>
+          keepSteerQueued(
+            rebuilt,
+            this.queue.find((entry) => entry.id === rebuilt.id),
+          ),
         );
     } else if (event.kind === "queue_paused" || event.kind === "queue_resumed") {
       // A person's Stop holds other agents' messages (`reason: "stop"`, hub/cancel.rs) until their
@@ -5415,28 +5432,28 @@ export class AcpmuxDirectClient {
           named.length || msg.awaitingOwner === true ? named : this.queue.find((entry) => entry.id === id)?.images;
         const steerQueued = this.steerSends.has(id) || this.queue.some((entry) => entry.id === id && entry.steerQueued);
         const entry = queuedEntry(
-            id,
-            String(msg.text ?? ""),
-            false,
-            false,
-            images,
-            queuedMessage(msg, this.incomingContext()),
-            promptAuthor(msg),
-            msg.awaitingOwner === true
-              ? recordedPromptParts(msg, undefined)
-              : (recordedPromptParts(
-                  msg,
-                  this.optimisticPromptParts.get(id) ?? this.queue.find((entry) => entry.id === id)?.inlineParts,
-                ) ?? this.optimisticPromptParts.get(id)),
-            subagentRetryNotice(String(msg.text ?? ""), msg),
-            // A guest's prompt waits for the owner's Approve or Decline (QueuedMessageCard.tsx).
-            holdOf(
-              msg,
-              this.queue.find((entry) => entry.id === id),
-            ),
-            // acpmux's inbox notice: other agents' messages, drawn with them (queuedMessages.ts).
-            queuedInbox(msg, this.incomingContext()),
-          );
+          id,
+          String(msg.text ?? ""),
+          false,
+          false,
+          images,
+          queuedMessage(msg, this.incomingContext()),
+          promptAuthor(msg),
+          msg.awaitingOwner === true
+            ? recordedPromptParts(msg, undefined)
+            : (recordedPromptParts(
+                msg,
+                this.optimisticPromptParts.get(id) ?? this.queue.find((entry) => entry.id === id)?.inlineParts,
+              ) ?? this.optimisticPromptParts.get(id)),
+          subagentRetryNotice(String(msg.text ?? ""), msg),
+          // A guest's prompt waits for the owner's Approve or Decline (QueuedMessageCard.tsx).
+          holdOf(
+            msg,
+            this.queue.find((entry) => entry.id === id),
+          ),
+          // acpmux's inbox notice: other agents' messages, drawn with them (queuedMessages.ts).
+          queuedInbox(msg, this.incomingContext()),
+        );
         this.queue = [
           ...this.queue.filter((entry) => entry.id !== id),
           steerQueued && !entry.message && !entry.inbox ? { ...entry, steerQueued: true } : entry,

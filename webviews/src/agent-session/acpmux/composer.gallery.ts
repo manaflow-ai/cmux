@@ -248,12 +248,12 @@ const pictured = {
   ],
 };
 
-// Leo's message (2026-11-05): two screenshots and three screen recordings, sent to steer and
+// Leo's message (2026-11-05): three screen recordings (8, 7 and 8 frames), sent to steer and
 // queued behind another agent's turn. acpmux lists each video's frames as images; the card draws
 // one tile per attachment, a video at its first frame with its length, in one row ("uh this was a
 // weird preview idk i guess i accidentally queued?").
-const recording = (name: string, seconds: number) => ({
-  frames: Array.from({ length: 7 }, (_, at) => ({
+const recording = (name: string, seconds: number, count: number) => ({
+  frames: Array.from({ length: count }, (_, at) => ({
     id: `${name}-${at}`.padEnd(64, "0"),
     mimeType: "image/jpeg",
     name: `${name} frame at 0:${String(at * 2).padStart(2, "0")}.0`,
@@ -273,21 +273,20 @@ const recording = (name: string, seconds: number) => ({
   },
 });
 const recordings = [
-  recording("Screen Recording 2026-11-04 at 16.01.10.mov", 16),
-  recording("Screen Recording 2026-11-04 at 16.02.41.mov", 23),
-  recording("Screen Recording 2026-11-04 at 16.03.55.mov", 9),
+  recording("Screen Recording 2026-11-04 at 16.01.10.mov", 16, 8),
+  recording("Screen Recording 2026-11-04 at 16.02.41.mov", 23, 7),
+  recording("Screen Recording 2026-11-04 at 16.03.55.mov", 9, 8),
 ];
 const withVideos = {
   id: "q1",
-  prompt: "uh this was a weird preview idk i guess i accidentally queued?",
+  prompt: "When I click and drag a workspace on the sidebar, it, like, briefly flickers for a bit.",
   steerQueued: true as const,
-  images: [
-    pictured.images[0]!,
-    ...recordings.flatMap((video) => video.frames),
-    pictured.images[1]!,
-  ],
+  images: recordings.flatMap((video) => video.frames),
   inlineParts: [
-    { kind: "text" as const, text: "uh this was a weird preview idk i guess i accidentally queued?" },
+    {
+      kind: "text" as const,
+      text: "When I click and drag a workspace on the sidebar, it, like, briefly flickers for a bit.",
+    },
     ...recordings.map((video) => video.part),
   ],
 };
@@ -1806,7 +1805,7 @@ export default agentPaneEntry({
       snapshot: chat(working, { isWorking: true, queue: [pictured, { id: "q2", prompt: "And update the README" }] }),
     },
     "queued-videos": {
-      note: 'Leo\'s message with two screenshots and three screen recordings, sent to steer and queued behind another agent\'s turn: five tiles in one row (each video one tile at its first frame, with its length), "Queued until the agent\'s turn ends" before its text, and Steer in view (Leo, 2026-11-05: "uh this was a weird preview idk i guess i accidentally queued?").',
+      note: 'Leo\'s message with three screen recordings (23 frames), sent to steer and queued behind another agent\'s turn: three tiles in one row (each video one tile at its first frame, with its length), "Queued until the agent\'s turn ends" before its text, and Steer in view (Leo, 2026-11-05: "uh this was a weird preview idk i guess i accidentally queued?").',
       snapshot: chat(working, { isWorking: true, queue: [withVideos, { id: "q2", prompt: "And update the README" }] }),
     },
     "queued-images-edit": {

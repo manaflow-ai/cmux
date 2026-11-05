@@ -10,6 +10,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { ComposerQueue } from "./ComposerQueue";
 import { queuedTiles } from "./QueuedImages";
+import { mergeQueue } from "./direct";
 import type { QueuedPromptImage } from "./model";
 
 let dom: JSDOM | undefined;
@@ -69,7 +70,7 @@ async function render(queue: Parameters<typeof ComposerQueue>[0]["queue"]) {
   const container = installDom();
   await act(async () => {
     root = createRoot(container);
-    root.render(<ComposerQueue queue={queue} chat="c" t={t as never} onChange={async () => true} sendNow={() => {}} />);
+    root.render(<ComposerQueue queue={queue} chat="c" t={t as never} onChange={async () => true} />);
   });
   return container;
 }
@@ -88,6 +89,26 @@ test("a video's frames are one tile, with its first frame and its length", () =>
   expect(second.kind === "video" && second.poster.id).toBe("Screen Recording 2.mov-0");
   expect(second.kind === "video" && second.durationMs).toBe(16_000);
   expect(second.kind === "video" && second.ids.length).toBe(7);
+});
+
+test("two videos of one name stay two tiles", () => {
+  const tiles = queuedTiles([...frames("clip.mov", 3), ...frames("clip.mov", 2)]);
+  expect(tiles.map((tile) => (tile.kind === "video" ? tile.ids.length : 0))).toEqual([3, 2]);
+});
+
+test("a steer acpmux queued stays one through acpmux's list", () => {
+  const had = [
+    { id: "p-1", prompt: "steered", steerQueued: true as const },
+    { id: "p-2", prompt: "queued" },
+  ];
+  const merged = mergeQueue(had, [
+    { promptId: "p-2", prompt: "queued" },
+    { promptId: "p-1", prompt: "steered" },
+  ]);
+  expect(merged.map((entry) => [entry.id, entry.steerQueued === true])).toEqual([
+    ["p-2", false],
+    ["p-1", true],
+  ]);
 });
 
 test("Leo's queued message draws five tiles in one row, never its 23 frames", async () => {
@@ -132,12 +153,13 @@ test("a prompt sent to steer that acpmux queues is steerQueued; one sent to queu
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
   // The turn never ends, so the mock queues whatever comes after it, steer or not, as acpmux does
   // behind another agent's turn.
+  let socket: InstanceType<typeof MockAcpmuxSocket> | undefined;
   let snapshot: { queue: { id: string; prompt: string; steerQueued?: true }[]; isWorking?: boolean } = { queue: [] };
   const client = await AcpmuxDirectClient.connect(
     mockHost,
     (next) => (snapshot = next as typeof snapshot),
     undefined,
-    () => new MockAcpmuxSocket(() => new Promise<void>(() => undefined)) as unknown as WebSocket,
+    () => (socket = new MockAcpmuxSocket(() => new Promise<void>(() => undefined))) as unknown as WebSocket,
   );
   try {
     void client.send("start the work").catch(() => undefined);
@@ -148,6 +170,19 @@ test("a prompt sent to steer that acpmux queues is steerQueued; one sent to queu
     expect(snapshot.queue.map((entry) => [entry.id, entry.steerQueued === true])).toEqual([
       ["p-steer", true],
       ["p-queue", false],
+    ]);
+    // An edit of its text (acpmux's queue_updated) and another prompt sent now (queue_order) keep it.
+    const sessionId = (snapshot as { summary?: { sessionId?: string } }).summary?.sessionId ?? "";
+    const host = socket as unknown as { emit(target: string, step: unknown): void };
+    host.emit(sessionId, { mux: "queue_updated", msg: { promptId: "p-steer", text: "steer this, edited" } });
+    host.emit(sessionId, {
+      mux: "queue_order",
+      msg: { order: ["p-queue", "p-steer"], next: true, promptId: "p-queue" },
+    });
+    await settle(() => snapshot.queue[0]?.id === "p-queue");
+    expect(snapshot.queue.map((entry) => [entry.prompt, entry.steerQueued === true])).toEqual([
+      ["after the turn", false],
+      ["steer this, edited", true],
     ]);
   } finally {
     client.close?.();
