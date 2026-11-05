@@ -25,27 +25,27 @@ import type { SenderIconLook } from "./senderIconLook";
 
 const SENDERS: IncomingMessage[] = [
   {
-    name: "claude-13",
-    sessionId: "s-claude-13",
+    name: "grid-lane",
+    sessionId: "s-grid",
     harness: "claude",
-    text: "From claude-13 (cosmic-gray): #36600 is green at its head; landing it now.",
+    text: "#2210 is green at its head; landing it now.",
     raw: "",
   },
   {
-    name: "claude-sr2-coord",
-    sessionId: "s-claude-coord",
+    name: "polish-coordinator",
+    sessionId: "s-coordinator",
     harness: "claude",
     text: "Leo wants the digest row itself to open. Take it first.",
     raw: "",
   },
   {
-    name: "gcp-codex-swarm-08/claude",
-    sessionId: "s-codex-08",
+    name: "build-box/review-lane",
+    sessionId: "s-review",
     harness: "codex",
     text: "Review passed at e34ce27, no findings.",
     raw: "",
   },
-  { name: "lane-without-harness", sessionId: "s-unknown", text: "Picked up the handoff issue.", raw: "" },
+  { name: "picker-lane", sessionId: "s-picker", text: "Picked up the handoff issue.", raw: "" },
 ];
 
 type Props = { look: SenderIconLook };
@@ -65,7 +65,7 @@ function SenderIconLooks({ look }: Props) {
         <MessageGroupHead
           sender={SENDERS[0]}
           count="2 messages from 1 session"
-          senders="claude-13"
+          senders="grid-lane"
           open={false}
           bodyId="sender-icon-gallery-group"
           onToggle={() => undefined}

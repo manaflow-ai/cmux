@@ -184,9 +184,9 @@ test("a click on the digest's own line shows every message's words, not only the
   const group = pendingMessagesRow(
     [],
     [
-      waiting("m1", "claude-13", "s-13", "landing #36600 now"),
-      waiting("m2", "claude-13", "s-13", "landed #36600"),
-      waiting("m3", "gcp-codex-swarm-08/claude", "s-08", "review passed, no findings"),
+      waiting("m1", "grid-lane", "s-13", "landing #2210 now"),
+      waiting("m2", "grid-lane", "s-13", "landed #2210"),
+      waiting("m3", "build-box/review-lane", "s-08", "review passed, no findings"),
     ],
   )!;
   const container = await render(
@@ -204,7 +204,7 @@ test("a click on the digest's own line shows every message's words, not only the
   expect(head.textContent).toContain("2");
   await act(async () => head.click());
   const words = [...container.querySelectorAll(".cv-received__text")].map((node) => node.textContent);
-  expect(words).toEqual(["landing #36600 now", "landed #36600", "review passed, no findings"]);
+  expect(words).toEqual(["landing #2210 now", "landed #2210", "review passed, no findings"]);
   // Closed again from the same line, every message closes with it.
   await act(async () => head.click());
   expect(container.querySelectorAll(".cv-received")).toHaveLength(0);
