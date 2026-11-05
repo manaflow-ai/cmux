@@ -130,10 +130,27 @@ jobs:
           app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
 
+      # Reads only (this run's probe jobs, and the queued and in-progress listings when a probe stalls):
+      # cmux-bot's installation has its own pool, so the watch's polling stops spending the repository
+      # GITHUB_TOKEN's 1,000/h that every workflow shares (the NEXT nightly's notarization step ran
+      # out of it on 2026-11-04). Read-only: force-cancel and re-run stay on the workflow token
+      # (GH_FALLBACK_TOKEN), as do refused reads; variable writes stay on the switch token.
+      - name: Mint the cmux-bot read token
+        id: cmux-bot-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: read
+
       - name: Probe and switch
         id: switch
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
+          GH_FALLBACK_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           SWITCH_TOKEN: ${{ steps.switch-token.outputs.token }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && (inputs.dry_run || inputs.probe_label != '') && 'true' || 'false' }}
@@ -187,10 +204,14 @@ jobs:
       # and the queue janitor's snapshot, and spill linux off a backed-up member (above).
       # Without the spill checkout, main's runner_pools.py runs alone as before.
       # Runs whatever the switch decided, with its token.
+      # GH_TOKEN only reads (the spill's queue sample lists in-flight runs and their jobs; the policy reads the
+      # janitor's pool snapshot artifact), so it is the cmux-bot read token minted above: measured on
+      # 2026-11-04 (14:03-15:02Z) at about 54 GITHUB_TOKEN requests a run, six runs an hour. Variable writes stay
+      # on SWITCH_TOKEN; a failed mint falls back to the workflow token.
       - name: Point the runner pools at live members
         if: always() && steps.switch.outcome != 'skipped'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
           GH_REPO: ${{ github.repository }}
           SWITCH_TOKEN: ${{ steps.switch-token.outputs.token }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && (inputs.dry_run || inputs.probe_label != '') && 'true' || 'false' }}
@@ -209,43 +230,6 @@ jobs:
             echo "::warning title=Runner pools::no linux pool spill checkout; main's runner_pools.py runs alone"
             python3 scripts/ci/runner_pools.py
           fi
-
-      # The hosted light jobs (feat-cmux-next .github/runners.json hosted_light_jobs: routers,
-      # resolvers, report steps) take GitHub-hosted ubuntu-24.04 on attempt 1 and their
-      # fallback only on a re-run. The reviewed feat-cmux-next rescue at this pinned commit
-      # cancels a pull request run whose only unfinished jobs have waited 3+ minutes on
-      # ubuntu-* with no runner (attempt 1, current head) and re-runs its failed jobs, so
-      # attempt 2 takes the fallback route. At most 10 a pass; never push, dispatch, nightly,
-      # DEV, promote or release runs. It never fails the watch.
-      - name: Check out the reviewed hosted light rescue
-        id: hosted-light-tooling
-        if: always() && steps.switch.outcome != 'skipped'
-        continue-on-error: true
-        timeout-minutes: 2
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: 1ecf8a89abe506ae2ec97feb245d6ba642adfac6 # cmux#32023 + #32120 on feat-cmux-next
-          path: .hosted-light-tooling
-          sparse-checkout: |
-            scripts/ci/hosted_light_rescue.py
-            .github/runners.json
-          sparse-checkout-cone-mode: false
-          persist-credentials: false
-
-      - name: Fail stalled hosted light jobs over to their re-run route
-        if: always() && steps.hosted-light-tooling.outcome == 'success'
-        continue-on-error: true
-        timeout-minutes: 4
-        env:
-          # All rescue reads and writes use the job token. The route App's shared
-          # installation budget is reserved for runner and repository-variable operations.
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && (inputs.dry_run || inputs.probe_label != '') && 'true' || 'false' }}
-        run: >-
-          python3 .hosted-light-tooling/scripts/ci/hosted_light_rescue.py
-          --runners .hosted-light-tooling/.github/runners.json
-          --workflows .signing-workflows/feat-cmux-next/.github/workflows
 
       # Last, in its own step so the summary above is already saved. If the
       # switch did not observe every probe start (one may still be queued),
