@@ -104,6 +104,12 @@ struct TerminalWindowFrameSyncTests {
         try #require(motion.moved, "Ctrl-Shift-L on p2 moved nothing")
         let ahead = TerminalFramePresenter.forWindow(screen.window).stats.drawnAhead
         try #require(ahead > 0, "no size was drawn ahead in the spring: the draw-ahead path did not run")
+        // Held, not discarded (m26): the frame drawn at the size asked ahead in refresh n is the one its commit n+1
+        // presents with those bounds, so no committed turn after the spring's first frame has a terminal still waiting
+        // for its frame (a discarded ahead frame makes every spring frame wait one refresh).
+        let waitedAfterFirst = turns.filter { $0.at > motion.firstFrameMs && $0.terminals.contains(where: \.waiting) }
+        #expect(waitedAfterFirst.isEmpty,
+                "\(waitedAfterFirst.count) committed turns after the spring's first frame had a terminal waiting for its frame (frames late after the first commit must be 0): \(waitedAfterFirst.prefix(6).map { "turn \($0.index) +\(Self.text($0.at)) ms" })")
         try #require(motion.steps >= 4, "the press's spring ran \(motion.steps) frames: no spring ran")
         try #require(before[1].area.width - rest[1].area.width >= 10,
                      "p2 did not shrink: its area went from \(before[1].area) to \(rest[1].area)")
@@ -118,6 +124,57 @@ struct TerminalWindowFrameSyncTests {
                 "bounds check (a) failed in \(found.boundsTurns) of \(turns.count) committed turns of the spring (a terminal's layer is not its pane's area; turns per terminal: \(found.kept)): \(found.bounds.prefix(8))")
         #expect(found.frame.isEmpty,
                 "frame check (b) failed in \(found.frameTurns) of \(turns.count) committed turns of the spring (the shown frame is not the layer's size): \(found.frame.prefix(8))")
+    }
+
+    /// Case 4, the spring's end (m26): the last 3 spring frames and the commit after the landing each present a frame at
+    /// their bounds, with no terminal waiting at the landing (the size drawn ahead for the landing is the one presented,
+    /// and no repeated `set_size` at that size dropped it). Program output comes in every spring frame; after the landing
+    /// the frame shown is one drawn after the last output reached the terminal (its text is in the viewport, and a newer
+    /// frame of the layer's size shows within 2 s).
+    @Test func aKeySpringsLastFramesAndItsLandingShowTheirOwnFramesWithTheNewText() async throws {
+        let screen = try await Screen()
+        defer { screen.close() }
+        let recorder = TurnRecorder(screen)
+        defer { recorder.stop() }
+        try await Self.warmUp(screen)
+
+        let motion = await Self.spring(screen, recorder: recorder, pacedByRefresh: true)
+        let turns = recorder.take()
+        try #require(motion.moved && motion.steps >= 4, "the press did not spring (moved \(motion.moved), \(motion.steps) frames)")
+        let lastSteps = motion.stepMs.suffix(3)
+        let from = try #require(lastSteps.first, "no spring frame was stepped")
+        let landing = try #require(motion.stepMs.last)
+        // The last 3 spring frames up to one refresh after the landing's step.
+        let window = turns.filter { $0.at >= from && $0.at <= landing + Self.refreshMs(of: screen.window) }
+        try #require(!window.isEmpty, "no committed turn was sampled at the spring's end")
+        var off: [String] = []
+        for turn in window {
+            for (index, terminal) in turn.terminals.enumerated() {
+                let label = "turn \(turn.index) (+\(Self.text(turn.at)) ms) p\(index + 1)"
+                if terminal.waiting { off.append("\(label): waits for its frame") }
+                if let shown = terminal.shown, !shown.isNear(terminal.layer) { off.append("\(label): shows \(shown) in a \(terminal.layer) layer") }
+                if !terminal.layer.isNear(terminal.area) { off.append("\(label): layer \(terminal.layer), area \(terminal.area)") }
+            }
+        }
+        #expect(off.isEmpty, "at the spring's end a terminal did not show its own frame at its bounds: \(off.prefix(8))")
+
+        // New text after the landing: the frame that shows it is drawn and presented at the rest size.
+        let marker = "landed-\(UUID().uuidString.prefix(8))"
+        let shownBefore = screen.sessions.map { $0.surfaceView.presentedFrame }
+        for io in screen.ios { io.send(.output(Data("\r\n\(marker)".utf8))) }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        func showsMarker(_ index: Int) -> Bool {
+            let view = screen.sessions[index].surfaceView
+            guard view.viewportText()?.contains(marker) == true, let frame = view.presentedFrame, frame !== shownBefore[index],
+                  let layer = view.layer else { return false }
+            let scale = layer.contentsScale
+            return Int((layer.bounds.width * scale).rounded()) == frame.width && Int((layer.bounds.height * scale).rounded()) == frame.height
+        }
+        while ContinuousClock.now < deadline, !screen.sessions.indices.allSatisfy(showsMarker) {
+            await TerminalKeyResizeFrameTests.commit()
+        }
+        let missing = screen.sessions.indices.filter { !showsMarker($0) }.map { "p\($0 + 1)" }
+        #expect(missing.isEmpty, "after the landing no frame drawn after the new text showed at the rest size within 2 s: \(missing)")
     }
 
     /// Case 3. The main thread is never blocked by a sync: in a Reduce Motion jump and in a key spring, no committed
@@ -219,16 +276,17 @@ struct TerminalWindowFrameSyncTests {
     /// (the renderer draws the size asked ahead meanwhile), with a line of output in each terminal. Returns whether p2
     /// moved, the frames stepped, and when (ms after the press) the spring's second frame was stepped.
     static func spring(_ screen: Screen, recorder: TurnRecorder, direction: LayoutDirection = .right,
-                       pacedByRefresh: Bool = false) async -> (moved: Bool, steps: Int, firstFrameMs: Double) {
+                       pacedByRefresh: Bool = false) async -> (moved: Bool, steps: Int, firstFrameMs: Double, stepMs: [Double]) {
         screen.root.context.reduceMotionOverride = false
         let frame = screen.root.context.hosts["p2"]?.frame
         let refresh = Duration.milliseconds(refreshMs(of: screen.window))
         recorder.start()
         let pressed = ContinuousClock.now
         let moved = PaneResize.press("p2", direction, model: screen.model, view: screen.root)
-        var moving = true, steps = 0, firstFrameMs = 0.0
+        var moving = true, steps = 0, firstFrameMs = 0.0, stepMs: [Double] = []
         while moving, steps < 240 {
             let stepped = ContinuousClock.now
+            stepMs.append(TurnRecorder.ms(pressed.duration(to: stepped)))
             if steps == 1 { firstFrameMs = TurnRecorder.ms(pressed.duration(to: stepped)) }
             moving = screen.root.advanceFrame(1.0 / 120)
             screen.root.layoutSubtreeIfNeeded() // sync-layout: the stepped frame's own layout pass, as the frame tick runs it
@@ -241,7 +299,7 @@ struct TerminalWindowFrameSyncTests {
         }
         await rest(screen)
         recorder.pause()
-        return (moved && screen.root.context.hosts["p2"]?.frame != frame, steps, firstFrameMs)
+        return (moved && screen.root.context.hosts["p2"]?.frame != frame, steps, firstFrameMs, stepMs)
     }
 
     /// Commits until no terminal waits for its frame and the hosts and surface layers have not changed for 300 ms of
