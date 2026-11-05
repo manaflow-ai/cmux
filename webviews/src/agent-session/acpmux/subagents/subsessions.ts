@@ -416,6 +416,9 @@ export type Subsessions = {
   /// Opens the chat that sent this one a message (its received line's chip): any listed chat, not
   /// only this chat's family; `open` when absent.
   openSender?(sessionId: string): void;
+  /// Says the sender a received line's chip names is no chat acpmux lists (App.tsx: a notice line),
+  /// so the click is never a silent no-op.
+  senderMissing?(name: string): void;
 };
 export const SubsessionContext = createContext<Subsessions | null>(null);
 
