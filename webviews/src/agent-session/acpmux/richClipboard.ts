@@ -9,6 +9,7 @@
 // fenced code is read as Markdown, so it lands as the same blocks typing "- " makes
 // (MarkdownField.tsx `richPaste`). Any other paste stays its plain lines, as before.
 import { Marked } from "marked";
+import { copyTextResult } from "./conversation/clipboard";
 
 const ESCAPES: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" };
 const escapeHtml = (text: string) => text.replace(/[&<>"]/g, (c) => ESCAPES[c]!);
@@ -177,7 +178,8 @@ export function htmlMarkdown(html: string, { escape = false } = {}): string {
 
 /** Puts `entry`'s types on the clipboard: the async clipboard where the page may use it, else a
  * selection copy that writes every type (a WKWebView page loaded from a file is not always allowed
- * the async clipboard). */
+ * the async clipboard), else its plain text alone (conversation/clipboard.ts): a copy never fails
+ * where a plain one would have worked. */
 async function copyEntry(entry: Record<string, string>): Promise<boolean> {
   try {
     await navigator.clipboard.write([
@@ -187,13 +189,20 @@ async function copyEntry(entry: Record<string, string>): Promise<boolean> {
     ]);
     return true;
   } catch {}
+  return copyEvent(entry) || copyTextResult(entry["text/plain"] ?? "");
+}
+
+/** A selection copy whose copy event writes every type of `entry`; true when the event wrote them. */
+function copyEvent(entry: Record<string, string>): boolean {
   const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   const field = document.createElement("textarea");
+  let wrote = false;
   const write = (event: ClipboardEvent) => {
     if (!event.clipboardData) return;
     for (const [type, text] of Object.entries(entry)) event.clipboardData.setData(type, text);
     event.preventDefault();
     event.stopImmediatePropagation();
+    wrote = true;
   };
   try {
     field.value = entry["text/plain"] ?? "";
@@ -202,7 +211,7 @@ async function copyEntry(entry: Record<string, string>): Promise<boolean> {
     document.body.append(field);
     field.select();
     document.addEventListener("copy", write, true);
-    return document.execCommand("copy");
+    return document.execCommand("copy") && wrote;
   } catch {
     return false;
   } finally {
