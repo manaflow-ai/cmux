@@ -28,10 +28,9 @@ extension CloudService {
         return machines
     }
 
-    /// A machine's record where it was made: `cloud.machine.get` on the app server link (`/api/vm` has
-    /// no Worker machine and answers "Cloud VM vm_… was not found."), `GET /api/vm/{id}` otherwise.
+    /// A machine's record: `cloud.machine.get` on the app server link.
     func machineRecord(_ id: String) async throws -> CloudMachine {
-        configuration.linkSource == .appServer ? try await Self.appServerRecord(id, ops: appOps) : try await api.machine(id)
+        try await Self.appServerRecord(id, ops: appOps)
     }
 
     static func appServerRecord(_ id: String, ops: CloudAppOp) async throws -> CloudMachine {
@@ -40,26 +39,18 @@ extension CloudService {
         return machine
     }
 
-    /// The backend team a composer reservation and its bind name: on the app server link, the team the machine
-    /// list and creates use (the install token's team claim), so the reserved machine is one the list shows.
-    /// Naming the active Stack team instead put a team account's reserved machine in that team's store,
-    /// which this list never reads ("No Cloud machine has the id vm_…"). The classic link keeps the active team.
+    /// The backend team a composer reservation and its bind name: the team the machine list and creates
+    /// use (the install token's team claim), so the reserved machine is one the list shows. Naming the
+    /// active Stack team instead put a team account's reserved machine in that team's store, which this
+    /// list never reads ("No Cloud machine has the id vm_…").
     func reservationTeam() async throws -> String? {
-        try await Self.reservationTeam(linkSource: configuration.linkSource,
-                                       installTeam: { MacInstallIdentity.team(ofToken: try await self.installIdentity.installToken()) },
-                                       activeTeam: { try self.auth.accessTokenTeam(requested: nil) })
-    }
-
-    static func reservationTeam(linkSource: CloudConfiguration.LinkSource, installTeam: () async throws -> String?,
-                                activeTeam: () throws -> String?) async throws -> String? {
-        linkSource == .appServer ? try await installTeam() : try activeTeam()
+        MacInstallIdentity.team(ofToken: try await installIdentity.installToken())
     }
 
     /// The record and stats; the Worker has no stats route, so there the stats are the record's state.
     func machineStatus(_ id: String) async throws -> (record: CloudMachine, stats: CloudMachineStats) {
-        guard configuration.linkSource != .appServer else { let r = try await machineRecord(id); return (r, CloudMachineStats(state: r.status.rawValue)) }
-        async let stats = api.stats(id), record = api.machine(id)
-        return try await (record, stats)
+        let record = try await machineRecord(id)
+        return (record, CloudMachineStats(state: record.status.rawValue))
     }
 
     /// One `cloud.machine.create` (or `cloud.environment.boot` for `environment`) through

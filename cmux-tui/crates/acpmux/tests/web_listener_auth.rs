@@ -222,6 +222,33 @@ async fn an_empty_token_never_starts_the_listener() {
     assert!(serve_ws(hub, listener, String::new()).await.is_err());
 }
 
+/// An upgrade request whose head reaches the listener in two parts (a client that writes its
+/// headers one by one, a slow link) is still an upgrade. The listener routed on the bytes it had
+/// at its first look: with only the request line and Host, it took the request for a page and
+/// answered `200` with the dashboard (a base red of `web_token_rotation`, whose client writes
+/// its head with several writes).
+#[tokio::test]
+async fn an_upgrade_whose_head_arrives_in_two_parts_upgrades() {
+    let port = listener().await;
+    let host = format!("127.0.0.1:{port}");
+    let request = upgrade(TOKEN, &host, None);
+    let (first, rest) = request.split_at(request.find("Upgrade:").unwrap());
+    let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+    stream.set_nodelay(true).unwrap();
+    stream.write_all(first.as_bytes()).await.unwrap();
+    // The listener has the first part, which says nothing of an upgrade, before the rest leaves.
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    stream.write_all(rest.as_bytes()).await.unwrap();
+    let mut buf = vec![0u8; 1024];
+    let n = tokio::time::timeout(std::time::Duration::from_secs(5), stream.read(&mut buf))
+        .await
+        .expect("response")
+        .unwrap();
+    let head = String::from_utf8_lossy(&buf[..n]);
+    let status = head.split_whitespace().nth(1).unwrap_or_default().to_owned();
+    assert_eq!(status, "101", "{head}");
+}
+
 #[tokio::test]
 async fn a_head_larger_than_the_peek_window_is_refused() {
     let port = listener().await;

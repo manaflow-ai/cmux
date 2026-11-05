@@ -127,7 +127,7 @@ fn missing_optional_status_fields_skip_instead_of_failing() {
     assert_eq!(
         step(&checked, "binary").fix.as_deref(),
         Some(
-            "Re-run the join line without a token: curl -fsSL https://cmux-platform-development.debussy.workers.dev/v1/machines/join.sh | sh"
+            "Re-run the join line without a token: curl -fsSL https://cmux-platform-production.debussy.workers.dev/v1/machines/join.sh | sh"
         )
     );
     assert_eq!(step(&checked, "credential").state, StepState::Skip);
@@ -180,6 +180,27 @@ fn service_and_daemon_failures_name_local_commands() {
     assert_eq!(step(&linger, "service").fix.as_deref(), Some("loginctl enable-linger $USER"));
     let none = steps(&Facts { service: Service::NoManager, ..healthy() }, NOW);
     assert_eq!(step(&none, "service").state, StepState::Warn);
+}
+
+#[test]
+fn a_daemon_that_answers_without_its_service_warns_instead_of_failing() {
+    // A headless Linux user with no systemd user session: `systemctl --user` prints nothing.
+    assert_eq!(systemd_state("", true), Service::NoManager);
+    assert_eq!(systemd_state("\n", false), Service::NoManager);
+    assert_eq!(systemd_state("active\n", true), Service::Active { linger: None });
+    assert_eq!(systemd_state("inactive\n", true), Service::Inactive { installed: true });
+    assert_eq!(systemd_state("failed\n", false), Service::Inactive { installed: false });
+    for installed in [true, false] {
+        let checked = steps(&Facts { service: Service::Inactive { installed }, ..healthy() }, NOW);
+        let service = step(&checked, "service");
+        assert_eq!(service.state, StepState::Warn, "{service:?}");
+        assert!(service.healthy() && service.fix.is_some());
+        assert!(service.detail.contains("the daemon runs without it"), "{}", service.detail);
+        let (_, ok) = render("box", "host", &checked, Print::Quiet);
+        assert!(ok, "a join whose daemon answers is healthy: {checked:?}");
+    }
+    let none = steps(&Facts { service: Service::NoManager, ..healthy() }, NOW);
+    assert!(render("box", "host", &none, Print::Quiet).1, "{none:?}");
 }
 
 #[test]
@@ -251,7 +272,7 @@ fn an_unsafe_hub_origin_or_path_is_never_printed() {
         let checked = with_status(json!({"hubOrigin": hub, "hubReachable": false}));
         let text = format!("{checked:?}");
         assert!(!text.contains("cmj_") && !text.contains("cmm_"), "{text}");
-        assert!(step(&checked, "hub").detail.contains(DEV_ORIGIN), "{hub}");
+        assert!(step(&checked, "hub").detail.contains(JOIN_ORIGIN), "{hub}");
     }
     let loose = with_status(json!({"credentialMode": "0644", "credentialPath": "/h/cmm_secret"}));
     let credential = step(&loose, "credential");

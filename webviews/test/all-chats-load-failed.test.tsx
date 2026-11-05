@@ -153,3 +153,33 @@ test("the index scan completes to an empty state after a host push", async () =>
   expect(host.querySelector(".nt-all-skeleton-row")).toBeNull();
   expect(host.querySelector(".nt-chats-empty")).not.toBeNull();
 });
+
+test("a first page that never answers says it couldn't load past the ceiling, and Try again reads again", async () => {
+  const { jest } = await import("bun:test");
+  const { createRoot } = await import("react-dom/client");
+  const { AllChatsList, CHATS_READ_CEILING_MS } = await import("../src/agent-session/acpmux/newtab/AllChatsList");
+  let calls = 0;
+  const load = () => {
+    calls += 1;
+    return new Promise<undefined>(() => undefined);
+  };
+  jest.useFakeTimers();
+  try {
+    act(() => root?.unmount());
+    root = createRoot(host);
+    await act(async () => root!.render(<AllChatsList load={load} onOpen={() => {}} />));
+    await act(async () => jest.advanceTimersByTime(CHATS_READ_CEILING_MS - 1_000));
+    expect(host.querySelector(".nt-all-skeleton-row")).not.toBeNull();
+    expect(host.textContent).not.toContain("Couldn't load your chats.");
+    await act(async () => jest.advanceTimersByTime(2_000));
+    expect(host.querySelector(".nt-all-skeleton-row")).toBeNull();
+    expect(host.textContent).toContain("Couldn't load your chats.");
+    const retry = [...host.querySelectorAll("button")].find((button) => button.textContent === "Try again");
+    expect(retry?.disabled).toBe(false);
+    const before = calls;
+    await act(async () => retry!.click());
+    expect(calls).toBe(before + 1);
+  } finally {
+    jest.useRealTimers();
+  }
+});
