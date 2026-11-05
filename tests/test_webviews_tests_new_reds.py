@@ -283,6 +283,67 @@ class Wrapper(unittest.TestCase):
             self.assertNotIn("the red files again on the base", out)
 
 
+class PullRequestShard(unittest.TestCase):
+    """A pull request's shard step is continue-on-error (ci-web.yml): its exit reaches no one, and
+    react-apps-base-check judges only the reds the published head results name. A fake runner stands in
+    for run-webviews-tests.sh: it publishes FAKE_HEAD_RESULTS and exits FAKE_STATUS. The verdict is the
+    shard's exit dropped, then the base job's compare (guards_new_reds.py) on what the shard published.
+    #36403's shard 5 (job 127427541516) named its two reds, so the base job would have judged them; a
+    run that ends red naming no red had nothing for the base job to judge, and went green."""
+
+    FAKE_RUNNER = textwrap.dedent("""\
+        #!/usr/bin/env bash
+        echo "FAIL src/agent-session/acpmux/conversation/BackgroundMark.test.tsx"
+        echo "RETRY src/agent-session/acpmux/conversation/BackgroundMark.test.tsx"
+        printf '%s' "$FAKE_HEAD_RESULTS" > "$CMUX_WEB_TEST_RESULTS"
+        exit "$FAKE_STATUS"
+        """)
+
+    def verdict(self, head, status, base):
+        temp = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        scripts = temp / "scripts/ci"
+        scripts.mkdir(parents=True)
+        for script in (WRAPPER, COLLECT, COMPARE):
+            shutil.copy(script, scripts / script.name)
+        (scripts / "run-webviews-tests.sh").write_text(self.FAKE_RUNNER)
+        published = temp / "head-results/webviews-head-results.json"
+        env = {**os.environ, "TMPDIR": str(temp), "CMUX_WEB_TEST_SKIP_BASE": "1",
+               "CMUX_WEB_TEST_RESULTS": str(published), "FAKE_HEAD_RESULTS": json.dumps(head),
+               "FAKE_STATUS": str(status)}
+        shard = subprocess.run(["bash", str(scripts / WRAPPER.name), "HEAD^1"], cwd=temp, env=env,
+                               capture_output=True, text=True, timeout=60)
+        (temp / "base.json").write_text(json.dumps(base))
+        gate = subprocess.run([sys.executable, str(COMPARE), "--label", "Webview test", str(published),
+                               str(temp / "base.json")], capture_output=True, text=True, timeout=60)
+        return shard, gate, shard.stdout + shard.stderr + gate.stdout + gate.stderr
+
+    def test_a_file_red_on_its_first_run_and_its_retry_fails_the_pull_request(self):
+        name = "src/agent-session/acpmux/conversation/BackgroundMark.test.tsx > names its owner"
+        shard, gate, out = self.verdict({name: False}, 1, {name: True})
+        self.assertEqual(shard.returncode, 1, out)
+        self.assertEqual(gate.returncode, 1, out)
+        # The shard stays green on a pull request, so it says its reds are not passed.
+        self.assertIn("::warning title=Webview test reds on this head::1 file red here, "
+                      "judged by react-apps-base-check: src/agent-session/acpmux/conversation/BackgroundMark.test.tsx", out)
+
+    def test_a_run_that_breaks_after_publishing_its_results_fails_the_pull_request(self):
+        shard, gate, out = self.verdict({"test/a.test.ts": True}, 2, {})
+        self.assertEqual(shard.returncode, 2, out)
+        self.assertEqual(gate.returncode, 1, out)
+        self.assertIn("::error title=Webview test run broke::", out)
+
+    def test_a_red_exit_that_names_no_red_fails_the_pull_request(self):
+        shard, gate, out = self.verdict({"test/a.test.ts": True}, 1, {})
+        self.assertEqual(gate.returncode, 1, out)
+        self.assertIn("::error title=Webview test run broke::", out)
+
+    def test_a_green_run_stays_green(self):
+        shard, gate, out = self.verdict({"test/a.test.ts": True}, 0, {})
+        self.assertEqual((shard.returncode, gate.returncode), (0, 0), out)
+        self.assertNotIn("::error", out)
+        self.assertNotIn("::warning", out)
+
+
 class Collect(unittest.TestCase):
     def test_a_budget_stopped_retry_retains_only_first_run_failures(self):
         with tempfile.TemporaryDirectory() as tmp:

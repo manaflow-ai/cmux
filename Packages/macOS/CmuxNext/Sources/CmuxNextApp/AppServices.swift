@@ -158,15 +158,15 @@ final class AppServices {
         weak var objectMenu: NSMenu?
     }
     #endif
-    /// The Machines section's joined machines (Labs `labs.machineJoin`); empty while it is off.
+    /// The Machines section's hub-joined machines (`cmux machine list`); signed out or switched account or team: emptied, then read.
     private(set) lazy var joinedMachines = JoinedMachineStore(service: { [weak self] in
-        guard let self, self.settings?.snapshot.machineJoin == true else { return nil }
+        guard let self else { return nil }
         #if DEBUG
         if let fixture = self.debugFixtures.joinedMachines { return fixture }
         #endif
-        return MachineJoinService.app(self)
-    })
-    /// This Mac's one-line join consent (Settings > Devices' switches, the one-time sheet), behind labs.machineJoin.
+        return self.cloud.auth.isSignedIn ? MachineJoinService.app(self) : nil
+    }).following(account: { [weak self] in self?.cloud.auth.accountKey })
+    /// This Mac's join consent (Settings > Devices' switches, the one-time sheet): all labs.machineJoin still gates.
     private(set) lazy var joinConsent = JoinConsentModel.app(self)
     /// The app's latest key or mouse input and whether it was the person's (HID system), over the app's one
     /// table of posting processes (`personInput.sources`): backs a consent grant made in a page. Started at launch.
@@ -897,9 +897,9 @@ final class AppServices {
         agentPaneStateLoss.deadlineEnd(files: agentPaneStateFiles, alsoCutOff: { [watch = iphone.pairedQuitWatch] in watch.markCutOffIfSaving() })
     }
 
-    /// The quit's state-file saves (the agent panes' drafts and scroll places, the paired phones' list),
-    /// awaited together holding no thread and with no limit of their own: the quit awaits them after its
-    /// deadline is armed, and that deadline records what was still saving (``quitDeadlineEnd()``).
+    /// The quit's state-file saves (the agent panes' drafts, scroll places and chat tails (`AgentPaneStateFiles.tails(in:)`),
+    /// the paired phones' list), awaited together holding no thread and with no limit of their own: the quit awaits them after
+    /// its deadline is armed, and that deadline records what was still saving (``quitDeadlineEnd()``).
     func stateFilesDrained() async {
         let files = agentPaneStateFiles
         async let panes: Void = files.drained()

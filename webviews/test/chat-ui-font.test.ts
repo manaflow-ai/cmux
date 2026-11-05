@@ -26,6 +26,12 @@ test("each other choice sets the face and its own tracking on the type scale", (
   }
   expect(chatUiFontVariables("verdana")["--font-ui"]).toStartWith("Verdana");
   expect(chatUiFontVariables("roboto")["--font-ui"]).toStartWith('"cmux Roboto"');
+  // The font study's picks (webviews/src/gallery/fontStudy): our own cmux Sans, Hanken Grotesk and
+  // Atkinson Hyperlegible Next, each a bundled face at its designed spacing.
+  expect(chatUiFontVariables("cmux-sans")["--font-ui"]).toStartWith('"cmux Sans"');
+  expect(chatUiFontVariables("hanken")["--font-ui"]).toStartWith('"cmux Hanken Grotesk"');
+  expect(chatUiFontVariables("atkinson")["--font-ui"]).toStartWith('"cmux Atkinson Hyperlegible Next"');
+  expect(chatUiFontVariables("cmux-sans")["--text-body--letter-spacing"]).toBe("0em");
   // Inter's own curve is for tuned Inter: stock Inter draws at its designed spacing.
   expect(chatUiFontVariables("inter")["--text-heading--letter-spacing"]).toBe("0em");
   // System, tight sits a step under the system font's spacing, more at the larger steps.

@@ -73,6 +73,17 @@ pin() { python3 -I -c 'import functools, json, sys; print(functools.reduce(lambd
 echo "CU-DRIVER-EVAL-STAGE tools"
 swiftc -O -o "$work/bin/cu-eval-app" "$here/apps.swift" || { finish "could not build apps.swift"; exit 4; }
 swiftc -O -o "$work/bin/cu-eval-inject" "$here/inject.swift" || { finish "could not build inject.swift"; exit 4; }
+# CU_DRIVER_EVAL_DISPLAY=WxH (the bench VM's) switches the main display first; a console Mac keeps its own.
+if [[ -n "${CU_DRIVER_EVAL_DISPLAY:-}" ]]; then
+  echo "CU-DRIVER-EVAL-STAGE display"
+  mode=$("$work/bin/cu-eval-inject" display-mode ${CU_DRIVER_EVAL_DISPLAY/x/ }) ||
+    echo "CU-DRIVER-EVAL-ERROR could not switch the display to $CU_DRIVER_EVAL_DISPLAY"
+  echo "CU-DRIVER-EVAL-DISPLAY $mode"
+fi
+# The screen in points, which every trial's geometry is in (a headless VM's system_profiler lists none).
+screen=$("$work/bin/cu-eval-inject" observe | python3 -I -c 'import json, sys; print("%gx%g" % tuple(json.load(sys.stdin)["screen"]))') || screen=""
+run=$(python3 -I -c 'import json, sys; run = json.loads(sys.argv[1]); run["screen"] = sys.argv[2]; print(json.dumps(run))' "$run" "$screen")
+echo "CU-DRIVER-EVAL-SCREEN $screen"
 echo "CU-DRIVER-EVAL-STAGE downloads"
 driver_args=()
 driver_bins=()

@@ -311,11 +311,11 @@ struct CloudMove {
         return try await Self.connected(created, invocation)
     }
 
-    /// The Cloud API's answer on the link in use, read now and never kept: the machine takes the chat only on
-    /// `owner`. The legacy link's is bound to its link process (`toPID`); the app link's carrier has none.
+    /// The Cloud API's answer on the link, read now and never kept: the machine takes the chat only on
+    /// `owner`. The app link's carrier has no link process (`toPID`).
     static func ownerAnswer(_ session: CloudMachineSession) async -> (vmKind: String, toPID: Int32?) {
-        if let appLink = session.appLink { return (await appLink.ownerLink == nil ? "none" : "owner", nil) }
-        return await session.link?.ownerPID.map { ("owner", $0) } ?? ("none", nil)
+        guard let appLink = session.appLink else { return ("none", nil) }
+        return (await appLink.ownerLink == nil ? "none" : "owner", nil)
     }
 
     static func connected(_ session: CloudMachineSession, _ invocation: ActionInvocation) async throws -> CloudMachineSession {
@@ -337,11 +337,9 @@ struct CloudMove {
         return session
     }
 
-    /// Why `session` did not connect, in the person's words: the legacy link's step that failed and its
-    /// reason when one is known, else the plain "didn't connect".
+    /// Why `session` did not connect, in the person's words.
     static func notConnected(_ session: CloudMachineSession) -> String {
-        guard let failure = session.legacyLinkFailure else { return CloudMoveStrings.notConnected(session.machine.title) }
-        return CloudMoveStrings.notConnected(session.machine.title, step: failure.step, reason: failure.reason)
+        CloudMoveStrings.notConnected(session.machine.title)
     }
 
     /// Shows the moved chat on `machine`: a new Cloud workspace with a terminal
