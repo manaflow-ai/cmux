@@ -123,6 +123,10 @@ parser.add_argument("--keep", action="store_true", help="leave the app running")
 parser.add_argument("--app-env", action="append", default=[], metavar="NAME=VALUE",
                     help="one more variable in the app's environment (repeatable), e.g. a measurement tool's "
                          "DYLD_INSERT_LIBRARIES (scripts/measure/blocking-probe.sh)")
+# SCRATCH (TERMINAL CREATE COST profile, never merge): an xctrace Time Profiler + os_signpost recording attached to the
+# bench app's PID only, for each action of the named sessions; the split of each commit window goes into the row.
+parser.add_argument("--xctrace", default="", help="SCRATCH: xctrace template key (time) recorded per action, app PID only")
+parser.add_argument("--xctrace-sessions", default="stress", help="SCRATCH: sessions whose actions are recorded")
 opts = parser.parse_args()
 
 OUT = os.path.abspath(opts.out)
@@ -2052,11 +2056,12 @@ def mach_timebase():
 class SignpostStream:
     """`log stream --signpost` of the app's action category, read live on a thread: the sweep waits for each
     action's commit and reads its intervals. Rows also keep wall-clock windows; OUT/signposts.ndjson keeps the stream."""
-    PREDICATE = 'subsystem == "com.cmuxterm.app.next" AND category == "action"'
+    PREDICATE = 'subsystem == "com.cmuxterm.app.next"' if opts.xctrace else 'subsystem == "com.cmuxterm.app.next" AND category == "action"'
 
     def __init__(self, path):
         self.path, self.process, self.error, self.live = path, None, None, False
         self.pids, self.opened, self.done, self.lost, self.missed = set(), {}, [], 0, 0
+        self.events = []  # SCRATCH: signpost events (observation.wake), with their message
         self.timebase = mach_timebase()
         self.wall_to_uptime = uptime() - time.time()
         self.lock = threading.Lock()  # test harness: the reader thread appends, the sweep reads
@@ -2095,14 +2100,18 @@ class SignpostStream:
             at = mach * self.timebase if isinstance(mach, int) and self.timebase else \
                 self.module.parse_time(event["timestamp"]) + self.wall_to_uptime
             with self.lock:
+                if event.get("signpostType") == "event":
+                    self.events.append({"name": key[1], "category": event.get("category"), "at": at,
+                                        "message": event.get("eventMessage", "")})
+                    continue
                 if event.get("signpostType") == "begin":
-                    self.opened[key] = (at, self.module.fields(event.get("eventMessage", "")))
+                    self.opened[key] = (at, self.module.fields(event.get("eventMessage", "")), event.get("eventMessage", ""))
                 elif event.get("signpostType") == "end" and key in self.opened:
-                    begin, info = self.opened.pop(key)
+                    begin, info, raw = self.opened.pop(key)
                     if self.module.fields(event.get("eventMessage", "")).get("commit") == "missed":
                         self.missed += 1
                         continue  # the commit boundary missed this run's commit (PL-arch review 1): no commit time
-                    self.done.append({"name": key[1], "id": info.get("id"), "origin": info.get("origin"),
+                    self.done.append({"name": key[1], "category": event.get("category"), "message": raw, "id": info.get("id"), "origin": info.get("origin"),
                                       "input_age_ms": info.get("input_age_ms"), "begin": begin, "end": at, "ms": (at - begin) * 1000})
 
     def stop(self):
@@ -2311,6 +2320,273 @@ def markdown(report):
         for (kind, reason), ids in sorted(skipped.items(), key=lambda kv: -len(kv[1])):
             lines.append(f"- [{kind}] {reason} ({len(ids)}): {', '.join(ids[:12])}{' ...' if len(ids) > 12 else ''}")
     return "\n".join(lines) + "\n"
+
+
+# ----------------------------------------------------------------------------------------------------------
+# SCRATCH (TERMINAL CREATE COST profile, never merge).
+
+def xctrace_env():
+    xcodes = sorted(glob.glob("/Applications/Xcode*.app"))
+    return dict(os.environ, DEVELOPER_DIR=(xcodes[-1] + "/Contents/Developer") if xcodes else os.environ.get("DEVELOPER_DIR", ""))
+
+
+def xctrace_start(label, pid):
+    """`xctrace record` of the bench app's PID only (never another process): Time Profiler and os_signpost."""
+    env_x = xctrace_env()
+    trace = os.path.join(OUT, f"xct-{label}.trace")
+    template = {"time": "Time Profiler"}.get(opts.xctrace, opts.xctrace)
+    proc = subprocess.Popen(["xcrun", "xctrace", "record", "--template", template, "--instrument", "os_signpost",
+                             "--attach", str(pid), "--time-limit", "240s", "--output", trace, "--no-prompt"],
+                            env=env_x, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    time.sleep(4)  # the recorder attaches
+    return proc, trace, env_x
+
+
+def xml_rows(path):
+    """Each row of an xctrace export as ({tag: element}, byid) with refs resolved (later rows reuse earlier ids)."""
+    import xml.etree.ElementTree as ET
+    byid = {}
+    for _, e in ET.iterparse(path, events=("end",)):
+        if e.get("id"):
+            byid[e.get("id")] = e
+        if e.tag != "row":
+            continue
+        row = {}
+        for child in list(e):
+            c = byid.get(child.get("ref"), child) if child.get("ref") else child
+            row.setdefault(child.tag, c)
+        yield row, byid
+
+
+def fmt(row, *tags):
+    for t in tags:
+        c = row.get(t)
+        if c is not None:
+            return c.get("fmt") or c.text or ""
+    return ""
+
+
+def raw(row, *tags):
+    for t in tags:
+        c = row.get(t)
+        if c is not None and (c.text or "").strip().isdigit():
+            return int(c.text)
+    return None
+
+
+def frames_of(row, byid):
+    """Leaf-first frame names of a sample row's backtrace, refs resolved."""
+    for tag in ("backtrace", "tagged-backtrace", "stack", "kperf-bt"):
+        bt = row.get(tag)
+        if bt is None:
+            continue
+        found = []
+        for f in bt.iter():
+            if f is bt:
+                continue
+            if f.tag == "frame" or f.get("ref"):
+                g = byid.get(f.get("ref"), f) if f.get("ref") else f
+                if g.tag == "frame":
+                    found.append(g.get("name") or g.get("fmt") or "?")
+            if f.tag == "backtrace" and f.get("ref") and not found:
+                inner = byid.get(f.get("ref"))
+                if inner is not None:
+                    found += [(byid.get(x.get("ref"), x).get("name") or "?") for x in inner if x.tag == "frame"]
+        if found:
+            return found
+    return []
+
+
+def xctrace_stop(handle, action_id):
+    proc, trace, env_x = handle
+    proc.send_signal(signal.SIGINT)
+    try:
+        tail = proc.communicate(timeout=240)[0].decode(errors="replace")[-600:]
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        tail = "timeout"
+    out = {"record_tail": tail}
+    toc = subprocess.run(["xcrun", "xctrace", "export", "--input", trace, "--toc"], env=env_x, capture_output=True, text=True, timeout=300)
+    schemas = sorted(set(re.findall(r'schema="([^"]+)"', toc.stdout)))
+    out["schemas"] = schemas
+    exports = {}
+    for schema in ("time-profile", "os-signpost-interval"):
+        if schema not in schemas:
+            continue
+        path = f"{trace}.{schema}.xml"
+        r = subprocess.run(["xcrun", "xctrace", "export", "--input", trace, "--xpath",
+                            f'/trace-toc/run[@number="1"]/data/table[@schema="{schema}"]', "--output", path],
+                           env=env_x, capture_output=True, text=True, timeout=900)
+        if r.returncode == 0 and os.path.exists(path):
+            exports[schema] = path
+        else:
+            out[f"{schema}_err"] = r.stderr[-400:]
+    intervals = []
+    if "os-signpost-interval" in exports:
+        for row, _ in xml_rows(exports["os-signpost-interval"]):
+            start, dur = raw(row, "start-time", "start"), raw(row, "duration")
+            if start is None or dur is None:
+                continue
+            sub = fmt(row, "subsystem")
+            if "cmuxterm" not in sub and "coreanimation" not in sub:
+                continue
+            intervals.append({"name": fmt(row, "string", "name", "signpost-name"), "category": fmt(row, "category"), "sub": sub,
+                              "start": start, "end": start + dur, "text": fmt(row, "os-log-metadata", "message", "metadata")[:200]})
+    out["interval_names"] = sorted({f'{i["category"]}/{i["name"]}' for i in intervals})[:60]
+    perform = sorted((i for i in intervals if i["name"] == "action.perform" and action_id in i["text"]), key=lambda i: i["start"])
+    commits = sorted((i for i in intervals if i["name"] == "action.commit" and action_id in i["text"]), key=lambda i: i["start"])
+    out["id_matched"] = bool(commits)
+    if not commits:  # the message column did not carry the id: every action.commit of this recording (restores too)
+        perform = sorted((i for i in intervals if i["name"] == "action.perform"), key=lambda i: i["start"])
+        commits = sorted((i for i in intervals if i["name"] == "action.commit"), key=lambda i: i["start"])
+    out["sample_app_texts"] = sorted({i["text"][:80] for i in intervals if "cmuxterm" in i["sub"]})[:12]
+    out["perform_n"], out["commit_n"] = len(perform), len(commits)
+    windows = []
+    for c in commits:
+        p = next((q for q in perform if c["start"] - 5_000_000 <= q["start"] <= c["end"]), None)
+        windows.append((c["start"], p["end"] if p else c["start"], c["end"]))
+    out["commit_ms"] = stat([(b - a) / 1e6 for a, _, b in windows]) if windows else None
+    out["after_perform_ms"] = stat([(b - m) / 1e6 for _, m, b in windows]) if windows else None
+    # Core Animation commits inside the gap after the key turn: how many, how long, and when the last one starts.
+    ca = [i for i in intervals if "coreanimation" in i["sub"] and i["name"] == "Commit"]
+    ca_n, ca_ms, last_ca = [], [], []
+    for a, m, b in windows:
+        inside = [i for i in ca if m <= i["start"] <= b]
+        ca_n.append(len(inside))
+        ca_ms.append(sum((min(i["end"], b) - i["start"]) / 1e6 for i in inside))
+        last_ca.append(((max(i["start"] for i in inside) - m) / 1e6) if inside else None)
+    out["ca_commits_after_perform"] = stat(ca_n)
+    out["ca_commit_ms_after_perform"] = stat(ca_ms)
+    out["last_ca_commit_start_after_perform_ms"] = stat(last_ca)
+    # Main-thread samples, split: in the key turn [commit start, perform end] and after it [perform end, commit end].
+    if "time-profile" in exports:
+        import collections
+        heads = []
+        turn_self, gap_self, gap_incl = collections.Counter(), collections.Counter(), collections.Counter()
+        turn_incl = collections.Counter()
+        turn_ms = gap_ms = total_all = 0
+        idle_gap = 0
+        for n_row, (row, byid) in enumerate(xml_rows(exports["time-profile"])):
+            if n_row < 2:
+                heads.append({t: [c.get("fmt"), (c.text or "")[:40], [g.tag for g in list(c)][:6]] for t, c in row.items()})
+            th = fmt(row, "thread")
+            if not th.startswith("Main Thread"):
+                continue
+            t = raw(row, "sample-time", "time")
+            w = raw(row, "weight")
+            weight = w if w is not None else 1_000_000
+            total_all += weight
+            if t is None:
+                continue
+            win = next(((a, m, b) for a, m, b in windows if a <= t <= b), None)
+            if not win:
+                continue
+            frames = frames_of(row, byid)
+            leaf = (frames[0] if frames else "?")[:150]
+            if t <= win[1]:
+                turn_ms += weight
+                turn_self[leaf] += weight
+                for name in set(frames):
+                    turn_incl[name[:150]] += weight
+            else:
+                gap_ms += weight
+                gap_self[leaf] += weight
+                for name in set(frames):
+                    gap_incl[name[:150]] += weight
+                if leaf.startswith("mach_msg") or "__CFRunLoopServiceMachPort" in leaf:
+                    idle_gap += weight
+        out["time_profile_row_heads"] = heads
+        out["main_ms_recorded"] = round(total_all / 1e6, 1)
+        out["main_ms_in_turn"] = round(turn_ms / 1e6, 1)
+        out["main_ms_after_turn"] = round(gap_ms / 1e6, 1)
+        out["main_ms_after_turn_waiting"] = round(idle_gap / 1e6, 1)
+        out["windows"] = len(windows)
+        out["turn_self_ms"] = {k: round(v / 1e6, 1) for k, v in turn_self.most_common(25)}
+        out["turn_inclusive_ms"] = {k: round(v / 1e6, 1) for k, v in turn_incl.most_common(200)}
+        out["after_turn_self_ms"] = {k: round(v / 1e6, 1) for k, v in gap_self.most_common(40)}
+        out["after_turn_inclusive_ms"] = {k: round(v / 1e6, 1) for k, v in gap_incl.most_common(150)}
+    print(f"XCTRACE {action_id} {json.dumps(out)[:20000]}", flush=True)
+    return out
+
+
+_run_action_plain = Sweep.run_action
+
+
+def _run_action_profiled(self, action):
+    if not opts.xctrace or self.session not in opts.xctrace_sessions.split(",") or not self.app.process:
+        return _run_action_plain(self, action)
+    handle = xctrace_start(f"{self.session}-{action['id']}", self.app.process.pid)
+    try:
+        row = _run_action_plain(self, action)
+    finally:
+        try:
+            profile = xctrace_stop(handle, action["id"])
+        except Exception as error:  # SCRATCH: a profile that fails must not lose the row
+            profile = {"error": repr(error)[:400]}
+    try:
+        spans = []
+        everything = SIGNPOSTS.intervals()
+        commits = []
+        for w in row.get("windows") or []:
+            c = next((i for i in everything if i["name"] == "action.commit" and i.get("id") == action["id"]
+                      and w[0] - 0.002 <= i["begin"] <= w[1]), None)
+            if c:
+                commits.append((c["begin"], c["end"]))
+        profile["stream_commit_ms"] = stat([(b - a) * 1000 for a, b in commits])
+        for a, b in commits:
+            sums = {}
+            for i in everything:
+                if i["end"] < a or i["begin"] > b or i["name"] == "action.commit":
+                    continue
+                k = f'{i.get("category")}/{i["name"]}'
+                sums[k] = sums.get(k, 0.0) + (min(i["end"], b) - max(i["begin"], a)) * 1000
+            spans.append(sums)
+        keys = sorted({k for d in spans for k in d})
+        n = max(1, len(spans))
+        profile["stream_intervals_in_window"] = sorted(({"name": k, "n": sum(1 for d in spans if k in d),
+                                                          "p50": pct([d.get(k, 0.0) for d in spans], 0.5),
+                                                          "p95": pct([d.get(k, 0.0) for d in spans], 0.95),
+                                                          "max": round(max(d.get(k, 0.0) for d in spans), 2),
+                                                          "mean": round(sum(d.get(k, 0.0) for d in spans) / n, 2)} for k in keys),
+                                                        key=lambda r: -r["mean"])[:40]
+        profile["stream_windows"] = len(spans)
+        # Per observer site inside each commit window: wakes (observation.wake events) and re-tracking time
+        # (observation.track intervals), from the app's DEBUG/bench signposts.
+        with SIGNPOSTS.lock:
+            wakes = list(SIGNPOSTS.events)
+        sites = {}
+        for a, b in commits:
+            per = {}
+            for e in wakes:
+                if e["name"] == "observation.wake" and a <= e["at"] <= b:
+                    per.setdefault(e["message"], [0, 0.0, 0.0])[0] += 1
+            for i in everything:
+                if i["name"] == "observation.track" and i["begin"] <= b and i["end"] >= a:
+                    ms = (min(i["end"], b) - max(i["begin"], a)) * 1000
+                    row = per.setdefault(i.get("message") or "?", [0, 0.0, 0.0])
+                    row[1] += ms
+                    row[2] = max(row[2], ms)
+            for site, (w, total, longest) in per.items():
+                agg = sites.setdefault(site, {"windows": 0, "wakes": 0, "track_ms": 0.0, "max_track_ms": 0.0, "per_window_ms": []})
+                agg["windows"] += 1
+                agg["wakes"] += w
+                agg["track_ms"] += total
+                agg["max_track_ms"] = max(agg["max_track_ms"], longest)
+                agg["per_window_ms"].append(total)
+        n = max(1, len(commits))
+        profile["observation_sites"] = sorted(({"site": k, "wakes_per_press": round(v["wakes"] / n, 2), "wakes": v["wakes"],
+                                                "track_ms_total": round(v["track_ms"], 2),
+                                                "track_ms_per_press": round(v["track_ms"] / n, 3),
+                                                "track_ms_p95": pct(v["per_window_ms"] + [0.0] * (n - v["windows"]), 0.95),
+                                                "max_track_ms": round(v["max_track_ms"], 3)} for k, v in sites.items()),
+                                              key=lambda r: -r["track_ms_total"])[:60]
+    except Exception as error:
+        profile["stream_error"] = repr(error)[:300]
+    row["xctrace"] = profile
+    return row
+
+
+Sweep.run_action = _run_action_profiled
 
 
 def main():
