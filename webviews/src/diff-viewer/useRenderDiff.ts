@@ -53,9 +53,11 @@ export function useDiffLanguageChanges(dispatch: React.Dispatch<AppAction>): voi
  * What the viewer does around a render besides the items: `prepared` gets the fingerprint of a diff
  * the host precomputed (`SessionOpened.prepared === "warm"`), the freshness check's baseline; and
  * `beforeReplace` runs right before a reconciling render swaps its files in (the viewer takes the
- * reader's place then, to put it back after).
+ * reader's place then, to put it back after). `retained` holds the session on screen while a reconcile
+ * streams: it stays the active one until the replacement commits, and stays shown if that fails.
  */
 export type RenderDiffHooks = {
+  retained?: React.MutableRefObject<ActiveDiffSession | null>;
   prepared?: (fingerprint: string | undefined) => void;
   beforeReplace?: () => void;
 };
@@ -88,6 +90,24 @@ export function useRenderDiff(
     document.body.dataset.diffRenderGeneration = String(renderGeneration);
     // A reconciling render keeps the files on screen and swaps the new ones in when all have arrived.
     const reconciling = latestState.current.reconciling;
+    const retained = hooks?.current.retained;
+    // A render that is not a reconcile (a Refresh after one) ends whatever the reconcile kept.
+    if (!reconciling && retained?.current) {
+      const kept = retained.current;
+      retained.current = null;
+      if (activeSessionRef.current === kept) void closeActiveSession();
+      else if (transport) void closeDiffSession(transport, kept);
+    }
+    // The replacement's session and patch, made active only when its diff commits.
+    let replacement: { session: ActiveDiffSession; patchURL: string } | null = null;
+    const commitReplacement = () => {
+      const kept = retained?.current;
+      if (retained) retained.current = null;
+      if (kept && transport && kept !== replacement?.session) void closeDiffSession(transport, kept);
+      activeSessionRef.current = replacement?.session ?? null;
+      if (replacement) onPatchURL(replacement.patchURL);
+      replacement = null;
+    };
     const payload = config.payload ?? {};
     const appearance = resolveDiffViewerAppearance(payload.appearance);
     registerDiffViewerThemes(appearance);
@@ -145,7 +165,8 @@ export function useRenderDiff(
             await closeDiffSession(transport!, openedSession);
             return;
           }
-          activeSessionRef.current = openedSession;
+          if (reconciling) replacement = { session: openedSession, patchURL: opened.patch.id };
+          else activeSessionRef.current = openedSession;
           onResolvedSessionSource(result.value.source);
           // Older sidecars omit the field; the lockfile heuristic still applies.
           const generatedPaths = Array.isArray(result.value.generatedPaths)
@@ -159,15 +180,18 @@ export function useRenderDiff(
           // anyone clicked, when an agent's turn ended ("warm", with the fingerprint it had then).
           const extra = result.value as { prepared?: unknown; fingerprint?: unknown };
           markDiffAdopted(extra.prepared === "warm" || extra.prepared === "preopen");
-          hooks?.current.prepared?.(
-            extra.prepared === "warm" && typeof extra.fingerprint === "string" ? extra.fingerprint : undefined,
-          );
+          // A reconcile keeps the precomputed fingerprint: until its diff commits, that one is on screen.
+          if (!reconciling) {
+            hooks?.current.prepared?.(
+              extra.prepared === "warm" && typeof extra.fingerprint === "string" ? extra.fingerprint : undefined,
+            );
+          }
           patchURL = result.value.patch.id;
         }
         if (cancelled || !patchURL) {
           return;
         }
-        onPatchURL(patchURL);
+        if (!reconciling) onPatchURL(patchURL);
         // The sidecar's generated list as a set, rebuilt only when the list itself changes.
         let declaredPaths: readonly string[] = [];
         let declaredSet: ReadonlySet<string> = new Set<string>();
@@ -198,6 +222,7 @@ export function useRenderDiff(
           onComplete: (metrics) => {
             if (cancelled) return;
             if (reconciling) {
+              commitReplacement();
               hooks?.current.beforeReplace?.();
               dispatch({ type: "replace-items", items: streamedItems });
               if (heldTree) dispatch({ type: "set-tree-source", source: heldTree });
@@ -255,10 +280,15 @@ export function useRenderDiff(
           return;
         }
         const empty = error instanceof DiffTransportError && error.code === "emptyDiff";
-        if (reconciling && empty) dispatch({ type: "replace-items", items: [] });
-        else if (reconciling) {
-          // The diff on screen stays; the freshness check offers Refresh again on the next change.
+        if (reconciling && empty) {
+          commitReplacement();
+          dispatch({ type: "replace-items", items: [] });
+        } else if (reconciling) {
+          // The diff on screen stays with its own session; the freshness check marks it stale.
           console.warn("cmux diff viewer reconcile failed", String((error as any)?.message ?? error));
+          if (replacement && transport) void closeDiffSession(transport, replacement.session);
+          replacement = null;
+          if (retained) retained.current = null;
           dispatch({ type: "end-reconcile" });
           return;
         }
@@ -290,7 +320,11 @@ export function useRenderDiff(
       cancelled = true;
       streamAbortController.abort();
       window.removeEventListener("pagehide", handlePageHide);
-      if (opening || activeSessionRef.current) void closeActiveSession();
+      // The session a reconcile keeps on screen stays open for it; a replacement not yet committed closes.
+      if (replacement && transport) void closeDiffSession(transport, replacement.session);
+      replacement = null;
+      const kept = retained?.current != null && activeSessionRef.current === retained.current;
+      if (opening || (activeSessionRef.current && !kept)) void closeActiveSession();
     };
   }, [
     activeSessionRef,

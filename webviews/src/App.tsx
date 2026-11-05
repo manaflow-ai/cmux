@@ -431,8 +431,12 @@ export function App({ config, initialStatus }: ConfigProps) {
   // and when the files changed since, the new diff replaces it with the reader kept in place.
   const [precomputedFingerprint, setPrecomputedFingerprint] = useState<string>();
   const replaceAnchor = useRef<ReturnType<KindOrderHandlers["anchor"]>>(null);
+  // The session on screen while a reconcile streams its replacement: kept open (previews and full
+  // files read it) until the new diff commits, and the one shown again if the reconcile fails.
+  const retainedSessionRef = useRef<ActiveDiffSession | null>(null);
   const renderHooks = useRef<RenderDiffHooks>({});
   renderHooks.current = {
+    retained: retainedSessionRef,
     prepared: setPrecomputedFingerprint,
     beforeReplace: () => {
       replaceAnchor.current = kindOrderHandlers.current.anchor();
@@ -817,7 +821,10 @@ export function App({ config, initialStatus }: ConfigProps) {
     setMachineUnavailable,
     {
       fingerprint: precomputedFingerprint,
-      reconcile: () => dispatch({ type: "reconcile" }),
+      reconcile: () => {
+        retainedSessionRef.current = activeSessionRef.current;
+        dispatch({ type: "reconcile" });
+      },
       failedGeneration: state.reconcileFailedGeneration,
     },
   );
