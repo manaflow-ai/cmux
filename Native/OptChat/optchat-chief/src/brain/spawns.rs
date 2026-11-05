@@ -2302,8 +2302,9 @@ impl Brain {
                 "outcome: queued. Queued for delivery to {id} ({waiting} waiting): {why}. You get a note when it is delivered."
             ))
         } else {
+            // Handed to acpmux, not yet known read: `submitted`, never `done`.
             self.tell_mode(id, message, queue)
-                .map(|answer| format!("outcome: done. {answer}"))
+                .map(|receipt| format!("outcome: submitted. {receipt}"))
         };
         if answer.is_ok() {
             // "Signed in to SITE ...; go on." (chief-auth-escalation): its Feed request closes.
@@ -2471,6 +2472,13 @@ impl Brain {
             .is_some_and(|(_, s)| matches!(s.status, SubStatus::Running | SubStatus::Starting));
         let (agents, forward, sub_id) = (self.agents.clone(), self.tx.clone(), id.to_owned());
         let text = message.to_owned();
+        let receipt = TellReceipt {
+            id: id.to_owned(),
+            prompt_id: prompt_id.clone(),
+            session: session.clone(),
+            queue,
+            running,
+        };
         let steered = if running {
             // Reference parity S4: into the running session, read between
             // its tool calls. One that cannot steer now is interrupted, and
@@ -2543,18 +2551,9 @@ impl Brain {
         }
         self.trace.emit(
             "tell",
-            json!({"id": id, "spawn": spawn, "from": "chief", "steered": steered, "queue": queue, "message": self.trace.text(message)}),
+            json!({"id": id, "spawn": spawn, "from": "chief", "steered": steered, "queue": queue, "prompt_id": receipt.prompt_id, "session": receipt.session, "message": self.trace.text(message)}),
         );
-        let answer = if steered && queue {
-            format!("sent to {id}; read between tool calls or after its turn")
-        } else if steered {
-            format!(
-                "sent to {id}; its current step stops so it reads it now (a running subagent or background shell runs on), else its turn restarts with it"
-            )
-        } else {
-            format!("sent to {id}; read after its current step")
-        };
-        Ok(answer)
+        Ok(receipt.text())
     }
 
     /// A tell whose steer the running turn refused (`tell_mode`): the turn
@@ -3412,6 +3411,44 @@ fn tell_prompt(
         }
     });
     Ok(())
+}
+
+/// What a `tell` into a subagent's session answers: the prompt id it went
+/// out under (acpmux runs one prompt id once), the session it went to, the
+/// mode asked for and the one used, and how far it got. It is handed to
+/// acpmux when this answers; the harness takes it later (a steer at its next
+/// step, a new turn when it starts). A handoff that fails comes back as a
+/// note (`tell_undelivered`); a session that never answers is not reported
+/// here: `control status` shows it.
+struct TellReceipt {
+    id: String,
+    prompt_id: String,
+    session: String,
+    queue: bool,
+    running: bool,
+}
+
+impl TellReceipt {
+    fn text(&self) -> String {
+        let requested = if self.queue {
+            "queue (after its current step)"
+        } else {
+            "now (stop its current step)"
+        };
+        let effective = match (self.running, self.queue) {
+            (true, false) => {
+                "steered in now: its current step stops and it reads it at once (a running subagent or background shell runs on); if its agent cannot take it mid-turn, the turn is interrupted (context kept) and this is its next prompt"
+            }
+            (true, true) => "steered in: read between its tool calls, or after its turn",
+            (false, _) => "a new turn: it was not running, so this prompt starts its next turn",
+        };
+        format!(
+            "{id} prompt {prompt} in session {session}. Requested: {requested}. Effective: {effective}. Submitted to acpmux, not yet confirmed read; a failed handoff comes back as a note, and its report answers it.",
+            id = self.id,
+            prompt = self.prompt_id,
+            session = self.session,
+        )
+    }
 }
 
 /// Inbox messages as one prompt, oldest first.

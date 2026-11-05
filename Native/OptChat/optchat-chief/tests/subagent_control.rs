@@ -271,7 +271,16 @@ fn a_tell_to_a_running_subagent_that_cannot_steer_interrupts_it() {
     let session = sub_session(&h);
     let a = sp.clone();
     let told = run(&mut h, move || a.tell("a1", "stop and fix the build")).unwrap();
-    assert!(told.starts_with("outcome: done."), "{told}");
+    // Issue 36496: the tell returns before the harness took it, so its
+    // receipt says submitted (never done), names the prompt id, the session
+    // it went to, and the mode asked for and used.
+    assert!(told.starts_with("outcome: submitted."), "{told}");
+    assert!(told.contains("a1 prompt optchat-tell:a1:"), "{told}");
+    assert!(told.contains(&format!("in session {session}.")), "{told}");
+    assert!(told.contains("Requested: now"), "{told}");
+    assert!(told.contains("Effective: steered in now"), "{told}");
+    assert!(told.contains("not yet confirmed read"), "{told}");
+    assert!(!told.contains("outcome: done"), "{told}");
     wait_for(&mut h, |h| {
         !h.agents.inner.lock().unwrap().cancels.is_empty()
     });
@@ -306,7 +315,12 @@ fn a_queue_tell_waits_for_the_turn() {
         a.tell_with("a1", "FYI: a188 landed its fix", None, true)
     })
     .unwrap();
-    assert!(told.starts_with("outcome: done."), "{told}");
+    assert!(told.starts_with("outcome: submitted."), "{told}");
+    assert!(told.contains("Requested: queue"), "{told}");
+    assert!(
+        told.contains("Effective: steered in: read between its tool calls"),
+        "{told}"
+    );
     wait_for(&mut h, |h| sub_prompts(h).len() >= 2);
     assert!(sub_prompts(&h)[1].contains("FYI: a188 landed its fix"));
     let inner = h.agents.inner.lock().unwrap();
@@ -433,7 +447,7 @@ fn keyed_tells_and_cancels_are_idempotent() {
             a.tell_with("a1", "focus on tests", Some("k1"), true),
         )
     });
-    assert!(one.unwrap().starts_with("outcome: done."));
+    assert!(one.unwrap().starts_with("outcome: submitted."));
     assert!(two.unwrap().starts_with("outcome: noop."));
     let cancel = |sp: &Arc<Spawner>| {
         let a = sp.clone();

@@ -325,10 +325,14 @@ marks (decision 2026-10-08; see Cache marks and TTL).
   session yet, whose task is not sent yet, or that is paused keeps the
   message in its saved inbox (`SubRecord.inbox`, host.json), delivered in
   order after its task; a queued one gets it appended to its task. The
-  answer says `outcome: queued` or `outcome: done`, and a note tells the
-  Chief when the inbox is delivered. A repeat of `key` is `outcome: noop`.
+  answer says `outcome: queued`, and a note tells the Chief when the inbox
+  is delivered. A tell into a session answers `outcome: submitted`: the
+  prompt id it went out under, the session, the mode asked for (now, or
+  queue) and the one used (steered now, steered between tool calls, or a
+  new turn). Submitted means handed to acpmux, not read; a failed handoff
+  comes back as a note (issue 36496). A repeat of `key` is `outcome: noop`.
 - `control(action, id?, message?, option?, n?)` (`chief control ...`), every
-  answer `outcome: done|queued|noop|refused`, a repeat a noop:
+  answer `outcome: done|submitted|queued|noop|refused`, a repeat a noop:
   `status [id]` (queued, starting, running, waiting-on-permission, stuck,
   idle, stopped, failed, paused, cancelled; elapsed, last output, prompt,
   inbox), `interrupt id [message]` (`session/cancel`; the cut run reports

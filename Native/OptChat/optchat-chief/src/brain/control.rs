@@ -1,6 +1,6 @@
 //! `control(action, ...)`: the Chief's control over its subagents
 //! (DESIGN 2026-10-19, Lawrence: "fix such that you can interrupt sessions
-//! better"). Every answer starts with `outcome: done|queued|noop|refused`,
+//! better"). Every answer starts with `outcome: done|submitted|queued|noop|refused`,
 //! and every action checks state first, so a repeat is a `noop`, never a
 //! second effect and never an unknown outcome.
 //!
@@ -563,9 +563,13 @@ impl Brain {
         let id = sub.id.as_str();
         if !Self::running(sub) {
             return match (message, sub.session_id.is_some()) {
-                (Some(m), _) => self
-                    .tell_keyed(id, m, None)
-                    .map(|a| a.replacen("outcome: done.", "outcome: done. It was not running;", 1)),
+                (Some(m), _) => self.tell_keyed(id, m, None).map(|a| {
+                    a.replacen(
+                        "outcome: submitted.",
+                        "outcome: submitted. It was not running;",
+                        1,
+                    )
+                }),
                 (None, _) => outcome(
                     "noop",
                     format!("{id} is not running a turn ({})", state_name(sub, now_ms())),

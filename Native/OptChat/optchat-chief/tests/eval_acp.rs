@@ -131,7 +131,7 @@ fn a_chief_tell_into_a_running_turn_interrupts_the_step_by_default() {
         a.tell("a1", "stop: the user changed the scope")
     })
     .unwrap();
-    assert!(told.starts_with("outcome: done"), "{told}");
+    assert!(told.starts_with("outcome: submitted"), "{told}");
     wait_for(&mut h, |h| {
         steer_with(h, "the user changed the scope").is_some()
     });
