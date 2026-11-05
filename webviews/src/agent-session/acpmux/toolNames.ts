@@ -214,7 +214,9 @@ function readCall(tool: Tool): CanonicalCall | undefined {
   if (tool.kind === "read" && input.path) return { tool: "read", input };
   if (tool.kind === "read" && !raw && looksLikePath(title)) return { tool: "read", input: { path: title } };
   if (tool.kind === "search" && input.pattern) return { tool: looksLikeGlob(input.pattern) ? "glob" : "search", input };
-  if (tool.kind === "search" && !raw && looksLikePath(title)) return { tool: "list", input: { path: title } };
+  // Gemini's list_directory: its folder, which may be a bare name ("src").
+  if (tool.kind === "search" && !raw && (looksLikePath(title) || /^[\w.-]+$/.test(title)))
+    return { tool: "list", input: { path: title } };
   if (tool.kind === "fetch" && input.url) return { tool: "fetch", input };
   if (tool.kind === "fetch" && input.query) return { tool: "websearch", input };
   return undefined;
@@ -271,9 +273,10 @@ function inputOf(raw: Record<string, unknown> | undefined, tool: Tool): Canonica
   return input;
 }
 
-/// A file pattern rather than a text one: `**/*.ts`, `*.md`, `src/{a,b}.ts`.
+/// A file pattern rather than a text one: `**/*.ts`, `*.md`, `src/*.ts`, `src/{a,b}.ts`. A `*` after
+/// `.`, `)`, `]` or `\` repeats in a regex (`foo.*bar`), so it is no file wildcard.
 function looksLikeGlob(pattern: string): boolean {
-  return /\*\*|^\*\.|\{[^}]*,[^}]*\}/.test(pattern);
+  return /(?:^|[^.)\]\\])\*|\{[^}]*,[^}]*\}/.test(pattern);
 }
 
 /// `text` reads as one path: a folder in it, or a file name with an extension.

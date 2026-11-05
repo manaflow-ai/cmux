@@ -19,7 +19,5 @@ test("a bare verb or tool id over several files names the first file", () => {
   expect(label({ title: "Edit", kind: "edit", status: "in_progress", locations: twoFiles })).toBe("Edit a.ts");
   expect(label({ title: "Read", kind: "read", locations: twoFiles })).toBe("Read a.ts");
   // opencode's patch reads as every harness's edit does (toolNames.ts).
-  expect(label({ title: "patch", kind: "edit", inputSummary: JSON.stringify({ patchText: patch }) })).toBe(
-    "Edit a.ts",
-  );
+  expect(label({ title: "patch", kind: "edit", inputSummary: JSON.stringify({ patchText: patch }) })).toBe("Edit a.ts");
 });

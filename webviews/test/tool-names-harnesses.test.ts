@@ -112,6 +112,12 @@ test("Gemini's list_directory and Muse's read_file name their subject", () => {
   expect(label(call("read_file: src/parser.rs", "read", at(`${CWD}/src/parser.rs`)))).toBe("Read src/parser.rs");
 });
 
+test("Gemini's bare folder lists and single-star globs read as such; a regex star does not", () => {
+  expect(label(call("src", "search"))).toBe("List src");
+  expect(label(call("'src/*.ts' within ./", "search"))).toBe("Glob src/*.ts");
+  expect(label(call("'foo.*bar' within ./", "search"))).toBe("Search foo.*bar");
+});
+
 test("a Claude Code Grep and Glob draw and count as searches, not reads", () => {
   expect(toolKind(HARNESS_CALLS.claude.search)).toBe("search");
   expect(toolKind(HARNESS_CALLS.gemini.websearch)).toBe("fetch");
