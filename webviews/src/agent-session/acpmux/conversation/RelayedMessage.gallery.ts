@@ -13,7 +13,7 @@ import { SESSION_ID, assistant, chat, session, summary, user } from "../../../ga
 import { incomingPrompt } from "./incomingMessage";
 import { inboxText } from "./inboxNotice";
 
-const SENDER = "gcp-codex-swarm-11/claude-3";
+const SENDER = "build-box/lane-3";
 
 /// The broker's label around `body`, with the nonce `id` (from a transcript of 2026-11-05).
 function relayed(body: string, id = "4f4d68ff", from = SENDER) {
@@ -48,10 +48,10 @@ function relay(text: string, minutes: number) {
 function digest(minutes: number) {
   const parts = [
     { from: SENDER, text: relayed("Rebased on `feat-cmux-next`; CI is running.", "a1b2c3d4") },
-    { from: "claude-sr2-coord", text: "Take the iOS half next; the parser is shared." },
+    { from: "coordinator", text: "Take the iOS half next; the parser is shared." },
     {
-      from: "gcp-codex-swarm-4/codex-1",
-      text: relayed("**Review:** SHIP at `64d6b1b`.", "9e8f7a6b", "gcp-codex-swarm-4/codex-1"),
+      from: "studio-mac/codex-1",
+      text: relayed("**Review:** SHIP at `64d6b1b`.", "9e8f7a6b", "studio-mac/codex-1"),
     },
   ];
   const text = [
@@ -113,13 +113,13 @@ function snapshot(last: ReturnType<typeof user>) {
   return chat(
     [
       user("Have the swarm lane land #36125 and report here.", 9),
-      assistant("Sent the order to claude-3 on gcp-codex-swarm-11.", 8.5),
+      assistant("Sent the order to lane-3 on build-box.", 8.5),
       summary(8.5, { status: "completed" }),
       last,
     ],
     {
-      title: "claude-sr2-coord",
-      sessions: [session({ sessionId: SESSION_ID, title: "claude-sr2-coord", name: "claude-sr2-coord" })],
+      title: "coordinator",
+      sessions: [session({ sessionId: SESSION_ID, title: "coordinator", name: "coordinator" })],
     },
   );
 }

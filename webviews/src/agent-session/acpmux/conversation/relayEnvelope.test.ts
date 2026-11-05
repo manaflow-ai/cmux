@@ -8,7 +8,7 @@ import { relayEnvelope, withoutRelayHead } from "./relayEnvelope";
 
 /// As the broker writes it (leo-workspace machines/lane-gh-broker.json, action send), from a
 /// transcript of 2026-11-05.
-function relayed(body: string, { id = "4f4d68ff", from = "gcp-codex-swarm-11/claude-3" } = {}) {
+function relayed(body: string, { id = "4f4d68ff", from = "build-box/lane-3" } = {}) {
   return [
     `[message ${id} from ${from} (an agent, not Leo), relayed by the lane-gh broker; its text ends at "[end of message ${id}]"]`,
     body,
@@ -21,7 +21,7 @@ const body = "**#36125** is green at `64d6b1b`.\n\n- review: SHIP\n- next: land 
 test("the broker's label is read into its sender, nonce and message", () => {
   expect(relayEnvelope(relayed(body))).toEqual({
     id: "4f4d68ff",
-    sender: "gcp-codex-swarm-11/claude-3",
+    sender: "build-box/lane-3",
     relay: "the lane-gh broker",
     body,
   });
@@ -45,11 +45,11 @@ test("a label that does not close with its own nonce is no envelope", () => {
 test("a relayed message is its sender's card, the label only behind Details", () => {
   const text = relayed(body);
   // acpmux records the broker's `acpmux send --no-wait --from VM/LANE` as a named sender's.
-  const named = { kind: "agent_message", from: "fromAgent", fromName: "gcp-codex-swarm-11/claude-3", to: "s-1" };
+  const named = { kind: "agent_message", from: "fromAgent", fromName: "build-box/lane-3", to: "s-1" };
   const prompt = incomingPrompt(text, { _meta: { provenance: named }, client: "acpmux-cli#1@build-box" });
   expect(prompt).toEqual({
     kind: "message",
-    message: { name: "gcp-codex-swarm-11/claude-3", text: body, raw: text },
+    message: { name: "build-box/lane-3", text: body, raw: text },
   });
 });
 
@@ -58,12 +58,12 @@ test("the label names the sender when nothing else does", () => {
   // A record with no provenance and a client this page reads nothing from (an older acpmux).
   expect(incomingPrompt(text, { client: "acpmux" })).toEqual({
     kind: "message",
-    message: { name: "gcp-codex-swarm-11/claude-3", text: body, raw: text },
+    message: { name: "build-box/lane-3", text: body, raw: text },
   });
 });
 
 test("a signature inside the label still names the sender once", () => {
-  const text = relayed("From claude-3: merged #36125.");
+  const text = relayed("From lane-3: merged #36125.");
   const prompt = incomingPrompt(text, { client: "acpmux-cli#1@build-box" });
   expect(prompt?.kind === "message" && prompt.message.text).toBe("merged #36125.");
   expect(prompt?.kind === "message" && prompt.message.raw).toBe(text);
@@ -73,21 +73,21 @@ test("a digest's relayed message shows without its label", () => {
   const text = [
     "2 messages from other agents arrived while you were busy. Each follows as it was sent, oldest first.",
     "",
-    "[agent message 1 of 2] from gcp-codex-swarm-11/claude-3",
+    "[agent message 1 of 2] from build-box/lane-3",
     "",
     relayed("first"),
     "",
-    "[agent message 2 of 2] from claude-sr2-coord",
+    "[agent message 2 of 2] from coordinator",
     "",
     "second",
   ].join("\n");
   const provenance = {
     kind: "agent_digest",
-    messages: [{ from: "gcp-codex-swarm-11/claude-3" }, { from: "claude-sr2-coord" }],
+    messages: [{ from: "build-box/lane-3" }, { from: "coordinator" }],
   };
   const prompt = incomingPrompt(text, { _meta: { provenance } });
   expect(prompt?.kind === "message" && prompt.message.text).toBe(
-    "**gcp-codex-swarm-11/claude-3**\nfirst\n\n**claude-sr2-coord**\nsecond",
+    "**build-box/lane-3**\nfirst\n\n**coordinator**\nsecond",
   );
 });
 
@@ -96,11 +96,11 @@ test("an inbox thread's messages and preview leave the label out", () => {
     kind: "inbox_notice",
     threads: [
       {
-        threadId: "from:claude-3",
-        from: ["gcp-codex-swarm-11/claude-3"],
+        threadId: "from:lane-3",
+        from: ["build-box/lane-3"],
         new: 1,
         preview: relayed("Merged #36125").split("\n").join(" "),
-        messages: [{ from: "gcp-codex-swarm-11/claude-3", text: relayed("Merged #36125") }],
+        messages: [{ from: "build-box/lane-3", text: relayed("Merged #36125") }],
       },
     ],
   });
