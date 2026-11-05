@@ -388,7 +388,7 @@ lifecycle records there on every start and exits when it cannot, so on the root
 filesystem a full disk would stop it however much room the state filesystem has.
 The bind is lost on reboot and returns at the next `ensure`, which also applies
 the supervisor's reboot recovery and clone identity reset to the reserved copy,
-since those boot steps run first and only see the unused copy underneath.
+since those boot steps run first and only see the path underneath.
 Bake parking unmounts it and wipes the reserved copy with the rest of the state.
 `ensure` also creates the daemon's private `/tmp/cmux-*-<uid>` directories, since
 boot empties `/tmp` and only root can still allocate there on a full disk.

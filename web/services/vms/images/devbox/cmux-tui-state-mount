@@ -123,8 +123,8 @@ record_remote_instance() {
 }
 
 # The bind does not survive a reboot, and the supervisor's own boot steps run
-# before it comes back, so they only reach the unused copy underneath. Apply the
-# two that matter to the reserved copy here.
+# before it comes back, so they only reach the path underneath. Apply the two
+# that matter to the reserved copy here.
 prepare_reserved_remote_state() {
   # A kernel reboot leaves no live predecessor: drop its stale runtime marker,
   # exactly as recover_rebooted_daemon_state does.
@@ -166,8 +166,12 @@ bind_remote_state() {
       rm -rf "$reserved.new"
       return 1
     fi
-    # Keep one copy. One hidden under the bind would escape a fork's identity
-    # reset and come back if this machine ever ran without the bind.
+  fi
+  # Keep one copy. One hidden under the bind would escape a fork's identity reset
+  # and come back if this machine ever ran without the bind. Flush first: a power
+  # cut must not leave an unwritten identity here with the only good copy deleted.
+  # A machine with nothing to remove skips the flush, which New Machine would wait for.
+  if [ -n "$(find "$remote" -mindepth 1 -print -quit 2>/dev/null)" ] && sync -f "$reserved"; then
     find "$remote" -mindepth 1 -delete || true
   fi
   mount --bind "$reserved" "$remote" || return 1
