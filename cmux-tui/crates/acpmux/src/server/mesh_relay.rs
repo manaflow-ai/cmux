@@ -931,9 +931,9 @@ fn team_delivery(message: &InMessage, own_user: Option<&str>) -> bool {
     if message.start_work.is_none() {
         return false;
     }
-    let present = |v: Option<&str>| v.filter(|v| !v.is_empty());
+    let own = own_user.filter(|own| !own.is_empty());
     let same_person = message.from.team_address.is_none()
-        && present(own_user).is_some_and(|own| present(message.from.user.as_deref()) == Some(own));
+        && own.is_some_and(|own| message.from.user.as_deref() == Some(own));
     !same_person
 }
 
