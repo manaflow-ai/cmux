@@ -124,7 +124,6 @@ try {
   // The turn that was streaming when the code changed still finishes in the same page.
   let turnFinished = true;
   await page.getByText(LAST_REPLY).first().waitFor({ timeout: 20_000 }).catch(() => (turnFinished = false));
-  await page.screenshot({ path: path.join(out, "after-edits.png") });
   const live = { results, turnFinished, reloads: loads - loadsBefore, ...(await state()) };
 
   for (const row of results)
