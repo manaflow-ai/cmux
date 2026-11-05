@@ -487,6 +487,9 @@ export type AcpmuxRow = {
   /// A turn summary of the chat's last turn, which a failed turn's Retry asks acpmux to retry
   /// (turns.ts), even when its prompt is an attempt acpmux sent and draws nothing.
   retryable?: boolean;
+  /// A turn summary whose footer offers Retry with `prompt` (turns.ts retryTargetAt): the chat's last
+  /// turn, or the last one a prompt opened when only notices and reminders came after it.
+  retryTarget?: true;
   /// The turn's completed edit diff proves it changed files. Retry keeps this hint in its tooltip;
   /// missing or incomplete checkpoint data stays neutral (conversation/turns.ts).
   changedFiles?: true;

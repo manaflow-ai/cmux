@@ -454,6 +454,7 @@ import {
 } from "./turnChanges/viewChanges";
 import { resendToOwner, retryFailedTurn } from "./conversation/turnRetry";
 import {
+  RetryTargetContext,
   TurnActionsContext,
   chatLoginCommand,
   compactThrough,
@@ -514,6 +515,7 @@ import {
   turnViewFrom,
   liveTurnPlan,
   samePlanEntries as sameEntries,
+  retryTargetIn,
 } from "./conversation/turns";
 import { ArrowDown, ChevronRight } from "./conversation/icons";
 import { CopyButton } from "./conversation/CopyButton";
@@ -5811,22 +5813,19 @@ export function VirtualTranscript({
   }, [dropFoldRoom, landForReader, stopBottomStackFold, stopJump]);
   // A turn's footer (TurnFooter) shows for the turn the reader points at: anywhere after its prompt
   // to its footer. Marked on the mounted rows, so a hover renders nothing.
-  // The last ended turn's prompt offers Retry under its bubble (UserBubble.tsx); turns.ts names
-  // it on the turn's footer while it may be sent again.
-  // Rows are immutable snapshots. Reuse the last ended turn's retry target across scroll and
-  // focus commits, which do not change `rows` and otherwise walk the entire transcript.
-  const retryPromptId = useMemo(() => {
-    for (let index = rows.length - 1; index >= 0; index -= 1)
-      if (rows[index]!.kind === "turnSummary") return rows[index]!.retryRowId;
-    return undefined;
-  }, [rows]);
+  // The chat's one Retry (turns.ts retryTargetIn, retryPlacement): the reply footer of the person's
+  // last prompt, or that prompt where the footer draws none. Its ids, not the scan's object, key the
+  // context, so a streamed token redraws no prompt or footer.
+  const scannedRetry = useMemo(() => retryTargetIn(rows), [rows]);
+  const retryTarget = useMemo(
+    () => ({ promptId: scannedRetry.promptId, footerId: scannedRetry.footerId }),
+    [scannedRetry.promptId, scannedRetry.footerId],
+  );
   const finalFooter = useMemo(() => finalFooterId(rows), [rows]);
   const markTurns = useCallback(() => {
-    for (const node of thread.current?.querySelectorAll<HTMLElement>(".acpmux-row") ?? []) {
-      node.toggleAttribute("data-retryable", node.dataset.rowId === retryPromptId);
+    for (const node of thread.current?.querySelectorAll<HTMLElement>(".acpmux-row") ?? [])
       node.toggleAttribute("data-turn-revealed", node.dataset.rowId === pointedTurn.current);
-    }
-  }, [retryPromptId]);
+  }, []);
   // Mark only when the mounted rows, their range, or the last turn changes. The old no-deps
   // layout effect scanned every commit, including scroll/follow state commits that cannot change
   // these attributes. `pointAt` still calls the callback directly for pointer-driven updates.
@@ -5950,197 +5949,199 @@ export function VirtualTranscript({
   if (renderStart > 0) acpmuxPerf.span("vt.body", performance.now() - renderStart);
   return (
     <ReadOnlyBoundary readOnly={readOnly}>
-      <div
-        ref={ref}
-        className="acpmux-scroll"
-        role="feed"
-        // A read-only transcript's right-clicks are reported to no host (conversation/messageMenu.ts).
-        data-read-only-transcript={readOnly ? "" : undefined}
-        // Its place comes back after a web update's reload (reportAnchor, pages/shared/webSwap.ts).
-        {...(onAnchor ? { [WEB_SWAP_KEPT_SCROLL]: "kept" } : {})}
-        aria-label={t("transcript.label")}
-        onScroll={onScroll}
-        onWheel={onWheel}
-        // Its thin scrollbar stays shown while the chat overflows, as in every agent app, and never
-        // flashes as rows arrive or the view follows them (scrollers.ts, Leo 2026-10-21).
-        {...{ [SHOWN_SCROLLER_ATTRIBUTE]: "" }}
-        // Soft edges (conversation.css): the top once scrolled from the start, the bottom while more
-        // lies below. A followed reply has nothing below it, even while its growth outruns the offset.
-        // The bottom one takes follow's deadband: a reader resting at the end saw the band above the
-        // composer flicker on and off as a row's measure or the stack moved the end by a pixel (Leo,
-        // 2026-10-23: "that little bit above composer can flicker").
-        data-seeking={seeking || undefined}
-        aria-busy={seeking || undefined}
-        data-fade-top={renderScroll.top - origin > 0.5 || undefined}
-        data-fade-bottom={fadesBelow(renderFollowing, below) || undefined}
-        // Jump to latest stands in that band: the fade reaches past it, so rows (a date line) pass
-        // out of sight behind it instead of reading through its glass.
-        data-jump-shown={(jumpButton && behind) || undefined}
-        // Under the bottom stack: rows there stay out of sight (conversation.css), and focus or Find
-        // scroll a row into view above it.
-        data-docked={dockSpace > 0 || undefined}
-        style={dockSpace > 0 ? ({ "--acpmux-dock-space": `${dockSpace}px` } as React.CSSProperties) : undefined}
-      >
-        {showMinimap && (
-          <ThreadMinimap
+      <RetryTargetContext.Provider value={retryTarget}>
+        <div
+          ref={ref}
+          className="acpmux-scroll"
+          role="feed"
+          // A read-only transcript's right-clicks are reported to no host (conversation/messageMenu.ts).
+          data-read-only-transcript={readOnly ? "" : undefined}
+          // Its place comes back after a web update's reload (reportAnchor, pages/shared/webSwap.ts).
+          {...(onAnchor ? { [WEB_SWAP_KEPT_SCROLL]: "kept" } : {})}
+          aria-label={t("transcript.label")}
+          onScroll={onScroll}
+          onWheel={onWheel}
+          // Its thin scrollbar stays shown while the chat overflows, as in every agent app, and never
+          // flashes as rows arrive or the view follows them (scrollers.ts, Leo 2026-10-21).
+          {...{ [SHOWN_SCROLLER_ATTRIBUTE]: "" }}
+          // Soft edges (conversation.css): the top once scrolled from the start, the bottom while more
+          // lies below. A followed reply has nothing below it, even while its growth outruns the offset.
+          // The bottom one takes follow's deadband: a reader resting at the end saw the band above the
+          // composer flicker on and off as a row's measure or the stack moved the end by a pixel (Leo,
+          // 2026-10-23: "that little bit above composer can flicker").
+          data-seeking={seeking || undefined}
+          aria-busy={seeking || undefined}
+          data-fade-top={renderScroll.top - origin > 0.5 || undefined}
+          data-fade-bottom={fadesBelow(renderFollowing, below) || undefined}
+          // Jump to latest stands in that band: the fade reaches past it, so rows (a date line) pass
+          // out of sight behind it instead of reading through its glass.
+          data-jump-shown={(jumpButton && behind) || undefined}
+          // Under the bottom stack: rows there stay out of sight (conversation.css), and focus or Find
+          // scroll a row into view above it.
+          data-docked={dockSpace > 0 || undefined}
+          style={dockSpace > 0 ? ({ "--acpmux-dock-space": `${dockSpace}px` } as React.CSSProperties) : undefined}
+        >
+          {showMinimap && (
+            <ThreadMinimap
+              rows={rows}
+              earlier={earlier}
+              promptCount={promptCount}
+              loadThrough={loadThrough}
+              loadPromptIndex={loadPromptIndex}
+              sessionId={sessionId}
+              layout={layout}
+              scroller={ref}
+              scrollTop={renderScroll.top - origin}
+              // Above the room under the last row, so a composer that grows while the reader is scrolled
+              // up leaves the map as it was, as it does the scrollbar.
+              viewportHeight={height - room}
+              // Where the transcript's mask ends the view (conversation.css --acpmux-view-foot): the
+              // rail's rows stay above its bottom band.
+              foot={height - dockSpace}
+              railBox={railBox}
+              scrolls={layout.totalHeight - height > 0.5}
+              width={paneWidth}
+              columnWidth={width}
+              placed={minimapPlaced}
+              change={rowsChange.current}
+              topInset={topInset}
+            />
+          )}
+          {/* The VS Code-style minimap at the right edge (Settings > Agent Chat > VS Code Minimap, off by default). */}
+          <ChatMinimap
+            // Another chat is another minimap: no canvas, placeholder or scale carried over.
+            key={sessionId}
             rows={rows}
-            earlier={earlier}
-            promptCount={promptCount}
-            loadThrough={loadThrough}
-            loadPromptIndex={loadPromptIndex}
-            sessionId={sessionId}
             layout={layout}
             scroller={ref}
-            scrollTop={renderScroll.top - origin}
-            // Above the room under the last row, so a composer that grows while the reader is scrolled
-            // up leaves the map as it was, as it does the scrollbar.
             viewportHeight={height - room}
-            // Where the transcript's mask ends the view (conversation.css --acpmux-view-foot): the
-            // rail's rows stay above its bottom band.
             foot={height - dockSpace}
-            railBox={railBox}
+            width={width}
             scrolls={layout.totalHeight - height > 0.5}
-            width={paneWidth}
-            columnWidth={width}
-            placed={minimapPlaced}
             change={rowsChange.current}
-            topInset={topInset}
           />
-        )}
-        {/* The VS Code-style minimap at the right edge (Settings > Agent Chat > VS Code Minimap, off by default). */}
-        <ChatMinimap
-          // Another chat is another minimap: no canvas, placeholder or scale carried over.
-          key={sessionId}
-          rows={rows}
-          layout={layout}
-          scroller={ref}
-          viewportHeight={height - room}
-          foot={height - dockSpace}
-          width={width}
-          scrolls={layout.totalHeight - height > 0.5}
-          change={rowsChange.current}
-        />
-        {find?.open && <ChatFindBar find={find} />}
-        <TranscriptContext find={countReveal ?? findReveal} sessionId={sessionId}>
-          <div
-            className="acpmux-spacer"
-            // The room held above the loaded rows for older history (conversation/olderReserve.ts).
-            data-older-room={layout.origin || undefined}
-            style={{
-              height: layout.totalHeight,
-              width: lane > 0 ? `calc(100% + ${lane}px)` : undefined,
-            }}
-          >
+          {find?.open && <ChatFindBar find={find} />}
+          <TranscriptContext find={countReveal ?? findReveal} sessionId={sessionId}>
             <div
-              ref={thread}
-              className="acpmux-thread"
-              style={{ top: `calc(${lift + topInset}px + var(--acpmux-scroll-origin, 0px))` }}
-              onPointerOver={(event) => pointAt(event.target)}
-              onPointerLeave={() => pointAt(null)}
+              className="acpmux-spacer"
+              // The room held above the loaded rows for older history (conversation/olderReserve.ts).
+              data-older-room={layout.origin || undefined}
+              style={{
+                height: layout.totalHeight,
+                width: lane > 0 ? `calc(100% + ${lane}px)` : undefined,
+              }}
             >
-              {mountedRanges.flatMap(({ first, last }) =>
-                rows.slice(first, last).map((row, index) => {
-                  const absoluteIndex = first + index;
-                  const next = nextDrawnRow(rows, absoluteIndex);
-                  const actions = hasReplyActions(row, next);
-                  const kind = rowKind(row);
-                  const Component = registry[kind] ?? NoticeRow;
-                  const isExpanded = row.foldOpen ?? expanded.has(row.id);
-                  const controls =
-                    row.kind === WORKED && isExpanded ? disclosureControls(rows, absoluteIndex + 1) : undefined;
-                  return (
-                    <RowFrame
-                      key={`${sessionId ?? ""}:${row.id}`}
-                      row={row}
-                      kind={kind}
-                      joinsPrevious={
-                        (isStepAt(rows, absoluteIndex) && isStepAt(rows, absoluteIndex - 1)) ||
-                        isLiveStep(row, prevDrawnRow(rows, absoluteIndex))
-                      }
-                      joinsNext={isStepAt(rows, absoluteIndex) && isStepAt(rows, absoluteIndex + 1)}
-                      beforeFooter={isBeforeFooter(row, next)}
-                      beforeIndicator={
-                        next !== undefined && rowMark(row) === MARK_PROMPT && rowMark(next) === MARK_INDICATOR
-                      }
-                      replyActions={keepsReplyRoom(row, next)}
-                      status={statusEdge(row, next, prevDrawnRow(rows, absoluteIndex))}
-                      lastFooter={isLastFooter(row, next)}
-                      finalFooter={row.id === finalFooter}
-                      continuationFooter={isContinuationFooter(row, next)}
-                      lastTurn={row.lastTurn === true}
-                      index={absoluteIndex}
-                      setSize={canLoadOlder ? -1 : rows.length}
-                      top={layout.geometry.topAt(absoluteIndex)}
-                      gapBelow={absoluteIndex + 1 < rows.length ? layout.geometry.gapAt(absoluteIndex + 1) : 0}
-                      rowWidth={scaledRowWidth}
-                      expanded={isExpanded}
-                      observer={observer}
-                      queueDrawn={queueDrawn}
-                      // A session switch is a load, not a live arrival. The reset effect runs after
-                      // this render, so gate it here as well to avoid a reused row id animating once.
-                      enter={!sessionChanged && enteringRows.current.has(row.id)}
-                      onEntered={onEntered}
-                      older={olderRows.current!.has(row.id) ? olderRows.current : undefined}
-                      onOlderShown={onOlderShown}
-                      active={effectiveActiveRowId === row.id}
-                      selected={selectedRows.has(absoluteIndex)}
-                      tabStop={tabStopId === row.id}
-                      onFocus={rowFocus}
-                      onRowKeyDown={handleRowKeyDown}
-                      contentType={Component}
-                      controls={controls}
-                      onToggleActivity={toggleRow}
-                      onOpenDiff={onOpenDiff}
-                      githubRepository={githubRepository ?? rowRepositories?.[absoluteIndex]}
-                      referenceScope={scopeAt(absoluteIndex)}
-                    >
-                      <Component
+              <div
+                ref={thread}
+                className="acpmux-thread"
+                style={{ top: `calc(${lift + topInset}px + var(--acpmux-scroll-origin, 0px))` }}
+                onPointerOver={(event) => pointAt(event.target)}
+                onPointerLeave={() => pointAt(null)}
+              >
+                {mountedRanges.flatMap(({ first, last }) =>
+                  rows.slice(first, last).map((row, index) => {
+                    const absoluteIndex = first + index;
+                    const next = nextDrawnRow(rows, absoluteIndex);
+                    const actions = hasReplyActions(row, next);
+                    const kind = rowKind(row);
+                    const Component = registry[kind] ?? NoticeRow;
+                    const isExpanded = row.foldOpen ?? expanded.has(row.id);
+                    const controls =
+                      row.kind === WORKED && isExpanded ? disclosureControls(rows, absoluteIndex + 1) : undefined;
+                    return (
+                      <RowFrame
+                        key={`${sessionId ?? ""}:${row.id}`}
                         row={row}
-                        replyActions={actions}
-                        sessionId={sessionId}
+                        kind={kind}
+                        joinsPrevious={
+                          (isStepAt(rows, absoluteIndex) && isStepAt(rows, absoluteIndex - 1)) ||
+                          isLiveStep(row, prevDrawnRow(rows, absoluteIndex))
+                        }
+                        joinsNext={isStepAt(rows, absoluteIndex) && isStepAt(rows, absoluteIndex + 1)}
+                        beforeFooter={isBeforeFooter(row, next)}
+                        beforeIndicator={
+                          next !== undefined && rowMark(row) === MARK_PROMPT && rowMark(next) === MARK_INDICATOR
+                        }
+                        replyActions={keepsReplyRoom(row, next)}
+                        status={statusEdge(row, next, prevDrawnRow(rows, absoluteIndex))}
+                        lastFooter={isLastFooter(row, next)}
+                        finalFooter={row.id === finalFooter}
+                        continuationFooter={isContinuationFooter(row, next)}
+                        lastTurn={row.lastTurn === true}
+                        index={absoluteIndex}
+                        setSize={canLoadOlder ? -1 : rows.length}
+                        top={layout.geometry.topAt(absoluteIndex)}
+                        gapBelow={absoluteIndex + 1 < rows.length ? layout.geometry.gapAt(absoluteIndex + 1) : 0}
+                        rowWidth={scaledRowWidth}
+                        expanded={isExpanded}
+                        observer={observer}
+                        queueDrawn={queueDrawn}
+                        // A session switch is a load, not a live arrival. The reset effect runs after
+                        // this render, so gate it here as well to avoid a reused row id animating once.
+                        enter={!sessionChanged && enteringRows.current.has(row.id)}
+                        onEntered={onEntered}
+                        older={olderRows.current!.has(row.id) ? olderRows.current : undefined}
+                        onOlderShown={onOlderShown}
+                        active={effectiveActiveRowId === row.id}
+                        selected={selectedRows.has(absoluteIndex)}
+                        tabStop={tabStopId === row.id}
+                        onFocus={rowFocus}
+                        onRowKeyDown={handleRowKeyDown}
+                        contentType={Component}
+                        controls={controls}
                         onToggleActivity={toggleRow}
                         onOpenDiff={onOpenDiff}
-                        expanded={isExpanded}
-                        controls={controls}
                         githubRepository={githubRepository ?? rowRepositories?.[absoluteIndex]}
-                      />
-                    </RowFrame>
-                  );
-                }),
-              )}
+                        referenceScope={scopeAt(absoluteIndex)}
+                      >
+                        <Component
+                          row={row}
+                          replyActions={actions}
+                          sessionId={sessionId}
+                          onToggleActivity={toggleRow}
+                          onOpenDiff={onOpenDiff}
+                          expanded={isExpanded}
+                          controls={controls}
+                          githubRepository={githubRepository ?? rowRepositories?.[absoluteIndex]}
+                        />
+                      </RowFrame>
+                    );
+                  }),
+                )}
+              </div>
             </div>
-          </div>
-        </TranscriptContext>
-      </div>
-      {afterLatest && (
-        <div
-          className="acpmux-transcript-after-latest"
-          // The dock is absolute over the stage. Keep an after-latest tray in flow above its
-          // measured room so the composer never covers the expansion or its live tail.
-          style={dockHeight > 0 ? { marginBottom: dockHeight } : undefined}
-        >
-          {afterLatest}
+          </TranscriptContext>
         </div>
-      )}
-      {jumpButton && (
-        <JumpToLatest
-          // The pill also shows at the latest message while the chats this chat started wait: it cycles to them.
-          shown={behind || (needsYou?.elsewhere ?? 0) > 0}
-          working={working}
-          onJump={(focused) => {
-            // One press, one move: to the latest message when this chat's ask waits there (or no
-            // ask is open), else straight to the next chat's ask.
-            // With no ask open it is Jump to latest, whatever the last render read for `behind`.
-            const asks = needsYou?.count ?? 0;
-            const here = asks - (needsYou?.elsewhere ?? 0);
-            const scroll = asks === 0 || (behind && here > 0);
-            if (scroll) jumpToLatest(focused);
-            if (needsYou && asks > 0) needsYou.next(scroll);
-          }}
-          lift={dockSpace}
-          needsYou={needsYou}
-        />
-      )}
+        {afterLatest && (
+          <div
+            className="acpmux-transcript-after-latest"
+            // The dock is absolute over the stage. Keep an after-latest tray in flow above its
+            // measured room so the composer never covers the expansion or its live tail.
+            style={dockHeight > 0 ? { marginBottom: dockHeight } : undefined}
+          >
+            {afterLatest}
+          </div>
+        )}
+        {jumpButton && (
+          <JumpToLatest
+            // The pill also shows at the latest message while the chats this chat started wait: it cycles to them.
+            shown={behind || (needsYou?.elsewhere ?? 0) > 0}
+            working={working}
+            onJump={(focused) => {
+              // One press, one move: to the latest message when this chat's ask waits there (or no
+              // ask is open), else straight to the next chat's ask.
+              // With no ask open it is Jump to latest, whatever the last render read for `behind`.
+              const asks = needsYou?.count ?? 0;
+              const here = asks - (needsYou?.elsewhere ?? 0);
+              const scroll = asks === 0 || (behind && here > 0);
+              if (scroll) jumpToLatest(focused);
+              if (needsYou && asks > 0) needsYou.next(scroll);
+            }}
+            lift={dockSpace}
+            needsYou={needsYou}
+          />
+        )}
+      </RetryTargetContext.Provider>
     </ReadOnlyBoundary>
   );
 }
