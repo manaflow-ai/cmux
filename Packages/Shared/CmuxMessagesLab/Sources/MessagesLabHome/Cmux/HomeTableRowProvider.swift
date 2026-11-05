@@ -8,22 +8,13 @@ import os
 /// row (CustomRows.swift, `.fullWidth`) like the Mermaid bubbles (``HomeDiagramRowProvider``).
 /// `HomeMapping.parts` cuts an agent's text at its tables (``HomeTableSplitter``): an assignment
 /// table becomes a plan card (``HomePlanRowProvider``), any other a table card with real column
-/// widths. Copy and VoiceOver read the table's Markdown as written. Debug Settings > Home > Rich
-/// tables off (``isOn``) maps tables as text again, in the bubble.
+/// widths. Copy and VoiceOver read the table's Markdown as written.
 final class HomeTableRowProvider: TranscriptCustomRowProvider {
     static let kind = "cmux.table"
 
     struct Payload: Codable, Hashable {
         var raw: String
         var table: HomeTable
-    }
-
-    // Lock carve-out: the mapping reads it on the loader queue and the main thread; a Bool.
-    private static let enabled = OSAllocatedUnfairLock(initialState: true)
-    /// Tables draw as cards (the host's Debug Settings value; default on).
-    static var isOn: Bool {
-        get { enabled.withLock { $0 } }
-        set { enabled.withLock { $0 = newValue } }
     }
 
     /// The registered provider (nil: tables stay text).

@@ -148,14 +148,6 @@ public final class MessagesLabHomeView: NSView {
         set { projection.notice = newValue }
     }
 
-    /// An agent's pipe tables draw as cards at the chat's full width, assignment tables as the
-    /// Chief's plan card (default on; Debug Settings > Home > Rich tables). Off, they stay Markdown
-    /// text in the bubble. Messages mapped after the change follow it.
-    public static var richTables: Bool {
-        get { HomeTableRowProvider.isOn }
-        set { HomeTableRowProvider.isOn = newValue }
-    }
-
     /// The Chief's live plan for the plan cards' state pills and owner links (the host copies its
     /// ``ChiefPlanBoard`` here whenever it changes).
     public static func publish(plan: ChiefPlan) {
