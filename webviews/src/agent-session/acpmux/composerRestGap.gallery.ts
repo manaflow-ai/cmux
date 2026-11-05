@@ -64,7 +64,7 @@ export default agentPaneEntry({
   area: "Agent pane",
   height: 520,
   widths: { narrow: 420, normal: 760, wide: 1100 },
-  covers: ["agent-session/acpmux/App.tsx#VirtualTranscript"],
+  covers: ["agent-session/acpmux/VirtualTranscript.tsx#VirtualTranscript"],
   variants: {
     "gap-40": variant(40, "40px: under two body lines. Tighter than Codex."),
     "gap-56": variant(56, "56px, shipped: about two and a half body lines, as Codex leaves under its action row."),

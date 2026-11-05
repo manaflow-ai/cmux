@@ -1,0 +1,5 @@
+# Names the Swift app writes in an acpmux method's shape that are not protocol methods
+# (scripts/ci/check-swift-acpmux-protocol.py). One per line: the name, then why. A `METHOD#param`
+# entry is a param key the agent pane's knownParams lets through that the method's typed params
+# lack. The check fails on a listed name that is no longer used or that the protocol now defines.
+acp.trust.peer-v1 an initialize extension name acpmux advertises in _meta.acpmux.extensions (AcpmuxPaneSocket), not a method

@@ -20,7 +20,7 @@ await requireBrowserLane("cloud-menu-highlight-browser.test.ts", async () => {
     ["agent-pane.composer-context", "folder-menu-keyboard", ".acpmux-folder-popover", false],
     ["agent-pane.composer", "access-menu", ".acpmux-access-menu", false],
     ["agent-pane.saved-environment-panel", "ssh-host-hover", ".acpmux-env-host-menu", false],
-    ["agent-pane.suggested-tasks", "options-menu-hover", ".acpmux-task-menu", false],
+    ["agent-pane.suggested-tasks", "options-model-menu", ".acpmux-task-menu", false],
   ] as const;
 
   beforeAll(async () => {

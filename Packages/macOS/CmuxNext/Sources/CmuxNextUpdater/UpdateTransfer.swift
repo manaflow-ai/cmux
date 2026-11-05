@@ -54,13 +54,16 @@ nonisolated public struct UpdateTransfer: Equatable, Sendable {
     /// 2026-11-05: "why is it that as the left number grows, it just keeps shifting?").
     public var bytesText: String? {
         guard stage == .downloading, let received = receivedBytes else { return nil }
-        guard let expected = expectedBytes, let fraction else { return Self.bytes(received, unit: Self.unit(for: received)) }
+        guard let expected = expectedBytes, expected > 0, fraction != nil else { return Self.bytes(received, unit: Self.unit(for: received)) }
         let unit = Self.unit(for: expected)
         let total = Self.bytes(expected, unit: unit)
         let got = Self.padded(Self.bytes(min(received, expected), unit: unit), toWidthOf: total)
         let percentStyle = FloatingPointFormatStyle<Double>.Percent().precision(.fractionLength(0))
-        // Floored, so it reads 100% only once every byte is in.
-        let percent = Self.padded((floor(fraction * 100) / 100).formatted(percentStyle), toWidthOf: 1.0.formatted(percentStyle))
+        // Whole percent from the byte counts, floored, so it reads 100% only once every byte is in. Integers:
+        // a Double fraction floored under-reads an exact one (29 of 50 is 57.999…%).
+        // The product is 128-bit (`multipliedFullWidth`), so the floor is exact at any size.
+        let percentage = expected.dividingFullWidth(min(received, expected).multipliedFullWidth(by: 100)).quotient
+        let percent = Self.padded((Double(percentage) / 100).formatted(percentStyle), toWidthOf: 1.0.formatted(percentStyle))
         return UpdaterStrings.downloadedOf(got, total, percent)
     }
 

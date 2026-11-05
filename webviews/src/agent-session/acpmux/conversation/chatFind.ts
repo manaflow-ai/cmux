@@ -17,6 +17,7 @@ import { fieldsText, inputFields, opensToFields } from "./toolInputFields";
 import { plainText } from "./messageMenu";
 import { drawnThought } from "./thoughts";
 import { callOutput, rowFailed, shellOutput, toolFailure } from "./toolFailure";
+import { agentCall } from "./agentCalls";
 import { toolResult } from "./toolResult";
 import { stripsEnvelopeImages } from "../toolImages";
 import { foldFind } from "../../../find/fold";
@@ -80,6 +81,13 @@ function drawnText(item: AcpmuxActivity): string {
     const fields = failure?.kind === "hook" || drawnAsCard(item, call) ? undefined : inputFields(call.args);
     return [fields ? fieldsText(fields, plainText) : prettyValue(call.args), text].filter(Boolean).join("\n");
   }
+  // A subagent's card draws its report, then its prompt (AgentCallCard.tsx); its line is a summary.
+  const agent = agentCall(tool);
+  if (agent)
+    return [agent.report, agent.prompt]
+      .filter(Boolean)
+      .map((text) => plainText(text!))
+      .join("\n");
   const shell = tool.kind === "execute" && Boolean(tool.command);
   // A shell draws its output without Claude Code's leading "Exit code N" line (toolFailure.ts), which
   // its Shell block says once, at its end. Other output reads as ToolRow draws it: out of its envelope,
