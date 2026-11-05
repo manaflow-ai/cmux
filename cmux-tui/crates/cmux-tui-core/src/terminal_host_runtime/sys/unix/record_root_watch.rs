@@ -4,35 +4,53 @@
 //! adopts it from its record. A host whose record directory is removed (a
 //! throwaway `HOME` deleted after a run, a wiped state directory) can never
 //! be discovered again, so it would hold its PTY and shell until reboot. One
-//! thread blocks on a kernel event for the directory's removal (kqueue
-//! `EVFILT_VNODE` `NOTE_DELETE` on macOS, inotify `IN_DELETE_SELF` on Linux)
-//! and reports it once. Nothing polls; the thread ends with the event or
-//! with the process.
+//! thread blocks on kernel events for the directory's removal or rename and
+//! reports it once. Nothing polls: after every event the directory's
+//! identity is read again (event order is not trusted), and the thread ends
+//! with the removal or with the process.
+//!
+//! - macOS: kqueue `EVFILT_VNODE` (`NOTE_DELETE`, `NOTE_RENAME`,
+//!   `NOTE_REVOKE`) on the directory, posted at the `rmdir` itself.
+//! - Linux: inotify `IN_DELETE` / `IN_MOVED_FROM` on the parent for the
+//!   directory's name, plus `IN_DELETE_SELF` / `IN_MOVE_SELF` on the
+//!   directory. The parent's event is the one that matters: the host keeps
+//!   files open inside the directory (its PTY lock, its lease), and an open
+//!   child pins the directory's dentry, so the kernel holds the directory's
+//!   own `IN_DELETE_SELF` back until the host exits.
 
 use std::io;
 use std::os::unix::fs::MetadataExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// Runs `on_removed` once, on a thread of its own, when the directory `dir`
-/// is removed (at once when it is already gone or replaced by the time the
-/// watch is armed). An error when the watch cannot start; the host then
-/// keeps today's behavior.
+/// is removed or renamed away (at once when it is already gone or replaced
+/// by the time the watch is armed). An error only when the watch cannot
+/// start for another reason; the host then keeps today's behavior.
 pub(crate) fn follow_record_root_removal(
     dir: &Path,
     on_removed: impl FnOnce() + Send + 'static,
 ) -> io::Result<()> {
-    let watch = Watch::arm(dir)?;
-    std::thread::Builder::new().name("terminal-host-record-root".into()).spawn(
-        move || match watch.wait() {
+    let watch = match identity(dir) {
+        // Gone between publication and here: it is already removed.
+        None => None,
+        Some(before) => Some(Watch::arm(dir, before)?),
+    };
+    std::thread::Builder::new().name("terminal-host-record-root".into()).spawn(move || {
+        let Some(watch) = watch else { return on_removed() };
+        match watch.wait() {
             Ok(()) => on_removed(),
             Err(error) => eprintln!("terminal-host: the record directory watch ended: {error}"),
-        },
-    )?;
+        }
+    })?;
     Ok(())
 }
 
+/// The directory's (device, inode), or `None` when no directory is there.
 fn identity(path: &Path) -> Option<(u64, u64)> {
-    std::fs::metadata(path).ok().filter(|meta| meta.is_dir()).map(|meta| (meta.dev(), meta.ino()))
+    std::fs::symlink_metadata(path)
+        .ok()
+        .filter(|meta| meta.is_dir())
+        .map(|meta| (meta.dev(), meta.ino()))
 }
 
 fn cstring(path: &Path) -> io::Result<std::ffi::CString> {
@@ -46,20 +64,17 @@ struct Watch {
     /// The directory's descriptor the kqueue filter watches (macOS only).
     #[cfg(target_vendor = "apple")]
     _dir: std::os::fd::OwnedFd,
-    /// The directory was gone or replaced when the watch was armed.
-    gone_at_arm: bool,
-    #[allow(dead_code)]
-    path: PathBuf,
+    path: std::path::PathBuf,
+    before: (u64, u64),
 }
 
 impl Watch {
     #[cfg(target_vendor = "apple")]
-    fn arm(dir: &Path) -> io::Result<Self> {
+    fn arm(dir: &Path, before: (u64, u64)) -> io::Result<Self> {
         use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
-        let before = identity(dir).ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))?;
         let path = cstring(dir)?;
-        // SAFETY: open with a NUL-terminated path; O_EVTONLY keeps the
-        // volume unmountable and grants no read access.
+        // SAFETY: open with a NUL-terminated path; O_EVTONLY grants no read
+        // access and does not keep the volume from unmounting.
         let fd = unsafe {
             libc::open(path.as_ptr(), libc::O_EVTONLY | libc::O_DIRECTORY | libc::O_CLOEXEC)
         };
@@ -80,29 +95,20 @@ impl Watch {
         change.ident = dir_fd.as_raw_fd() as libc::uintptr_t;
         change.filter = libc::EVFILT_VNODE;
         change.flags = libc::EV_ADD | libc::EV_CLEAR;
-        change.fflags = libc::NOTE_DELETE | libc::NOTE_REVOKE;
-        // SAFETY: one change on a descriptor this function owns; no events out.
+        change.fflags = libc::NOTE_DELETE | libc::NOTE_RENAME | libc::NOTE_REVOKE;
+        // SAFETY: one change on descriptors this function owns; no events out.
         if unsafe {
             libc::kevent(queue.as_raw_fd(), &change, 1, std::ptr::null_mut(), 0, std::ptr::null())
         } < 0
         {
             return Err(io::Error::last_os_error());
         }
-        // The descriptor names the directory that was there at `before`: a
-        // removal between the stat and the open shows as a new identity.
-        // SAFETY: fstat on a descriptor this function owns.
-        let mut stat: libc::stat = unsafe { std::mem::zeroed() };
-        let opened = (unsafe { libc::fstat(dir_fd.as_raw_fd(), &mut stat) } == 0)
-            .then(|| (stat.st_dev as u64, stat.st_ino as u64));
-        let gone_at_arm = opened != Some(before) || identity(dir) != Some(before);
-        Ok(Self { queue, _dir: dir_fd, gone_at_arm, path: dir.to_path_buf() })
+        Ok(Self { queue, _dir: dir_fd, path: dir.to_path_buf(), before })
     }
 
     #[cfg(target_os = "linux")]
-    fn arm(dir: &Path) -> io::Result<Self> {
+    fn arm(dir: &Path, before: (u64, u64)) -> io::Result<Self> {
         use std::os::fd::{FromRawFd, OwnedFd};
-        let before = identity(dir).ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))?;
-        let path = cstring(dir)?;
         // SAFETY: inotify_init1 takes flags only.
         let fd = unsafe { libc::inotify_init1(libc::IN_CLOEXEC) };
         if fd < 0 {
@@ -110,30 +116,45 @@ impl Watch {
         }
         // SAFETY: inotify_init1 returned a fresh descriptor this process owns.
         let queue = unsafe { OwnedFd::from_raw_fd(fd) };
-        // SAFETY: a valid inotify descriptor and a NUL-terminated path.
-        let watch = unsafe {
-            libc::inotify_add_watch(fd, path.as_ptr(), libc::IN_DELETE_SELF | libc::IN_ONLYDIR)
-        };
-        if watch < 0 {
-            let error = io::Error::last_os_error();
-            if error.raw_os_error() == Some(libc::ENOENT) {
-                return Ok(Self { queue, gone_at_arm: true, path: dir.to_path_buf() });
+        let add = |path: &Path, mask: u32| -> io::Result<()> {
+            let path = cstring(path)?;
+            // SAFETY: a valid inotify descriptor and a NUL-terminated path.
+            if unsafe { libc::inotify_add_watch(fd, path.as_ptr(), mask) } < 0 {
+                let error = io::Error::last_os_error();
+                // Gone already: the identity check after arming reports it.
+                if error.raw_os_error() != Some(libc::ENOENT) {
+                    return Err(error);
+                }
             }
-            return Err(error);
+            Ok(())
+        };
+        if let Some(parent) = dir.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+            add(
+                parent,
+                libc::IN_DELETE
+                    | libc::IN_MOVED_FROM
+                    | libc::IN_DELETE_SELF
+                    | libc::IN_MOVE_SELF
+                    | libc::IN_ONLYDIR,
+            )?;
         }
-        // The watch is on whatever directory the path named at the call: a
-        // removal after the stat shows as a new or missing identity.
-        let gone_at_arm = identity(dir) != Some(before);
-        Ok(Self { queue, gone_at_arm, path: dir.to_path_buf() })
+        add(dir, libc::IN_DELETE_SELF | libc::IN_MOVE_SELF | libc::IN_ONLYDIR)?;
+        Ok(Self { queue, path: dir.to_path_buf(), before })
     }
 
-    /// Block until the directory is removed.
+    fn removed(&self) -> bool {
+        identity(&self.path) != Some(self.before)
+    }
+
+    /// Block until the directory is removed, renamed away or replaced.
     fn wait(self) -> io::Result<()> {
         use std::os::fd::AsRawFd;
-        if self.gone_at_arm {
-            return Ok(());
-        }
         loop {
+            // Watches are armed before this check, so a removal between the
+            // caller's identity read and here is never missed.
+            if self.removed() {
+                return Ok(());
+            }
             #[cfg(target_vendor = "apple")]
             let ready = {
                 // SAFETY: a zeroed kevent is a valid output buffer.
@@ -152,20 +173,19 @@ impl Watch {
             };
             #[cfg(target_os = "linux")]
             let ready = {
-                let mut buffer = [0_u8; 1024];
+                let mut buffer = [0_u8; 4096];
                 // SAFETY: the buffer outlives the call and its length is
-                // passed. The only event watched is IN_DELETE_SELF (and the
-                // IN_IGNORED that follows it).
+                // passed. The events' content is not needed: the identity
+                // check above decides.
                 unsafe {
                     libc::read(self.queue.as_raw_fd(), buffer.as_mut_ptr().cast(), buffer.len())
                 }
             };
-            if ready > 0 {
-                return Ok(());
-            }
-            let error = io::Error::last_os_error();
-            if ready < 0 && error.kind() != io::ErrorKind::Interrupted {
-                return Err(error);
+            if ready < 0 {
+                let error = io::Error::last_os_error();
+                if error.kind() != io::ErrorKind::Interrupted {
+                    return Err(error);
+                }
             }
         }
     }
@@ -173,26 +193,33 @@ impl Watch {
 
 #[cfg(test)]
 mod tests {
+    use std::fs::File;
     use std::sync::mpsc;
     use std::time::Duration;
 
     use super::*;
 
-    fn scratch(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "cmux-record-root-{name}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |elapsed| elapsed.as_nanos())
-        ));
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir()
+            .join(format!(
+                "cmux-record-root-{name}-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |elapsed| elapsed.as_nanos())
+            ))
+            .join("records");
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }
 
+    /// The host keeps files open inside its record directory (its PTY lock,
+    /// its lease); the removal is still reported at once (on Linux the
+    /// directory's own IN_DELETE_SELF waits until those files close).
     #[test]
     fn removing_the_directory_reports_once_and_a_write_in_it_does_not() {
         let dir = scratch("removed");
+        let held = File::create(dir.join("t.pty.lock")).unwrap();
         let (tx, rx) = mpsc::channel();
         follow_record_root_removal(&dir, move || tx.send(()).unwrap()).unwrap();
         // Records are written and replaced inside the directory all the time.
@@ -200,14 +227,28 @@ mod tests {
         std::fs::rename(dir.join("a.json.tmp"), dir.join("a.json")).unwrap();
         std::fs::remove_file(dir.join("a.json")).unwrap();
         assert!(rx.recv_timeout(Duration::from_millis(300)).is_err(), "a write reported removal");
-        std::fs::remove_dir_all(&dir).unwrap();
+        std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
         rx.recv_timeout(Duration::from_secs(5)).expect("the removal was not reported");
+        drop(held);
     }
 
     #[test]
-    fn a_directory_gone_before_the_watch_cannot_be_watched() {
+    fn a_directory_renamed_away_is_reported() {
+        let dir = scratch("renamed");
+        let _held = File::create(dir.join("t.live")).unwrap();
+        let (tx, rx) = mpsc::channel();
+        follow_record_root_removal(&dir, move || tx.send(()).unwrap()).unwrap();
+        std::fs::rename(&dir, dir.with_file_name("moved")).unwrap();
+        rx.recv_timeout(Duration::from_secs(5)).expect("the rename was not reported");
+        std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn a_directory_gone_before_the_watch_is_reported_at_once() {
         let dir = scratch("gone");
-        std::fs::remove_dir_all(&dir).unwrap();
-        assert!(follow_record_root_removal(&dir, || {}).is_err());
+        std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
+        let (tx, rx) = mpsc::channel();
+        follow_record_root_removal(&dir, move || tx.send(()).unwrap()).unwrap();
+        rx.recv_timeout(Duration::from_secs(5)).expect("a gone directory was not reported");
     }
 }
