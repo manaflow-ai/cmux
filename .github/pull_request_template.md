@@ -7,7 +7,7 @@
 
 ## Leaned on
 
-<!-- Optional. Delete this section when nothing applies; it is never a gate. When a sourced perspective decided a choice in this change (a lens in cmuxterm-hq lenses/, a doc, a talk, a post), write one line per choice: the lens or source, its URL, and the decision it shaped.
+<!-- Optional. Delete this section when nothing applies; it is never a gate. When a sourced perspective decided a choice in this change (a design lens, a doc, a talk, a post), write one line per choice: the lens or source, its URL, and the decision it shaped.
 Example: - Kenton Varda: https://blog.cloudflare.com/introducing-workers-durable-objects/ — one Durable Object per machine, not per team -->
 
 ## Testing
