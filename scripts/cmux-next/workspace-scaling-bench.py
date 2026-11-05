@@ -4,7 +4,8 @@
 The bench deliberately reuses the existing NEXT probes (new surfaces, sidebar stress and
 automation typing).  It emits one row per interaction and workspace count, including p50/p95/p99,
 then prints an advisory warning when the 1000-workspace p95 is more than 10% above the one-workspace
-value.  Warnings never fail the job: this is a trend budget, not a merge gate.
+value.  Warnings never fail the job: this is a trend budget, not a merge gate.  The one-workspace
+switch row is present but explicitly marked undefined because there is no second workspace to select.
 
 For report-only use (and unit tests), pass ``--instant-report``, ``--sidebar-report`` and
 ``--typing-report``.  With ``--app`` the three probes are run for each count and their reports are
@@ -135,6 +136,10 @@ def collect(reports):
         merged.update(instant_rows(docs.get("instant"), count))
         merged.update(sidebar_rows(docs.get("sidebar"), docs.get("sidebar_count", count)))
         merged.update(typing_rows(docs.get("typing"), count))
+        if count == 1 and "switch" not in merged:
+            # A single workspace cannot switch to a different workspace. Keep the row in the
+            # fixed 5-interaction x 3-topology schema while excluding it from ratio warnings.
+            merged["switch"] = {"p50": None, "p95": None, "p99": None, "n": 0, "status": "undefined"}
         for interaction, values in merged.items():
             rows.append({"name": f"workspace_scaling.{interaction}.{count}", "interaction": interaction,
                          "workspaces": count, "unit": "ms", "budget": None, "floor": 1.0, **values})
@@ -219,9 +224,23 @@ def main():
     if opts.app:
         reports, failures = run_app(opts)
     else:
-        for count, instant, sidebar, typing in zip(COUNTS, opts.instant_report, opts.sidebar_report, opts.typing_report):
-            reports[count] = {"instant": json.load(open(instant)), "sidebar": json.load(open(sidebar)),
-                              "typing": json.load(open(typing))}
+        paths = {"instant": opts.instant_report, "sidebar": opts.sidebar_report, "typing": opts.typing_report}
+        for probe, values in paths.items():
+            if len(values) != len(COUNTS):
+                failures.append({"probe": probe, "expected_reports": len(COUNTS), "actual_reports": len(values)})
+        for index, count in enumerate(COUNTS):
+            reports[count] = {}
+            for probe, values in paths.items():
+                if index >= len(values):
+                    reports[count][probe] = {}
+                    continue
+                try:
+                    with open(values[index]) as handle:
+                        reports[count][probe] = json.load(handle)
+                except (OSError, json.JSONDecodeError) as error:
+                    failures.append({"workspaces": count, "probe": probe, "report": values[index],
+                                     "error": str(error)})
+                    reports[count][probe] = {}
     rows = collect(reports)
     warnings = scaling_warnings(rows)
     result = {"workspaces": list(COUNTS), "rows": rows, "warnings": warnings, "incomplete": failures,
