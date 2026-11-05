@@ -246,6 +246,47 @@ test("the machine row says where the chat runs: Local, SSH or Cloud beside the m
   ]);
 });
 
+// Leo, 2026-11-05, on a "Claude Code · Opus 5.5" line over every reply: "why does it even show that
+// ... like we know what it is ... giving tmi". The transcript draws it only where it changes; the
+// chat's agent stays in Environment, its whole facts on hover.
+test("a Claude Code chat's agent row says what it runs on, its version at the end and the rest on hover", async () => {
+  const container = installDom();
+  root = createRoot(container);
+  const summary = {
+    sessionId: "s",
+    cwd: SCRATCHPAD,
+    sessionStart: {
+      agent: "claude",
+      version: "2.1.312",
+      model: "claude-opus-5-5",
+      harness: "claude",
+      cwd: "/Users/leo/Projects",
+    },
+  } as Summary;
+  await act(async () => root!.render(<EnvironmentSection summary={summary} machineName="studio-mac" />));
+  const rows = [...container.querySelectorAll<HTMLElement>("li.acpmux-session-info-row")];
+  const agent = rows[1]!;
+  expect(agent.querySelector(".acpmux-session-info-row__name")?.textContent).toBe(
+    [translate("sessionStart.agent"), "Opus 5.5"].join(" · "),
+  );
+  expect(agent.querySelector(".acpmux-session-info-row__end")?.textContent).toBe("2.1.312");
+  expect(agent.getAttribute("title")).toBe(
+    [
+      translate("sessionStart.claudeCode", { version: "2.1.312" }),
+      "claude-opus-5-5",
+      translate("sessionStart.route.own"),
+      "~/Projects",
+    ].join(" · "),
+  );
+  // A chat whose agent said nothing of itself (Codex) has no agent row.
+  await act(async () =>
+    root!.render(
+      <EnvironmentSection summary={{ sessionId: "s", cwd: SCRATCHPAD } as Summary} machineName="studio-mac" />,
+    ),
+  );
+  expect(container.querySelectorAll("li.acpmux-session-info-row")).toHaveLength(1);
+});
+
 test("a Cloud chat says plainly what its machine is and how long its files last; a local or SSH chat does not", async () => {
   const container = installDom();
   root = createRoot(container);
