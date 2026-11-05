@@ -2,6 +2,7 @@ import { type StringKey, translate } from "../i18n";
 import { servesOperation } from "../operations";
 import type { AcpmuxRequestName } from "../protocol/generated/methods";
 import type * as Wire from "../protocol/generated/types";
+import { invalidReply } from "../invalidReply";
 
 export const PERMISSION_GROUP_OPS = {
   groups: "_acpmux/permission_groups",
@@ -40,32 +41,32 @@ export function supportsPermissionGroups(initialized: unknown): boolean {
 }
 
 function record(value: unknown, message: StringKey = "error.invalid.permissionResponse"): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(translate(message));
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw invalidReply(message);
   return value as Record<string, unknown>;
 }
 
 function nonemptyText(value: unknown, field: string): string {
   if (typeof value !== "string" || value.length === 0)
-    throw new Error(translate("error.invalid.permissionField", { field }));
+    throw invalidReply("error.invalid.permissionField", { field });
   return value;
 }
 
 function integer(value: unknown, field: string): number {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0)
-    throw new Error(translate("error.invalid.permissionField", { field }));
+    throw invalidReply("error.invalid.permissionField", { field });
   return value;
 }
 
 function decision(value: unknown): PermissionDecision {
   if (value !== "allow_once" && value !== "allow_chat" && value !== "deny")
-    throw new Error(translate("error.invalid.permissionDecision"));
+    throw invalidReply("error.invalid.permissionDecision");
   return value;
 }
 
 function uniqueDecisions(value: unknown): PermissionDecision[] {
-  if (!Array.isArray(value)) throw new Error(translate("error.invalid.permissionDecisions"));
+  if (!Array.isArray(value)) throw invalidReply("error.invalid.permissionDecisions");
   const choices = value.map(decision);
-  if (new Set(choices).size !== choices.length) throw new Error(translate("error.invalid.permissionDecisions"));
+  if (new Set(choices).size !== choices.length) throw invalidReply("error.invalid.permissionDecisions");
   return choices;
 }
 
@@ -73,13 +74,13 @@ function group(value: unknown): PermissionGroup {
   const raw = record(value);
   const state = raw.state;
   if (!(["collecting", "pending", "resolved", "cancelled"] as const).includes(state as PermissionGroupState))
-    throw new Error(translate("error.invalid.permissionGroupState"));
-  if (!Array.isArray(raw.items)) throw new Error(translate("error.invalid.permissionGroupItems"));
+    throw invalidReply("error.invalid.permissionGroupState");
+  if (!Array.isArray(raw.items)) throw invalidReply("error.invalid.permissionGroupItems");
   const items = raw.items.map((entry) => {
     const item = record(entry, "error.invalid.permissionItem");
     const itemState = item.state;
     if (!(["pending", "resolved", "cancelled"] as const).includes(itemState as PermissionItemState))
-      throw new Error(translate("error.invalid.permissionItemState"));
+      throw invalidReply("error.invalid.permissionItemState");
     return {
       permissionId: nonemptyText(item.permissionId, "permission id"),
       request: record(item.request, "error.invalid.permissionRequest"),
@@ -105,22 +106,22 @@ export function permissionGroup(value: unknown): PermissionGroup {
 
 export function permissionGroups(value: unknown): PermissionGroupList {
   const raw = record(value);
-  if (!Array.isArray(raw.groups)) throw new Error(translate("error.invalid.permissionGroups"));
+  if (!Array.isArray(raw.groups)) throw invalidReply("error.invalid.permissionGroups");
   const allowance = record(raw.chatAllowance, "error.invalid.permissionAllowance");
   if (typeof allowance.active !== "boolean" || allowance.expires !== "session_stop_or_daemon_restart")
-    throw new Error(translate("error.invalid.permissionAllowance"));
+    throw invalidReply("error.invalid.permissionAllowance");
   const coverage = record(raw.coverage, "error.invalid.permissionCoverage");
   if (
     coverage.label !== "acp_requests_only" ||
     coverage.isolation !== "unverified" ||
     typeof coverage.detail !== "string"
   )
-    throw new Error(translate("error.invalid.permissionCoverage"));
+    throw invalidReply("error.invalid.permissionCoverage");
   const batching = record(raw.batching, "error.invalid.permissionBatching");
   let allowRefused: string | undefined;
   if (typeof raw.allowRefused === "string") allowRefused = raw.allowRefused;
   else if (raw.allowRefused !== undefined && raw.allowRefused !== null)
-    throw new Error(translate("error.invalid.permissionGroups"));
+    throw invalidReply("error.invalid.permissionGroups");
   return {
     ...(allowRefused === undefined ? {} : { allowRefused }),
     groups: raw.groups.map(group),
@@ -137,13 +138,13 @@ export function permissionGroups(value: unknown): PermissionGroupList {
 
 export function permissionGroupReceipt(value: unknown): PermissionGroupReceipt {
   const raw = record(value);
-  if (typeof raw.replayed !== "boolean") throw new Error(translate("error.invalid.permissionReceipt"));
+  if (typeof raw.replayed !== "boolean") throw invalidReply("error.invalid.permissionReceipt");
   return { group: group(raw.group), replayed: raw.replayed };
 }
 
 export function permissionChatRevokeReceipt(value: unknown): PermissionChatRevokeReceipt {
   const raw = record(value);
-  if (raw.active !== false) throw new Error(translate("error.invalid.permissionRevokeReceipt"));
+  if (raw.active !== false) throw invalidReply("error.invalid.permissionRevokeReceipt");
   return { active: false };
 }
 

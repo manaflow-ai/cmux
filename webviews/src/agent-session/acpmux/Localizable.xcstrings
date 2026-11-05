@@ -73334,6 +73334,7 @@
         }
       }
     },
+    "error.versionMismatch": {"comment":"Agent pane: an agent service reply this app can't read (the app and its service are different versions); the error's own reason stays in its details","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This cmux and its agent service are different versions. Update cmux, then try again."}},"ar":{"stringUnit":{"state":"needs_review","value":"إصدار cmux هذا وخدمة الوكلاء التابعة له مختلفان. حدّث cmux، ثم أعد المحاولة."}},"bs":{"stringUnit":{"state":"needs_review","value":"Ovaj cmux i njegov servis agenata su različite verzije. Ažurirajte cmux, pa pokušajte ponovo."}},"da":{"stringUnit":{"state":"needs_review","value":"Denne cmux og dens agenttjeneste er forskellige versioner. Opdater cmux, og prøv igen."}},"de":{"stringUnit":{"state":"needs_review","value":"Dieses cmux und sein Agentendienst haben verschiedene Versionen. Aktualisiere cmux und versuche es erneut."}},"es":{"stringUnit":{"state":"needs_review","value":"Este cmux y su servicio de agentes son de versiones distintas. Actualiza cmux y vuelve a intentarlo."}},"fr":{"stringUnit":{"state":"needs_review","value":"Ce cmux et son service d’agents ne sont pas de la même version. Mettez cmux à jour, puis réessayez."}},"it":{"stringUnit":{"state":"needs_review","value":"Questo cmux e il suo servizio agenti sono versioni diverse. Aggiorna cmux, poi riprova."}},"ja":{"stringUnit":{"state":"needs_review","value":"この cmux とエージェントサービスのバージョンが異なります。cmux をアップデートしてから、もう一度お試しください。"}},"km":{"stringUnit":{"state":"needs_review","value":"cmux នេះ និងសេវាភ្នាក់ងាររបស់វាជាកំណែខុសគ្នា។ អាប់ដេត cmux រួចព្យាយាមម្តងទៀត។"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 cmux와 에이전트 서비스의 버전이 다릅니다. cmux를 업데이트한 다음 다시 시도하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Denne cmux og agenttjenesten dens er forskjellige versjoner. Oppdater cmux, og prøv igjen."}},"pl":{"stringUnit":{"state":"needs_review","value":"Ten cmux i jego usługa agentów to różne wersje. Zaktualizuj cmux, a potem spróbuj ponownie."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Este cmux e seu serviço de agentes são de versões diferentes. Atualize o cmux e tente de novo."}},"ru":{"stringUnit":{"state":"needs_review","value":"Версии этого cmux и его службы агентов не совпадают. Обновите cmux и повторите попытку."}},"th":{"stringUnit":{"state":"needs_review","value":"cmux นี้กับบริการเอเจนต์เป็นคนละเวอร์ชัน อัปเดต cmux แล้วลองอีกครั้ง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu cmux ile ajan hizmeti farklı sürümlerde. cmux'u güncelleyin, sonra yeniden deneyin."}},"uk":{"stringUnit":{"state":"needs_review","value":"Версії цього cmux і його служби агентів різняться. Оновіть cmux і спробуйте ще раз."}},"vi":{"stringUnit":{"state":"needs_review","value":"cmux này và dịch vụ tác tử của nó khác phiên bản. Hãy cập nhật cmux rồi thử lại."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"此 cmux 与其代理服务版本不同。请更新 cmux，然后重试。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"此 cmux 與其代理服務版本不同。請更新 cmux，然後重試。"}}}},
     "error.interrupted": {
       "comment": "Agent pane",
       "extractionState": "manual",
@@ -73341,127 +73342,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "انقطع الاتصال بالوكيل. اقرأ حالته المحفوظة قبل إعادة المحاولة."
+            "value": "انقطع الاتصال بالوكيل. تحقّق من المحادثة، ثم أعد المحاولة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Veza s agentom je prekinuta. Pročitajte njegovo spremljeno stanje prije ponovnog pokušaja."
+            "value": "Veza s agentom je prekinuta. Provjerite chat, pa pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Agentforbindelsen blev afbrudt. Læs dens gemte tilstand, før du prøver igen."
+            "value": "Forbindelsen til agenten blev afbrudt. Tjek chatten, og prøv igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Die Verbindung zum Agent wurde unterbrochen. Lies den gespeicherten Zustand, bevor du es erneut versuchst."
+            "value": "Die Verbindung zum Agenten wurde unterbrochen. Prüfe den Chat und versuche es erneut."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The agent connection was interrupted. Read its saved state before retrying."
+            "value": "The connection to the agent dropped. Check the chat, then try again."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La conexión con el agente se interrumpió. Consulta su estado guardado antes de reintentar."
+            "value": "Se cortó la conexión con el agente. Revisa el chat y vuelve a intentarlo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La connexion à l’agent a été interrompue. Consultez son état enregistré avant de réessayer."
+            "value": "La connexion à l’agent a été coupée. Vérifiez la discussion, puis réessayez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La connessione all’agente è stata interrotta. Leggi lo stato salvato prima di riprovare."
+            "value": "La connessione all’agente si è interrotta. Controlla la chat, poi riprova."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "エージェントとの接続が中断されました。再試行する前に保存された状態を確認してください。"
+            "value": "エージェントとの接続が切れました。チャットを確認してから、もう一度お試しください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ការតភ្ជាប់ទៅភ្នាក់ងារត្រូវបានរំខាន។ សូមអានស្ថានភាពដែលបានរក្សាទុករបស់វា មុនពេលព្យាយាមម្តងទៀត។"
+            "value": "ការតភ្ជាប់ទៅភ្នាក់ងារបានដាច់។ ពិនិត្យការជជែក រួចព្យាយាមម្តងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "에이전트 연결이 중단되었습니다. 다시 시도하기 전에 저장된 상태를 확인하세요."
+            "value": "에이전트와의 연결이 끊겼습니다. 채팅을 확인한 다음 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Agenttilkoblingen ble avbrutt. Les den lagrede tilstanden før du prøver igjen."
+            "value": "Forbindelsen til agenten ble brutt. Sjekk chatten, og prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Połączenie z agentem zostało przerwane. Przed ponowieniem odczytaj zapisany stan."
+            "value": "Połączenie z agentem zostało przerwane. Sprawdź czat, a potem spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "A conexão com o agente foi interrompida. Leia o estado salvo antes de tentar novamente."
+            "value": "A conexão com o agente caiu. Confira o chat e tente de novo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Соединение с агентом прервано. Перед повтором прочитайте его сохранённое состояние."
+            "value": "Соединение с агентом прервалось. Проверьте чат и повторите попытку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "การเชื่อมต่อกับเอเจนต์ถูกขัดจังหวะ อ่านสถานะที่บันทึกไว้ก่อนลองอีกครั้ง"
+            "value": "การเชื่อมต่อกับเอเจนต์หลุด ตรวจสอบแชท แล้วลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ajan bağlantısı kesildi. Yeniden denemeden önce kayıtlı durumunu okuyun."
+            "value": "Ajanla bağlantı koptu. Sohbeti kontrol edin, sonra yeniden deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "З’єднання з агентом перервано. Перед повтором прочитайте його збережений стан."
+            "value": "З’єднання з агентом обірвалося. Перевірте чат і спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kết nối với tác tử đã bị gián đoạn. Hãy đọc trạng thái đã lưu trước khi thử lại."
+            "value": "Kết nối với tác tử bị ngắt. Hãy kiểm tra cuộc trò chuyện rồi thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "智能体连接已中断。重试前请先读取其已保存的状态。"
+            "value": "与代理的连接已断开。请查看聊天，然后重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "代理連線已中斷。重試前請先讀取其已儲存的狀態。"
+            "value": "與代理的連線已中斷。請查看聊天，然後重試。"
           }
         }
       }
@@ -74529,127 +74530,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "انتهت مهلة طلب الوكيل. اقرأ حالته المحفوظة قبل إعادة المحاولة."
+            "value": "لم يستجب الوكيل في الوقت المحدد. تحقّق من المحادثة، ثم أعد المحاولة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zahtjev agentu je istekao. Pročitajte njegovo spremljeno stanje prije ponovnog pokušaja."
+            "value": "Agent nije odgovorio na vrijeme. Provjerite chat, pa pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Agentanmodningen fik timeout. Læs dens gemte tilstand, før du prøver igen."
+            "value": "Agenten svarede ikke i tide. Tjek chatten, og prøv igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Die Agent-Anfrage hat das Zeitlimit überschritten. Lies den gespeicherten Zustand, bevor du es erneut versuchst."
+            "value": "Der Agent hat nicht rechtzeitig geantwortet. Prüfe den Chat und versuche es erneut."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The agent request timed out. Read its saved state before retrying."
+            "value": "The agent didn't answer in time. Check the chat, then try again."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La solicitud al agente agotó el tiempo de espera. Consulta su estado guardado antes de reintentar."
+            "value": "El agente no respondió a tiempo. Revisa el chat y vuelve a intentarlo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La requête à l’agent a expiré. Consultez son état enregistré avant de réessayer."
+            "value": "L’agent n’a pas répondu à temps. Vérifiez la discussion, puis réessayez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La richiesta all’agente è scaduta. Leggi lo stato salvato prima di riprovare."
+            "value": "L’agente non ha risposto in tempo. Controlla la chat, poi riprova."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "エージェントへのリクエストがタイムアウトしました。再試行する前に保存された状態を確認してください。"
+            "value": "エージェントが時間内に応答しませんでした。チャットを確認してから、もう一度お試しください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "សំណើទៅភ្នាក់ងារអស់ពេល។ សូមអានស្ថានភាពដែលបានរក្សាទុករបស់វា មុនពេលព្យាយាមម្តងទៀត។"
+            "value": "ភ្នាក់ងារមិនបានឆ្លើយតបទាន់ពេលទេ។ ពិនិត្យការជជែក រួចព្យាយាមម្តងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "에이전트 요청 시간이 초과되었습니다. 다시 시도하기 전에 저장된 상태를 확인하세요."
+            "value": "에이전트가 제시간에 응답하지 않았습니다. 채팅을 확인한 다음 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Agentforespørselen fikk tidsavbrudd. Les den lagrede tilstanden før du prøver igjen."
+            "value": "Agenten svarte ikke i tide. Sjekk chatten, og prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Żądanie do agenta przekroczyło limit czasu. Przed ponowieniem odczytaj zapisany stan."
+            "value": "Agent nie odpowiedział na czas. Sprawdź czat, a potem spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "A solicitação ao agente expirou. Leia o estado salvo antes de tentar novamente."
+            "value": "O agente não respondeu a tempo. Confira o chat e tente de novo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Время ожидания запроса к агенту истекло. Перед повтором прочитайте его сохранённое состояние."
+            "value": "Агент не ответил вовремя. Проверьте чат и повторите попытку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "คำขอไปยังเอเจนต์หมดเวลา อ่านสถานะที่บันทึกไว้ก่อนลองอีกครั้ง"
+            "value": "เอเจนต์ไม่ตอบกลับภายในเวลาที่กำหนด ตรวจสอบแชท แล้วลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ajan isteği zaman aşımına uğradı. Yeniden denemeden önce kayıtlı durumunu okuyun."
+            "value": "Ajan zamanında yanıt vermedi. Sohbeti kontrol edin, sonra yeniden deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Час очікування запиту до агента минув. Перед повтором прочитайте його збережений стан."
+            "value": "Агент не відповів вчасно. Перевірте чат і спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Yêu cầu tới tác tử đã hết thời gian chờ. Hãy đọc trạng thái đã lưu trước khi thử lại."
+            "value": "Tác tử không phản hồi kịp thời. Hãy kiểm tra cuộc trò chuyện rồi thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "智能体请求已超时。重试前请先读取其已保存的状态。"
+            "value": "代理未及时响应。请查看聊天，然后重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "代理請求已逾時。重試前請先讀取其已儲存的狀態。"
+            "value": "代理未及時回應。請查看聊天，然後重試。"
           }
         }
       }
