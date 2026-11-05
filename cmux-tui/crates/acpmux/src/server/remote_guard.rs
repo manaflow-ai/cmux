@@ -181,7 +181,6 @@ pub(super) const PERSON_PROVEN: &str = "personProven";
 pub(super) fn mark_forwarded(
     origin: super::Origin,
     auth: super::ConnAuth,
-    person: bool,
     params: &Value,
     forwarded: &mut Value,
 ) {
@@ -193,9 +192,6 @@ pub(super) fn mark_forwarded(
         mux.remove("provenance");
         mux.remove(PERSON_PROVEN);
     }
-    if person {
-        crate::hub::merge_mux_meta(forwarded, serde_json::json!({PERSON_PROVEN: true}));
-    }
     let control = control_of(origin, auth, params);
     if control == crate::hub::Control::Web {
         crate::hub::merge_mux_meta(forwarded, serde_json::json!({"via": "web"}));
@@ -206,6 +202,14 @@ pub(super) fn mark_forwarded(
         // owner's at the peer's VM boundary (`hub/vm_boundary.rs`).
         let via = crate::hub::vm_boundary::VIA_DEVICE;
         crate::hub::merge_mux_meta(forwarded, serde_json::json!({"via": via}));
+    }
+}
+
+/// Says on a request forwarded to a peer ([`mark_forwarded`] first) that this daemon's connection
+/// proved the person (`hub/person.rs`), so the peer admits its prompt as theirs.
+pub(super) fn attest_person(forwarded: &mut Value, person: bool) {
+    if person {
+        crate::hub::merge_mux_meta(forwarded, serde_json::json!({PERSON_PROVEN: true}));
     }
 }
 

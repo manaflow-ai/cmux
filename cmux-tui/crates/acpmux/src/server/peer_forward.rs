@@ -370,13 +370,8 @@ async fn forward_inner(
             // peer by our local alias, or loop back to us if it happens to have the same alias.
             object.remove("peer");
         }
-        super::remote_guard::mark_forwarded(
-            conn.origin,
-            conn.auth,
-            conn.is_person(),
-            params,
-            &mut forwarded,
-        );
+        super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut forwarded);
+        super::remote_guard::attest_person(&mut forwarded, conn.is_person());
         let mut result = peer.request(m, forwarded).await?;
         if let Some(object) = result.as_object_mut() {
             object.insert("peer".into(), Value::String(peer.name.clone()));
@@ -396,13 +391,8 @@ async fn forward_inner(
         if let Some(object) = forwarded.as_object_mut() {
             object.insert("sessionId".into(), Value::String(id));
         }
-        super::remote_guard::mark_forwarded(
-            conn.origin,
-            conn.auth,
-            conn.is_person(),
-            params,
-            &mut forwarded,
-        );
+        super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut forwarded);
+        super::remote_guard::attest_person(&mut forwarded, conn.is_person());
         let mut result = peer.request(m, forwarded).await?;
         if let Some(object) = result.as_object_mut() {
             object.insert("peer".into(), Value::String(peer.name.clone()));
@@ -456,13 +446,8 @@ async fn forward_inner(
                 > crate::hub::file_uploads::LEGACY_MAX_BYTES
             {
                 let mut header = json!({"sessionId": id});
-                super::remote_guard::mark_forwarded(
-                    conn.origin,
-                    conn.auth,
-                    conn.is_person(),
-                    params,
-                    &mut header,
-                );
+                super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut header);
+                super::remote_guard::attest_person(&mut header, conn.is_person());
                 let mut result =
                     crate::hub::file_uploads::forward_put(&peer, header, params).await?;
                 result.set("peer", json!(peer.name));
@@ -577,13 +562,8 @@ async fn forward_inner(
             obj.remove("name");
             obj.insert("sessionId".into(), Value::String(id.clone()));
         }
-        super::remote_guard::mark_forwarded(
-            conn.origin,
-            conn.auth,
-            conn.is_person(),
-            params,
-            &mut p,
-        );
+        super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut p);
+        super::remote_guard::attest_person(&mut p, conn.is_person());
         // A held prompt names its hold to the peer: a link guest's waits with `approval` left
         // off here, which a peer that reads only `approval` would run unapproved.
         if held

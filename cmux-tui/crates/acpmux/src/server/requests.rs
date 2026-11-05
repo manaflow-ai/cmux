@@ -201,10 +201,10 @@ pub(super) async fn handle_notification(
                     super::remote_guard::mark_forwarded(
                         conn.origin,
                         conn.auth,
-                        conn.is_person(),
                         &params,
                         &mut forwarded,
                     );
+                    super::remote_guard::attest_person(&mut forwarded, conn.is_person());
                     person_stop::mark(conn, &params, &peer, &mut forwarded);
                     cancel_refused::forward(conn, peer, key, turn, forwarded).await;
                 }
