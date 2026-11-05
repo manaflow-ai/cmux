@@ -166,6 +166,29 @@ struct SidebarPriorityRowActionsTests {
         #expect(fixture.marks.pinned == ["done"])
     }
 
+    /// Move Chat Earlier/Later in Priority… move the chat one place among the rows and keep it there, as a
+    /// drag does (`AgentPriorityMarks.place`); at the first or last place nothing moves. They ask which chat in
+    /// the palette and take no default key.
+    @Test func theMoveActionsPlaceTheChatOnePlaceOver() throws {
+        let fixture = Fixture()
+        for id: ActionID in ["sidebar.priority.moveEarlier", "sidebar.priority.moveLater"] {
+            let descriptor = try #require(ActionCatalog.all.first { $0.id == id })
+            #expect(descriptor.arguments.map(\.kind) == [.target(.agentChat)], "\(id)")
+            #expect(descriptor.defaultShortcut == nil, "\(id) takes no default key")
+            #expect(descriptor.title.hasSuffix("…"), "\(id) asks which chat")
+        }
+        #expect(fixture.chats.entries().map(\.id) == ["asks", "done"])
+        let done = ActionInvocation(target: SidebarPriorityRowActions.target("done"))
+        #expect(fixture.registry.perform("sidebar.priority.moveEarlier", invocation: done))
+        #expect(fixture.chats.entries().map(\.id) == ["done", "asks"])
+        #expect(fixture.marks.placed == ["done": 0])
+        // Already first: it stays, and the marks do not change.
+        fixture.registry.perform("sidebar.priority.moveEarlier", invocation: done)
+        #expect(fixture.marks.placed == ["done": 0])
+        #expect(fixture.registry.perform("sidebar.priority.moveLater", invocation: done))
+        #expect(fixture.chats.entries().map(\.id) == ["asks", "done"])
+    }
+
     /// With the Priority view off its rows' actions do not run, Archive Chat on a row's chat
     /// included, and each says why; Archive Chat on the focused chat (no row target) still runs.
     @Test func withThePriorityViewOffNoRowActionRunsButTheFocusedChatStillArchives() throws {

@@ -40,7 +40,11 @@ final class SidebarPriorityPanelView: NSView {
     private var dragPointerOffset: CGFloat = 0
     /// Whether the left button is held now (`endReleasedGesture`). Tests inject an answer.
     var leftButtonIsDown: @MainActor () -> Bool = { NSEvent.pressedMouseButtons & 1 != 0 }
-    private lazy var autoscrollClient = FrameClient(owner: "Sidebar.priority.autoscroll", view: self) { [weak self] tick in self?.autoscrollTick(tick) ?? false }
+    /// Frames while a held row's pointer is in the list's top or bottom edge zone; idle otherwise
+    /// (the release, a cancel, the pointer leaving the zone or the list reaching its end stops it).
+    private(set) lazy var autoscrollClient = FrameClient(owner: "Sidebar.priority.autoscroll", view: self) { [weak self] tick in
+        self?.autoscrollStep(elapsed: tick.frameElapsed) ?? false
+    }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -236,6 +240,7 @@ final class SidebarPriorityPanelView: NSView {
         row.layer?.zPosition = 0
         draggingID = nil
         dragScrollStart = nil
+        autoscrollClient.deactivate()
         var order = panel.entries
         let entry = order.remove(at: from)
         order.insert(entry, at: slot)
@@ -266,8 +271,8 @@ final class SidebarPriorityPanelView: NSView {
     private func stopPresses() {
         for row in rows.values { row.cancelPress() }
         dragScrollStart = nil
-        guard let id = draggingID else { return }
         autoscrollClient.deactivate()
+        guard let id = draggingID else { return }
         draggingID = nil
         rows[id]?.layer?.zPosition = 0
     }
@@ -322,31 +327,34 @@ final class SidebarPriorityPanelView: NSView {
         endPointerGesture()
     }
 
-    private func updateAutoscroll(windowPoint: NSPoint) {
-        guard draggingID != nil else { autoscrollClient.deactivate(); return }
-        let clip = scroll.contentView
+    /// The list's scroll speed for a held row's pointer at `windowPoint`: zero outside its edge zones, up to about
+    /// 25 rows a second at the very edge, as the main list scrolls (`SidebarDragAutoscroll`).
+    private func autoscrollVelocity(windowPoint: NSPoint) -> CGFloat {
         let point = clip.convert(windowPoint, from: nil)
         let bounds = clip.bounds
-        let speed = SidebarAutoscroll.velocity(pointY: point.y, visibleMinY: bounds.minY, visibleMaxY: bounds.maxY,
-                                               zone: SidebarStyle.autoscrollZone, maxSpeed: Metrics.sidebarRowHeight * 25)
-        if speed == 0 { autoscrollClient.deactivate() } else { autoscrollClient.activate() }
+        return SidebarAutoscroll.velocity(pointY: point.y, visibleMinY: bounds.minY, visibleMaxY: bounds.maxY,
+                                          zone: SidebarStyle.autoscrollZone, maxSpeed: Metrics.sidebarRowHeight * 25)
     }
 
-    private func autoscrollTick(_ tick: FrameTick) -> Bool {
-        guard let id = draggingID, let row = rows[id], let point = row.heldWindowPoint else { return false }
-        let clip = scroll.contentView
+    /// Runs the edge autoscroll only while a row is held with its pointer in an edge zone.
+    private func updateAutoscroll(windowPoint: NSPoint) {
+        guard draggingID != nil, autoscrollVelocity(windowPoint: windowPoint) != 0 else { return autoscrollClient.deactivate() }
+        autoscrollClient.activate()
+    }
+
+    /// One autoscroll frame of `elapsed` seconds; false once there is nothing to scroll. The scroll moves the
+    /// held row with it (`clipScrolled`), as a scroll wheel under a held row does.
+    func autoscrollStep(elapsed: Double) -> Bool {
+        guard let id = draggingID, let point = rows[id]?.heldWindowPoint else { return false }
+        let velocity = autoscrollVelocity(windowPoint: point)
+        guard velocity != 0 else { return false }
+        // A frame that shows no later than the last one (after a hang) moves nothing: keep ticking.
+        guard elapsed > 0 else { return true }
         let bounds = clip.bounds
-        let pointInClip = clip.convert(point, from: nil)
-        let speed = SidebarAutoscroll.velocity(pointY: pointInClip.y, visibleMinY: bounds.minY, visibleMaxY: bounds.maxY,
-                                               zone: SidebarStyle.autoscrollZone, maxSpeed: Metrics.sidebarRowHeight * 25)
-        guard speed != 0 else { return false }
-        let maximum = max(0, document.frame.height - bounds.height)
-        let next = min(max(bounds.minY + speed * tick.elapsed, 0), maximum)
+        let next = min(max(bounds.minY + velocity * elapsed, 0), max(0, document.frame.height - bounds.height))
         guard next != bounds.minY else { return false }
         clip.scroll(to: NSPoint(x: bounds.minX, y: next))
         scroll.reflectScrolledClipView(clip)
-        guard let offset = row.dragOffset(at: point) else { return false }
-        drag(row, offset: offset, ended: false)
         return true
     }
 

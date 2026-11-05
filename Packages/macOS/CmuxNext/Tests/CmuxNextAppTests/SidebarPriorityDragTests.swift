@@ -324,32 +324,79 @@ struct SidebarPriorityDragTests {
         #expect(reported == [NSPoint(x: 0, y: 50)])
     }
 
+    /// A row held at the list's bottom edge scrolls the list and moves with it, only while it stays in the edge
+    /// zone; the release ends the autoscroll and places the row where it was dropped.
     @Test func aHeldPriorityDragAutoscrollsOnlyAtAnEdgeAndStopsOnRelease() throws {
         let entries = (0..<20).map { SidebarPriorityEntry(id: "row\($0)", title: "row\($0)", state: .idle) }
         let harness = Harness(entries: entries)
-        let row = try #require(harness.panel.rows["row7"])
-        let scroll = try #require(harness.panel.subviews.lazy.compactMap { $0 as? NSScrollView }.first)
-        row.mouseDown(with: try harness.event(.leftMouseDown, on: "row7"))
-        row.mouseDragged(with: try harness.event(.leftMouseDragged, on: "row7", dy: 10))
-        let before = scroll.contentView.bounds.minY
-        RunLoop.main.run(until: Date().addingTimeInterval(0.08))
-        #expect(scroll.contentView.bounds.minY > before)
-        row.mouseDragged(with: try harness.event(.leftMouseDragged, on: "row7", dy: -10))
-        let center = scroll.contentView.bounds.minY
-        RunLoop.main.run(until: Date().addingTimeInterval(0.08))
-        #expect(scroll.contentView.bounds.minY == center)
-        row.mouseUp(with: try harness.event(.leftMouseUp, on: "row7", dy: -10))
+        defer { harness.close() }
+        let row = try #require(harness.panel.rows["row2"])
+        let clip = try #require(Self.scrollView(in: harness.panel)).contentView
+        #expect(harness.panel.frame.height < CGFloat(entries.count) * row.frame.height, "the list must scroll")
+        let start = row.convert(NSPoint(x: 10, y: row.bounds.midY), to: nil)
+        let edge = clip.convert(NSPoint(x: 10, y: clip.bounds.maxY - 2), to: nil)
+        row.mouseDown(with: try harness.event(.leftMouseDown, on: "row2"))
+        row.mouseDragged(with: try harness.event(.leftMouseDragged, on: "row2", dy: start.y - edge.y))
+        #expect(harness.panel.draggingID == "row2")
+        #expect(harness.panel.autoscrollClient.isActive, "the bottom edge started no autoscroll")
+
+        let before = clip.bounds.minY, heldTop = row.frame.minY
+        #expect(harness.panel.autoscrollStep(elapsed: 0.05))
+        let scrolled = clip.bounds.minY - before
+        #expect(scrolled > 0)
+        #expect(abs(row.frame.minY - heldTop - scrolled) < 0.5, "the held row moves with the scroll")
+
+        // Back in the middle of the list: the autoscroll stops and a frame scrolls nothing.
+        row.mouseDragged(with: try harness.event(.leftMouseDragged, on: "row2", dy: 0))
+        #expect(!harness.panel.autoscrollClient.isActive)
+        let center = clip.bounds.minY
+        #expect(!harness.panel.autoscrollStep(elapsed: 0.05))
+        #expect(clip.bounds.minY == center)
+
+        row.mouseDragged(with: try harness.event(.leftMouseDragged, on: "row2", dy: start.y - edge.y))
+        #expect(harness.panel.autoscrollClient.isActive)
+        row.mouseUp(with: try harness.event(.leftMouseUp, on: "row2", dy: start.y - edge.y))
         #expect(harness.panel.draggingID == nil)
+        #expect(!harness.panel.autoscrollClient.isActive, "the release stops the autoscroll")
+        guard case .place("row2", order: let order)? = harness.actions.last else {
+            Issue.record("the release placed nothing: \(harness.actions)")
+            return
+        }
+        #expect(order.firstIndex(of: "row2").map { $0 > 2 } == true, "the row lands below where it was: \(order)")
     }
 
-
+    /// VoiceOver's Move Later and Control-Option-Down on a focused row move it one place and keep it there (the
+    /// same `.place` a drag sends); at the last place, and with other modifiers, the key moves nothing.
     @Test func keyboardAndVoiceOverMoveUseThePersistentPlaceAction() throws {
         let harness = Harness()
+        defer { harness.close() }
         let row = try #require(harness.panel.rows["b"])
         let actions = try #require(row.accessibilityCustomActions())
         let later = try #require(actions.first { $0.name == "Move Later" })
         #expect(later.handler?() == true)
         #expect(harness.actions == [.place("b", order: ["a", "c", "b"])])
+
+        let moved = try #require(harness.panel.rows["b"])
+        moved.keyDown(with: try Self.arrowKey(up: true, modifiers: [.control, .option], in: harness.window))
+        #expect(harness.actions.last == .place("b", order: ["a", "b", "c"]))
+        let count = harness.actions.count
+        try #require(harness.panel.rows["c"]).keyDown(with: try Self.arrowKey(up: false, modifiers: [.control, .option], in: harness.window))
+        try #require(harness.panel.rows["a"]).keyDown(with: try Self.arrowKey(up: false, modifiers: [.option], in: harness.window))
+        #expect(harness.actions.count == count, "the last row stays, and Option alone moves nothing")
     }
 
+    static func scrollView(in view: NSView) -> NSScrollView? {
+        for subview in view.subviews {
+            if let scroll = subview as? NSScrollView { return scroll }
+            if let scroll = scrollView(in: subview) { return scroll }
+        }
+        return nil
+    }
+
+    static func arrowKey(up: Bool, modifiers: NSEvent.ModifierFlags, in window: NSWindow) throws -> NSEvent {
+        let character = up ? "\u{F700}" : "\u{F701}"
+        return try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers.union([.numericPad, .function]),
+                                             timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: character,
+                                             charactersIgnoringModifiers: character, isARepeat: false, keyCode: up ? 126 : 125))
+    }
 }

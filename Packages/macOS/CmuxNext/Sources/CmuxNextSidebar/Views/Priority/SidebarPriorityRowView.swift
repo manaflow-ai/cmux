@@ -18,8 +18,11 @@ final class SidebarPriorityRowView: NSView {
     private var pressStart: NSPoint?
     private var dragging = false
     private var pressCancelled = false
+    /// The pointer's last window point in this press: an edge autoscroll frame reads it while the row is held.
     private var lastWindowPoint: NSPoint?
     enum MoveDirection { case earlier, later }
+    /// Control-Option-Up or -Down while the row has focus, or VoiceOver's Move Earlier or Move Later:
+    /// the row moves one place and keeps it, as a drag there would.
     var onMove: ((MoveDirection) -> Void)?
 
     private let title = ChromeLabel(labelWithString: "")
@@ -284,11 +287,6 @@ final class SidebarPriorityRowView: NSView {
 
     var heldWindowPoint: NSPoint? { lastWindowPoint }
 
-    func dragOffset(at windowPoint: NSPoint) -> CGFloat? {
-        guard let pressStart else { return nil }
-        return windowPoint.y - pressStart.y
-    }
-
     func cancelPress() {
         pressCancelled = true
         pressStart = nil
@@ -307,8 +305,8 @@ final class SidebarPriorityRowView: NSView {
 
     override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
         var actions = super.accessibilityCustomActions() ?? []
-        actions.append(NSAccessibilityCustomAction(name: "Move Earlier") { [weak self] in self?.onMove?(.earlier); return self != nil })
-        actions.append(NSAccessibilityCustomAction(name: "Move Later") { [weak self] in self?.onMove?(.later); return self != nil })
+        actions.append(NSAccessibilityCustomAction(name: Strings.priorityMoveEarlier) { [weak self] in self?.onMove?(.earlier); return self != nil })
+        actions.append(NSAccessibilityCustomAction(name: Strings.priorityMoveLater) { [weak self] in self?.onMove?(.later); return self != nil })
         return actions
     }
 
