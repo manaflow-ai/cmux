@@ -194,6 +194,15 @@ class PaneCheck(unittest.TestCase):
         entry = dict(drag_round(), follow=pane_check(followed(frames=0), frames=0))
         self.assertIn("sampled no frame", verdict.problems({"layout": "light", "rounds": [entry]})[0])
 
+    def test_a_terminal_not_sampled_in_the_motion_fails(self):
+        # Review of #36109, finding 2: a terminal shown at the start with 0 sampled frames (its window ticked no frame,
+        # or it left its window) judged nothing, and the round passed on the other terminals' frames.
+        entry = drag_round(follow=pane_check(followed(frames=120, key="left"), followed(frames=0, key="right")))
+        found = verdict.problems({"layout": "light", "rounds": [entry]})
+        self.assertEqual(len(found), 1, found)
+        self.assertIn("right was not sampled", found[0])
+        self.assertIn("1 of 2 terminals", found[0])
+
     def test_follow_takes_the_check_out_of_the_stop_reply(self):
         display = {"calls": 12, "follow_frames": 90,
                    "terminals_followed": {**followed(held=2, frames=90, lagging=5, key="a"), **followed(frames=90, lagging=1, key="b")}}
