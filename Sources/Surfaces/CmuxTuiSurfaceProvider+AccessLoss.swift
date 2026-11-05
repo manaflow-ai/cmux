@@ -28,9 +28,15 @@ extension CmuxTuiSurfaceProvider {
         // regain restarts its attach.
         accessLostPanelIDs.formUnion(restoredAttachTasks.keys)
         // A restored terminal that has not attached yet has no session to stop.
-        showRestoredTerminalsUnavailable(detail: stopReason.endedPresentation?.detail ?? "") {
+        // Only a listing can end these two losses, so only they offer Reconnect.
+        let reconnect: @MainActor () -> Void = {
             Task { @MainActor in _ = await CmuxTuiSurfaceProviderRegistry.shared.refresh(force: true) }
         }
+        let canReconnect = loss == .forbidden || loss == .notFound
+        showRestoredTerminalsUnavailable(
+            detail: stopReason.endedPresentation?.detail ?? "",
+            retry: canReconnect ? reconnect : nil
+        )
         for task in restoredAttachTasks.values { task.cancel() }
         restoredAttachTasks.removeAll()
         attachmentRetry.cancel()

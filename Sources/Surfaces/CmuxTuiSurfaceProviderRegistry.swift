@@ -1010,7 +1010,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         // catalog removal during account teardown.
         for provider in providers.values { provider.suspendForFeatureFlag(stopReason: .signedOut) }
         let retiredIDs = Set(providers.keys).union(catalog?.machines.keys.compactMap(\.cloudMachineID) ?? [])
-        for id in retiredIDs { catalog?.unregister(machine: .cloud(id)) }
+        for id in retiredIDs { catalog?.unregister(machine: .cloud(id), keepingRestoredLinks: true) }
     }
 
     func accessDidEnd() async {

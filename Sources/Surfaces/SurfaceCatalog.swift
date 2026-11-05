@@ -171,7 +171,9 @@ final class SurfaceCatalog {
         notifyChange(for: provider.machine)
     }
 
-    func unregister(machine: SurfaceMachineID) {
+    /// - Parameter keepingRestoredLinks: the machine may still be reachable after
+    ///   a new sign-in, so panes waiting to restore it keep their saved links.
+    func unregister(machine: SurfaceMachineID, keepingRestoredLinks: Bool = false) {
         cloudWorkspaceCreationCoordinator.cancel(machine: machine)
         let inFlightKeys = inFlightProjects.keys.filter { $0.machine == machine }
         for key in inFlightKeys {
@@ -185,7 +187,7 @@ final class SurfaceCatalog {
         for id in resourceIDsByMachine[machine] ?? [] { resources[id] = nil }
         resourceIDsByMachine[machine] = nil
         syncCloudTerminalTabIcons(on: machine)
-        pendingRestoredProjections.remove(machine: machine)
+        if !keepingRestoredLinks { pendingRestoredProjections.remove(machine: machine) }
         cloudWorkspaceProjectionCoordinator.cancel(machine: machine)
         cloudStates[machine] = nil
         cloudStateObservations[machine] = nil

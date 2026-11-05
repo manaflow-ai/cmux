@@ -133,7 +133,12 @@ struct CloudStaleInventoryMaterializationTests {
         // Reconnect itself reads again, and the card stays until a read finds the machine.
         await withCheckedContinuation { (read: CheckedContinuation<Void, Never>) in
             onStatusRead = { read.resume() }
-            #expect(workspace.retryReservedCloudTerminalPane(surfaceId: panelID))
+            guard workspace.retryReservedCloudTerminalPane(surfaceId: panelID) else {
+                Issue.record("the card had no Reconnect to press")
+                onStatusRead = nil
+                read.resume()
+                return
+            }
         }
         #expect(await registry.refresh(force: true))
         #expect(workspace.cloudMaterializationFailures[panelID] != nil)
@@ -237,13 +242,14 @@ struct CloudStaleInventoryMaterializationTests {
         )
         workspace.cloudPendingCreations[panelID] = reservation
         defer { workspace.cloudPendingCreations[panelID] = nil }
+        var machineStatus = "paused"
         let registry = CmuxTuiSurfaceProviderRegistry(
             links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
             allowsBackgroundWork: { false },
             listPage: { VMListPage(vms: [], limits: nil) },
             activeTeamID: { "team-a" },
             loadMachineStatus: { id, _ in
-                VMSummary(id: id, provider: "freestyle", status: "paused", image: "fixture", createdAt: 0, base: nil)
+                VMSummary(id: id, provider: "freestyle", status: machineStatus, image: "fixture", createdAt: 0, base: nil)
             },
             refreshProvider: { _, _ in true }
         )
@@ -257,6 +263,31 @@ struct CloudStaleInventoryMaterializationTests {
         #expect(provider.info.linkState == .asleep)
         let card = try #require(workspace.cloudTerminalReconnectOverlayPresentation(forSurfaceId: panelID))
         #expect(card.showsReconnectButton)
+
+        // Stopping an attach for a Cloud suspension lets the next reprojection restart it.
+        provider.materializedPanels.insert(panelID)
+        provider.restoredAttachTasks[panelID] = Task {}
+        provider.suspendForFeatureFlag()
+        #expect(provider.restoredAttachTasks.isEmpty)
+        #expect(!provider.materializedPanels.contains(panelID))
+        #expect(
+            workspace.cloudMaterializationFailures[panelID]?.detail
+                == CloudTuiManualMirrorStopReason.cloudUnavailable.endedPresentation?.detail
+        )
+
+        // Signing out asks for a sign-in and keeps the link, even with a provider.
+        await registry.accessDidEnd()
+        #expect(
+            workspace.cloudMaterializationFailures[panelID]?.detail
+                == CloudTuiManualMirrorStopReason.signedOut.endedPresentation?.detail
+        )
+        #expect(catalog.pendingRestoredMachineIDs == [machineID])
+
+        // Signing back in finds the machine, so the sign-in text does not stay.
+        machineStatus = "running"
+        await registry.resumeAfterSignIn()
+        #expect(await registry.refresh(force: true))
+        #expect(workspace.cloudMaterializationFailures[panelID] == nil)
         await registry.accessDidEnd()
     }
 
