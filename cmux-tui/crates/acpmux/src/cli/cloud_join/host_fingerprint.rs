@@ -16,6 +16,32 @@ pub(crate) fn current() -> Option<String> {
     os_machine_identity().map(|raw| of(&raw))
 }
 
+#[cfg(test)]
+thread_local! {
+    /// `Some(fp)` stands in for [`machine_only`] on this thread (`Some(None)`: none).
+    pub(crate) static TEST_MACHINE_ONLY: std::cell::RefCell<Option<Option<String>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// The fingerprint of the OS machine id alone, without the cmux Cloud instance id. cmux-host
+/// writes `/etc/cmux/daemon-instance-id` when it binds an instance (`cmux-host`
+/// `linux/identity.rs`), so a `host join` that ran before that bind recorded this one; the
+/// same box then reads the instance id at its next start.
+fn machine_only() -> Option<String> {
+    #[cfg(test)]
+    if let Some(fp) = TEST_MACHINE_ONLY.with(|cell| cell.borrow().clone()) {
+        return fp;
+    }
+    machine_id().map(|raw| of(&raw))
+}
+
+/// Whether a record joined with fingerprint `joined` is this box, whose fingerprint is `here`:
+/// the same fingerprint, or (an instance id bound since the join) the fingerprint of this
+/// box's own machine id. A copy carries another box's machine id and matches neither.
+pub(crate) fn same_box(joined: &str, here: &str) -> bool {
+    joined == here || machine_only().is_some_and(|machine| machine == joined)
+}
+
 fn of(raw: &str) -> String {
     let mut bytes = b"acpmux machine credential host v1\0".to_vec();
     bytes.extend_from_slice(raw.as_bytes());
@@ -32,6 +58,11 @@ fn os_machine_identity() -> Option<String> {
             return Some(format!("cmux-instance:{value}"));
         }
     }
+    machine_id()
+}
+
+#[cfg(target_os = "linux")]
+fn machine_id() -> Option<String> {
     ["/etc/machine-id", "/var/lib/dbus/machine-id"].iter().find_map(|path| {
         let value = std::fs::read_to_string(path).ok()?;
         let value = value.trim();
@@ -56,6 +87,12 @@ fn os_machine_identity() -> Option<String> {
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn os_machine_identity() -> Option<String> {
     None
+}
+
+/// Off Linux there is no separate instance id: the machine id is the whole identity.
+#[cfg(not(target_os = "linux"))]
+fn machine_id() -> Option<String> {
+    os_machine_identity()
 }
 
 #[cfg(test)]

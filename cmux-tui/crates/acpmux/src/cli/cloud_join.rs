@@ -167,7 +167,7 @@ fn save_at(home: &std::path::Path, record: &MachineCredential) -> Result<()> {
 /// fingerprint differs from this one's. A record or a box with no fingerprint is no clone.
 fn copied_here(record: &MachineCredential, current: Option<&str>) -> bool {
     record.cloned
-        || matches!((record.host_fingerprint.as_deref(), current), (Some(joined), Some(here)) if joined != here)
+        || matches!((record.host_fingerprint.as_deref(), current), (Some(joined), Some(here)) if !host_fingerprint::same_box(joined, here))
 }
 
 /// At daemon start, before the WireGuard transport and the mesh relay: a record joined on
@@ -211,6 +211,12 @@ pub(crate) fn settle_clone_at(home: &std::path::Path, current: Option<&str>) -> 
     let Some(current) = current else { return Ok(CloneCheck::Unknown) };
     match record.host_fingerprint.as_deref() {
         Some(joined) if joined == current => Ok(CloneCheck::Same),
+        // Joined before cmux-host bound this box's instance id: the same box, now under it.
+        Some(joined) if host_fingerprint::same_box(joined, current) => {
+            record.host_fingerprint = Some(current.to_owned());
+            save_at(home, &record)?;
+            Ok(CloneCheck::Adopted)
+        }
         None => {
             record.host_fingerprint = Some(current.to_owned());
             save_at(home, &record)?;
@@ -743,6 +749,33 @@ mod tests {
             super::settle_clone_at(empty.path(), Some("box-a")).unwrap(),
             super::CloneCheck::NotJoined
         );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn an_instance_id_bound_after_the_join_is_the_same_box_not_a_clone() {
+        use super::host_fingerprint::TEST_MACHINE_ONLY;
+        let home = tempfile::tempdir().unwrap();
+        // Joined on machine id "mid-a" before cmux-host bound an instance id.
+        let key = joined_on(home.path(), Some("mid-a"));
+        TEST_MACHINE_ONLY.with(|cell| *cell.borrow_mut() = Some(Some("mid-a".into())));
+        let before = super::load_at(home.path()).unwrap().unwrap();
+        assert!(!super::copied_here(&before, Some("inst-1")));
+        assert_eq!(
+            super::settle_clone_at(home.path(), Some("inst-1")).unwrap(),
+            super::CloneCheck::Adopted
+        );
+        let record = super::load_at(home.path()).unwrap().unwrap();
+        assert_eq!(record.host_fingerprint.as_deref(), Some("inst-1"));
+        assert!(!record.cloned);
+        assert_eq!(std::fs::read(home.path().join("node.wg.key")).unwrap(), key);
+        // A copy onto another box: another machine id, and a record bound to another instance.
+        TEST_MACHINE_ONLY.with(|cell| *cell.borrow_mut() = Some(Some("mid-b".into())));
+        assert_eq!(
+            super::settle_clone_at(home.path(), Some("inst-2")).unwrap(),
+            super::CloneCheck::Cloned
+        );
+        TEST_MACHINE_ONLY.with(|cell| *cell.borrow_mut() = None);
     }
 
     #[test]
