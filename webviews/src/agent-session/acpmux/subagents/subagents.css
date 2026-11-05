@@ -234,9 +234,7 @@ button.cv-subagent > :last-child {
   box-sizing: border-box;
   height: 100%;
   min-width: 0;
-  /* Keep the metadata and at least one report line visible; the report itself scrolls at the cap
-     instead of flex-shrinking to a clipped sliver while the transcript yields space. */
-  flex: 0 0 auto;
+  flex: 0 1 auto;
   padding: 0 var(--ds-space-1) 0 var(--ds-space-2);
   display: inline-flex;
   align-items: center;
