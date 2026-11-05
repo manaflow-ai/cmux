@@ -28,6 +28,10 @@ on:
 permissions:
   contents: read
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
 jobs:
   workflow-guard-submodule-forward-only:
     name: workflow-guard-submodule-forward-only
@@ -1487,6 +1491,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_delivery_concurrency.py
 
+      - name: Validate an older nightly-next build yields its sign slot and the newest never does
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_sign_yield.py
+
       - name: Validate the nightly-next feed writers' R2 lease
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_r2_cas.py
@@ -1635,6 +1643,10 @@ jobs:
           python3 tests/test_nightly_trusted_routing.py
           python3 tests/test_nightly_build_state.py
           python3 tests/test_ensure_setup_node.py
+
+      - name: Validate no nightly job can be routed to Blacksmith
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_never_blacksmith.py
 
       # .github/nightly-step-coverage.json: every step only the nightly runs
       # names its pull-request dry run here or elsewhere, or a reviewed reason.

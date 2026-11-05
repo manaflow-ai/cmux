@@ -1241,6 +1241,7 @@ impl Hub {
                         .turn_line
                         .clone()
                         .unwrap_or_else(|| super::prompt_line::prompt_line(&prompt, &client, None));
+                    self.resume_before_turn();
                     *session.turn.lock().unwrap() = Some(TurnInfo {
                         trigger: work.turn_trigger,
                         started_at,
@@ -1257,7 +1258,6 @@ impl Hub {
                         notice: false,
                         // As logged (`turn_started` `persons`); an older record's takes notices.
                         persons: work.turn_persons,
-                        from_agents: false,
                     });
                     if work.turn_trigger {
                         self.restore_trigger_background(session, &turn_id);
@@ -1792,7 +1792,7 @@ impl Hub {
     /// an in-process hub (tests, embedding) keeps direct children. Memory
     /// stores keep no log to resume from, so they never use hosts.
     pub(crate) fn agent_hosts_enabled(&self) -> bool {
-        self.store.session_dir("probe").is_some() && self.agent_hosts.load(Ordering::SeqCst)
+        self.store.session_path("probe").is_some() && self.agent_hosts.load(Ordering::SeqCst)
     }
 
     /// Run new agents under agent hosts (see `agent_hosts_enabled`).

@@ -34,7 +34,7 @@ function groupIcon(kind: ToolGroupKind): ReactNode {
     case "reads":
       return <OpenBook />;
     case "edits":
-      return <Pencil size={16} strokeWidth={1.1} />;
+      return <Pencil size={16} />;
     case "searches":
       return <Magnifier />;
   }
@@ -258,11 +258,7 @@ export function ToolGroupRow({
             <InlineFailureCause failure={failure} />
           </span>
         )}
-        <ChevronRight
-          size={14}
-          strokeWidth={1.2}
-          className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
-        />
+        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
       </button>
       <WrittenArtifactButtons tools={tools} />
       <ToolFailureCause failure={failure} />

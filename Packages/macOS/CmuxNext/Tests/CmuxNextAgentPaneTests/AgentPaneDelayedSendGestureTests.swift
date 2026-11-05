@@ -60,6 +60,21 @@ struct AgentPaneDelayedSendGestureTests {
         #expect(pane.transport.reserveGesture(intent) == nil, "one gesture gave two send tickets")
     }
 
+    @Test func aCloudStartTicketSurvivesAReserveSlowerThanTheLiveGesture() throws {
+        let clock = Slow.Clock()
+        let gestures = AgentPaneUserGestures(now: { clock.now })
+        gestures.record()
+        let key = UUID().uuidString
+        let intent = try #require(AgentPaneGestureIntent(gestureParams: [
+            "intent": ["method": "cloud.startChat", "params": ["key": key]],
+        ]))
+        let ticket = try #require(gestures.reserve(connection: 1, intent: intent))
+        clock.now += 31
+        #expect(!gestures.isAvailable, "the ordinary live gesture should have expired")
+        #expect(gestures.redeem(ticket, connection: 1, method: "cloud.startChat", params: ["key": key]))
+        #expect(!gestures.redeem(ticket, connection: 1, method: "cloud.startChat", params: ["key": key]))
+    }
+
     /// Other grants keep their lifetime: only a send ignores the gesture's age.
     @Test func otherGrantsStillNeedAFreshGesture() {
         let clock = Slow.Clock()

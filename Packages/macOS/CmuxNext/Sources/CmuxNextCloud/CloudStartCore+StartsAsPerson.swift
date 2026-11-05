@@ -10,6 +10,8 @@ extension CloudStartCore {
     public func startsAsPerson(byPerson: Bool, delegated: Bool) -> Bool {
         byPerson || !agentAsksFirst(delegated: delegated)
     }
+    /// A personal send (`account`'s team nil) on a non-production sign-in copies through the content-addressed store.
+    public func copiesThroughStore(account: [String?], productionAuth: Bool) -> Bool { (account.last ?? nil) == nil && !productionAuth }
     /// `text` as one shell word: as it is when it is a plain name, else in single quotes.
     public static func shellQuoted(_ text: String) -> String {
         let plain = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")

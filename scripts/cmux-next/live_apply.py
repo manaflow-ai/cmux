@@ -8,9 +8,11 @@ Reads `git diff BASE HEAD` (no GitHub API) and prints the verdict of the heavies
   no-app      docs, CI, tests, scripts, website and backend only: nothing in the app changes
   web-live    plus the app's web bundles (webviews/): hot-swapped into the running app
   daemon      plus Rust (cmux-tui, acpmux): a daemon or CLI restart with the change's binary
-  swift-live  plus app Swift changed only inside function bodies and computed properties
+  swift-live  plus app Swift changed only inside function bodies and computed properties, or new
+              Swift files (the patch carries them: Prototypes/ViewShell/inject.sh)
   rebuild     a new binary: a stored property, a changed signature, a new type, conformance or
-              enum case, a new Swift file, a resource, manifest, plist or entitlement
+              enum case in an existing file, a new entry point (`@main`), a resource, manifest,
+              plist or entitlement
   ios-only    iOS only: the Mac app does not change
 
 The rules are regular expressions over the diff lines, checked by hand on 20 merged PRs (19 right):
@@ -37,6 +39,7 @@ COMMENT = re.compile(r"^\s*(//|/\*|\*|\*/)")
 STORED = re.compile(r"^(\s*)(@\w+(\([^)]*\))?\s+)*((public|private|fileprivate|internal|package|open|final|static|nonisolated|lazy|weak|unowned|override)(\([^)]*\))?\s+)*(let|var)\s+\w+[^{]*$")
 FUNC = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*((public|private|fileprivate|internal|package|open|final|static|class|override|mutating|nonisolated|required|convenience)(\([^)]*\))?\s+)*(func\s+\w+|init[?!]?\s*[(<]|subscript\s*[(<])")
 TYPE_DECL = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*((public|private|fileprivate|internal|package|open|final|indirect)\s+)*(struct|class|enum|actor|protocol|extension)\s+\w+")
+ENTRY = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*@main\b")
 CASE = re.compile(r"^ {4}(\t)?case\s+\w+|^\tcase\s+\w+")
 
 # Heaviest first: a change takes the verdict of its heaviest file.
@@ -47,7 +50,10 @@ def swift_reasons(lines, added_file):
     """Why a Swift file's change needs a rebuild; empty when it only changes function bodies.
     `lines` are the diff's ("+" or "-", text) pairs."""
     if added_file:
-        return ["new file"]
+        # Its types and functions are new symbols that live only in the patch, with the edited
+        # files that use them; the running build has nothing of them to replace. An entry point
+        # is the one thing a patch cannot add.
+        return ["new entry point"] if any(sign == "+" and ENTRY.match(text) for sign, text in lines) else []
     reasons = set()
     removed, added = [], []
     for sign, line in lines:
@@ -55,7 +61,9 @@ def swift_reasons(lines, added_file):
         if not body.strip() or COMMENT.match(body):
             continue
         indent = len(body) - len(body.lstrip(" "))
-        if TYPE_DECL.match(body):
+        if ENTRY.match(body) and sign == "+":
+            reasons.add("new entry point")
+        elif TYPE_DECL.match(body):
             reasons.add("type or conformance")
         elif STORED.match(body) and indent <= 4 and not body.endswith("{"):
             reasons.add("stored property")  # member level (one indent) or a global
@@ -96,6 +104,8 @@ def classify(files, diffs):
         elif path.endswith(".swift"):
             # A deleted file's code stays in the running binary, and nothing calls it any more.
             why = [] if status == "D" else swift_reasons(diffs.get(path, []), status == "A")
+            if status == "A" and os.path.basename(path) == "main.swift":
+                why = ["new entry point"]
             for reason in why:
                 note("rebuild", path, reason)
             if not why:

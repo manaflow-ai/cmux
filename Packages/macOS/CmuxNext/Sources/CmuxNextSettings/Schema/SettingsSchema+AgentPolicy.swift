@@ -106,6 +106,7 @@ extension SettingsSchema {
         "appearance.accent",
         "appearance.highlightColor", // the app's one selected-text color (looks only)
         "appearance.themeEdits",
+        "appearance.themeFile", // the theme file whose look applies (looks only)
         "appearance.favoriteThemes", "appearance.rotateFavoriteThemes", // starred themes and their rotation (looks only)
         "appearance.machineColors", // the color of each machine's marks (looks only)
         "appearance.backdropArt",
@@ -441,6 +442,8 @@ extension SettingsSchema {
         // Chooses the server this Mac registers its device keys with; only the person sets it.
         "deviceHub.url": .userOnly,
         "updates.installOnQuit": .destructive,
+        // On, one click restarts cmux into an update: the person's call.
+        "updates.oneClickInstall": .userOnly,
         "updates.keepPreviousVersions": .destructive,
     ]
 

@@ -37,7 +37,9 @@ pub trait Storage: Send + Sync {
     fn list(&self, dir: &Path) -> io::Result<Vec<String>>;
     fn open(&self, path: &Path, mode: OpenMode) -> io::Result<Box<dyn StorageFile>>;
     fn rename(&self, from: &Path, to: &Path) -> io::Result<()>;
-    /// Makes the entries of `dir` (a create or a rename in it) durable.
+    /// Removes the file at `path` (`Journal::retire_through`, the journal's only delete).
+    fn remove_file(&self, path: &Path) -> io::Result<()>;
+    /// Makes the entries of `dir` (a create, rename or remove in it) durable.
     fn sync_dir(&self, dir: &Path) -> io::Result<()>;
     /// An exclusive lock of `path`, held until the returned value is dropped, or `None` while
     /// another holder has it.
@@ -102,6 +104,10 @@ impl Storage for FsStorage {
 
     fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
         std::fs::rename(from, to)
+    }
+
+    fn remove_file(&self, path: &Path) -> io::Result<()> {
+        std::fs::remove_file(path)
     }
 
     fn sync_dir(&self, dir: &Path) -> io::Result<()> {

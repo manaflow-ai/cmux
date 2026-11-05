@@ -44,6 +44,22 @@ revision, a native AppKit surface, or a production bundle. An agent may read the
 index and gallery state, but automation should not steal the developer's focus.
 Open a browser tab only with an explicit `--open` or a user action.
 
+### In your own app
+
+A NIGHTLY, cmux NEXT DEV or Debug build shows a stage in itself: no separate host, no app build.
+Run **Gallery Stage** from the palette for the gallery's index, or name an entry:
+
+```sh
+cmux action run gallery.openStage --entry agent-pane.composer --variant busy
+```
+
+The stage opens as a tab of the app's window, over your own background picture or glass, in your
+theme, accent and scale, and it follows them when they change (`host=app` in the frame). **Move
+Tab to New Window** separates it out; a save shows in it through the gallery's hot reload. It loads
+from `http://127.0.0.1:4178/` (what `web-dev.sh` starts), or the `gallery` URL in `web-dev.json`.
+The rest of the app's web surfaces follow your edits through `web-dev.json` as before
+([web-overlay.sh](../scripts/cmux-next/web-overlay.sh)).
+
 ## Branch gallery and before/after review
 
 Once the branch has a pushed commit, use the repository's compare helper:

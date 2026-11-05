@@ -103,8 +103,9 @@ blocks = dict(re.findall(r"^  ([A-Za-z0-9_-]+):\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z
 # visual-gate-nightly-verdict only the mode script to read the gate's job; the
 # gate itself checks out the resolved build commit.
 # The advisory attester uses workflow controls and the already-built artifact;
-# its checkout contributes no shipped bytes.
-exempt = {"attest-nightly-remote-daemon", "decide", RESOLVE, "route-visual-gate-nightly", "visual-gate-nightly-verdict", "refresh-compilation-cache", "refresh-test-compilation-cache", "probe-nightly-tag-permission",
+# its checkout contributes no shipped bytes. republish-nightly-next runs this
+# workflow's fetch script against another run's already-verified artifacts.
+exempt = {"republish-nightly-next", "attest-nightly-remote-daemon", "decide", RESOLVE, "route-visual-gate-nightly", "visual-gate-nightly-verdict", "refresh-compilation-cache", "refresh-test-compilation-cache", "probe-nightly-tag-permission",
           "find-nightly-next-recovery", "recover-nightly-next-notarization", "verify-recovered-nightly-next",
           "sign-nightly-identity-legacy", "verify-nightly-identity-legacy", "verify-nightly-identity-legacy-pool",
           "publish-nightly-identity-legacy", "legacy-identity-target", "promote-nightly-next", "promote-nightly-next-acked"}
@@ -190,14 +191,23 @@ for name in shipping:
     if name in {"build-nightly-app", "build-sign-notarize-nightly"}:
         # Unsigned recovery restores bytes instead of compiling them, using
         # this workflow's controls. Its separate source checkout stays pinned.
+        # The signer checks its controls out on every run since d5997935ef7: the whole-Mac claim
+        # (scripts/ci/signing-runner-claim.sh) runs from them before any secret. Only the keychain
+        # controls they carry stay for unsigned recovery.
         control_name = ("Checkout trusted unsigned-resume controls" if name == "build-nightly-app"
-                        else "Checkout trusted signing controls for unsigned resume")
+                        else "Checkout trusted signing controls")
         control = re.search(rf"^      - name: {re.escape(control_name)}\n.*?(?=^      - name:|\Z)",
                             body, re.MULTILINE | re.DOTALL)
         check(control is not None, f"{name} must keep its explicit unsigned-recovery controls checkout")
-        if control:
+        if control and name == "build-nightly-app":
             check("if: inputs.nightly_next_unsigned_run != ''" in control.group(0),
                   f"{name} control checkout must run only during unsigned recovery")
+        if control and name == "build-sign-notarize-nightly":
+            keychain = re.search(r"^      - name: Install the current signing keychain controls\n.*?(?=^      - name:|\Z)",
+                                 body, re.MULTILINE | re.DOTALL)
+            check(keychain is not None and "if: inputs.nightly_next_unsigned_run != ''" in keychain.group(0),
+                  f"{name} must install the trusted keychain controls only during unsigned recovery")
+        if control:
             refs = re.findall(r"^\s+ref: (.*)$", control.group(0), re.MULTILINE)
             check(refs == ["${{ github.sha }}"], f"{name} recovery controls must come from this workflow's commit")
             if name == "build-sign-notarize-nightly":

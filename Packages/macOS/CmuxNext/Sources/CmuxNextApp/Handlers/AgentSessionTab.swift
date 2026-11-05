@@ -51,9 +51,7 @@ enum AgentSessionTab {
             throw ActionFailure(message: refusal.message)
         }
         let logger = daemon.logger
-        let workspace = services.machines.allWorkspaces.first { candidate, _ in
-            candidate.screens.contains { $0.panes.contains { $0 === pane } }
-        }?.0
+        let workspace = daemon.store.location(of: pane)?.workspace
         // The run answers the new tab's ids (`cmux agents chat new`, #23026), as New Agent Chat's
         // script runs do, so the caller can find the chat it put there.
         context.registry.track(result: Task { @MainActor in

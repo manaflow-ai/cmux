@@ -333,6 +333,9 @@ pub mod method {
     /// Turn one of a chat's tools on or off (`hub/tools.rs`): `{sessionId,
     /// id, enabled}`.
     pub const MUX_SET_TOOLS: &str = "_acpmux/set_tools";
+    /// Replace the folders a chat sees beside its own (`hub/additional_dirs.rs`):
+    /// `{sessionId, additionalDirectories}`; its agent restarts on them.
+    pub const MUX_SET_DIRECTORIES: &str = "_acpmux/set_directories";
     /// Reconnect one of a Claude Code chat's MCP servers (`hub/tools.rs`):
     /// `{sessionId, server}`.
     pub const MUX_MCP_RECONNECT: &str = "_acpmux/mcp/reconnect";

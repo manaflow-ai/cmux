@@ -64,7 +64,7 @@ import tempfile
 import unittest
 import urllib.request
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable, Iterator
 
 import yaml
 
@@ -122,6 +122,13 @@ if [ -n "$owned" ]; then
   echo "claim=owned" >> "$GITHUB_OUTPUT"
 fi
 """
+# A nightly signing job has no Blacksmith twin (NIGHTLY_WORKFLOW, test_ci_nightly_off_blacksmith): its gate says a
+# refusal fails the job instead. Only the two refusal messages differ from CLAIM_GATE.
+NIGHTLY_CLAIM_GATE = (CLAIM_GATE
+                      .replace("whole mini; this run's Blacksmith job signs instead.",
+                               "whole mini, so this job fails; nightly signing runs only on a trusted signing runner, never on Blacksmith.")
+                      .replace("lists; this run's Blacksmith job signs instead.",
+                               "lists, so this job fails; nightly signing runs only on a trusted signing runner, never on Blacksmith."))
 TWIN_SUFFIX = "-blacksmith"
 # A picker output that is its own attempt number, which a signing job compares with github.run_attempt.
 ATTEMPT_OUTPUT = "${{ github.run_attempt }}"
@@ -135,6 +142,11 @@ ATTEMPT_OUTPUT = "${{ github.run_attempt }}"
 FALLBACK_ON_FAILURE: dict[tuple[str, str], str] = {}
 # Nightly workflows have no Blacksmith twin at all (twin_failures).
 NIGHTLY_WORKFLOW = re.compile(r"nightly|notarization")
+
+
+def claim_gate_for(workflow: str) -> str:
+    """The claim gate a signing job of `workflow` starts with, word for word."""
+    return NIGHTLY_CLAIM_GATE if NIGHTLY_WORKFLOW.search(workflow) else CLAIM_GATE
 # The hook from before the leftover-process check (glaeda before #1738): the gate refuses it.
 OLD_HOOK = "fb0442d31e23f01326118b7d6be2effd0ba91bff9a0b59c62016c39bc23116da"
 NEEDS_OUTPUT = re.compile(r"needs\.([\w-]+)\.outputs\.([\w-]+)")
@@ -378,7 +390,7 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
             gate_index = next((index for index, step in enumerate(steps)
                                if str(step.get("id", "")) == CLAIM_GATE_ID), None)
             gate = steps[gate_index] if gate_index is not None else {}
-            gate_ok = (str(gate.get("run", "")).strip() == CLAIM_GATE.strip()
+            gate_ok = (str(gate.get("run", "")).strip() == claim_gate_for(workflow).strip()
                        and not (set(gate) - {"name", "run", "shell", "id"})
                        and str(gate.get("shell", "bash")) == "bash"
                        and gate.get("id") == CLAIM_GATE_ID)
@@ -632,7 +644,7 @@ class SigningOwnedMacTests(unittest.TestCase):
         failures, _ = check({"other-nightly.yml": {"jobs": {"deltas": in_job_env}}})
         self.assertTrue(any("job-level env names a secret" in failure for failure in failures), failures)
         # Held whole: the claim gate first, the claim before the key, and no keychain to delete (rule 4 is the keychain's).
-        held = {"runs-on": owned, "steps": [{"name": CLAIM_GATE_NAME, "id": CLAIM_GATE_ID, "run": CLAIM_GATE},
+        held = {"runs-on": owned, "steps": [{"name": CLAIM_GATE_NAME, "id": CLAIM_GATE_ID, "run": NIGHTLY_CLAIM_GATE},
                                             {"uses": "actions/checkout@v6"}, {"run": CLAIM}, key]}
         self.assertEqual(check({"nightly.yml": {"jobs": {"sign-nightly-identity-legacy": held}}}), ([], 1))
         # A Sparkle job with an ephemeral route is rule 7's (test_ci_signing_keychain_is_deleted_before_bundle_code).
@@ -1240,6 +1252,66 @@ class ClaimGateTests(unittest.TestCase):
                                   GITHUB_SHA="c" * 40).returncode, 1, "another commit's list is never read")
 
 
+# How long glaeda's newest pin may go unlisted before the guard fails. HQ's glaeda-signing-hooks sync opens the PR that
+# lists it within 15 min of the pin, and next-review and next-autoland land it with its review, so a glaeda release no
+# longer reddens the base (it did three times on 2026-11-04, each until a person landed the sync PR). Meanwhile the claim
+# gate refuses the unlisted hook and minis on it sign on Blacksmith, as before. Past the window the sync is stuck, and
+# the guard fails as it always did.
+NEWEST_HOOK_GRACE = dt.timedelta(hours=2)
+GLAEDA_GIT_URL = "https://github.com/teamleaderleo/glaeda.git"
+# glaeda-disk commits read, newest first, to find when a pin first appeared: a pin older than all of them is past any
+# window.
+PIN_WALK = 20
+
+
+def parse_pins(text: str) -> list[str]:
+    """glaeda-disk's CMUX_NEXT_DRAIN_HOOK_SHA256, in its order (oldest first); [] when it declares none."""
+    block = re.search(r"CMUX_NEXT_DRAIN_HOOK_SHA256 = frozenset\(\{(.*?)\}\)", text, re.S)
+    return re.findall(r'"([0-9a-f]{64})"', block.group(1)) if block else []
+
+
+def glaeda_disk_history() -> Iterator[tuple[dt.datetime, list[str]]]:
+    """(committer date, pins) of each of glaeda main's last PIN_WALK glaeda-disk commits, newest first, read over git
+    (a blobless clone, each blob fetched as it is reached), so it spends no GitHub API quota."""
+    with tempfile.TemporaryDirectory() as tmp:
+        def git(*args: str) -> str:
+            return subprocess.run(["git", "-C", tmp, *args], capture_output=True, text=True, check=True,
+                                  timeout=60).stdout
+        subprocess.run(["git", "clone", "-q", "--bare", "--filter=blob:none", "--single-branch", "--branch", "main",
+                        GLAEDA_GIT_URL, tmp], capture_output=True, text=True, check=True, timeout=120)
+        for line in git("log", f"-n{PIN_WALK}", "--format=%H %cI", "--", "scripts/glaeda-disk").splitlines():
+            commit, when = line.split()
+            yield dt.datetime.fromisoformat(when), parse_pins(git("show", f"{commit}:scripts/glaeda-disk"))
+
+
+def pinned_since(sha: str, history: Iterable[tuple[dt.datetime, list[str]]]) -> dt.datetime | None:
+    """When glaeda-disk first pinned `sha`: the date of the oldest commit in the newest unbroken run of commits that pin
+    it (`history` newest first). None when the newest commit lacks it, or the run reaches the end of `history` (pinned
+    before the walk's oldest commit, so older than any window)."""
+    since = None
+    for when, pinned in history:
+        if sha not in pinned:
+            return since
+        since = when
+    return None
+
+
+def unlisted_newest_hook_waits(sha: str, history: Iterable[tuple[dt.datetime, list[str]]], now: dt.datetime) -> str:
+    """Why glaeda's newest pin `sha`, which the list lacks, does not fail the guard yet, or "" when it does: glaeda pinned
+    it less than NEWEST_HOOK_GRACE ago. A history that can't be read, a pin older than the walk, or a pin date more
+    than a few minutes in the future fails it."""
+    try:
+        since = pinned_since(sha, history)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return ""
+    if since is None or not -dt.timedelta(minutes=5) <= now - since < NEWEST_HOOK_GRACE:
+        return ""
+    left = int((NEWEST_HOOK_GRACE - (now - since)).total_seconds() // 60)
+    return (f"glaeda pinned its newest hook {sha} at {since.isoformat()}, and {SIGNING_HOOKS_FILE.name} does not list "
+            f"it yet; minis on it sign on Blacksmith until the glaeda-signing-hooks sync PR lands. This guard fails if "
+            f"it is still unlisted in {left} min")
+
+
 class SigningHooksInStepWithGlaedaTests(unittest.TestCase):
     """scripts/ci/glaeda-signing-hooks.txt names only hooks glaeda released with the leftover-process check: each sha
     is one glaeda-disk pins in CMUX_NEXT_DRAIN_HOOK_SHA256, at or after FIRST_SIGNING_HOOK in its order."""
@@ -1255,9 +1327,9 @@ class SigningHooksInStepWithGlaedaTests(unittest.TestCase):
                 last = error
         else:
             self.fail(f"could not read glaeda's pins from {GLAEDA_DISK_URL}: {last}")
-        block = re.search(r"CMUX_NEXT_DRAIN_HOOK_SHA256 = frozenset\(\{(.*?)\}\)", text, re.S)
-        self.assertIsNotNone(block, "glaeda-disk no longer declares CMUX_NEXT_DRAIN_HOOK_SHA256")
-        return re.findall(r'"([0-9a-f]{64})"', block.group(1))
+        self.assertIn("CMUX_NEXT_DRAIN_HOOK_SHA256 = frozenset", text,
+                      "glaeda-disk no longer declares CMUX_NEXT_DRAIN_HOOK_SHA256")
+        return parse_pins(text)
 
     def test_every_listed_hook_is_one_glaeda_released_with_the_check(self) -> None:
         self.assertEqual(len(SIGNING_HOOKS), len(set(SIGNING_HOOKS)), "a sha is listed twice")
@@ -1270,10 +1342,64 @@ class SigningHooksInStepWithGlaedaTests(unittest.TestCase):
             self.assertIn(sha, released, f"{sha} is not a hook glaeda pinned at or after {FIRST_SIGNING_HOOK[:8]}")
         # glaeda #1740's hook was released and never listed, so every owned signing attempt was refused for hours: the
         # hook glaeda pins now (its newest, which minis are moving to) must be listed. HQ's glaeda-signing-hooks-sync
-        # workflow opens the PR that adds it.
+        # workflow opens the PR that adds it, which has NEWEST_HOOK_GRACE to land.
+        if pins[-1] not in SIGNING_HOOKS:
+            waits = unlisted_newest_hook_waits(pins[-1], glaeda_disk_history(), dt.datetime.now(dt.timezone.utc))
+            if waits:
+                print(f"::warning title=glaeda signing hooks::{waits}")
+                return
         self.assertIn(pins[-1], SIGNING_HOOKS,
                       f"glaeda's newest hook {pins[-1]} is not in {SIGNING_HOOKS_FILE.name}; minis on it sign on "
                       "Blacksmith until it is added (add its line, or land the glaeda-signing-hooks sync PR)")
+
+
+class NewestHookGraceTests(unittest.TestCase):
+    """An unlisted newest glaeda pin fails the guard only once it is NEWEST_HOOK_GRACE old (cmuxterm-hq, 2026-11-04)."""
+
+    NOW = dt.datetime(2026, 11, 4, 19, 0, tzinfo=dt.timezone.utc)
+    NEW, OLD = "a" * 64, "b" * 64
+
+    def history(self, *minutes_ago_and_pins: tuple[int, list[str]]) -> list[tuple[dt.datetime, list[str]]]:
+        return [(self.NOW - dt.timedelta(minutes=m), pins) for m, pins in minutes_ago_and_pins]
+
+    def test_a_fresh_pin_waits_and_an_old_one_fails(self) -> None:
+        both = [self.OLD, self.NEW]
+        fresh = self.history((10, both), (30, both), (200, [self.OLD]))
+        self.assertEqual(pinned_since(self.NEW, fresh), self.NOW - dt.timedelta(minutes=30), "its first commit counts")
+        self.assertIn("fails if it is still unlisted in 90 min", unlisted_newest_hook_waits(self.NEW, fresh, self.NOW))
+        stale = self.history((10, both), (125, both), (200, [self.OLD]))
+        self.assertEqual(unlisted_newest_hook_waits(self.NEW, stale, self.NOW), "",
+                         "a later glaeda-disk commit never restarts the window")
+
+    def test_whatever_cant_be_dated_fails(self) -> None:
+        both = [self.OLD, self.NEW]
+        cases = {
+            "pinned before the walk's oldest commit": self.history((10, both), (20, both)),
+            "the newest commit lacks it": self.history((10, [self.OLD]), (20, both), (30, [self.OLD])),
+            "no history": [],
+            "a date in the future": self.history((-30, both), (200, [self.OLD])),
+        }
+        for why, history in cases.items():
+            with self.subTest(why):
+                self.assertEqual(unlisted_newest_hook_waits(self.NEW, history, self.NOW), "")
+
+        def unreadable() -> Iterator[tuple[dt.datetime, list[str]]]:
+            raise subprocess.CalledProcessError(128, ["git", "clone"])
+            yield  # a generator, as glaeda_disk_history is
+        self.assertEqual(unlisted_newest_hook_waits(self.NEW, unreadable(), self.NOW), "")
+
+    def test_the_guard_reads_the_window_only_for_an_unlisted_newest_pin(self) -> None:
+        source = Path(__file__).read_text()
+        guard = source[source.index("    def test_every_listed_hook_is_one_glaeda_released_with_the_check"):]
+        guard = guard[:guard.index("\n\n\n")]
+        self.assertLess(guard.index("if pins[-1] not in SIGNING_HOOKS:"), guard.index("glaeda_disk_history()"))
+        self.assertLess(guard.index("for sha in SIGNING_HOOKS:\n            self.assertIn(sha, released"),
+                        guard.index("glaeda_disk_history()"), "every listed hook is still checked first, strictly")
+
+    def test_the_glaeda_history_reader_parses_pins(self) -> None:
+        text = 'X = 1\nCMUX_NEXT_DRAIN_HOOK_SHA256 = frozenset({\n    "%s",  # old\n    "%s",\n})\n' % (self.OLD, self.NEW)
+        self.assertEqual(parse_pins(text), [self.OLD, self.NEW])
+        self.assertEqual(parse_pins("nothing here"), [])
 
 
 # A 64-hex sha256 in a workflow: a hook named outside the one list.

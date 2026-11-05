@@ -2700,6 +2700,8 @@ class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
             "vars.CI_PR_POOL_OWNED": "1",
             "needs.push-head-preflight.outputs.current": "true",
             "needs.web-bundles.result": "success",
+            # The router ran: web-bundles checks its result (a re-run skips portable-placement before it).
+            "needs.path_route.result": "success",
             "needs.path_route.outputs.tree_state": "ready",
             "needs.app-compile-fleet.outputs.verdict": "pass",
             "needs.release-compile-fast.result": "skipped",

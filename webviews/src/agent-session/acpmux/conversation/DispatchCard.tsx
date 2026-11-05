@@ -59,11 +59,7 @@ export function DispatchCard({ item, call }: { item: AcpmuxActivity; call: Dispa
       >
         <span className="cv-tool__icon">{call.kind === "report" ? <Envelope /> : <ToolGroup />}</span>
         <span className="cv-tool__text">{line}</span>
-        <ChevronRight
-          size={14}
-          strokeWidth={1.2}
-          className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
-        />
+        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
       </button>
       {call.kind === "report" && anchor && (
         <a

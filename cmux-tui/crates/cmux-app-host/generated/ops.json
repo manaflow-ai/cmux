@@ -456,6 +456,7 @@
     "terminal.wait_exit",
     "thread.update",
     "title.set",
+    "toast.show",
     "usage.summary",
     "usage_app.cycle_variant",
     "usage_app.refresh",
