@@ -258,8 +258,8 @@ fn digestible(q: &QueuedPrompt) -> bool {
         && !q.sent_now
         && run.control != Control::Web
         && !run.trust_gate
-        // A goal's continuation runs on its own, checked against its goal (`goal_tools.rs`).
-        && run.goal_mark.is_none()
+        // A goal's continuation runs alone, checked against its goal (`goal_tools.rs`).
+        && !super::super::goal_tools::is_continuation(run.provenance.as_ref())
         && !run.blocks.is_empty()
         && run.blocks.iter().all(|b| {
             b.get("type").and_then(Value::as_str) == Some("text")
@@ -435,7 +435,6 @@ impl Hub {
             // The digest is no session's message: the messages it took kept theirs.
             message_id: None,
             message_sender: None,
-            goal_mark: None,
         };
         queue.insert(
             at,

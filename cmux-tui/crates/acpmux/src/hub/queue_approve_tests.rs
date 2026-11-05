@@ -119,7 +119,6 @@ fn insert(hub: &Hub, session: &Arc<Session>, id: &str, provenance: Option<&Value
         no_queue: false,
         admitted: false,
         after_turn: false,
-        goal_mark: None,
     };
     session.queued.fetch_add(1, Ordering::SeqCst);
     let limits = super::super::queue_admission::QueueLimits { prompts: None, bytes: None };
@@ -503,11 +502,12 @@ async fn a_capable_host_name_fronting_an_older_receiver_does_not_move_an_approve
     hub.shutdown_all().await;
 }
 
-/// A goal's continuation keeps its mark across a restart, and the person's edit of one clears it
-/// there too: the edited prompt is the person's, which no goal change may refuse (Codex review of
-/// #36666, F2: `queue_updated` named no mark, and the restore kept the queued record's).
+/// A goal's continuation keeps its mark across a restart, in its provenance, and the person's
+/// edit of one drops it there too: the edited prompt is the person's, which no goal change may
+/// refuse (Codex review of #36666: the mark was a field that a restart and an edit's restore lost
+/// or kept wrongly).
 #[tokio::test]
-async fn a_restart_keeps_a_continuations_goal_mark_and_an_edit_clears_it() {
+async fn a_restart_keeps_a_continuations_goal_mark_and_an_edit_drops_it() {
     let dir = std::env::temp_dir().join(format!("acpmux-goal-mark-{}", uuid::Uuid::now_v7()));
     let durable = || {
         let mut cfg: Config = serde_json::from_value(json!({
@@ -526,34 +526,14 @@ async fn a_restart_keeps_a_continuations_goal_mark_and_an_edit_clears_it() {
     };
     let session = hub.new_session(new).await.unwrap();
     let id = session.id.clone();
+    let continuation = crate::prompt_provenance::notice(
+        &json!({"sender": "acpmux", "severity": "info", "title": "Keep going toward the goal"}),
+        &id,
+    );
+    let mut continuation = continuation;
+    cmux_json::JsonSet::set(&mut continuation, "goalMark", json!("41"));
     for prompt_id in ["kept", "edited"] {
-        let blocks = [json!({"type": "text", "text": "Keep going"})];
-        let replaced = std::sync::OnceLock::new();
-        let slot = Slot {
-            text: "Keep going",
-            blocks: &blocks,
-            display_parts: None,
-            client: "acpmux",
-            prompt_id,
-            control: Control::Local,
-            cloud_mobile: false,
-            trust_gate: false,
-            interrupt: false,
-            interrupt_turn: None,
-            provenance: None,
-            agent: None,
-            class: None,
-            supersede: None,
-            full_access_device: None,
-            replaced: &replaced,
-            no_queue: false,
-            admitted: false,
-            after_turn: false,
-            goal_mark: Some("41"),
-        };
-        session.queued.fetch_add(1, Ordering::SeqCst);
-        let limits = super::super::queue_admission::QueueLimits { prompts: None, bytes: None };
-        hub.enqueue_or_refuse(&session, &slot, prompt_id, limits).unwrap();
+        insert(&hub, &session, prompt_id, Some(&continuation));
     }
     let edit =
         json!({"sessionId": id, "promptId": "edited", "op": "update", "text": "Do this instead"});
@@ -564,11 +544,14 @@ async fn a_restart_keeps_a_continuations_goal_mark_and_an_edit_clears_it() {
     let hub = durable();
     let session = hub.resolve(&id).unwrap();
     hub.restore_queue(&session);
-    let marks: Vec<(String, Option<String>)> =
-        session.queue().into_iter().map(|q| (q.prompt_id, q.run.goal_mark.clone())).collect();
+    let marks: Vec<(String, Option<Value>)> = session
+        .queue()
+        .into_iter()
+        .map(|q| (q.prompt_id, q.run.provenance.as_ref().and_then(|p| p.get("goalMark")).cloned()))
+        .collect();
     assert_eq!(
         marks,
-        [("kept".to_owned(), Some("41".to_owned())), ("edited".to_owned(), None)],
+        [("kept".to_owned(), Some(json!("41"))), ("edited".to_owned(), None)],
         "the restored queue's goal marks"
     );
     hub.shutdown_all().await;

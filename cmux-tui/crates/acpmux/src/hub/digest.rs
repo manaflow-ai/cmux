@@ -349,7 +349,9 @@ impl Hub {
                     && q.run.trust_gate == head.trust_gate
                     && q.run.cloud_mobile == head.cloud_mobile
                     && !super::subsession_guard::is_family_prompt(q.run.provenance.as_ref())
-                    && !inbox_digest::is_digest(q.run.provenance.as_ref());
+                    && !inbox_digest::is_digest(q.run.provenance.as_ref())
+                    // A goal's continuation runs alone, checked against its goal (`goal_tools.rs`).
+                    && !super::goal_tools::is_continuation(q.run.provenance.as_ref());
                 let size = blocks_bytes(&q.run.blocks);
                 if !joins || bytes + size > DIGEST_MAX_BYTES {
                     break;
@@ -571,7 +573,6 @@ mod tests {
             full_access_device: None,
             message_id: None,
             message_sender: None,
-            goal_mark: None,
         })
     }
 
@@ -680,7 +681,6 @@ mod tests {
             full_access_device: None,
             message_id: None,
             message_sender: None,
-            goal_mark: None,
         };
         let digest = DigestTurn::default();
         *digest.taken.lock().unwrap() = vec![QueuedPrompt {

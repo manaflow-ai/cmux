@@ -18,7 +18,6 @@ impl PromptRun {
             full_access_device: self.full_access_device.clone(),
             message_id: self.message_id.clone(),
             message_sender: self.message_sender.clone(),
-            goal_mark: self.goal_mark.clone(),
         }
     }
 }
@@ -127,7 +126,6 @@ fn queued(prompt_id: &str, agent: Option<&str>, class: Option<Class>, text: &str
         full_access_device: None,
         message_id: None,
         message_sender: None,
-        goal_mark: None,
     };
     QueuedPrompt {
         prompt_id: prompt_id.into(),
@@ -182,10 +180,10 @@ fn only_other_agents_text_messages_go_into_a_digest() {
     run.provenance = Some(json!({"kind": KIND}));
     digest.run = Arc::new(run);
     assert!(!digestible(&digest));
-    // A goal's continuation runs alone, checked against its goal (Codex review of #36666, F3).
+    // A goal's continuation runs alone, checked against its goal (Codex review of #36666).
     let mut continuation = queued("p6g", Some("acpmux"), None, "Keep going");
     let mut run = continuation.run.clone_run();
-    run.goal_mark = Some("41".to_owned());
+    run.provenance = Some(json!({"kind": "notice", "from": "acpmux", "goalMark": "41"}));
     continuation.run = Arc::new(run);
     assert!(!digestible(&continuation));
     let mut web = queued("p7", Some("lane-a"), None, "from the web");

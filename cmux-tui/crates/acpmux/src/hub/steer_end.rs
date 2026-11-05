@@ -199,8 +199,17 @@ impl Hub {
         // (`family_gate`).
         let family_gate = self.family_gate(session, opts.provenance.as_ref()).await?;
         // A goal's continuation whose goal moved on is refused here, past the last await before
-        // the steer is recorded and accepted (`goal_tools.rs` `check_goal_mark`).
-        super::goal_tools::check_goal_mark(session, opts.goal_mark.as_deref())?;
+        // the steer is recorded and accepted (`goal_tools.rs` `check_goal_mark`). A Send now of it
+        // leaves no mark behind (`steer_now.step`).
+        if let Err(e) = super::goal_tools::check_goal_mark(session, opts.provenance.as_ref()) {
+            session
+                .steer_now
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .step
+                .remove(&prompt_id);
+            return Err(e);
+        }
         let agent_sid = session
             .meta()
             .agent_session_id

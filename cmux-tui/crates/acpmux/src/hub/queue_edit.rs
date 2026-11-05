@@ -84,12 +84,6 @@ impl PromptRun {
     }
 }
 
-/// A waiting prompt sent now as a steer: the same prompt under the stricter rules of who sent it
-/// now. Every other field carries over (a goal's continuation keeps its mark, `goal_tools.rs`).
-pub(super) fn sent_now(run: &PromptRun, control: Control, device: Option<String>) -> PromptRun {
-    PromptRun { control, full_access_device: device, ..run.clone() }
-}
-
 /// What an `update` puts in a waiting prompt.
 enum Edit {
     /// `prompt`: these blocks, all of it.
@@ -375,7 +369,6 @@ impl Hub {
                 full_access_device: same_device(q.run.full_access_device.as_deref(), device),
                 message_id: None,
                 message_sender: None,
-                goal_mark: None,
             });
             q.preview = short_text(&text, 200);
             // Its author's edit of a prompt that waits for the owner is a new revision: an
@@ -474,7 +467,21 @@ impl Hub {
                 crate::author::may_change(editor, q.sender())?;
                 // Under the lock that makes it a steer (`queue_approve.rs`).
                 super::queue::released(q)?;
-                let run = sent_now(&q.run, control, device);
+                let run = PromptRun {
+                    size: q.run.size.clone(),
+                    blocks: q.run.blocks.clone(),
+                    display_parts: q.run.display_parts.clone(),
+                    control,
+                    cloud_mobile: q.run.cloud_mobile,
+                    trust_gate: q.run.trust_gate,
+                    provenance: q.run.provenance.clone(),
+                    agent: q.run.agent.clone(),
+                    class: q.run.class,
+                    supersede: q.run.supersede.clone(),
+                    full_access_device: device,
+                    message_id: q.run.message_id.clone(),
+                    message_sender: q.run.message_sender.clone(),
+                };
                 (q.run, q.steer) = (Arc::new(run), true);
             }
             let mut now =
