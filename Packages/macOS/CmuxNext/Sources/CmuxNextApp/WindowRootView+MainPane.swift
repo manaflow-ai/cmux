@@ -198,7 +198,7 @@ extension WindowRootView {
             NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window)
         }
         let holes = CornerGeometry.current.shadeHoles(content: contentHost.frame, radius: radius, in: bounds, page: presentsPage, sidebar: sidebarHidden || sidebar.isHidden ? nil : sidebar.frame, sidebarOnLeft: sidebarSide == .left)
-        mainPaneShade.update(card: holes.card, radius: radius, alpha: Metrics.mainPaneChromeShade(isDark: themeTokens.isDark), cutouts: holes.cutouts)
+        mainPaneShade.update(card: holes.card, radius: radius, alpha: Metrics.mainPaneChromeShade(isDark: themeTokens.isDark), cutouts: holes.cutouts, content: contentHost)
     }
 }
 

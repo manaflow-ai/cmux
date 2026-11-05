@@ -17,6 +17,10 @@ public final class MainPaneChromeShadeView: NSView {
     /// More rounded holes in the shade beside the main pane's card (a sidebar card under the
     /// `matched-sidebar` corner geometry), in this view's coordinates.
     private var cutouts: [PaneCard] = []
+    /// Above the content: the shade's wedges at a card's top corners when the card starts below the
+    /// top of the content it rounds (the `framed-card` corner geometry), where opaque content
+    /// (a terminal, a page) would hide the shade's curve and show a square corner.
+    private let fillets = ChromeShadeFilletView(frame: .zero)
     private var cardsObservation: AnyObject?
     /// The shown workspace's pane cards; a sync of theirs reshapes the shade.
     public weak var paneCards: (any PaneCardSource)? {
@@ -51,7 +55,10 @@ public final class MainPaneChromeShadeView: NSView {
 
     /// Shades everything but `card` (this view's coordinates); no shade when
     /// `alpha` is 0.
-    public func update(card: CGRect, radius: CGFloat, alpha: CGFloat, cutouts: [PaneCard] = []) {
+    /// `content` is the view the card rounds: when the card's top sits below the content's, the
+    /// top corners' wedges are drawn above it too (``fillets``).
+    public func update(card: CGRect, radius: CGFloat, alpha: CGFloat, cutouts: [PaneCard] = [], content: NSView? = nil) {
+        fillets.update(card: card, radius: radius, alpha: alpha, above: content, in: superview)
         guard card != self.card || radius != self.radius || alpha != self.alpha || cutouts != self.cutouts || shade.frame != bounds
             || Metrics.floatingPanes else { return }
         self.card = card
@@ -118,4 +125,44 @@ public protocol PaneCardSource: AnyObject {
     var paneCardsInWindow: [PaneCard] { get }
     /// Calls `block` after the panes moved; lives as long as the result.
     func observePaneCards(_ block: @escaping () -> Void) -> AnyObject
+}
+
+/// The shade's wedges at a card's top corners, above the content the card rounds (see
+/// `MainPaneChromeShadeView.fillets`): each a radius-sized square less the card's quarter circle,
+/// filled with the shade's black. Hidden whenever the card's top meets the content's. Takes no clicks.
+final class ChromeShadeFilletView: NSView {
+    private let wedges = CAShapeLayer()
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        autoresizingMask = [.width, .height]
+        layer?.addSublayer(wedges)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    func update(card: CGRect, radius: CGFloat, alpha: CGFloat, above content: NSView?, in root: NSView?) {
+        guard let content, let root, content.superview === root, alpha > 0, radius > 0, !card.isEmpty,
+              card.maxY < content.frame.maxY - 0.5 else {
+            isHidden = true
+            return
+        }
+        if superview !== root { root.addSubview(self, positioned: .above, relativeTo: content) }
+        frame = root.bounds
+        isHidden = false
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        wedges.frame = bounds
+        let r = min(radius, card.width / 2, card.height / 2)
+        // The two top corner squares less the card's rounded rect: the wedges outside its curve.
+        let corners = CGMutablePath()
+        for x in [card.minX, card.maxX - r] { corners.addRect(CGRect(x: x, y: card.maxY - r, width: r, height: r)) }
+        wedges.path = corners.subtracting(CGPath(roundedRect: card, cornerWidth: r, cornerHeight: r, transform: nil))
+        wedges.fillColor = NSColor.black.withAlphaComponent(alpha).cgColor
+    }
 }
