@@ -1885,6 +1885,52 @@ class JobsReuseAPassOnTheSameInputs(unittest.TestCase):
             self.assertIn(needle, pool)
 
 
+class GuiJobsStartFromTheSeed(unittest.TestCase):
+    """swift-test, daemon-test and generated-files off the owned Macs start from the fast-tier seed.
+
+    Leo, 2026-11-05: "If a hot swapped build works (copied versions of a certain version) / Then you
+    can skip compile skip build you only need the tests". A daemon-only change leaves every Swift
+    input as the base had it, so with the base's seeded build and its input times nothing compiles.
+    """
+
+    JOBS = ("swift-test", "daemon-test", "generated-files")
+
+    def steps(self, job: str) -> list[dict]:
+        return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"][job]["steps"]
+
+    def test_restores_the_seed_publicly_and_replays_its_times_before_the_build(self):
+        for job in self.JOBS:
+            with self.subTest(job=job):
+                steps = self.steps(job)
+                names = [s.get("name") for s in steps]
+                key = index_of(steps, lambda s: "scripts/cmux-next/fast-tier-cache-key.sh" in s.get("run", ""))
+                restore = index_of(steps, lambda s: is_cache_restore(s) and s["with"]["path"] == FAST_CACHE_DIRS["swift"])
+                replay = index_of(steps, lambda s: "e2e_warm_derived_data.py replay" in s.get("run", ""))
+                build = index_of(steps, lambda s: s.get("name") == "Build package and tests")
+                link = index_of(steps, lambda s: "owned_spm_scratch.py link" in s.get("run", ""))
+                self.assertLess(link, key, names)
+                self.assertLess(key, restore, names)
+                self.assertLess(restore, replay, names)
+                self.assertLess(replay, build, names)
+                key_id, restore_id = steps[key]["id"], steps[restore]["id"]
+                self.assertIn("!contains(runner.name, '-glaeda')", steps[key]["if"], "owned Macs keep their own build")
+                if REUSE_GUARD in steps[link].get("if", ""):
+                    self.assertIn(REUSE_GUARD, steps[key]["if"])
+                cache = steps[restore]
+                self.assertEqual(cache["with"]["backend"], "r2")
+                self.assertEqual(cache.get("env", {}).get("CI_CACHE_R2_PUBLIC_URL"), NEXT_PUBLIC_URL)
+                self.assertEqual(cache["with"]["key"], "${{ steps.%s.outputs.swift-key }}" % key_id)
+                self.assertEqual(cache["with"]["restore-keys"], "${{ steps.%s.outputs.swift-prefix }}" % key_id)
+                self.assertIn("steps.%s.outputs.cache-matched-key != ''" % restore_id, steps[replay]["if"])
+                self.assertIn(FAST_CACHE_MANIFEST, steps[replay]["run"])
+                run = steps[replay]["run"]
+                self.assertLess(run.index("owned_spm_scratch.py drop-bundles " + FAST_CACHE_DIRS["swift"]),
+                                run.index("e2e_warm_derived_data.py replay"), "a seed's stale catalogs go first")
+                for step in (steps[key], cache, steps[replay]):
+                    self.assertIs(step.get("continue-on-error"), True, "a miss builds as before")
+                self.assertEqual([s.get("name") for s in steps if is_cache_save(s)], [], "a job never saves a build")
+
+
 class FastTierStartsWarm(unittest.TestCase):
     """The fast tier restores the build a feat-cmux-next push seeded into NEXT's own R2 bucket.
 

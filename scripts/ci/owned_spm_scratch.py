@@ -4,6 +4,7 @@
     owned_spm_scratch.py link WORKSPACE [STORE]
     owned_spm_scratch.py lease WORKSPACE [STORE]
     owned_spm_scratch.py evict [STORE]
+    owned_spm_scratch.py drop-bundles BUILD
 
 swift-package-tests, swift-test and fast-tier run `swift build` for the packages
 a change selects. On an owned Mac (a glaeda runner) the workspace is reused, but
@@ -69,6 +70,9 @@ compile-string-catalogs.sh then compiled a file that is not in the checkout
 (cmux#26961, 2026-10-29: "MiscHandlers.xcstrings: error: Missing required key
 'version'" from a branch that moved the catalog). The bundles are copies of
 the sources, so SwiftPM copies them again in seconds; compiled modules stay.
+`drop-bundles` does the same for a build restored from elsewhere: the GUI jobs on
+Blacksmith (cmux-next.yml swift-test, daemon-test, generated-files) restore the base's
+fast-tier seed, which can hold a catalog this checkout removed.
 
 `link` and `lease` also say whether the job starts warm: one line in the log and, in
 $RUNNER_TEMP/glaeda-warm-start.json (cmux-warm-start/v1), the state ("warm": a
@@ -847,6 +851,10 @@ def main(argv: list[str]) -> int:
         print(f"owned SwiftPM scratch: {len(linked)} packages keep their .build between jobs")
         if verdict:
             report(verdict)
+        return 0
+    if len(argv) == 3 and argv[1] == "drop-bundles":
+        dropped = drop_resource_bundles(Path(argv[2]))
+        print(f"owned SwiftPM scratch: dropped {len(dropped)} resource bundles from {argv[2]}")
         return 0
     if len(argv) in (2, 3) and argv[1] == "evict":
         for path in evict(Path(argv[2]) if len(argv) == 3 else DEFAULT_STORE):

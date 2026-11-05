@@ -615,6 +615,17 @@ class Scratch(unittest.TestCase):
         self.assertTrue((outside / "debug/Other.bundle").is_dir())
         self.assertTrue((outside / "triple/debug/Deep.bundle").is_dir())
 
+    def test_drop_bundles_clears_a_restored_build(self):
+        # A seed restored into the workspace (not a scratch link) loses its bundles the same way.
+        build = Path(self.tmp.name) / "restored/.build"
+        (build / "arm64-apple-macosx/debug/Stale.bundle").mkdir(parents=True)
+        (build / "arm64-apple-macosx/debug/description.json").write_text("{}")
+        (build / "arm64-apple-macosx/debug/Module.swiftmodule").mkdir()
+        self.assertEqual(scratch.main(["x", "drop-bundles", str(build)]), 0)
+        self.assertFalse((build / "arm64-apple-macosx/debug/Stale.bundle").exists())
+        self.assertTrue((build / "arm64-apple-macosx/debug/Module.swiftmodule").is_dir())
+        self.assertEqual(scratch.main(["x", "drop-bundles", str(build.parent / "absent")]), 0)
+
     def test_an_empty_store_with_no_room_above_the_reserve_makes_no_root(self):
         # No root measured yet: a new root still needs room for a whole build, not zero bytes.
         self.checkout()

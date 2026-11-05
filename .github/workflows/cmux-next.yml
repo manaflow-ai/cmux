@@ -3853,6 +3853,38 @@ jobs:
         continue-on-error: true
         run: python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
 
+      # Off the owned Macs, start from the build a feat-cmux-next push seeded for the fast tier
+      # (cmux-next-fast-tier-seed.yml): the same `swift build --build-tests` of this package at a
+      # recent base, at the same workspace path. With the seed's input times replayed, only what
+      # this change touched compiles, so a daemon-only change compiles no Swift and goes straight
+      # to the tests. The seed's resource bundles are dropped first (owned_spm_scratch.py
+      # drop-bundles, as a kept build's are). Any miss builds as before.
+      - name: Compute the fast-tier seed keys
+        id: seed-key
+        if: ${{ !contains(runner.name, '-glaeda') && steps.reuse.outputs.hit != 'true' }}
+        continue-on-error: true
+        run: scripts/cmux-next/fast-tier-cache-key.sh >> "$GITHUB_OUTPUT"
+
+      - name: Restore the CmuxNext build the base seeded
+        id: seed-restore
+        if: ${{ steps.seed-key.outputs.swift-prefix != '' && steps.reuse.outputs.hit != 'true' }}
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        with:
+          backend: r2
+          path: Packages/macOS/CmuxNext/.build
+          key: ${{ steps.seed-key.outputs.swift-key }}
+          restore-keys: ${{ steps.seed-key.outputs.swift-prefix }}
+
+      - name: Replay the seed's input times
+        if: ${{ steps.seed-restore.outputs.cache-matched-key != '' && steps.reuse.outputs.hit != 'true' }}
+        continue-on-error: true
+        run: |
+          python3 scripts/ci/owned_spm_scratch.py drop-bundles Packages/macOS/CmuxNext/.build
+          python3 -I scripts/ci/e2e_warm_derived_data.py replay "$GITHUB_WORKSPACE" Packages/macOS/CmuxNext/.build/cmux-fast-tier-input-mtimes.json
+
       # The sidebar layout reducer's cargo tests run in fast-tier-cargo on Linux
       # (fast-tier.json "sidebar layout reducer") on every feat-cmux-next pull
       # request and push, so this Mac job runs them only on the events of its own
@@ -4501,6 +4533,38 @@ jobs:
         continue-on-error: true
         run: python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
 
+      # Off the owned Macs, start from the build a feat-cmux-next push seeded for the fast tier
+      # (cmux-next-fast-tier-seed.yml): the same `swift build --build-tests` of this package at a
+      # recent base, at the same workspace path. With the seed's input times replayed, only what
+      # this change touched compiles, so a daemon-only change compiles no Swift and goes straight
+      # to the tests. The seed's resource bundles are dropped first (owned_spm_scratch.py
+      # drop-bundles, as a kept build's are). Any miss builds as before.
+      - name: Compute the fast-tier seed keys
+        id: seed-key
+        if: ${{ !contains(runner.name, '-glaeda') }}
+        continue-on-error: true
+        run: scripts/cmux-next/fast-tier-cache-key.sh >> "$GITHUB_OUTPUT"
+
+      - name: Restore the CmuxNext build the base seeded
+        id: seed-restore
+        if: ${{ steps.seed-key.outputs.swift-prefix != '' && steps.reuse.outputs.hit != 'true' }}
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        with:
+          backend: r2
+          path: Packages/macOS/CmuxNext/.build
+          key: ${{ steps.seed-key.outputs.swift-key }}
+          restore-keys: ${{ steps.seed-key.outputs.swift-prefix }}
+
+      - name: Replay the seed's input times
+        if: ${{ steps.seed-restore.outputs.cache-matched-key != '' && steps.reuse.outputs.hit != 'true' }}
+        continue-on-error: true
+        run: |
+          python3 scripts/ci/owned_spm_scratch.py drop-bundles Packages/macOS/CmuxNext/.build
+          python3 -I scripts/ci/e2e_warm_derived_data.py replay "$GITHUB_WORKSPACE" Packages/macOS/CmuxNext/.build/cmux-fast-tier-input-mtimes.json
+
       - name: Set up pinned cmux-tui Rust (sidebar layout reducer)
         uses: ./.github/actions/setup-cmux-tui-rust
 
@@ -4972,6 +5036,38 @@ jobs:
         if: ${{ (contains(runner.name, '-glaeda')) && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
         run: python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
+
+      # Off the owned Macs, start from the build a feat-cmux-next push seeded for the fast tier
+      # (cmux-next-fast-tier-seed.yml): the same `swift build --build-tests` of this package at a
+      # recent base, at the same workspace path. With the seed's input times replayed, only what
+      # this change touched compiles, so a daemon-only change compiles no Swift and goes straight
+      # to the tests. The seed's resource bundles are dropped first (owned_spm_scratch.py
+      # drop-bundles, as a kept build's are). Any miss builds as before.
+      - name: Compute the fast-tier seed keys
+        id: seed-key
+        if: ${{ !contains(runner.name, '-glaeda') && steps.reuse.outputs.hit != 'true' }}
+        continue-on-error: true
+        run: scripts/cmux-next/fast-tier-cache-key.sh >> "$GITHUB_OUTPUT"
+
+      - name: Restore the CmuxNext build the base seeded
+        id: seed-restore
+        if: ${{ steps.seed-key.outputs.swift-prefix != '' && steps.reuse.outputs.hit != 'true' }}
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        with:
+          backend: r2
+          path: Packages/macOS/CmuxNext/.build
+          key: ${{ steps.seed-key.outputs.swift-key }}
+          restore-keys: ${{ steps.seed-key.outputs.swift-prefix }}
+
+      - name: Replay the seed's input times
+        if: ${{ steps.seed-restore.outputs.cache-matched-key != '' && steps.reuse.outputs.hit != 'true' }}
+        continue-on-error: true
+        run: |
+          python3 scripts/ci/owned_spm_scratch.py drop-bundles Packages/macOS/CmuxNext/.build
+          python3 -I scripts/ci/e2e_warm_derived_data.py replay "$GITHUB_WORKSPACE" Packages/macOS/CmuxNext/.build/cmux-fast-tier-input-mtimes.json
 
       - name: Set up pinned cmux-tui Rust (sidebar layout reducer)
         if: ${{ steps.reuse.outputs.hit != 'true' }}
