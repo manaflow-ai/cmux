@@ -132,7 +132,7 @@ enum WorkspaceCreation {
         if linked {
             let scoped = AgentTabKey(machine: daemon.machineID, key: key)
             tabs.sessions[scoped] = session
-            tabs.linkedSessions.insert(key)
+            tabs.linkedSessions.insert(AgentTabKey(machine: daemon.machineID, key: key))
             tabs.track(key, in: daemon.store, machine: daemon.machineID)
         }
         return key

@@ -306,7 +306,7 @@ final class AgentTabStore {
     /// session the daemon does not have instead of falling back.
     /// Links are created before the tab's machine is known to the page. The tab maps below carry
     /// the machine-qualified state; this set remains a short-lived compatibility marker.
-    var linkedSessions: Set<String> = []
+    var linkedSessions: Set<AgentTabKey> = []
     /// A link's turn for a tab whose view is not made yet.
     var pendingTurns: AgentTabMap<String> = .init()
     /// What each released chat page held that acpmux does not (``AgentPageHibernation``), for
@@ -531,7 +531,7 @@ final class AgentTabStore {
         // tab is a chat this run opened (New Agent Chat's workspace, listed by the tree before
         // new-conversation-tab replied): it stays the chat, never the page (cx-vurv).
         if local, seed == nil, newTabPages[tabKey] == nil, tabStores[tabKey] == nil, (sessions[tabKey] ?? record.session) == nil,
-           !linkedSessions.contains(tabKey.key) {
+           !linkedSessions.contains(tabKey) {
             newTabPages[tabKey] = firstPage(cwd: nil, token: firstPageToken(of: key, in: store))
         }
         // A New Tab page made now (Cmd-N's first page, a restored page) adopts the prewarmed spare

@@ -51,7 +51,7 @@ extension AgentTabStore {
                          transaction: transaction)
         }
         sessions[scoped] = session?.id
-        if session?.linked == true { linkedSessions.insert(tabKey) }
+        if session?.linked == true { linkedSessions.insert(scoped) }
         if session == nil { seeds[scoped] = AgentPaneSeedSource(chat.map { var chat = $0; chat.cwd = chat.cwd ?? cwd; return chat } ?? AgentPaneSeed(cwd: cwd)) }
         if session == nil, chat == nil { newTabPages[scoped] = firstPage(cwd: cwd, token: token) }
         track(tabKey, in: store, machine: daemon.machineID)

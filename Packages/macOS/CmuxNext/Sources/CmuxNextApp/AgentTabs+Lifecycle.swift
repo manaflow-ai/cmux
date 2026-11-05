@@ -97,7 +97,7 @@ extension AgentTabStore {
         if let session { sessions[scoped] = session }
         newTabPages[scoped] = newTab
         if session == nil { seeds[scoped] = seed }
-        if linked { linkedSessions.insert(scoped.key) }
+        if linked { linkedSessions.insert(scoped) }
         if let adopt { adoptions["\(adopt.harness):\(adopt.agentSessionId)"] = key }
         track(key, in: store, machine: daemon.machineID)
         if let spare, let newTab { adoptSpare(spare, key: scoped, page: newTab.page) }
@@ -226,7 +226,7 @@ extension AgentTabStore {
         if let value = remoteStarts.removeValue(forKey: scoped) { remoteStarts[realKey] = value }
         if let value = pendingTurns.removeValue(forKey: scoped) { pendingTurns[realKey] = value }
         if let value = wakeStates.removeValue(forKey: scoped) { wakeStates[realKey] = value }
-        if linkedSessions.remove(scoped.key) != nil { linkedSessions.insert(realKey.key) }
+        if linkedSessions.remove(scoped) != nil { linkedSessions.insert(realKey) }
         adoptions = adoptions.mapValues { $0 == key ? real : $0 }
         if let store = tabStores.removeValue(forKey: scoped) { tabStores[realKey] = store }
         if checkpointFocusTab == key { checkpointFocusTab = real }
@@ -392,7 +392,7 @@ extension AgentTabStore {
         for entry in remoteAliases.entries where (entry.key.machine == scoped.machine || entry.key.machine.isEmpty) && (entry.value == key || entry.key.key == key) {
             remoteAliases.removeValue(forKey: entry.key)
         }
-        linkedSessions.remove(key)
+        linkedSessions.remove(tabKey(key, machine: machine))
         pendingTurns[scoped] = nil
         wakeStates[scoped] = nil
         tabStores[scoped] = nil
