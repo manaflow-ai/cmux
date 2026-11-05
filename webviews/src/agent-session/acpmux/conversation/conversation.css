@@ -3448,6 +3448,10 @@ button.cv-video-frames__frame:focus-visible {
 .cv-bgtask__raw-command {
   flex: 1 1 100%;
   color: var(--cv-text);
+  overflow: visible;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: pre-wrap;
 }
 /* An opened run's "1 background command completed, 1 failed, 1 running" (BackgroundStatusLine.tsx):
    a quiet line after the steps, its words on their text column and their pitch; not a step or a

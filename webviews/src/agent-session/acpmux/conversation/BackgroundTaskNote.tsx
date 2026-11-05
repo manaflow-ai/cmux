@@ -40,12 +40,18 @@ export function BackgroundTaskNote({ task }: { task: AcpmuxBackgroundTask }) {
   // completed" in the rows' muted tone, then the command in the transcript's ink (Leo, 2026-11-03:
   // "claude code desktop's summarization of tool calls/parsing of them seem kinda good?").
   const lead =
-    state === "completed" ? t("bgTask.completedLead") : state === "failed" ? t("bgTask.failedLead") : undefined;
+    state === "completed"
+      ? t("bgTask.completedLead")
+      : state === "failed"
+        ? t("bgTask.failedLead")
+        : state === "stopped"
+          ? t("bgTask.state.stopped")
+          : undefined;
   // The event's exit code (Codex sends one), else the registry's.
   const exitCode = task.exitCode ?? read.exitCode;
   // What the harness said of its end beyond the row's words: Claude Code's summary, else a reason the
   // row does not already name (it names a stop's).
-  const detail = task.summary || (state === "stopped" ? undefined : reason);
+  const detail = task.summary || reason;
   const owner = task.ownerTitle?.trim() || task.ownerId;
   const duration =
     task.startedAt !== undefined && task.endedAt !== undefined

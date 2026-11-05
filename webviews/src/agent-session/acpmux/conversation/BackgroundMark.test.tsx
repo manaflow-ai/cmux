@@ -178,6 +178,23 @@ test("a background task names and links its owner, and keeps its duration in the
   expect(container.textContent).toContain("6s");
 });
 
+test("a stopped background task keeps its status and reason", async () => {
+  const container = await render(
+    <BackgroundTaskNote
+      task={{
+        toolCallId: "bg-stopped",
+        command: "sleep 299; echo t",
+        state: "stopped",
+        reason: "Stopped by the agent",
+      }}
+    />,
+  );
+  const note = container.querySelector("button.cv-bgtask")!;
+  expect(note.textContent).toContain(translate("bgTask.state.stopped"));
+  await click(note);
+  expect(container.textContent).toContain("Stopped by the agent");
+});
+
 /// What the page posts to the native host (CmuxNextAgentPane's `agentSession` handler).
 function recordNative(): { method: string; params: Record<string, unknown> }[] {
   const posted: { method: string; params: Record<string, unknown> }[] = [];
