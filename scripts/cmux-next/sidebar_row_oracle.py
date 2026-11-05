@@ -25,6 +25,8 @@ The expected place of every row in every frame:
   - The new row (not in s, in e) has height p x its final height; the closing row (in s, not in e) has height
     (1 - p) x its start height; a frame that does not show the row counts as height 0. Their edge away from the rows
     that move stays where it ends (new row) or starts (closing row).
+  - A curve shows each refresh: p may not cover more than half the motion in one refresh, nor go from start (<= 0.05)
+    to end (>= 0.95) with no frame between (a jump: nothing grows).
   - Missed refreshes: frame intervals over 1.5 display periods inside a motion; an interval misses
     round(gap / period) - 1 refreshes. Period: --period-ms, else the probe's `refresh`, else the median interval,
     else 8.333 ms. Clock: `target`, else `link`, else `t` (`t` is when the main thread read the frame: its jitter can
@@ -52,6 +54,8 @@ MERGE_FRAMES = 6  # changes this few still frames apart are one motion
 MOVER_PX = 0.5  # a row moved over a motion when |y1 - y0| x scale is at least this
 START_EPS_PT = 1e-3  # a row started to move when it left its start by more than this
 GROWN_FRACTION = 0.5  # a row first shown at most this part of its final height grows from 0
+MAX_PROGRESS_STEP = 0.5  # more of the motion than this in one refresh is a jump, not a curve
+END_FRACTION = 0.95  # a step from p <= 0.05 to p >= 0.95 shows no frame between start and end
 OPACITY_LOW, OPACITY_HIGH, FLICKER_OPACITY = 0.05, 0.95, 0.05
 LIST_CAP = 400  # entries kept per list in the JSON
 ORDER = ["FAIL", "INVALID", "INCOMPLETE", "NO MOTION", "PASS"]
@@ -296,6 +300,21 @@ def judge_motion(frames, s, e, times, period, opts, scale, identity, hints):
                 progress[i] = (views[k][3] - h0) / (h1 - h0)
                 break
 
+    # A curve shows each refresh: more than half the motion inside one refresh, or from its start to its end with no
+    # frame between, is a jump. A long first step after a stall that the curve then continues is a missed refresh
+    # (counted below), not a jump.
+    shown_p = [i for i in window if i in progress]
+    progress_jumps = []
+    for a, b in zip(shown_p, shown_p[1:]):
+        pa, pb = progress[a], progress[b]
+        if abs(pb - pa) <= MAX_PROGRESS_STEP:
+            continue
+        one_refresh = times is not None and b == a + 1 and times[b] - times[a] <= MISS_FACTOR * period
+        whole = min(pa, pb) <= 1 - END_FRACTION and max(pa, pb) >= END_FRACTION
+        if one_refresh or whole:
+            progress_jumps.append({"frame": b, "from_p": round(pa, 4), "to_p": round(pb, 4),
+                                   "why": "in one refresh" if one_refresh else "from start to end with no frame between"})
+
     row_errors, height_errors, spreads, jumps = {}, {}, {}, []
     worst_row, worst_height = {"frame": None, "key": None, "px": 0.0}, {"frame": None, "key": None, "px": 0.0}
     previous_error = {}
@@ -424,6 +443,10 @@ def judge_motion(frames, s, e, times, period, opts, scale, identity, hints):
         if worst_height["px"] > tol:
             fails.append(f"new/closing row height error {worst_height['px']:.2f} px > {tol} px "
                          f"({worst_height['key']} at frame {worst_height['frame']})")
+        if progress_jumps:
+            j = progress_jumps[0]
+            fails.append(f"the rows jumped: progress {j['from_p']:.2f} -> {j['to_p']:.2f} in one frame at frame {j['frame']} "
+                         f"(nothing grows or moves on a curve)")
         if late:
             named = ", ".join("%s@%d" % (x["key"], x["frame"]) for x in late[:6])
             fails.append(f"rows did not start on frame {common}: {named}")
@@ -441,6 +464,7 @@ def judge_motion(frames, s, e, times, period, opts, scale, identity, hints):
         "progress_spread_max": round(max(spreads.values(), default=0.0), 6),
         "progress_spread_frame": max(spreads, key=spreads.get) if spreads else None,
         "progress": {str(i): round(p, 6) for i, p in sorted(progress.items())},
+        "progress_jumps": progress_jumps[:LIST_CAP],
         "start_frame_common": common, "late_starts": late[:LIST_CAP],
         "rebuilt": rebuilt[:LIST_CAP], "rebuilt_frames": sorted({r["frame"] for r in rebuilt}),
         "flicker": flicker[:LIST_CAP], "reflow": reflow[:LIST_CAP], "selection": selection,
