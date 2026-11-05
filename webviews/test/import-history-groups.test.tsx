@@ -135,3 +135,23 @@ test("the list is in one scroll region above the footer, and the keycap is its o
   const importButton = host.querySelector<HTMLButtonElement>(".history-footer button[type=submit]")!;
   expect(importButton.querySelector(".ui-keyhint")?.textContent).toBe("↩");
 });
+
+test("a partly selected group shows its switch off, and turning it on selects every source", async () => {
+  const { store } = await mount();
+  store.select("claude-code", false);
+  await act(async () => {});
+  const chats = groups()[0]!;
+  const toggle = () => chats.querySelector('[role="switch"]');
+  expect(toggle()?.getAttribute("aria-checked")).toBe("false");
+  expect(chats.querySelector(".history-group-summary")?.textContent).toBe(
+    "ChatGPT export (.zip), Claude export (.zip), Codex chats",
+  );
+  await click(toggle());
+  expect(
+    store
+      .getSnapshot()
+      .rows.filter((row) => groupOf(row) === "chats")
+      .every((row) => row.selected),
+  ).toBe(true);
+  expect(toggle()?.getAttribute("aria-checked")).toBe("true");
+});

@@ -181,9 +181,10 @@ function Group({
         <Switch
           id={`${id}-switch`}
           aria-labelledby={`${id}-title`}
-          checked={included.length > 0}
+          checked={available.length > 0 && included.length === available.length}
           disabled={busy || available.length === 0}
           onCheckedChange={(checked) => {
+            // On from a partial selection turns every available source on; off turns them all off.
             for (const row of available) if (row.selected !== checked) store.select(row.id, checked);
           }}
         />
@@ -257,6 +258,7 @@ function SourceRow({
         <input
           type="checkbox"
           id={`history-select-${row.id}`}
+          aria-label={title}
           checked={row.selected}
           disabled={busy || !isAvailable(row)}
           onChange={(event) => store.select(row.id, event.target.checked)}
@@ -313,6 +315,7 @@ function SourceRow({
           </label>
           <textarea
             id={`history-paste-${row.id}`}
+            aria-label={t("history.pasteLabel")}
             value={row.text ?? ""}
             disabled={busy}
             rows={4}
