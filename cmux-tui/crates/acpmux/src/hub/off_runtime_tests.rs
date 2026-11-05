@@ -66,9 +66,9 @@ fn cancel_prompt_syncs_its_stop_boundary_off_the_runtime_worker() {
 
 /// Edit and Resend (`fork_before`) sync three times before they answer: the parent's
 /// reservation of the child, then the child's journal and its ready mark
-/// (`fork_with_boundary`). Each sync is held in turn.
-#[test]
-fn fork_before_syncs_off_the_runtime_worker() {
+/// (`fork_with_boundary`). Holds the sync that comes after `pass` others (`sync` names it).
+/// Returns the parent, the child, and the chat of the held sync.
+fn fork_before_holding(pass: usize, sync: &str) -> (String, String, String) {
     let runtime = one_worker();
     // A Codex chat: Edit and Resend need a harness that forks at a turn (`config::turn_cut`).
     let codex = cmux_unix_socket::short_test_dir("acpmux-fork-sync");
@@ -78,27 +78,42 @@ fn fork_before_syncs_off_the_runtime_worker() {
         turn(&hub, &parent, "first").await;
         (hub, seam, parent)
     });
-    let syncs = [(0, "the reservation"), (1, "the child's journal"), (2, "the child's ready mark")];
-    for (pass, sync) in syncs {
-        let (owner, source, request) = (hub.clone(), parent.clone(), format!("edit-{pass}"));
-        let fork = async move {
-            let ask = super::admission::Ask {
-                force: false,
-                can_force: false,
-                person: true,
-                name: None,
-                who: "test",
-                local: true,
-                peers: false,
-            };
-            let (child, _) = owner.fork_before(&source, "first", &request, ask).await.unwrap();
-            child.id.clone()
+    let (owner, source) = (hub.clone(), parent.clone());
+    let fork = async move {
+        let ask = super::admission::Ask {
+            force: false,
+            can_force: false,
+            person: true,
+            name: None,
+            who: "test",
+            local: true,
+            peers: false,
         };
-        let what = format!("fork_before, {sync}");
-        let (held, child) = assert_off_worker(&runtime, &seam, Call::Flush, pass, &what, fork);
-        assert_eq!(held, if pass == 0 { parent.id.clone() } else { child }, "{sync}");
-    }
+        let (child, _) = owner.fork_before(&source, "first", "edit", ask).await.unwrap();
+        child.id.clone()
+    };
+    let what = format!("fork_before, {sync}");
+    let (held, child) = assert_off_worker(&runtime, &seam, Call::Flush, pass, &what, fork);
     runtime.block_on(hub.shutdown_all());
+    (parent.id.clone(), child, held)
+}
+
+#[test]
+fn fork_before_syncs_its_reservation_off_the_runtime_worker() {
+    let (parent, _, held) = fork_before_holding(0, "the parent's reservation");
+    assert_eq!(held, parent);
+}
+
+#[test]
+fn fork_before_syncs_the_childs_journal_off_the_runtime_worker() {
+    let (_, child, held) = fork_before_holding(1, "the child's journal");
+    assert_eq!(held, child);
+}
+
+#[test]
+fn fork_before_syncs_the_childs_ready_mark_off_the_runtime_worker() {
+    let (_, child, held) = fork_before_holding(2, "the child's ready mark");
+    assert_eq!(held, child);
 }
 
 /// The daemon a chat moves to syncs its `transferred_in` record before it answers
