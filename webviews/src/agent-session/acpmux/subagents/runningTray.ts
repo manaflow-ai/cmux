@@ -293,6 +293,14 @@ function workflowCard(row: AcpmuxRow, node: Subagent, cache: DoneLineCache, made
 const reportOrigin = (row: AcpmuxRow): string | undefined =>
   row.kind === BACKGROUND_TURN && row.background?.cause?.kind === "subagent" ? row.background.cause.origin : undefined;
 
+/// The report origin an agent answers to: Claude Code's notification names the Agent call
+/// (`toolu_…`), while acpmux's record names a Claude subagent `<session>/<tool call>`.
+function reportKey(id: string, reports: ReadonlyMap<string, number>): string | undefined {
+  if (reports.has(id)) return id;
+  const call = id.slice(id.lastIndexOf("/") + 1);
+  return call !== id && reports.has(call) ? call : undefined;
+}
+
 /// A report's line (conversation/BackgroundTurnLine.tsx) names the subagent that sent it: the same
 /// row with `subagentReport`, kept while the row and what the agent says hold, so the turn built on
 /// it stays the same object.
@@ -355,10 +363,11 @@ export function withSubagentLines(
       const endedAt = agent.endedAt ?? agent.startedAt;
       let at = index + 1;
       while (at < rows.length && (isSubagentGroup(rows[at]!) || rows[at]!.at <= endedAt)) at += 1;
-      const report = reports.get(agent.id);
-      if (report !== undefined && report > index) {
+      const origin = reportKey(agent.id, reports);
+      const report = origin === undefined ? undefined : reports.get(origin);
+      if (origin !== undefined && report !== undefined && report > index) {
         at = report;
-        reported.set(agent.id, { ...agent, endedAt });
+        reported.set(origin, { ...agent, endedAt });
       }
       const line = doneLine(agent, endedAt, cache, made, row.inBackground);
       before.set(at, [...(before.get(at) ?? []), line]);

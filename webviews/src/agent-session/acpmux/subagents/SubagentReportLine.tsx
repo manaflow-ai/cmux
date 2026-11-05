@@ -15,6 +15,7 @@ import { ChevronRight } from "../conversation/icons";
 import { useT, type Translate } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { subagentTaskLabel } from "./subsessions";
+import { SubagentViewsContext } from "./SubagentGroup";
 import { reportRowLook, type ReportRowLook } from "./reportRow.experiment";
 import { experimentArm } from "../../../experiments/experiment";
 import "./SubagentReportLine.css";
@@ -31,11 +32,22 @@ export function useReportRowLook(): ReportRowLook {
 /// subagent's task notification.
 export const isSubagentReport = (row: AcpmuxRow): boolean => row.background?.cause?.kind === "subagent";
 
-/// What the report says, whole: the subagent's final reply, else its last message or why it failed,
-/// else the notification's own summary (acpmux keeps its first 240 characters).
-export function reportText(row: AcpmuxRow): string | undefined {
+/// The last reply in a subagent's own transcript, whole.
+function lastReply(view: readonly AcpmuxRow[] | undefined): string | undefined {
+  for (let at = (view?.length ?? 0) - 1; at >= 0; at -= 1) {
+    const entry = view![at]!;
+    if (entry.kind === "assistant" && entry.text?.trim()) return entry.text;
+  }
+  return undefined;
+}
+
+/// What the report says, whole: the subagent's final reply (a sub-session's record, else the last
+/// reply in its own transcript), else its last message or why it failed, else the notification's
+/// summary. acpmux cuts a Claude subagent's `lastMessage` and the summary at 240 characters, so
+/// they come only when nothing whole is there.
+export function reportText(row: AcpmuxRow, view?: readonly AcpmuxRow[]): string | undefined {
   const agent = row.subagentReport;
-  const text = agent?.result ?? agent?.lastMessage ?? agent?.error ?? row.background?.cause?.summary;
+  const text = agent?.result ?? lastReply(view) ?? agent?.lastMessage ?? agent?.error ?? row.background?.cause?.summary;
   return text?.trim() || undefined;
 }
 
@@ -57,7 +69,9 @@ export function SubagentReportLine({
   const t = useT();
   const id = useId();
   const name = reportSender(t, row);
-  const text = reportText(row);
+  const readView = useContext(SubagentViewsContext);
+  // Read only while open: a closed line never walks the subagent's transcript.
+  const text = expanded ? reportText(row, row.subagentReport && readView?.(row.subagentReport.id)) : undefined;
   const [before, after = ""] = t("subagents.report.from", { name: "\u0000" }).split("\u0000");
   const label = t("subagents.report.from", { name });
   const failed = row.background?.cause?.weight === "failure";

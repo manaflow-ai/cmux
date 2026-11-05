@@ -17,7 +17,12 @@ import { SUBAGENTS, type Subagent } from "./subagentFold";
 import { reportRowLook } from "./reportRow.experiment";
 
 const TASK = "Fix live working line in transcript";
-const AGENT_ID = "toolu_gallery_report_fix";
+/// As Claude's live records name them: the notification's `origin` is the Agent call, acpmux's
+/// subagent record is `<session>/<tool call>`.
+const CALL_ID = "toolu_gallery_report_fix";
+const AGENT_ID = `gallery-session/${CALL_ID}`;
+/// acpmux cuts a Claude subagent's `lastMessage` at 240 characters (subagents.rs).
+const cut = (text: string) => (text.length > 240 ? `${text.slice(0, 239)}…` : text);
 
 const REPORT = `I've merged the fix, but it covers one cause. The live working line went blank when a turn's first event was a tool call: \`liveLine()\` read the last assistant segment, which a tool call ends.
 
@@ -55,8 +60,15 @@ const agent = (fields: Partial<Subagent> = {}): Subagent => ({
   state: "completed",
   startedAt: minutesAgo(14),
   endedAt: minutesAgo(9),
-  result: REPORT,
+  lastMessage: cut(REPORT),
   ...fields,
+});
+
+/// The subagent's own transcript, whose last reply is its whole report.
+const views = (text: string) => ({
+  subagentViews: {
+    [AGENT_ID]: [user(TASK, 14, { id: "report-child-prompt" }), assistant(text, 9.1, { id: "report-child-reply" })],
+  },
 });
 
 /// The turn the report started, as acpmux records it: weighed by `cause`, quiet when the agent's
@@ -71,7 +83,7 @@ const reportTurn = (id: string, minutes: number, cause: Partial<AcpmuxBackground
       quiet,
       reason: "result",
       hasRows: true,
-      cause: { kind: "subagent", status: "completed", weight: "result", origin: AGENT_ID, summary: SUMMARY, ...cause },
+      cause: { kind: "subagent", status: "completed", weight: "result", origin: CALL_ID, summary: SUMMARY, ...cause },
     },
   });
 
@@ -113,30 +125,33 @@ export default agentPaneEntry({
   variants: {
     report: {
       note: 'Leo\'s capture: "Report from Fix live working line in transcript" right under its "Subagent finished" line, no clock, closed.',
-      snapshot: chat(reported()),
+      snapshot: chat(reported(), views(REPORT)),
     },
     "report-open": {
       note: "Opened: the report in the reply's Markdown, then the agent's own reply to it.",
-      snapshot: chat(reported()),
+      snapshot: chat(reported(), views(REPORT)),
       checks: { layoutShiftMax: { value: 0.5, reason: "Opening the report reveals it below its line." } },
       play: openReport,
     },
     "long-report": {
       note: "A long report opened: it reads whole, as a reply does, with its list and code block.",
-      snapshot: chat(reported({ result: LONG_REPORT })),
+      snapshot: chat(reported({ lastMessage: cut(LONG_REPORT) }), views(LONG_REPORT)),
       checks: { layoutShiftMax: { value: 0.8, reason: "Opening the report reveals it below its line." } },
       play: openReport,
     },
     "again-after-resume": {
       note: "The same report delivered again after the chat resumed: each says whose report it is; the first sits under the finished line.",
-      snapshot: chat([
-        ...reported(),
-        user("Resume", 6, { id: "report-resume" }),
-        assistant("Picking up where we left off.", 5.9, { id: "report-resumed" }),
-        summary(5.9, { id: "report-resume-footer", status: "completed", durationMs: 2_000 }),
-        reportTurn("report-turn-again", 5),
-        reply("report-turn-again", "Same report as before; nothing new.", 4.95),
-      ]),
+      snapshot: chat(
+        [
+          ...reported(),
+          user("Resume", 6, { id: "report-resume" }),
+          assistant("Picking up where we left off.", 5.9, { id: "report-resumed" }),
+          summary(5.9, { id: "report-resume-footer", status: "completed", durationMs: 2_000 }),
+          reportTurn("report-turn-again", 5),
+          reply("report-turn-again", "Same report as before; nothing new.", 4.95),
+        ],
+        views(REPORT),
+      ),
     },
     failed: {
       note: "A subagent that failed: its finished line says why, and its report line opens to what it said.",
@@ -144,7 +159,7 @@ export default agentPaneEntry({
         reported(
           {
             state: "failed",
-            result: undefined,
+            lastMessage: undefined,
             error: "Agent terminated early due to an API error. Retry with a smaller context.",
           },
           { status: "failed", weight: "failure", summary: 'Agent "Fix live working line in transcript" failed' },

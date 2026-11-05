@@ -11,17 +11,22 @@ import { BACKGROUND_TURN, backgroundTurnRowId } from "../conversation/background
 import { withSubagentLines } from "./runningTray";
 import { SUBAGENT_DONE } from "./subagentRows";
 import { SUBAGENTS, type Subagent } from "./subagentFold";
+import { SubagentViewsContext } from "./SubagentGroup";
 
+// As Claude's live records name them: acpmux's subagent is `<session>/<tool call>`, the
+// notification's origin the bare call.
 const agent: Subagent = {
-  id: "toolu_fix",
+  id: "chat/toolu_fix",
   parent: null,
   name: "general-purpose",
   task: "Fix live working line in transcript",
   state: "completed",
   startedAt: 2_000,
   endedAt: 5_000,
-  result: "I've merged the fix, but it covers **one** cause.\n\n- `liveLine()` falls back to the call",
+  lastMessage: "I've merged the fix, but it covers **one** cause.",
 };
+const WHOLE = "I've merged the fix, but it covers **one** cause.\n\n- `liveLine()` falls back to the call";
+const view: AcpmuxRow[] = [{ id: "child-reply", kind: "assistant", version: 1, at: 4_900, text: WHOLE }];
 const row = (id: string, kind: string, at: number, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
   id,
   kind,
@@ -56,12 +61,12 @@ test("a subagent's report sits right under its finished line and names it", () =
     "prompt",
     "footer",
     "other",
-    `${SUBAGENT_DONE}:toolu_fix`,
+    `${SUBAGENT_DONE}:chat/toolu_fix`,
     backgroundTurnRowId("report"),
     "reply",
   ]);
   const report = out[4]!;
-  expect(report.subagentReport?.id).toBe("toolu_fix");
+  expect(report.subagentReport?.id).toBe("chat/toolu_fix");
   const closed = renderToStaticMarkup(<BackgroundTurnLine row={report} expanded={false} onToggle={() => {}} />);
   expect(closed).toContain("Report from");
   expect(closed).toContain("Fix live working line in transcript");
@@ -70,14 +75,22 @@ test("a subagent's report sits right under its finished line and names it", () =
   const open = renderToStaticMarkup(<BackgroundTurnLine row={report} expanded onToggle={() => {}} />);
   expect(open).toContain("cv-subagent-report__body");
   expect(open).toContain("<strong>one</strong>");
+  // acpmux's `lastMessage` is cut; the subagent's own transcript holds the whole reply.
+  expect(open).not.toContain("falls back");
+  const whole = renderToStaticMarkup(
+    <SubagentViewsContext.Provider value={(id) => (id === "chat/toolu_fix" ? view : undefined)}>
+      <BackgroundTurnLine row={report} expanded onToggle={() => {}} />
+    </SubagentViewsContext.Provider>,
+  );
+  expect(whole).toContain("falls back to the call");
 });
 
 test("a report delivered again names its subagent too; the finished line stays above the first", () => {
   const rows = [...transcript(), turn("again", 9_000)];
   const out = withSubagentLines(rows);
   const ids = out.map((entry) => entry.id);
-  expect(ids.indexOf(backgroundTurnRowId("report"))).toBe(ids.indexOf(`${SUBAGENT_DONE}:toolu_fix`) + 1);
-  expect(out.find((entry) => entry.id === backgroundTurnRowId("again"))?.subagentReport?.id).toBe("toolu_fix");
+  expect(ids.indexOf(backgroundTurnRowId("report"))).toBe(ids.indexOf(`${SUBAGENT_DONE}:chat/toolu_fix`) + 1);
+  expect(out.find((entry) => entry.id === backgroundTurnRowId("again"))?.subagentReport?.id).toBe("chat/toolu_fix");
 });
 
 test("the line is kept while nothing it says changes", () => {
