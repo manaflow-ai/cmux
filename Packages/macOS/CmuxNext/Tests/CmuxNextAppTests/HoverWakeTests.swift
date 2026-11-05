@@ -171,8 +171,35 @@ import Testing
         rig.hibernation.apply(setting)
         let keys = try await rig.pages(["a", "b", "c"])
         try await rig.until("every hidden page freezes") { keys.allSatisfy(rig.hibernation.frozen.contains) }
+        #expect(rig.hibernation.hoverBudget.pages == 0)
         rig.hibernation.noteHover(keys[1])
         try await Task.sleep(for: BrowserHibernation.hoverDwellDelay * 4)
         #expect(rig.hibernation.frozen.contains(keys[1]))
+    }
+
+    /// A hover-restored page past its grace, then the person turns `browser.hibernation` off: the page
+    /// stops being a hover restore at once, and no replan probes it again and again (review of #36637).
+    @Test func turningHibernationOffEndsTheGraceDiscardWithoutAProbeLoop() async throws {
+        let rig = try Rig(freezes: false)
+        defer { rig.close() }
+        rig.hibernation.apply(BrowserHibernationSetting(mode: .moderate, freezeSeconds: nil))
+        let keys = try await rig.pages(["a"])
+        #expect(rig.hibernation.hibernateForWorkspace(keys[0]) == nil)
+        try await rig.until("the page hibernates") { rig.services.cache.phase(of: keys[0]) == .hibernated }
+        rig.hibernation.workspaceTabs = { _, _ in keys }
+        rig.hibernation.noteWorkspaceHover("w", window: "win")
+        try await rig.until("the hover restores it") {
+            rig.services.cache.phase(of: keys[0]) == .mountedHidden && !(rig.services.cache.browsers[keys[0]]?.tab is HibernatedBrowserTab)
+        }
+        #expect(rig.hibernation.hoverRestores.contains(keys[0]))
+
+        let later = ContinuousClock.now + .seconds(BrowserHibernation.hoverGrace + 1)
+        rig.hibernation.now = { later }
+        rig.hibernation.apply(BrowserHibernationSetting(mode: .off, freezeSeconds: nil))
+        #expect(!rig.hibernation.hoverRestores.contains(keys[0]), "a kept page is still a hover restore to send back")
+        #expect(!rig.hibernation.probing.contains(keys[0]), "the grace discard probed a page no discard can take")
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(!rig.hibernation.probing.contains(keys[0]))
+        #expect(rig.services.cache.phase(of: keys[0]) == .mountedHidden)
     }
 }

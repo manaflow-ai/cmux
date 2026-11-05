@@ -25,6 +25,14 @@ package nonisolated struct HoverRestores: Equatable, Sendable {
         loading.remove(key)
     }
 
+    /// Whether hover restore `key` may be discarded now that its grace ended; when not (`mayDiscard` false),
+    /// it leaves the list and the normal policy decides, so no replan probes it again.
+    package mutating func graceEnded(_ key: String, mayDiscard: Bool) -> Bool {
+        guard contains(key) else { return false }
+        if !mayDiscard { drop(key) }
+        return mayDiscard
+    }
+
     /// The oldest pages not in `keeping` beyond `room`, to discard now; they stop counting as in flight.
     package mutating func retire(keeping: Set<String>, room: Int) -> [String] {
         let older = pages.filter { !keeping.contains($0) }

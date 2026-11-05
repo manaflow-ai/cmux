@@ -6,6 +6,14 @@ package nonisolated enum HoverWakeTarget: Hashable, Sendable {
     case tab(String)
     case workspace(String, window: String)
 
+    /// The tabs the click would show: the tab, or what `workspaceTabs` resolves for the row's window.
+    package func pages(_ workspaceTabs: (_ workspace: String, _ window: String) -> [String]) -> [String] {
+        switch self {
+        case let .tab(key): [key]
+        case let .workspace(id, window): workspaceTabs(id, window)
+        }
+    }
+
     /// The cause a restore logs (`prewarm hover`, `prewarm workspace-hover`).
     package var cause: String {
         switch self {

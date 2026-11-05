@@ -69,6 +69,13 @@ activation); cmux does, because the person asked for it and the grace puts the p
 - (b) Dwell 150 ms on a row with 3 hibernated pages, then click: first frame shows real content;
   time-to-content p50/p95 before vs after.
 - (c) Pages woken by hover hibernate again after the grace.
+- Replacement: the tab strip and the sidebar share one oldest-first list, so a 100 ms rest on a strip tab
+  on the way to a row can retire the pages of the row hovered before it. A click during that discard's
+  probe keeps the page (the check is stale); after it, the click reloads, as before this change. This is
+  Chrome's first-in-first-out model; measure how often it happens in (b).
+- A hover's grace discard runs only while a discard can go through (`browser.hibernation` on, and a
+  timeout written or the workspace hibernated); otherwise the page leaves the hover list and the normal
+  policy decides. A failed restore leaves the list at once.
 
 ## Files
 

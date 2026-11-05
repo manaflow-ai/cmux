@@ -30,6 +30,7 @@ extension BrowserHibernation {
     /// history; the lifecycle shows it if it is still selected when it lands.
     func restore(_ key: String, token: ContentLifecycle<String>.Token) {
         guard let cache, let placeholder = cache.browsers[key]?.tab as? HibernatedBrowserTab else {
+            hoverRestores.drop(key)
             cache?.applyLifecycle(cache?.lifecycle.send(.mountFailed(key, token)) ?? [])
             return
         }
@@ -68,6 +69,7 @@ extension BrowserHibernation {
                 } catch {
                     guard let cache = self?.cache else { return }
                     self?.logger.error("restore \(key, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+                    self?.hoverRestores.drop(key)
                     cache.applyLifecycle(cache.lifecycle.send(.mountFailed(key, token)))
                 }
             }
@@ -115,19 +117,12 @@ extension BrowserHibernation {
     private func timeLoad(_ key: String, page: any BrowserTab) {
         Task { @MainActor [weak self, weak page] in
             let ended = try? await ControlDeadline.shared.run(method: "hibernation.wake", deadline: .now + .seconds(15)) { @MainActor in
-                for await ended in ObservationStream({ page.map { Self.loadEnded($0.state.phase) } ?? true }) where ended { return true }
+                for await ended in ObservationStream({ page.map { $0.state.phase.hasEnded } ?? true }) where ended { return true }
                 return false
             }
             self?.hoverLoadEnded(key)
             guard let self, let page, self.cache?.browsers[key]?.tab === page else { return }
             self.wakeLog.loaded(key, ended: ended == true)
-        }
-    }
-
-    private static func loadEnded(_ phase: BrowserLoadPhase) -> Bool {
-        switch phase {
-        case .finished, .failed: true
-        case .idle, .provisional, .committed: false
         }
     }
 

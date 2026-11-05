@@ -371,10 +371,7 @@ final class BrowserHibernation {
         guard let cache else { return }
         let budget = hoverBudget
         guard budget.pages > 0 else { return }
-        let keys = switch target {
-        case let .tab(key): [key]
-        case let .workspace(id, window): workspaceTabs(id, window)
-        }
+        let keys = target.pages(workspaceTabs)
         let hidden = Array(keys.filter { cache.browsers[$0] != nil && cache.lifecycle.phase($0) != .mountedVisible }.prefix(budget.pages))
         guard !hidden.isEmpty else { return }
         let now = self.now()
@@ -502,7 +499,10 @@ final class BrowserHibernation {
             }
             // A hover restored it and its grace ended unseen: it goes back through the same probe as every
             // discard. It stays a hover restore until that ends (discarded, shown, or kept by its own page).
-            if hoverRestores.contains(key), !leased.contains(key), prepare(key, cause: "hover-grace") { return nil }
+            // Only while a discard can go through (the gate `discardCheck` applies), so a kept page is not
+            // probed again on every replan.
+            let mayDiscard = !leased.contains(key) && setting.isEnabled && (setting.discardsAutomatically || workspaceDue.contains(key))
+            if hoverRestores.graceEnded(key, mayDiscard: mayDiscard), prepare(key, cause: "hover-grace") { return nil }
             var facts = candidate(key, entry: entry, hiddenFor: (now - at).seconds, now: now)
             if let kept = probeKeptAt[key] {
                 if (now - kept).seconds < Self.keptBackoff { facts.recentlyKept = true } else { probeKeptAt[key] = nil }
@@ -728,6 +728,9 @@ final class BrowserHibernation {
                 self.exemptions[key] = exemption ?? reason
                 if self.workspaceDue.contains(key) { self.noteWorkspacePage("kept_\((exemption ?? reason).rawValue)") }
                 if exemption != nil { self.probeKeptAt[key] = self.now() }
+                // A hover's discard kept for a reason other than a new hover: no longer a hover restore
+                // to send back, so the replan below does not probe it again (no probe loop).
+                if cause.hasPrefix("hover"), reason != .neighbor { self.hoverRestores.drop(key) }
                 // The probe thawed the page and the replans meanwhile skipped it: plan again so it
                 // freezes. No `.keep` reason (neighbor, hover, agent grace, the setting) makes it due.
                 self.replan()
