@@ -6,8 +6,8 @@
 
 use super::geometry::{adjacent_snap, rubber_band, snap_target};
 use super::strip::{Axis, ColumnStrip};
-use super::swift_min_by;
 use super::view_offset::{self, Snap};
+use super::{swift_max, swift_min, swift_min_by};
 use crate::{ColumnId, PaneId};
 
 /// Column centering mode, cmux.json `layout.centerFocusedColumn`.
@@ -378,12 +378,20 @@ impl ColumnScrollState {
         //    a resize drag) where it is on screen across insertions, removals,
         //    width and window changes. A reorder (move column) keeps the camera
         //    itself.
+        //    Only as far as the new strip lets the camera rest there (a strip
+        //    that fits, its ends): a shift given to the value alone, its target
+        //    clamped back, would spring the camera back and slide the anchored
+        //    column on after the change. A live gesture owns its target (no
+        //    clamp) and takes the whole shift.
         let mut delta = 0.;
         if (new.keeps_order(old) || old.viewport_width != new.viewport_width)
             && let Some(anchor) = anchor_override.or(old_column)
             && let (Some(before), Some(after)) = (old.frame_of(anchor), new.frame_of(anchor))
         {
             delta = after.min_x() - before.min_x();
+        }
+        if self.gesture.is_none() {
+            delta = anchor_shift(delta, self.spring.target, new.max_offset());
         }
         self.spring.value += delta;
         self.spring.target += delta;
@@ -526,6 +534,19 @@ impl ColumnScrollState {
 /// Swift's `samples.removeAll { time - $0.time > 0.1 }` keeps a sample whose
 /// age is not more than 0.1 s, a NaN age included.
 #[allow(clippy::neg_cmp_op_on_partial_ord)]
+/// The part of an anchor's shift `delta` a camera whose target is `target` can
+/// take in a strip with `max_offset` of room (Swift
+/// `ColumnScrollState.anchorShift`): all of it while the shifted target stays
+/// in the strip, up to the strip's end otherwise, and none that would take a
+/// target already outside it further out (never a shift the other way).
+fn anchor_shift(delta: f64, target: f64, max_offset: f64) -> f64 {
+    if delta > 0. {
+        swift_min(delta, swift_max(0., max_offset - target))
+    } else {
+        swift_max(delta, swift_min(0., -target))
+    }
+}
+
 fn kept_by_remove_all(age: f64) -> bool {
     !(age > 0.1)
 }

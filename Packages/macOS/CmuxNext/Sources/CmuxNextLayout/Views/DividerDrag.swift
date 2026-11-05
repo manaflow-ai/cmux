@@ -193,7 +193,7 @@ struct DividerDrag {
         case .right?: extent = max(drag.container.maxX - (point.x - drag.grabOffset), drag.minimumA)
         case .top?: extent = max(point.y - drag.grabOffset - drag.container.minY, drag.minimumA)
         case .bottom?: extent = max(drag.container.maxY - (point.y - drag.grabOffset), drag.minimumA)
-        case .left?, nil: extent = max(point.x - drag.grabOffset - drag.container.minX, drag.minimumA)
+        case .left?, nil: extent = max(uniformWidth(id, drag: drag, point: point) ?? point.x - drag.grabOffset - drag.container.minX, drag.minimumA)
         }
         let viewport = switch drag.dockEdge {
         case nil: screen.geometry.stripWidth
@@ -216,6 +216,20 @@ struct DividerDrag {
         if drag.modifiers.all { return strip.uniform(fraction) }
         if drag.modifiers.push { return strip.trading(id, to: fraction) }
         return [.width(id, fraction)]
+    }
+
+    /// Command on a strip column's edge: the width every column takes so that the edge rests where the pointer puts it,
+    /// with the camera the anchored sync will give it (`UniformEdge`). The pointer is measured on screen (strip space less
+    /// the camera now), not in the strip at the camera the last move left: the anchor moves the camera on each move. Nil
+    /// for every other drag, and where no width can rest the edge there (the plain extent then).
+    private func uniformWidth(_ id: ColumnID, drag: DividerDragState, point: CGPoint) -> CGFloat? {
+        guard drag.modifiers.all, drag.dockEdge == nil, let strip = drag.strip, let index = strip.columns.firstIndex(where: { $0.id == id }),
+              let frame = screen.geometry.columns[id] else { return nil }
+        let widths = strip.columns.compactMap { screen.geometry.columns[$0.id]?.width }
+        guard widths.count == strip.columns.count else { return nil }
+        let geometry = screen.geometry
+        return UniformEdge(widths: widths, index: index, left: frame.minX, content: geometry.contentWidth, viewport: geometry.stripWidth,
+                           camera: screen.scroll.target).width(restingEdgeAt: point.x - drag.grabOffset - screen.scroll.value)
     }
 
     private func applyRowEdge(_ column: ColumnID, upper: RowID, drag: DividerDragState, windowPoint: NSPoint, phase: LayoutGesturePhase) {

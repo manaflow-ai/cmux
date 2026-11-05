@@ -90,6 +90,13 @@ nonisolated extension ColumnScrollState {
         effects.needsFrames = spring.value != spring.target || spring.velocity != 0
     }
 
+    /// The part of an anchor's shift `delta` a camera whose target is `target` can take in a strip with `maxOffset` of
+    /// room: all of it while the shifted target stays in the strip, up to the strip's end otherwise, and none that would
+    /// take a target already outside it further out (never a shift the other way).
+    static func anchorShift(_ delta: CGFloat, target: CGFloat, maxOffset: CGFloat) -> CGFloat {
+        delta > 0 ? min(delta, max(0, maxOffset - target)) : max(delta, min(0, -target))
+    }
+
     /// Returns the camera shift it applied to the value and the target (step 1).
     @discardableResult
     private mutating func sync(_ new: ColumnStrip, focused: PaneID?, source: ColumnFocusSource, reveals: Bool, anchor anchorOverride: ColumnID?,
@@ -118,12 +125,16 @@ nonisolated extension ColumnScrollState {
         //    a resize drag) where it is on screen across insertions, removals,
         //    width and window changes. A reorder (move column) keeps the camera
         //    itself.
+        //    Only as far as the new strip lets the camera rest there (a strip that fits, its ends): a shift given to the
+        //    value alone, its target clamped back, would spring the camera back and slide the anchored column on after the
+        //    change. A live gesture owns its target (no clamp) and takes the whole shift.
         var delta: CGFloat = 0
         if new.keepsOrder(of: old) || old.viewportWidth != new.viewportWidth,
            let anchor = anchorOverride ?? oldColumn,
            let before = old.index(of: anchor), let after = new.index(of: anchor) {
             delta = new.columns[after].frame.minX - old.columns[before].frame.minX
         }
+        if gesture == nil { delta = Self.anchorShift(delta, target: spring.target, maxOffset: new.maxOffset) }
         spring.value += delta
         spring.target += delta
         gesture?.raw += delta
