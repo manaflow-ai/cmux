@@ -4,6 +4,11 @@
     "Sources/Auth/*",
     "dogfood/scenarios/account-sign-in-failure-tour.json"
   ],
+  "launch": {
+    "env": {
+      "CMUX_UITEST_CLEAR_AUTH": "1"
+    }
+  },
   "steps": [
     {
       "socket": "workspace.create",
