@@ -49,6 +49,9 @@ pub struct SessionCfg {
     /// Frames the engine may have unacknowledged (1 on the development carriers; a hub
     /// session sizes it to its path's round trip).
     pub frames_in_flight: u32,
+    /// After injected input, frames skip the frame-rate cap for a short window
+    /// (`--input-frame-now 1`; the engine's `input_frame_now`).
+    pub input_frame_now: bool,
     /// macOS: stream at most this many pixels wide (`--max-width`; the display's aspect is
     /// kept). Encode time grows with the pixel count (remote-desktop-mac-host.md section 6).
     #[cfg_attr(target_os = "linux", allow(dead_code))]
@@ -154,6 +157,7 @@ impl MediaSession {
                 max_datagram,
                 path: PathKind::ViaCloudRegion,
                 frames_in_flight: cfg.frames_in_flight,
+                input_frame_now: cfg.input_frame_now,
                 ..EngineConfig::default()
             },
             now_us(),
