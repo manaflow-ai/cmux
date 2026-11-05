@@ -79,7 +79,14 @@ print(json.dumps(run))
 EOF
 }
 link_arg=()
-[[ -n "$lan" ]] && link_arg=(link "lan: host at $lan, viewer on a second Mac")
+if [[ "$lan" =~ ^100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\. ]]; then
+  # A tailnet address (100.64.0.0/10): two Macs on one LAN reach each other directly, inside
+  # WireGuard. The fleet needs it, since macOS Local Network privacy refuses launchd-started
+  # binaries the LAN addresses (cmuxterm-hq build-fleet/README.md); the label keeps that visible.
+  link_arg=(link "lan via tailnet: host at $lan (WireGuard, direct), viewer on a second Mac")
+elif [[ -n "$lan" ]]; then
+  link_arg=(link "lan: host at $lan, viewer on a second Mac")
+fi
 run=$(run_json host "$(scutil --get ComputerName 2>/dev/null || hostname)" cpu "$(sysctl -n machdep.cpu.brand_string)" \
   macos "$(sw_vers -productVersion)" rev "$(git rev-parse HEAD)" display "$display" samples "$samples" repeats "$repeats" \
   rd_input_frame_now "$input_frame_now" \
@@ -196,6 +203,16 @@ if [[ -n "$lan" ]]; then
   server=$!
   pids+=("$server")
   echo "SCREEN-STREAM-EVAL-STAGE peer waiting for the viewer Mac at $lan:$peer_port"
+  # Once: does the server answer on the LAN address from this Mac? (403 without the token is an answer.)
+  sleep 1
+  echo "SCREEN-STREAM-EVAL-PEER-SELF $(python3 -I -c 'import sys, urllib.request
+try:
+    urllib.request.urlopen(f"http://{sys.argv[1]}:{sys.argv[2]}/clock", timeout=5)
+    print("answered")
+except urllib.error.HTTPError as e:
+    print(f"answered {e.code}")
+except OSError as e:
+    print(f"no answer: {e!r}")' "$lan" "$peer_port")"
   for _ in $(seq 1 360); do
     [[ -s "$work/peer/agent.json" ]] && break
     # A server that could not bind (an address this Mac lacks, a port in use) ends at once: say so.

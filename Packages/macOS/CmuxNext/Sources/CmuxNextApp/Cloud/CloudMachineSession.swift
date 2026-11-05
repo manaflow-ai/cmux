@@ -155,11 +155,11 @@ final class CloudMachineSession {
     /// auto-pause parks idle machines, and its link connects once the record
     /// is live (`CloudService.reconcile`). An app link connects as before
     /// (its connect starts a paused machine for a click); a live legacy link
-    /// reconnects by itself, so nothing else changes. A paused app-link machine attached by a script (a
-    /// start, `cmux cloud start-chat`) resumes the same way: its script connect skips a paused machine.
+    /// reconnects by itself, so nothing else changes. A paused app-link machine resumes the same way for any origin: the
+    /// platform refuses a link to a paused machine (`cloud.machine.paused`), so a connect there, a person's too, failed at once.
     func attach(origin: CloudLinkOrigin = .user) {
         guard !machine.shownStatus.isChanging else { return }
-        if appLink != nil, origin == .user || machine.shownStatus != .paused { return connect(origin: origin) }
+        if appLink != nil, machine.shownStatus != .paused || resumer == nil { return connect(origin: origin) }
         // A live legacy machine with no connection: its link may be waiting out a backoff after a
         // failed start (or never started); the attach retries it now instead of doing nothing.
         if machine.shownStatus != .paused {

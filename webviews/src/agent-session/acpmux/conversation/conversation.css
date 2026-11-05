@@ -4181,6 +4181,105 @@ a.cv-sha:focus-visible {
 .cv-cmux-exec__raw .cv-subsession__toggle {
   gap: var(--cv-tool-gap);
 }
+/* An opened call's Input and Output (ToolDetail.tsx), after Claude's tool sheet: Input is one card
+   with a labeled field per argument and a hairline between fields; Output's heading carries its
+   copy button, always shown, and its body is the tool output card. */
+.cv-tool-detail {
+  display: grid;
+  gap: var(--ds-space-2);
+  margin: var(--grid-half-step) 0 var(--ds-space-2);
+}
+.cv-tool-detail__part {
+  display: grid;
+  gap: var(--grid-half-step);
+  min-width: 0;
+}
+.cv-tool-detail__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: var(--ds-control-compact);
+  margin: 0 0 var(--grid-half-step) var(--grid-half-step);
+  color: var(--cv-text-muted);
+  font-size: var(--text-caption);
+  line-height: 14px;
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+.cv-tool-detail__head > .cv-tool-detail__copy {
+  width: var(--ds-control-compact);
+  height: var(--ds-control-compact);
+}
+.cv-tool-detail__head + .cv-tool-output-card {
+  margin-top: 0;
+}
+.cv-tool-detail__fields {
+  display: grid;
+  border-radius: var(--ds-radius-popup);
+  background: var(--cv-card-fill);
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  overflow: hidden;
+}
+.cv-tool-detail__field {
+  display: grid;
+  gap: var(--grid-half-step);
+  min-width: 0;
+  padding: var(--ds-space-2) var(--ds-space-3);
+}
+.cv-tool-detail__field + .cv-tool-detail__field {
+  border-top: 1px solid var(--cv-card-ring);
+}
+.cv-tool-detail__key {
+  color: var(--cv-text-muted);
+  font-family: var(--cv-mono);
+  font-size: var(--text-caption);
+  line-height: 14px;
+  overflow-wrap: anywhere;
+}
+.cv-tool-detail__value {
+  max-height: 168px;
+  overflow: auto;
+  color: var(--cv-text);
+  font-size: var(--text-detail);
+  line-height: 18px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.cv-tool-detail__value.is-value,
+.cv-tool-detail__value.is-tree {
+  font-family: var(--cv-mono);
+  line-height: 17px;
+}
+.cv-tool-detail__value.is-markdown {
+  white-space: normal;
+}
+/* A field is a value, not a document: its headings stay at the field's size, in the emphasis weight,
+   and its blocks sit close (Claude's tool sheet draws a prompt's Markdown at body size). */
+.cv-tool-detail__value.is-markdown :is(h1, h2, h3, h4, h5, h6) {
+  margin: var(--ds-space-2) 0 var(--ds-space-1);
+  font-size: inherit;
+  line-height: inherit;
+  font-weight: var(--weight-emphasis);
+}
+.cv-tool-detail__value.is-markdown :is(p, li, blockquote, td, th) {
+  font-size: inherit;
+  line-height: inherit;
+}
+.cv-tool-detail__value.is-markdown :is(p, ul, ol, blockquote) {
+  margin-block: 0 var(--ds-space-1);
+}
+.cv-tool-detail__value.is-markdown > :first-child,
+.cv-tool-detail__value.is-markdown > :first-child > :first-child {
+  margin-top: 0;
+}
+.cv-tool-detail__value > pre {
+  margin: 0;
+  font: inherit;
+  white-space: pre-wrap;
+}
+.cv-tool-detail__value[data-more-below] {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - var(--cv-output-fade, 28px)), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--cv-output-fade, 28px)), transparent);
+}
 /* The card's box holds the fill and ring, so the output's fades (below) cut the text, not them. */
 .cv-tool-output__box {
   position: relative;

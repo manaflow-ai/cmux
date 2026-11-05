@@ -23,12 +23,23 @@ extension PageWebView {
     /// clears its page while it waits for the page's first frame (loading state, move cover), and
     /// a hidden Chromium page draws no frame, so the wait would last until its give-up.
     /// An off-screen parking view's alpha (``PageOffscreenParking``) does not count either:
-    /// a prewarmed page waits there to paint before it is adopted.
+    /// a prewarmed page waits there to paint before it is adopted. Nor does any ancestor's alpha
+    /// once the page lies wholly outside its window's content (``liesOutsideWindowContent``): its
+    /// child window shows nothing there, and a hidden page drew a held chat only when its paint
+    /// hold gave up (an adopted spare, HQ#5914).
     public func setChromiumVisibility(_ requested: Bool) {
         let visible = requested && window != nil && !isHiddenOrHasHiddenAncestor
-            && sequence(first: self as NSView, next: \.superview).dropFirst()
-                .allSatisfy { $0.alphaValue > 0.001 || $0 is PageOffscreenParking }
+            && (liesOutsideWindowContent || sequence(first: self as NSView, next: \.superview).dropFirst()
+                .allSatisfy { $0.alphaValue > 0.001 || $0 is PageOffscreenParking })
         chromiumSession?.page.setVisible(visible)
+    }
+
+    /// Whether the page is laid out wholly outside its window's content (a page held away until it
+    /// drew, as an adopted New Tab spare is). A page or window not laid out yet is not.
+    var liesOutsideWindowContent: Bool {
+        guard let content = window?.contentView else { return false }
+        let page = convert(bounds, to: nil), shown = content.convert(content.bounds, to: nil)
+        return !page.isEmpty && !shown.isEmpty && !page.intersects(shown)
     }
 
     /// The handlers the page scripts post to without a reply, in Chromium mode.
