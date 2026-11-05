@@ -189,7 +189,10 @@ async function mount({
       <ComposerPickers
         snapshot={snapshot}
         pickerCatalog={picker.catalog}
-        onModel={(next) => setState((current) => ({ ...current, model: next }))}
+        onModel={(next) => {
+          sent.push({ id: "model", value: next });
+          setState((current) => ({ ...current, model: next }));
+        }}
         onMode={() => undefined}
         onEffort={(id, value) => {
           sent.push({ id, value });
