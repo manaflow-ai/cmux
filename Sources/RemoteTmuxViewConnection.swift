@@ -792,8 +792,8 @@ final class RemoteTmuxViewConnection {
         for action in plan.reconcileActions {
             switch action {
             case let .link(windowId):
-                if linkIntoView(conn, windowId: windowId) {
-                    ownedWindowIds.insert(windowId)
+                _ = linkIntoView(conn, windowId: windowId) { [weak self] in
+                    self?.ownedWindowIds.insert($0)
                 }
             case let .unlinkFromView(windowId):
                 // Unlink the view's COPY (by its index in the view), so the real

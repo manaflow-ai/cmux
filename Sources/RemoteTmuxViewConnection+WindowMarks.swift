@@ -14,8 +14,11 @@ import Foundation
 /// view's name, because one window can be linked into the views of several cmux installs and a
 /// shared value would let them overwrite each other's marks.
 ///
-/// Invariant: every window this connection links into the view is held either by an
-/// acknowledged mark in tmux or in ``unconfirmedMarkWindowIds``, and the bringup adopts both.
+/// Invariant: every window tmux confirms this connection linked into the view is held either by
+/// an acknowledged mark in tmux or in ``unconfirmedMarkWindowIds``, and the bringup adopts both.
+/// The mark goes out only after tmux confirms the link, since tmux runs a separately sent mark
+/// even when it refused the link, and a mark on a window the view does not hold would let a
+/// later bringup claim it and destroy it.
 /// A mark is a tracked write, so tmux's `%error` (or a stream reset) keeps the window in the
 /// set; the bringup writes those marks again before it reads the view, and a window whose mark
 /// is still refused is adopted from the set. A link whose mark failed therefore cannot become
@@ -67,10 +70,21 @@ extension RemoteTmuxViewConnection {
         return (placeholder, adopted, unmarkedLinked)
     }
 
-    /// Links `windowId` into the view and marks it as linked by this view.
-    func linkIntoView(_ conn: RemoteTmuxControlConnection, windowId: String) -> Bool {
+    /// Links `windowId` into the view. When tmux answers the link with `%end`, marks the window
+    /// as linked by this view and reports it through `onLinked`. A link tmux refuses, or whose
+    /// answer a stream reset loses, gets no mark and no owner; if it did take effect, the window
+    /// is in a real session too, and the next bringup adopts it as linked and marks it then.
+    func linkIntoView(
+        _ conn: RemoteTmuxControlConnection,
+        windowId: String,
+        onLinked: @escaping (String) -> Void
+    ) -> Bool {
         let commands = Self.linkCommands(windowId: windowId, viewSessionName: view.sessionName)
-        return conn.send(commands[0]) && markWindow(conn, windowId)
+        return conn.sendTracked(commands[0]) { [weak self] linked in
+            guard linked, let self else { return }
+            _ = self.markWindow(conn, windowId)
+            onLinked(windowId)
+        }
     }
 
     /// Marks windows cmux holds in a real session that do not carry this view's mark yet, so the
