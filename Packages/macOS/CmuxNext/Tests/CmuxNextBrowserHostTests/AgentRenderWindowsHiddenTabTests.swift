@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextBrowser
 @testable import CmuxNextBrowserHost
 import Testing
 
@@ -44,6 +45,27 @@ import Testing
         #expect(windows.keepRendering(tabID: "tab_covered", chrome: chrome, webView: nil))
         #expect(chrome.window?.identifier == NSUserInterfaceItemIdentifier("cmux.agentRenderWindow"))
         windows.release(tabID: "tab_covered")
+        window.close()
+    }
+
+    /// A pane's refresh after the agent navigated (the tab's title changed) pulled the tab back into
+    /// its minimized window mid-call, and the agent's next click timed out there. While that window
+    /// draws nothing the tab stays off screen; once it draws, the pane may take it back.
+    @Test func aTabStaysOffScreenWhileItsPanesWindowDrawsNothing() {
+        let windows = AgentRenderWindows(windowDraws: { _ in false })
+        let chrome = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        let (window, workspace) = windowHolding(chrome)
+        #expect(windows.keepRendering(tabID: "tab_refresh", chrome: chrome, webView: nil))
+        // A window ordered on no screen draws nothing.
+        #expect(chrome.staysParked(awayFrom: workspace))
+        window.setFrame(NSRect(x: 0, y: 0, width: 400, height: 300), display: false)
+        window.orderFrontRegardless()
+        if window.drawsContent { #expect(!chrome.staysParked(awayFrom: workspace)) }
+        // A view no render window holds is never kept from its pane.
+        let shown = NSView()
+        workspace.addSubview(shown)
+        #expect(!shown.staysParked(awayFrom: workspace))
+        windows.release(tabID: "tab_refresh")
         window.close()
     }
 

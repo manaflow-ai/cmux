@@ -13,4 +13,17 @@ extension NSView {
         guard let window, !isHiddenOrHasHiddenAncestor else { return true }
         return !windowDraws(window)
     }
+
+    /// Whether an agent render window holds this view and should keep it, because the window of
+    /// `home` (the pane that shows it) draws nothing.
+    ///
+    /// A pane's refresh (the tab's title changed after an agent navigated) must not pull a tab an
+    /// agent drives back into a minimized or covered window in the middle of the agent's calls:
+    /// there the page pauses, and the next pointer walk times out. The pane takes the tab back
+    /// when its window draws again (`AgentRenderWindows.windowDidChangeOcclusion`).
+    /// - Parameter home: The view that would show this one again.
+    /// - Returns: True while the tab should stay off screen.
+    public func staysParked(awayFrom home: NSView) -> Bool {
+        false
+    }
 }
