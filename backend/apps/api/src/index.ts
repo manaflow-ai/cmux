@@ -148,7 +148,7 @@ const wire = async (request: Request, env: Env, spent: SpentTicket | undefined, 
  * installs read, anyone else gets 403.
  */
 const hostReplica = async (request: Request, env: Env, protocols: ReadonlyArray<string>, principal: Principal, host: string): Promise<Response> => {
-  const team = env.TEAM_DO.get(env.TEAM_DO.idFromName(principal.team!)) as unknown as { hostReplicaRole(entity: string, host: string, p: Principal): Promise<"publisher" | "reader" | null> }
+  const team = env.TEAM_DO.get(env.TEAM_DO.idFromName(principal.team!))
   const role = await team.hostReplicaRole(principal.team!, host, principal).catch(() => undefined)
   if (role === undefined) return Response.json({ error: { code: "owner.unreachable", message: "the host directory could not be checked; retry" } }, { status: 503 })
   if (role === null) return new Response("forbidden", { status: 403 })
@@ -185,7 +185,7 @@ const handlePresenceKey = async (request: Request, env: Env): Promise<Response> 
   const user = authenticated.user
   const body = (await request.json().catch(() => null)) as PresenceKeyBody | null
   if (!body) return Response.json({ error: { code: "validation.invalid", message: "JSON body required" } }, { status: 400 })
-  const stub = env.USER_DO.get(env.USER_DO.idFromName(user)) as unknown as { registerPresenceKey(e: string, p: unknown, b: PresenceKeyBody): Promise<unknown> }
+  const stub = env.USER_DO.get(env.USER_DO.idFromName(user))
   const r = (await stub.registerPresenceKey(user, principal, body)) as { error?: { code: string; message: string }; frames?: Array<{ t: string; value?: unknown; code?: string; message?: string }> }
   if (r.error) return Response.json({ ok: false, error: r.error }, { status: r.error.code.startsWith("auth.") ? 403 : 400 })
   const reply = r.frames?.find((f) => f.t === "result" || f.t === "reject")

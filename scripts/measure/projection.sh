@@ -26,6 +26,17 @@ if [[ "$app" == build ]]; then
   # This commit as a tagged DEV app built in the step (as scripts/measure/chat-open.sh does), for a commit no
   # NIGHTLY carries yet. A step's checkout has empty submodules: reload.sh needs Ghostty's headers.
   git submodule update --init --depth 1 ghostty ghostty-next >/dev/null
+  # cmux-tui's libghostty-vt builds with ghostty-next's Zig (`ZIG`, ghostty-vt-sys); a worker whose own Zig is
+  # another version gets that one installed in the step, never in place of the worker's.
+  need="$(source scripts/ghostty-zig-version.sh && GHOSTTY_ZIG_SOURCE=ghostty-next ghostty_minimum_zig_version "$PWD")"
+  [[ -n "$need" ]] || { echo "L10 no Zig version in ghostty-next/build.zig.zon"; exit 3; }
+  if [[ "$(zig version 2>/dev/null || true)" != "$need" ]]; then
+    ZIG_FORCE_LOCAL_INSTALL=1 ZIG_REQUIRED="$need" ZIG_INSTALL_ROOT="$out/zig" RUNNER_TEMP="$out/zig-work" \
+      ./scripts/install-zig-ci.sh >"$out/zig.log" 2>&1 || { echo "L10 zig $need did not install"; tail -n 20 "$out/zig.log"; exit 3; }
+    ZIG="$(find "$out/zig" -maxdepth 2 -name zig -type f -perm -u+x | head -n 1)"
+    export ZIG
+    echo "L10 zig $need for ghostty-next: $ZIG"
+  fi
   CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag l10proj 2>&1 | tee "$out/reload.log" >/dev/null
   bundle="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
   [[ -n "$bundle" && -d "$bundle" ]] || { echo "L10 the tagged build printed no app"; grep -E "error:|BUILD FAILED" "$out/reload.log" | head -n 40; exit 3; }

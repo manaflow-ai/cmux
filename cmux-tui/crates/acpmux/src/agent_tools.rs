@@ -224,6 +224,7 @@ const SKILL_FILES: &[(&str, &str)] = &[
         "cmux-customization/references/viewer-types.md",
         include_str!("../../../../skills/cmux-customization/references/viewer-types.md"),
     ),
+    ("cmux-live/SKILL.md", include_str!("../../../../skills/cmux-live/SKILL.md")),
     ("acpmux/SKILL.md", include_str!("../skills/acpmux/SKILL.md")),
 ];
 

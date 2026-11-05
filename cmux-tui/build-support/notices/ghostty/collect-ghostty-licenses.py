@@ -43,7 +43,7 @@ MAX_LICENSE_BYTES = 2 * 1024 * 1024
 # also changes this script, which keys the Ghostty helper caches.
 PINNED_LICENSES = Path(__file__).resolve().parent / "pinned-licenses"
 PINNED_MANIFEST_SHA256 = (
-    "197dbcbe3b62c40e6f666062b15c165950ba57a44ef3a736570745bf91391b3f"
+    "574b17e813cfe8e43628de27e4ab9a6f7219badbae33fda4a60c7a057b2adb09"
 )
 
 
@@ -78,6 +78,13 @@ VENDORED: dict[str, dict] = {}
 # a package of the same dependency with an unreviewed hash stops the collection.
 SUPPLEMENTS: dict[str, dict] = {}
 LINE_RANGE = re.compile(r"L([1-9][0-9]*)-L([1-9][0-9]*)")
+# A fetched package whose own license files carry the MPL-2.0 text needs a
+# source offer (section 3.2(a)) even though the license-name scan ships its
+# texts (z2d 0.13.2 keeps LICENSE and COPYING in its .paths; 0.11.0 and 0.12.1
+# drop them and resolve through pinned texts). Its "packages" entry in
+# pinned-licenses/MANIFEST.json then has no files, only the reviewed package
+# hashes and the source_offer.
+MPL_TEXT = re.compile(rb"Mozilla Public License(,)? ?(Version |v\. ?)2\.0")
 
 
 def package_text(package: Path, package_path: str) -> bytes:
@@ -412,6 +419,11 @@ def main() -> int:
             ),
             known_name,
         )
+        if not KNOWN_LICENSES[known_name]["files"]:
+            raise ValueError(
+                f"{package.name} has no license file, and {known_name} pins no texts "
+                "(only a source offer for a package that ships its own)"
+            )
         pinned = KNOWN_LICENSES[known_name].get("packages")
         if pinned is not None and package.name not in pinned:
             raise ValueError(
@@ -436,6 +448,32 @@ def main() -> int:
                 f"{known_name}-SOURCE-OFFER.txt", offer, "generated-source-offer",
             )
 
+    def offer_for_licensed(label: str, package: Path, files: list[Path]) -> None:
+        """The MPL-2.0 source offer for a package that ships its own license files."""
+        reviewed = [
+            key for key in sorted(KNOWN_LICENSES)
+            if package.name in KNOWN_LICENSES[key].get("packages", [])
+            and KNOWN_LICENSES[key].get("source_offer") is not None
+        ]
+        if not reviewed:
+            if any(MPL_TEXT.search(path.read_bytes()) for path in files):
+                raise ValueError(
+                    f"{package.name} ships an MPL-2.0 license but has no reviewed "
+                    "source offer; review it and pin the package with a source_offer "
+                    "in pinned-licenses/MANIFEST.json"
+                )
+            return
+        known_name = reviewed[0]
+        offer = source_offer(
+            known_name, package.name, declarations.get(package.name), args.revision,
+            args.release_source_offer,
+        )
+        assert offer is not None
+        record(
+            label, package.name, f"source-offer:{package.name}",
+            f"{known_name}-SOURCE-OFFER.txt", offer, "generated-source-offer",
+        )
+
     try:
         for label, root in roots:
             files = license_files(root)
@@ -456,10 +494,19 @@ def main() -> int:
                 }
                 if zig_pkg.is_dir():
                     for package in sorted(zig_pkg.iterdir(), key=lambda value: value.name):
-                        if package.is_dir() and package.name not in covered:
+                        if not package.is_dir():
+                            continue
+                        if package.name not in covered:
                             resolve_unlicensed(label, root, package, kind)
+                        else:
+                            offer_for_licensed(
+                                label, package,
+                                [path for path in files if package in path.parents],
+                            )
             elif not files:
                 resolve_unlicensed(label, root, root, kind)
+            else:
+                offer_for_licensed(label, root, files)
         # Third-party code that Ghostty vendors in its own tree (pkg/<name>,
         # vendor/<name>) without a license file: reviewed, or unresolved.
         problems, pinned_dirs = ghostty_vendored.check_tree(

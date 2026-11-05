@@ -9,6 +9,7 @@ import { chiefMainConversation } from "../domains/user-chief.ts"
 import { PEER_NAME, PEER_TEXT_MAX } from "./brain-turn.ts"
 import type { MemoryExport } from "../chief-durable/durable-do.ts"
 import { type AppendBody, type AppendResult, type ImportBody, type ImportFail, type ImportStatus, MAX_IMPORT_BODY, type UndoBody, type UndoResult, parseAppendBody, parseImportBody } from "./memory-import.ts"
+import { declared } from "../do-stub.ts"
 
 /**
  * HTTP routes of the Chief brain (outside the op catalog, like the keyed acpmux start):
@@ -93,7 +94,7 @@ export const handleChiefBrain = async (request: Request, env: Env, agent: string
   // One answer for a run (or conversation) that does not exist and one the caller may not see: no existence probe.
   const hidden = { status: 404, code: "not_found", message: "no such run" }
   const member = async (conversation: string) => {
-    const conv = env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(conversation)) as unknown as { readOp(e: string, p: unknown, op: string, params: unknown): Promise<{ ok: boolean }> }
+    const conv = declared(env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(conversation)))
     return (await conv.readOp(conversation, caller.principal, "conversation.history", { limit: 1 })).ok
   }
   const conversation = url.searchParams.get("conversation") ?? ""
@@ -157,7 +158,7 @@ const handleMachineLogin = async (request: Request, env: Env, agent: string, run
     if (!owned) return loginFail(LOGIN_HIDDEN)
     const conversation = new URL(request.url).searchParams.get("conversation") ?? ""
     if (conversation !== chiefMainConversation(agent)) return loginFail(LOGIN_HIDDEN)
-    const conv = env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(conversation)) as unknown as { readOp(e: string, p: unknown, op: string, params: unknown): Promise<{ ok: boolean }> }
+    const conv = declared(env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(conversation)))
     if (!(await conv.readOp(conversation, p, "conversation.history", { limit: 1 })).ok) return loginFail(LOGIN_HIDDEN)
     const body = request.method === "POST" ? machineLoginBody(await request.json().catch(() => null)) : null
     if (request.method === "POST" && !body) return loginFail({ status: 400, code: "validation.invalid", message: "body is {action: start}, {action: finish, loginId, code?}, or {action: cancel, loginId}" })
@@ -191,9 +192,9 @@ const handleMemoryImport = async (request: Request, env: Env, agent: string, set
   // Only the Chief's own main conversation (the owner and the Chief): a private memory never goes into a shared conversation's brain.
   const conversation = new URL(request.url).searchParams.get("conversation") ?? ""
   if (conversation !== chiefMainConversation(agent)) return fail({ status: 400, code: "validation.invalid", message: "conversation is the Chief's main conversation" })
-  const conv = env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(conversation)) as unknown as { readOp(e: string, p: unknown, op: string, params: unknown): Promise<{ ok: boolean }> }
+  const conv = declared(env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(conversation)))
   if (!(await conv.readOp(conversation, p, "conversation.history", { limit: 1 })).ok) return fail({ status: 404, code: "not_found", message: "no such conversation" })
-  const brain = env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(brainName(agent, conversation))) as unknown as MemoryBrain
+  const brain = declared(env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(brainName(agent, conversation))))
   if (request.method === "GET") {
     const params = new URL(request.url).searchParams
     if (params.get("export") !== "1") return ok(await brain.memoryImportStatus())

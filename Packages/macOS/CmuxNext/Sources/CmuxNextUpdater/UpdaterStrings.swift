@@ -152,6 +152,9 @@ nonisolated enum UpdaterStrings {
     static func downloadedOf(_ received: String, _ expected: String, _ percent: String) -> String {
         format("updater.notice.downloadedOf", "%1$@ of %2$@ · %3$@", received, expected, percent)
     }
+    /// The line under a download's bytes: its time left, rounded (``UpdateTransferRate``).
+    static func secondsLeft(_ seconds: Int) -> String { format("updater.notice.secondsLeft", "About %lld s left", seconds) }
+    static func minutesLeft(_ minutes: Int) -> String { format("updater.notice.minutesLeft", "About %lld min left", minutes) }
     static var preparingDetail: String { text("updater.notice.preparingDetail", "Verifying and unpacking the update.") }
     static var installingUpdate: String { text("updater.notice.installingTitle", "Installing Update") }
     static var relaunchingDetail: String {

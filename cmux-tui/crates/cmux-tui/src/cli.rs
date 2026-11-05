@@ -102,6 +102,8 @@ mod machine_doctor;
 #[cfg(unix)]
 mod machine_join;
 #[cfg(unix)]
+mod machine_link;
+#[cfg(unix)]
 pub(crate) use machine_join::{
     CallError as PlatformCallError, Platform, device_credential as joined_machine_credential,
     platform_origin, rows_for_devices as joined_machine_rows,
@@ -548,6 +550,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_repo::run_if_requested(args))
         .or_else(|| cloud_client_session::run_if_requested(args))
         .or_else(|| cloud_machine_io::run_if_requested(args))
+        .or_else(|| machine_link::run_if_requested(args))
         .or_else(|| machine_join::run_if_requested(args))
         .or_else(|| machine_doctor::run_if_requested(args))
         .or_else(|| apps_list::run_if_requested(args))

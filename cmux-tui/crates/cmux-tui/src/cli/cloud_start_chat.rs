@@ -1284,4 +1284,4 @@ fn at<'a>(value: &'a Value, key: &str) -> &'a Value {
 }
 
 #[cfg(test)]
-mod tests;
+pub(in crate::cli) mod tests;

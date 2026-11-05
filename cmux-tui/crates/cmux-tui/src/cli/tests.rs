@@ -2,6 +2,8 @@ use super::*;
 
 // The app fallback and the app scopes exist on unix only (cli.rs).
 #[cfg(unix)]
+mod action_argument_contract;
+#[cfg(unix)]
 mod action_surface_parity;
 #[cfg(unix)]
 mod cli_name_hints;
