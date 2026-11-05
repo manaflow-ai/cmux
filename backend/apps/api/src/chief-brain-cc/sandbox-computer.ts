@@ -318,7 +318,8 @@ export const computerVerb = async (b: ChiefBrainDO, id: string, state: string, r
     // Only a hold the Chief asked for (request_human) and the person did not take over: a take-over is the person's to end.
     const c = controlRow(b)
     if (c.holder === "human" && (c.by ?? "human") !== "chief") return humanHasControlRefusal(b)
-    if (c.holder === "human") writeControl(b, { holder: "chief", since_ms: Date.now(), returned: true })
+    // The Chief ended its own request: nobody handed anything back, so no handed-back note follows.
+    if (c.holder === "human") writeControl(b, { holder: "chief", since_ms: Date.now() })
     return { status: 200, json: { control: controlOf(b) } }
   }
   // The first verb that succeeds after the person handed the computer back says so once (a screenshot is that fresh

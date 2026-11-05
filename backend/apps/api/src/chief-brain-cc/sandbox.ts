@@ -132,13 +132,13 @@ const live = async (b: ChiefBrainDO) => {
 const FS_READS = new Set(["read", "ls", "stat", "exists", "upload_status"])
 /**
  * Whether `req` would change or end the Chief's computer VM `id` while the person holds it (the control lease,
- * sandbox-computer.ts): exec, fs writes, stop, pause, delete and fork are refused then; reads, get, start and the
+ * sandbox-computer.ts): exec, fs writes, stop, pause, delete, fork, snapshot, update and resize are refused then; reads, get, start and the
  * computer's own verbs (which check the lease themselves) are not. Deleting the computer never ends a take-over.
  */
 const heldFromChief = (b: ChiefBrainDO, id: string, req: Req): boolean => {
   if (computerOf(b)?.id !== id || !humanHasControl(b)) return false
   if (req.action === "fs") return !FS_READS.has(String(req.op ?? ""))
-  return req.action === "exec" || req.action === "stop" || req.action === "pause" || req.action === "delete" || req.action === "fork"
+  return ["exec", "stop", "pause", "delete", "fork", "snapshot", "update", "resize"].includes(String(req.action))
 }
 
 const NOT_YOURS: Out = { status: 404, json: { error: "not one of your sandboxes (chief-vm list)" } }

@@ -81,6 +81,9 @@ public final class HomeChiefComputerControlBar: NSStackView {
     var state: HomeChiefComputerControlState? { source?.state() }
     /// The person holds the lease.
     var personDrives: Bool { state?.holder == .human }
+    /// A Give Back is on its way: the screen takes no input from its first moment, even while the
+    /// lease still says the person drives (a frame or status read must not reopen the queue).
+    private(set) var givingBack = false
 
     private func follow() {
         token = nil
@@ -114,12 +117,17 @@ public final class HomeChiefComputerControlBar: NSStackView {
     func act() -> Task<Void, Never>? {
         guard let source, let line = shown, busy == nil else { return nil }
         let take = line.action == .takeOver
+        if !take {
+            givingBack = true
+            onChange()
+        }
         // task-owner: one Take Over or Give Back gesture; the button stays off until it ends
         let task = Task { [weak self] in
             do {
                 if take {
                     try await source.takeOver()
                 } else {
+                    defer { self?.givingBack = false }
                     await self?.beforeGiveBack()
                     try await source.handBack()
                 }

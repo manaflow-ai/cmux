@@ -39,7 +39,7 @@ extension HomeChiefProfileView {
     func followControl() {
         let shown = control != nil && showsControl
         controlBar.isHidden = !shown || controlBar.shown == nil
-        let takesInput = shown && shownGate == nil && tabs.selected == .computer && controlBar.personDrives && control?.send != nil && isOpen
+        let takesInput = shown && shownGate == nil && tabs.selected == .computer && controlBar.personDrives && !controlBar.givingBack && control?.send != nil && isOpen
         if takesInput {
             inputs.resume()
         } else {

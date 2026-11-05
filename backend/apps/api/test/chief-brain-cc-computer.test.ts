@@ -61,7 +61,7 @@ describe("the Chief's computer: plan, take over and hand back", { timeout: 120_0
           seen.heldShot = await call(s, { action: "computer", id, op: "screenshot" })
           seen.heldWindows = await call(s, { action: "computer", id, op: "windows" })
           // Nor change or end the VM under the person: exec, fs writes, stop, pause, delete, fork; reading is fine.
-          for (const [k, req] of Object.entries({ exec: { action: "exec", command: "echo hi" }, write: { action: "fs", op: "write", path: "/tmp/x", data: btoa("x") }, mkdir: { action: "fs", op: "mkdir", path: "/tmp/d" }, stop: { action: "stop" }, pause: { action: "pause" }, delete: { action: "delete" }, fork: { action: "fork" } })) {
+          for (const [k, req] of Object.entries({ exec: { action: "exec", command: "echo hi" }, write: { action: "fs", op: "write", path: "/tmp/x", data: btoa("x") }, mkdir: { action: "fs", op: "mkdir", path: "/tmp/d" }, stop: { action: "stop" }, pause: { action: "pause" }, delete: { action: "delete" }, fork: { action: "fork" }, snapshot: { action: "snapshot" }, update: { action: "update", ttl_seconds: 60 }, resize: { action: "resize", size: "md" } })) {
             seen[`held_${k}`] = await call(s, { ...req, id })
           }
           seen.heldLs = await call(s, { action: "fs", op: "ls", path: "/tmp", id })
@@ -76,6 +76,8 @@ describe("the Chief's computer: plan, take over and hand back", { timeout: 120_0
           seen.afterAsk = await call(s, { action: "computer", id, op: "type", text: "x" })
           // A hold the Chief asked for, the Chief may end; then it asks again.
           seen.ownHandBack = await call(s, { action: "computer", id, op: "hand_back" })
+          // Nobody handed anything back: the Chief's next verb carries no handed-back note.
+          seen.afterOwnHandBack = await call(s, { action: "computer", id, op: "move", x: 3, y: 4 })
           seen.ask2 = await call(s, { action: "computer", id, op: "request_human", reason: "sign in to Gmail" })
         } else if (n === 4) {
           // After the lease ran out: a verb that fails keeps the note for the next one that succeeds.
@@ -148,7 +150,7 @@ describe("the Chief's computer: plan, take over and hand back", { timeout: 120_0
     expect(seen.heldShot.body.image).toMatch(/^\/9j\//)
     expect(seen.heldWindows.status).toBe(200)
     expect(cloud.execs.some((e) => e.env?.CHIEF_CUA0?.includes('"x":5'))).toBe(false)
-    for (const k of ["exec", "write", "mkdir", "stop", "pause", "delete", "fork"]) {
+    for (const k of ["exec", "write", "mkdir", "stop", "pause", "delete", "fork", "snapshot", "update", "resize"]) {
       expect(seen[`held_${k}`], k).toMatchObject({ status: 409, body: { code: "computer.human_has_control", control: { holder: "human", by: "human" } } })
     }
     expect(cloud.deleted).not.toContain(id)
@@ -173,6 +175,8 @@ describe("the Chief's computer: plan, take over and hand back", { timeout: 120_0
     expect(seen.ask.body.control).toMatchObject({ by: "chief", expires_ms: expect.any(Number) })
     expect(seen.afterAsk.body.code).toBe("computer.human_has_control")
     expect(seen.ownHandBack.body.control).toMatchObject({ holder: "chief" })
+    expect(seen.afterOwnHandBack.status).toBe(200)
+    expect(seen.afterOwnHandBack.body.note).toBeUndefined()
     expect((await status()).control).toMatchObject({ holder: "human", by: "chief", reason: "sign in to Gmail" })
     expect((await input({ op: "move", x: 2, y: 2 })).status).toBe(200)
     // The person takes over the Chief's request: it is theirs now, reason kept.
