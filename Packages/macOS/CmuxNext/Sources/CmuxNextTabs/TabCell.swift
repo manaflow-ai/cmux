@@ -354,7 +354,7 @@ final class TabCell {
     /// theme-scoped: resolved by callers inside `themeScope.perform`.
     var badgeColor: NSColor? {
         switch item.status {
-        case .needsInput: return Palette.attention
+        case .needsInput: return Palette.statusAttention // the sidebar's needs-input dot too
         case .success: return Palette.success
         case .failure: return Palette.danger
         case .none: return item.isUnread ? Palette.notificationBlue : nil
