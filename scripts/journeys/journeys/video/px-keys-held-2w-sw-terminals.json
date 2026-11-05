@@ -210,11 +210,35 @@
      "fixture": {
       "p0": {
        "kind": "wrap",
-       "fill": "#FF8000"
+       "fill": "#FF8000",
+       "wrap": {
+        "cell_px": 16,
+        "pad_px": 8,
+        "colors": [
+         "#FF8000",
+         "#8000FF"
+        ],
+        "full_rows": 2,
+        "last_cells": 5,
+        "lines": 12,
+        "first_color": "#8000FF"
+       }
       },
       "p1": {
        "kind": "wrap",
-       "fill": "#8000FF"
+       "fill": "#8000FF",
+       "wrap": {
+        "cell_px": 16,
+        "pad_px": 8,
+        "colors": [
+         "#FF8000",
+         "#8000FF"
+        ],
+        "full_rows": 2,
+        "last_cells": 5,
+        "lines": 12,
+        "first_color": "#8000FF"
+       }
       }
      },
      "spring": null,
@@ -312,11 +336,35 @@
      "fixture": {
       "p0": {
        "kind": "wrap",
-       "fill": "#FF8000"
+       "fill": "#FF8000",
+       "wrap": {
+        "cell_px": 16,
+        "pad_px": 8,
+        "colors": [
+         "#FF8000",
+         "#8000FF"
+        ],
+        "full_rows": 2,
+        "last_cells": 5,
+        "lines": 12,
+        "first_color": "#8000FF"
+       }
       },
       "p1": {
        "kind": "wrap",
-       "fill": "#8000FF"
+       "fill": "#8000FF",
+       "wrap": {
+        "cell_px": 16,
+        "pad_px": 8,
+        "colors": [
+         "#FF8000",
+         "#8000FF"
+        ],
+        "full_rows": 2,
+        "last_cells": 5,
+        "lines": 12,
+        "first_color": "#8000FF"
+       }
       }
      },
      "spring": null,
@@ -414,11 +462,35 @@
      "fixture": {
       "p0": {
        "kind": "wrap",
-       "fill": "#FF8000"
+       "fill": "#FF8000",
+       "wrap": {
+        "cell_px": 16,
+        "pad_px": 8,
+        "colors": [
+         "#FF8000",
+         "#8000FF"
+        ],
+        "full_rows": 2,
+        "last_cells": 5,
+        "lines": 12,
+        "first_color": "#8000FF"
+       }
       },
       "p1": {
        "kind": "wrap",
-       "fill": "#8000FF"
+       "fill": "#8000FF",
+       "wrap": {
+        "cell_px": 16,
+        "pad_px": 8,
+        "colors": [
+         "#FF8000",
+         "#8000FF"
+        ],
+        "full_rows": 2,
+        "last_cells": 5,
+        "lines": 12,
+        "first_color": "#8000FF"
+       }
       }
      },
      "spring": null,
@@ -516,11 +588,35 @@
      "fixture": {
       "p0": {
        "kind": "wrap",
-       "fill": "#FF8000"
+       "fill": "#FF8000",
+       "wrap": {
+        "cell_px": 16,
+        "pad_px": 8,
+        "colors": [
+         "#FF8000",
+         "#8000FF"
+        ],
+        "full_rows": 2,
+        "last_cells": 5,
+        "lines": 12,
+        "first_color": "#8000FF"
+       }
       },
       "p1": {
        "kind": "wrap",
-       "fill": "#8000FF"
+       "fill": "#8000FF",
+       "wrap": {
+        "cell_px": 16,
+        "pad_px": 8,
+        "colors": [
+         "#FF8000",
+         "#8000FF"
+        ],
+        "full_rows": 2,
+        "last_cells": 5,
+        "lines": 12,
+        "first_color": "#8000FF"
+       }
       }
      },
      "spring": null,

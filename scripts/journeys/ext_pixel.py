@@ -537,8 +537,9 @@ def step_px_record_start(j, step):
             "main_pane": window.get("main_pane"),
             "lines": {"rows": rows, "columns": cols, "strip_rows": strip_rows, "dropped": dropped, "scan_bytes_planned": used},
             "recorder": recorder,
-            "panes": {keys[name]: {"kind": "page" if info.get("kind") == "agent" else info.get("kind"), "agent": info.get("kind") == "agent",
-                                   "fill": info.get("fill"), "label": name} for name, info in fixture.items()},
+            "panes": {keys[name]: dict({"kind": "page" if info.get("kind") == "agent" else info.get("kind"), "agent": info.get("kind") == "agent",
+                                        "fill": info.get("fill"), "label": name}, **({"wrap": info["wrap"]} if info.get("wrap") else {}))
+                      for name, info in fixture.items()},
             "chrome": [{k: p.get(k) for k in ("pane", "cell", "border", "first_cell", "strip", "pill", "strip_hidden")}
                        for p in window.get("panes") or []]}
     if getattr(j, "video", None) is not None:

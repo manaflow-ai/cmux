@@ -233,6 +233,10 @@ def start_low_prompt_zebra(name):
 # cell of the grid's last whole cell. wrap_check.py reads it (pixel-perfect 2026-11-05).
 WRAP_A, WRAP_B, WRAP_LINES = "#FF8000", "#8000FF", 12
 WRAP_SCAN_LINES = (0.15, 0.3, 0.45, 0.6, 0.75)
+# The wrap fixture's facts for the judge (judge_pixel judge_wrap, R-HARNESS): the cell and padding in device px at scale 2, its
+# colors, and each line's rows: exactly WRAP_FULL_ROWS full rows, then a last row of WRAP_LAST_CELLS cells.
+WRAP_NOTE = {"cell_px": 16, "pad_px": 8, "colors": [WRAP_A, WRAP_B], "full_rows": 2, "last_cells": 5, "lines": WRAP_LINES,
+             "first_color": WRAP_B}
 
 
 def start_wrap(name):
@@ -294,7 +298,8 @@ class Layout:
 
     @property
     def fixture(self):
-        return {name: {"kind": kind, "fill": fill} for name, kind, fill, _ in self.panes}
+        return {name: dict({"kind": kind, "fill": fill}, **({"wrap": WRAP_NOTE} if kind == "wrap" else {}))
+                for name, kind, fill, _ in self.panes}
 
     def kinds(self):
         return [kind for _, kind, _, _ in self.panes]
