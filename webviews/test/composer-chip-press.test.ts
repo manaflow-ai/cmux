@@ -315,15 +315,21 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
               [row.x + row.w / 2, row.y + 1],
               [row.x + row.w / 2, row.y + row.h - 1],
             ];
-            await target.evaluate((row) => {
-              document.onpointerdown = (event) => {
-                row.setAttribute("data-press-hit", String(row.contains(event.target as Node)));
-                row.setAttribute("data-press-target", (event.target as Element).outerHTML.slice(0, 200));
-              };
-            });
             const hits: boolean[] = [];
             const targets: (string | null)[] = [];
             for (const [x, y] of probes) {
+              await target.evaluate((row) => {
+                row.removeAttribute("data-press-hit");
+                row.removeAttribute("data-press-target");
+                document.addEventListener(
+                  "pointerdown",
+                  (event) => {
+                    row.setAttribute("data-press-hit", String(row.contains(event.target as Node)));
+                    row.setAttribute("data-press-target", (event.target as Element).outerHTML.slice(0, 200));
+                  },
+                  { capture: true, once: true },
+                );
+              });
               await page.mouse.click(x!, y!);
               hits.push((await target.getAttribute("data-press-hit")) === "true");
               targets.push(await target.getAttribute("data-press-target"));
