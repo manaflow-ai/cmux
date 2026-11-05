@@ -38,6 +38,8 @@ public final class CloudMachineStatePush {
         /// A frame of the open socket reached the Cloud app server: pushes are live for this machine. A failed hand-off
         /// clears it until the next frame gets through.
         var live = false
+        /// Raised by each socket: a hand-off that finishes after its socket closed changes nothing.
+        var socket = 0
     }
     private var watches: [String: Watch] = [:]
 
@@ -130,6 +132,7 @@ public final class CloudMachineStatePush {
         guard watches[machine] != nil, !Task.isCancelled else { return false }
         let task = session.webSocketTask(with: request)
         watches[machine]?.task = task
+        watches[machine]?.socket += 1
         task.resume()
         let ping = Task {
             // wakeup-allow: one keepalive send per open push socket every 30 s, ended with the socket
@@ -185,7 +188,7 @@ public final class CloudMachineStatePush {
     /// gets there makes the machine live; one that does not (no daemon connection, a refused request) takes it off, so
     /// its reads come back until a later frame gets through.
     private func forward(_ machine: String, _ value: JSONValue) {
-        let connection = connection(), previous = delivery, sent = generation
+        let connection = connection(), previous = delivery, sent = generation, socket = watches[machine]?.socket
         // task-owner: kept in `delivery` and cancelled by stop()
         delivery = Task { [weak self] in
             await previous?.value
@@ -197,12 +200,13 @@ public final class CloudMachineStatePush {
                 ok = false
             }
             guard !Task.isCancelled, let self, self.generation == sent else { return }
-            self.delivered(machine, ok)
+            self.delivered(machine, socket: socket, ok)
         }
     }
 
-    private func delivered(_ machine: String, _ ok: Bool) {
-        guard let was = watches[machine]?.live, was != ok else { return }
+    private func delivered(_ machine: String, socket: Int?, _ ok: Bool) {
+        // Only the socket the frame came on, still open: one that closed already handed its machine back to reads.
+        guard let watch = watches[machine], watch.task != nil, watch.socket == socket, watch.live != ok else { return }
         watches[machine]?.live = ok
         if ok { onLive(machine) } else { onLost(machine) }
     }

@@ -55,9 +55,12 @@ public final class CloudMachineChanges {
         push.connection = connection
         push.onRecord = record
         // A dead push leaves its machine to the reads again, starting from the last list's refresh.
-        push.onLost = { [weak self] _ in
+        push.onLost = { [weak self] machine in
             guard let self, let refresh = self.lastRefresh else { return }
+            let others = self.pending ? self.pendingMachines : []
             self.began(refresh)
+            // The read is for this machine (and any already waiting on one), so its push coming back can end it.
+            self.pendingMachines = others.map { $0.union([machine]) }
         }
         // A push that becomes live ends a settle read that only its machines needed.
         push.onLive = { [weak self] _ in self?.pushWentLive() }
