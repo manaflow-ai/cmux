@@ -67,20 +67,18 @@ extension SidebarContainerView {
 
     /// Expands the clip into the pane gutter while the panel is shown. When the panel collapses,
     /// the clip gives that reach back so no sliver of a row remains visible at width zero.
+    /// `animated`: the clip's edge rides the width motion's progress (`startWidthMotion`), else it lands now.
     func setClipReach(_ reach: CGFloat, collapsed: Bool, animated: Bool) {
+        let (edge, target) = clipReachEdge(reach, collapsed: collapsed)
+        if !animated { edge.constant = target }
+    }
+
+    /// The clip constraint that reaches into the gutter on this side, and its constant for `reach`; the other edge's
+    /// constant is reset here.
+    func clipReachEdge(_ reach: CGFloat, collapsed: Bool) -> (edge: NSLayoutConstraint, target: CGFloat) {
         let amount = collapsed ? 0 : reach
-        let edge: NSLayoutConstraint
-        let other: NSLayoutConstraint
-        if side == .left {
-            edge = clipTrailing
-            other = clipLeading
-            other.constant = 0
-        } else {
-            edge = clipLeading
-            other = clipTrailing
-            other.constant = 0
-        }
-        let target = amount * (side == .left ? 1 : -1)
-        if animated { Motion.animator(edge, in: self).constant = target } else { edge.constant = target }
+        let (edge, other) = side == .left ? (clipTrailing, clipLeading) : (clipLeading, clipTrailing)
+        other.constant = 0
+        return (edge, amount * (side == .left ? 1 : -1))
     }
 }
