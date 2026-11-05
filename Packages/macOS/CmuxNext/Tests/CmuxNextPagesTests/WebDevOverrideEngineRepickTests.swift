@@ -23,12 +23,13 @@ struct WebDevOverrideEngineRepickTests {
         try Data(page.utf8).write(to: root.appendingPathComponent("index.html"))
     }
 
-    /// A page shown in Chromium, in a window, scrolled to `scrollY` (what its scroll capture answers).
-    private func shownInChromium(_ hosting: FakeChromiumHosting, scrollY: Int) async throws -> (PageWebView, FakeChromiumPage, NSWindow) {
+    /// A page shown in Chromium, in a window, at `hash` and scrolled to `scrollY` (what its state
+    /// capture answers).
+    private func shownInChromium(_ hosting: FakeChromiumHosting, scrollY: Int, hash: String = "#/start") async throws -> (PageWebView, FakeChromiumPage, NSWindow) {
         hosting.onMade = { page in
             page.answer = { method, params in
                 guard method == "Runtime.evaluate", (params["expression"] as? String)?.contains("scrollingElement") == true else { return nil }
-                return #"{"result":{"type":"object","value":[{"path":null,"top":\#(scrollY),"left":0}]}}"#
+                return #"{"result":{"type":"object","value":{"hash":"\#(hash)","spots":[{"path":null,"top":\#(scrollY),"left":0}]}}}"#
             }
         }
         let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/start", chromium: hosting))
@@ -63,6 +64,43 @@ struct WebDevOverrideEngineRepickTests {
         #expect(scrollY?.intValue == 1234, "the page lost its scroll: \(String(describing: scrollY))")
     }
 
+    /// The page's own links moved it on from the route the host opened: it reopens where it is.
+    @Test(.timeLimit(.minutes(1))) func aPageReopensAtTheFragmentItShowsNotTheRouteItOpenedAt() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let (view, _, window) = try await shownInChromium(hosting, scrollY: 0, hash: "#/appearance")
+        defer {
+            window.closeAfterTest()
+            view.close()
+        }
+
+        await WebDevOverrideWatcher.reloadPages(live: true, hosting: hosting, pages: [view], served: WebBundleServedViews(), watcher: WebDevOverrideWatcher())?.value
+
+        #expect(view.chromiumPage == nil)
+        #expect(view.webKitView.url?.fragment == "/appearance", "the page reopened at the route it was opened at: \(view.webKitView.url?.absoluteString ?? "-")")
+    }
+
+    /// A page whose pane has a focus model: the model is told the keys go to the WebKit view now.
+    @Test(.timeLimit(.minutes(1))) func theFocusModelIsToldTheWebKitViewTakesTheKeys() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let (view, _, window) = try await shownInChromium(hosting, scrollY: 0)
+        defer {
+            window.closeAfterTest()
+            view.close()
+        }
+        let focusViews = RepickFocusViews()
+        hosting.focusModel = { page in
+            focusViews.views.append(page.focusView)
+            return true
+        }
+
+        await WebDevOverrideWatcher.reloadPages(live: true, hosting: hosting, pages: [view], served: WebBundleServedViews(), watcher: WebDevOverrideWatcher())?.value
+
+        #expect(focusViews.views.count == 1, "the focus model was not told the page moved engine")
+        #expect((focusViews.views.first ?? nil) === view.webKitView)
+    }
+
     @Test func aPageChromiumCanServeLiveStaysInChromium() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let hosting = FakeChromiumHosting()
@@ -93,4 +131,10 @@ struct WebDevOverrideEngineRepickTests {
         #expect(view.chromiumPage === page)
         #expect(!page.closed)
     }
+}
+
+/// The focus view at each ``PageChromiumHosting/focusViewChanged(_:)`` call.
+@MainActor
+private final class RepickFocusViews {
+    var views: [NSView?] = []
 }

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import os
 
@@ -10,7 +11,8 @@ extension PageWebView {
     var isOnChromium: Bool { chromiumSession != nil || chromiumStart != nil }
 
     /// Re-picks the engine with the live loop in force and reopens the page in WebKit when that is
-    /// the pick: at its ``route``, then scrolled where its Chromium page was. Does nothing for a
+    /// the pick: at the fragment its Chromium page shows (the page's own links move it on from
+    /// ``route``), scrolled where it was, and with the keys when it had them. Does nothing for a
     /// page already on WebKit or one the policy keeps in Chromium.
     ///
     /// - Parameters:
@@ -24,18 +26,32 @@ extension PageWebView {
             .decide(for: descriptor, options: engineOptions)
         guard decision.engine == .webKit, let reason = decision.webKitReason else { return }
         let session = chromiumSession
-        let spots = session == nil ? nil : await callPageFunction(Self.scrollCaptureScript, timeout: .seconds(1)) as? [Any]
-        // The page closed, fell back or moved on while its scroll was read: nothing left to move.
+        let shown = session == nil ? nil : await callPageFunction(Self.scrollCaptureScript, timeout: .seconds(1)) as? [String: Any]
+        // The page closed, fell back or moved on while its state was read: nothing left to move.
         guard !isClosed, chromiumSession === session, isOnChromium, isCurrent() else { return }
+        if let hash = shown?["hash"] as? String, hash.count > 1, hash.hasPrefix("#") { route = hash }
+        let hadKeys = session.map(hasKeys(in:)) ?? false
         fallBackToWebKit(reason, detail: "the live web loop is on and Chromium cannot serve it", level: .info)
-        guard let spots, !spots.isEmpty else { return }
+        // The keys follow the page to WebKit: the pane's focus model re-applies itself (as when a
+        // Chromium page arrives, attachChromium), else the page takes them when Chromium had them.
+        if chromiumFocusHost?.focusViewChanged(self) != true, hadKeys { focusPage() }
+        guard let spots = shown?["spots"] as? [Any], !spots.isEmpty else { return }
         await waitUntilLoaded()
         guard !isClosed, !isOnChromium else { return }
         _ = await callPageFunction(Self.scrollRestoreScript, arguments: ["spots": spots])
     }
 
-    /// Every scrolled box of the document: `{path, top, left}`, `path` the child indexes from the
-    /// root element (null for the document's own scroller).
+    /// Whether the Chromium page of `session` has the keyboard: its view (or one inside it) is its
+    /// window's first responder, in this window or in Chromium's own child window that is key.
+    private func hasKeys(in session: PageChromiumSession) -> Bool {
+        let content = session.page.contentView
+        guard let host = content.window else { return false }
+        if host !== window, host.isKeyWindow { return true }
+        return (host.firstResponder as? NSView).map { $0 === content || $0.isDescendant(of: content) } ?? false
+    }
+
+    /// The document's fragment and every scrolled box: `{hash, spots: [{path, top, left}]}`,
+    /// `path` the child indexes from the root element (null for the document's own scroller).
     static let scrollCaptureScript = """
         const root = document.scrollingElement || document.documentElement;
         const path = (el) => {
@@ -50,7 +66,7 @@ extension PageWebView {
         for (const el of document.querySelectorAll('*')) {
             if (el !== root && (el.scrollTop > 0 || el.scrollLeft > 0)) spots.push({ path: path(el), top: el.scrollTop, left: el.scrollLeft });
         }
-        return spots;
+        return { hash: location.hash, spots };
         """
 
     /// Scrolls each of `spots` (``scrollCaptureScript``) back, as the document renders: at once, then
