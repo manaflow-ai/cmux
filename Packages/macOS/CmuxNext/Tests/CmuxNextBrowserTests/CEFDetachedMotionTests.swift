@@ -114,4 +114,26 @@ import Testing
         hosting.resizeMotion(active: false)
         #expect(calls == ["4:detach"])
     }
+
+    /// The host view left its window (or moved to another) while its page was detached: the old window never ends a
+    /// live resize or a drag for a view that left it, and a detached page takes no input, so it attaches at once and
+    /// stays attached for the rest of that motion.
+    @Test func aDetachedPageWhoseViewLeavesItsWindowAttachesAtOnce() {
+        let hosting = hostedPage()
+        hosting.windowLiveResize(active: true)
+        #expect(calls == ["4:detach"])
+        // `view` is in no window: the window change reads no live resize.
+        hosting.windowDidChange()
+        #expect(calls == ["4:detach", "4:attach"])
+        #expect(!hosting.isDetached)
+    }
+
+    @Test func aDetachedPageWhoseViewMovesWindowsMidDragStaysAttachedToTheLanding() {
+        let hosting = hostedPage()
+        hosting.resizeMotion(active: true)
+        hosting.windowDidChange()
+        #expect(calls == ["4:detach", "4:attach"])
+        hosting.resizeMotion(active: false)
+        #expect(calls == ["4:detach", "4:attach"], "the landing has nothing more to attach")
+    }
 }
