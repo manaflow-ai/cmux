@@ -267,7 +267,7 @@ mod tests {
         hub.goal_set(&session, &request("Make the suite pass")).unwrap();
         let mark = step(&session);
         hub.goal_update(&session, Reported::Complete, None).unwrap();
-        let run = crate::hub::queue::PromptRun {
+        let queued = crate::hub::queue::PromptRun {
             size: Default::default(),
             blocks: vec![json!({"type": "text", "text": "Keep going"})],
             display_parts: None,
@@ -283,6 +283,9 @@ mod tests {
             message_sender: None,
             goal_mark: Some(mark),
         };
+        // Send now (`queue_edit.rs`) makes the steer's run from the queued one; it keeps the mark.
+        let run = super::super::queue_edit::sent_now(&queued, crate::hub::Control::Local, None);
+        assert_eq!(run.goal_mark, queued.goal_mark);
         let answer = hub.steer_queued(&session, Arc::new(run), SENDER, "goal-1").await;
         assert!(moved_on(answer.map(|_| ())));
     }

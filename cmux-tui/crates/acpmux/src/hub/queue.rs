@@ -657,6 +657,10 @@ impl Hub {
         if let Some(key) = p.supersede {
             queued.set("supersede", json!(key));
         }
+        // A goal's continuation keeps its mark across a restart (`goal_tools.rs`).
+        if let Some(mark) = p.goal_mark {
+            queued.set("goalMark", json!(mark));
+        }
         // It waits for the owner (`queue_approve.rs`); a restart keeps it waiting.
         if awaiting_owner {
             queued.set("awaitingOwner", json!(true));
@@ -1530,7 +1534,8 @@ impl Hub {
                         full_access_device: None,
                         message_id: restored_message_opts.message_id,
                         message_sender: restored_message_opts.message_sender,
-                        goal_mark: None,
+                        // Checked again when it runs, against the goal saved with the chat.
+                        goal_mark: e.msg.get("goalMark").and_then(Value::as_str).map(str::to_owned),
                     },
                     approval,
                 )),
