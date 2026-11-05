@@ -491,6 +491,28 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("continue-on-error", step)
         self.assertIn('verdicts/${KEY##*/}', text)
 
+    def test_the_old_feeds_retag_is_guarded_against_its_own_base(self):
+        # The one feed names its DMGs under nightly-next/, not the verdicts' nightly-next/next/:
+        # the guard of the retagged appcast takes the feed's base, or it refuses every promotion.
+        step = next(s for s in yaml.safe_load(VERDICT_YML.read_text())["jobs"]["write"]["steps"]
+                    if s.get("name") == "Move the old feed's builds whose canary passed to Nightly")
+        self.assertIn('NIGHTLY_NEXT_FEED_BASE="$NIGHTLY_NEXT_LEGACY_FEED_BASE" python3 scripts/ci/nightly-next-guard.py appcast',
+                      step["run"])
+        bare = "https://files-next.cmux.com/nightly-next"
+        with tempfile.TemporaryDirectory() as tmp:
+            appcast = Path(tmp) / "appcast-arm64.xml"
+            appcast.write_text(
+                '<?xml version="1.0"?><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"><channel>'
+                f'<item><sparkle:version>400</sparkle:version><sparkle:channel>cmux-next</sparkle:channel>'
+                f'<enclosure url="{bare}/cmux-nightly-next-macos-arm64-400.dmg" length="5" sparkle:edSignature="s"/>'
+                '</item></channel></rss>')
+            guard = ROOT / "scripts/ci/nightly-next-guard.py"
+            run = lambda base: subprocess.run(["python3", str(guard), "appcast", str(appcast)],  # noqa: E731
+                                              env={"PATH": "/usr/bin:/bin", "NIGHTLY_NEXT_FEED_BASE": base},
+                                              capture_output=True, text=True)
+            self.assertEqual(run(bare).returncode, 0, run(bare).stderr)
+            self.assertNotEqual(run(f"{bare}/next").returncode, 0)
+
     def test_a_verdict_promotes_on_the_live_feed_with_if_match(self):
         text = VERDICT_YML.read_text()
         self.assertIn("nightly_next_ring.py retag", text)
