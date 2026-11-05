@@ -10,7 +10,9 @@
 // each equation as the TeX it was written in (mathCopy.ts).
 import { useSyncExternalStore } from "react";
 import { installMathCopy } from "./mathCopy";
-import { type KaTeX, katex, typesetTeX } from "./mathModel";
+import { type KaTeX, typesetTeX } from "./mathModel";
+
+let katex: KaTeX | null = null;
 const listeners = new Set<() => void>();
 let loading: Promise<void> | null = null;
 function load() {
