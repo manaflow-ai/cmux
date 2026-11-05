@@ -66,8 +66,9 @@ test("rows inside a row opening at the very bottom move with it, as its toggle d
       <button class="toggle">Received 3 messages</button>
       <div data-row-id="inner">a message</div>
     </div>`;
+  const box = { x: 0, y: 100, width: 800, height: 40, top: 100, left: 0, right: 800, bottom: 140 };
   for (const element of doc.querySelectorAll("[data-row-id]"))
-    (element as HTMLElement).getBoundingClientRect = () => ({ x: 0, y: 100, width: 800, height: 40, top: 100, left: 0, right: 800, bottom: 140, toJSON: () => ({}) }) as DOMRect;
+    (element as HTMLElement).getBoundingClientRect = () => ({ ...box, toJSON: () => box }) as DOMRect;
   const frame = sampleBoxes(doc, doc.querySelector(".toggle"));
   const byLabel = (id: string) => [...frame.values()].find((sample) => sample.label.includes(`[row ${id}]`))!;
   expect(byLabel("inner").targeted).toBe(true);
