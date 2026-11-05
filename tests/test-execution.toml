@@ -710,6 +710,10 @@ path = "tests/test_classic_nightly_build_runner.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_classic_nightly_one_mini.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_publisher_mac_jobs_move.py"
 lane = "linux-guard"
 
@@ -2222,6 +2226,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_signing_runner_claim.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_test_integrity.py"
 lane = "linux-guard"
 
 [[test]]
