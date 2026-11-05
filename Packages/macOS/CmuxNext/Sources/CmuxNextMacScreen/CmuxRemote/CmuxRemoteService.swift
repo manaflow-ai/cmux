@@ -30,8 +30,17 @@ public final class CmuxRemoteService {
     private var lastConfig: (computerUse: Bool, screenSharing: Bool, headless: Bool)?
     /// The anchor's hourly refresh (PROTOCOL.md, Device renewal).
     private let anchorTimer = DemandTimer(owner: "cmux-remote.anchor")
-    /// The person's switches now (the App sets it): Computer Use on with cmux Remote, signed in, headless.
-    public var currentConfig: (@MainActor () -> (computerUse: Bool, screenSharing: Bool, headless: Bool))?
+    /// The person's switches now (``follow`` sets it once the settings load): Computer Use on with
+    /// cmux Remote, signed in, headless. Callers before that wait for it (``waitAvailable()``).
+    public var currentConfig: (@MainActor () -> (computerUse: Bool, screenSharing: Bool, headless: Bool))? {
+        didSet {
+            guard currentConfig != nil else { return }
+            let waiting = configWaiters
+            configWaiters = []
+            for waiter in waiting { waiter.resume() }
+        }
+    }
+    private var configWaiters: [CheckedContinuation<Void, Never>] = []
 
     public init(connection: @escaping @MainActor () -> DaemonConnection?) {
         connectionSource = connection
@@ -69,7 +78,10 @@ public final class CmuxRemoteService {
 
     /// Applies the current switches once when none were sent yet; whether the daemon runs cmux Remote.
     public func waitAvailable() async -> Bool {
-        // Before the settings load (`follow` sets it), cmux Remote is not in use.
+        // Before the settings load nothing decides yet: wait for `follow` to set the switches.
+        if currentConfig == nil {
+            await withCheckedContinuation { configWaiters.append($0) }
+        }
         guard let config = currentConfig?() else { return false }
         if lastConfig == nil {
             await apply(computerUse: config.computerUse, screenSharing: config.screenSharing, headless: config.headless)
@@ -150,8 +162,12 @@ public final class CmuxRemoteService {
     public func followHub(_ hub: DeviceHub?, userID: String?, hubURL: URL?, devices: CmuxRemoteDevices) {
         anchorTimer.cancel()
         guard let hub, let userID, !userID.isEmpty, let hubURL else {
+            // Only a running cmux Remote hears it: with remote.enabled off nothing opens a channel.
             // task-owner: one sign-out line to the worker; nothing waits on it.
-            Task { await devices.signedOut() }
+            Task { [weak self] in
+                guard await self?.waitAvailable() == true else { return }
+                await devices.signedOut()
+            }
             return
         }
         anchor(hub, userID: userID, hubURL: hubURL, devices: devices)

@@ -131,12 +131,16 @@ public final class DeviceHubService {
             if let remote = await makeRemoteHub?(url, user) {
                 made = remote
             } else {
-                made = try? await DeviceHub.forApp(baseURL: url, bundleIdentifier: bundleIdentifier, deviceName: name,
-                                                   tokens: DeviceHubAccountToken(token), loginKeychain: loginKeychain)
+                do {
+                    made = try await DeviceHub.forApp(baseURL: url, bundleIdentifier: bundleIdentifier, deviceName: name,
+                                                      tokens: DeviceHubAccountToken(token), loginKeychain: loginKeychain)
+                } catch {
+                    self?.logger.error("device hub identity unavailable: \(String(describing: error), privacy: .public)")
+                    made = nil
+                }
             }
             guard let hub = made else {
                 guard let self, !Task.isCancelled else { return }
-                logger.error("device hub identity unavailable")
                 loadingFor = nil
                 loading = nil
                 return

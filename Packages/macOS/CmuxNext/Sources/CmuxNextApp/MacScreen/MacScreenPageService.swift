@@ -221,8 +221,11 @@ extension AppServices {
             previous()
             guard let consent else { return }
             let (on, view, full) = (consent.enabled, consent.permitsMacScreen(control: false), consent.permitsMacScreen(control: true))
-            // task-owner: one consent line to the worker; it serves with the app quit too.
-            Task { await devices.consent(enabled: on, view: view, full: full) }
+            // task-owner: one consent line to a running worker (none with remote.enabled off).
+            Task { [weak self] in
+                guard await self?.cmuxRemote.waitAvailable() == true else { return }
+                await devices.consent(enabled: on, view: view, full: full)
+            }
         }
         cmuxRemote.follow(settings) { [weak self, weak settings] enabled in
             guard enabled, let self, let settings else { return (false, false, true) }

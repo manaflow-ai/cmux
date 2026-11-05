@@ -206,6 +206,11 @@ impl RemoteHostSupervisor {
 
     /// One request to the host, starting it first when it is wanted and none runs.
     pub(crate) fn call(&self, method: &str, params: Value) -> Result<Value, String> {
+        // Nothing turned on (the app's remote.enabled off, or signed out with Computer Use off):
+        // no host starts for a request, so an off switch never runs cmux Remote.
+        if !lock(&self.inner.config).wanted() {
+            return Err("cmux Remote is off (remote.enabled in cmux)".into());
+        }
         let connection = Inner::ensure(&self.inner)?;
         connection.call(method, params)
     }
@@ -289,6 +294,11 @@ impl Inner {
                             return Err("the previous cmux Remote did not stop for the upgrade".into());
                         }
                         let _ = std::fs::remove_file(paths.record());
+                    }
+                    // A live recorded host that did not answer is never replaced by a second one
+                    // (both would hold the same sockets and device); the next call tries again.
+                    Err(reason) if platform::process_start(record.pid) == Some((record.start_sec, record.start_usec)) => {
+                        return Err(format!("cmux Remote pid {} is running but did not answer: {reason}", record.pid));
                     }
                     Err(reason) => eprintln!("cmux-tui: cmux Remote: not adopting pid {}: {reason}", record.pid),
                 }

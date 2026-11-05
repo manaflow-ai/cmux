@@ -125,5 +125,5 @@ Every control exists in the command palette, the CLI and MCP:
 | Restart a worker | cmux Remote: Restart Computer Use / Restart Screen Sharing | `cmux remote restart computer-use\|screen-sharing` | `remote_restart` |
 | Share This Mac | Mac Screen: Share This Mac / Stop Sharing This Mac | `cmux remote share on\|off` | `remote_share` |
 | A viewer's access | Mac Screen: Set Device Access… | `cmux remote access <device> none\|ask\|view\|full` | `remote_set_access` |
-| Keep sharing when cmux is quit (`remote.headless`, default on) | Settings | `cmux settings set remote.headless` | `settings_set` |
-| Computer Use engine (`computerUse.driver`: `remote` default, `legacy` opt-out for one release) | Settings | `cmux settings set computerUse.driver` | `settings_set` |
+| End sharing when cmux quits (`remote.endSharingOnQuit`, default off) | Settings | `cmux settings set remote.endSharingOnQuit` | `settings_set` (refused: user-only) |
+| Use cmux Remote (`remote.enabled`, default off; applies at the next launch). Computer Use runs in it with `computerUse.driver` = `upstream` | Settings | `cmux settings set remote.enabled` | `settings_set` (refused: user-only) |

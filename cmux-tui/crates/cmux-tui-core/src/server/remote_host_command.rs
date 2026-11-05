@@ -82,9 +82,16 @@ pub(super) fn status(mux: &Mux, client: u64) -> anyhow::Result<Value> {
     if !caller.verified_app
         && let Some(screen) = status.pointer_mut("/host/screen").and_then(Value::as_object_mut)
     {
-        screen.remove("devices");
+        strip_private(screen);
     }
     Ok(status)
+}
+
+/// What only the verified app reads: the person's devices, and who views this Mac or asks to.
+fn strip_private(screen: &mut serde_json::Map<String, Value>) {
+    for key in ["devices", "session", "pending"] {
+        screen.remove(key);
+    }
 }
 
 /// The access levels in order; raising is moving right.
@@ -133,7 +140,7 @@ pub(super) fn call(mux: &Mux, client: u64, method: &str, params: Value) -> anyho
     if !caller.verified_app
         && let Some(screen) = answer.get_mut("screen").and_then(Value::as_object_mut)
     {
-        screen.remove("devices");
+        strip_private(screen);
     }
     Ok(answer)
 }

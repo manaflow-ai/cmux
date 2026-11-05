@@ -144,7 +144,7 @@ public final class ScreenSharingWorker: NSObject, NSApplicationDelegate {
                 return RemoteWire.failure(id: id, code: "bad_request", message: "message (base64) is required")
             }
             // Only cmux Remote renews this device's host session: the app never signs that request.
-            if message.starts(with: Data("POST\n/v1/auth/device".utf8)) {
+            if message.starts(with: Data("POST\n/v1/auth/device\n".utf8)) {
                 return RemoteWire.failure(id: id, code: "refused", message: "this request is cmux Remote's own")
             }
             do { return RemoteWire.answer(id: id, result: ["signature": try identity.sign(message).base64EncodedString()]) } catch {
