@@ -48,6 +48,10 @@ public final class PageHostPool {
     public internal(set) var spans: [(name: String, milliseconds: Double)] = []
     public var onSpan: ((String, Double) -> Void)?
     public var onSpareReady: ((PageWebView) -> Void)?
+    /// Whether a projection window is open (``WebProjection``): its pages are made fresh, since a spare
+    /// already holds the shipped document and a claim of the same page loads nothing the projection could
+    /// send to its server. Claims name the active window, not the page's, so any projection counts.
+    var projectionIsOpen: () -> Bool = { WebProjection.shared.isActive }
 
     final class WeakHost {
         weak var view: PageWebView?
