@@ -1,0 +1,204 @@
+/* A finished turn's Timeline (TurnWaterfall.tsx): one row per timed call, its bar on the turn's axis.
+   Bars take the kind of work's tone; a failed call is the failure tone; the slowest is called out.
+   Under 420px of room the label goes over its bar (container query), so a phone keeps the axis wide. */
+.cv-waterfall {
+  --wf-time: 48px;
+  --wf-row: 22px;
+  --wf-tone: color-mix(in srgb, var(--cv-fg) 42%, transparent);
+  container-type: inline-size;
+  margin: 4px 0 12px;
+  font-size: var(--text-detail);
+  color: var(--cv-activity-text, var(--cv-text));
+}
+
+.cv-waterfall__axis {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  margin-left: calc(var(--wf-label-width, 38%) + 8px);
+  margin-right: calc(var(--wf-time) + 8px);
+  padding-bottom: 4px;
+  border-bottom: 1px solid color-mix(in srgb, var(--cv-fg) 12%, transparent);
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--cv-fg) 45%, transparent);
+}
+
+.cv-waterfall__axis > :nth-child(2) {
+  text-align: center;
+}
+
+.cv-waterfall__axis > :last-child {
+  text-align: right;
+}
+
+.cv-waterfall__rows {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+}
+
+.cv-waterfall__span,
+.cv-waterfall__lane {
+  display: grid;
+  grid-template-columns: var(--wf-label-width, 38%) minmax(0, 1fr) var(--wf-time);
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: var(--wf-row);
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.cv-waterfall__span.is-link {
+  cursor: pointer;
+}
+
+.cv-waterfall__span.is-link:hover,
+.cv-waterfall__span.is-link:focus-visible {
+  background: color-mix(in srgb, var(--cv-fg) 6%, transparent);
+  color: var(--cv-text);
+}
+
+.cv-waterfall__label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.cv-waterfall__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cv-waterfall__tag {
+  flex: none;
+  padding: 0 4px;
+  border-radius: 4px;
+  font-size: 0.9em;
+  background: color-mix(in srgb, var(--agent-accent) 16%, transparent);
+  color: var(--cv-text);
+}
+
+.cv-waterfall__tag.is-failed {
+  background: color-mix(in srgb, var(--agent-status-failure) 18%, transparent);
+}
+
+.cv-waterfall__track {
+  position: relative;
+  height: 8px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--cv-fg) 5%, transparent);
+}
+
+.cv-waterfall__bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--wf-from);
+  width: var(--wf-width);
+  /* A call of a few ms still shows as a mark. */
+  min-width: 2px;
+  border-radius: 4px;
+  background: var(--wf-tone);
+}
+
+.cv-waterfall__time {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.cv-waterfall .is-shell {
+  --wf-tone: var(--agent-accent);
+}
+
+.cv-waterfall .is-read {
+  --wf-tone: color-mix(in srgb, var(--cv-fg) 42%, transparent);
+}
+
+.cv-waterfall .is-edit {
+  --wf-tone: var(--agent-status-success);
+}
+
+.cv-waterfall .is-web,
+.cv-waterfall .is-other {
+  --wf-tone: var(--agent-status-merged);
+}
+
+.cv-waterfall .is-thought {
+  --wf-tone: color-mix(in srgb, var(--cv-fg) 20%, transparent);
+}
+
+.cv-waterfall .is-failed {
+  --wf-tone: var(--agent-status-failure);
+}
+
+.cv-waterfall__span.is-slowest .cv-waterfall__name,
+.cv-waterfall__span.is-slowest .cv-waterfall__time {
+  color: var(--cv-text);
+  font-weight: 600;
+}
+
+.cv-waterfall__bar.is-slowest,
+.cv-waterfall__span.is-slowest .cv-waterfall__bar {
+  box-shadow: 0 0 0 1px var(--cv-text);
+}
+
+.cv-waterfall__more {
+  margin-top: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--agent-accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.cv-waterfall-toggle.is-open {
+  color: var(--cv-text);
+}
+
+/* Stacked: the label and time on one line, the bar under them across the whole width. */
+.cv-waterfall.is-stacked {
+  --wf-label-width: 0px;
+}
+
+.cv-waterfall.is-stacked .cv-waterfall__axis {
+  margin-left: 0;
+  margin-right: 0;
+}
+
+.cv-waterfall.is-stacked .cv-waterfall__span {
+  grid-template-columns: minmax(0, 1fr) auto;
+  row-gap: 4px;
+  padding: 4px 0;
+}
+
+.cv-waterfall.is-stacked .cv-waterfall__track {
+  grid-column: 1 / -1;
+  grid-row: 2;
+}
+
+/* On a phone's width the bars layout stacks too, so the axis keeps its room. */
+@container (max-width: 420px) {
+  .cv-waterfall.is-bars .cv-waterfall__axis {
+    margin-left: 0;
+    margin-right: 0;
+  }
+
+  .cv-waterfall.is-bars .cv-waterfall__span {
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 4px;
+    padding: 4px 0;
+  }
+
+  .cv-waterfall.is-bars .cv-waterfall__track {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}

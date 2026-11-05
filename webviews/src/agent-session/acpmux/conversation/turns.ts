@@ -40,6 +40,7 @@ import { isWaitingMessage } from "./pendingMessages";
 import { appendLaneNotice } from "./laneNoticeBatches";
 import { agentMessage } from "./agentMessages";
 import { turnCopyParts } from "./turnCopy";
+import { turnWork } from "./turnWaterfall";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
 import { isThought, thoughtDuration } from "./thoughts";
 import {
@@ -1240,6 +1241,8 @@ function shapeTurn(
     text: answer?.text ?? summary.text,
     // The footer's Copy copies the whole turn (turnCopy.ts): its replies and tool lines in order.
     turnCopy: turnCopyParts(body),
+    // Its timed calls, for the footer's Timeline (turnWaterfall.ts); a live turn's footer has none.
+    ...(!live && { turnWork: turnWork(body) }),
     ...(resumable && { resumable }),
     ...(retryable && { retryable }),
     ...(retryTarget && { retryTarget }),

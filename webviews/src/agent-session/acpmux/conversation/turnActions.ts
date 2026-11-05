@@ -75,6 +75,9 @@ export type TurnActions = {
   /// path, so it shows as the reader's prompt and starts the next turn. Absent where the pane cannot
   /// send (View Only, a read-only pane); the card then draws no buttons.
   answer?: (text: string) => Promise<void>;
+  /// Scrolls to call `toolCallId`'s row and opens it, opening the fold and run that hold it (App.tsx
+  /// `showToolRow`): a turn waterfall's bar (TurnWaterfall.tsx). False when no loaded row holds it.
+  showCall?: (toolCallId: string) => boolean;
   /// A waiting tagged-ask card hands its first answer to the composer's ⌘↩ on an empty prompt, the
   /// way the recap card's yes takes it (Composer.tsx `onEmptyCommandReturn`), so the composer's own
   /// rules hold: never in the Quick Composer (whose ⌘↩ opens a window), shell mode or a running turn.

@@ -8496,8 +8496,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setNextStepFire({ fire });
     return () => setNextStepFire((now) => (now?.fire === fire ? undefined : now));
   }, []);
+  // A background command's Bash call in the transcript (`showToolRow` below, which needs what the
+  // Inspector draws): what its task row opens where its terminal cannot (a peer's or Cloud chat),
+  // and a turn's waterfall bar opens (conversation/TurnWaterfall.tsx).
+  const showCallRef = useRef<(toolCallId: string) => boolean>(() => false);
+  const showCall = useCallback((toolCallId: string) => showCallRef.current(toolCallId), []);
   const turnActions = useMemo<TurnActions>(
     () => ({
+      showCall,
       queuedMessages: () => queuedMessageActionsRef.current,
       ...(stableBranches.size > 0 && {
         branches: {
@@ -8703,6 +8709,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     }),
     [
       access,
+      showCall,
       chatAccounts,
       snapshot.sessionId,
       stableBranches,
@@ -9480,10 +9487,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     sessionInfoSummary !== undefined &&
     !sessionInfoSummary.peer &&
     !(sessionInfoSummary.host && sessionInfoSummary.hostKind !== "local");
-  // A background command's Bash call in the transcript (`showToolRow` below, which needs what the
-  // Inspector draws): what its task row opens where its terminal cannot (a peer's or Cloud chat).
-  const showCallRef = useRef<(toolCallId: string) => boolean>(() => false);
-  const showCall = useCallback((toolCallId: string) => showCallRef.current(toolCallId), []);
   // A subagent's edited files are in its own rows, which the chat's diff (openOutput) never reads:
   // they open the Changes viewer beside the chat on the subagent's folder, its worktree when it has
   // one (a chat on this Mac; another machine's folders are not here). The folder is found on the
