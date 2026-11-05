@@ -9,6 +9,7 @@ import { collectSecret, collectSecretValid } from "./pair-collect.ts"
 import { beginWithInvite, invitePairedNotify, type BegunPairing } from "./pair-invite-routes.ts"
 import { fail, isHumanSession, pairingStub, pairLimited, type OpReply } from "./pair-op-reply.ts"
 import type { PairingInvite, PairingRecord, PairingResult } from "./pairing-do.ts"
+import { mintPairMachineJoin } from "./pair-machine-join.ts"
 import { issuePairNetwork, nativeMesh, nativeServerName, networkLocator, type PairingApproval, type PairNetworkTransport } from "./server-pair-network.ts"
 
 /**
@@ -184,6 +185,16 @@ export const pairApprove = async (
     const reserved = await stub.reserveNetwork(code, rec.thumbprint, principal.user!, approval, issued.grant, Date.now())
     if (!reserved.ok) return fail(op, frame.idempotency_key, "auth.forbidden", "pairing network approval changed or expired")
     network = reserved.grant
+  }
+  // The box's machine credential (pair-machine-join.ts): a join token for the approver, pinned on the record and
+  // pushed with the result, which the box redeems as `acpmux host join` does. Before any install/host write.
+  if (!claimed.machine_join) {
+    const minted = await mintPairMachineJoin(env, { team, user: principal.user!, name })
+    if (!minted.ok) return fail(op, frame.idempotency_key, minted.code, minted.message, minted.retryable)
+    if (minted.join) {
+      const reserved = await stub.reserveMachineJoin(code, rec.thumbprint, principal.user!, minted.join, Date.now())
+      if (!reserved.ok) return fail(op, frame.idempotency_key, "owner.unreachable", "pairing changed while its machine credential was made, try again", true)
+    }
   }
   const reg = await submit("cloud:UserDO", pairingServerPrincipal(principal, team), {
     op: "install.register_server",
