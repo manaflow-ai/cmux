@@ -2,6 +2,8 @@
 // Cloud machine (or create a named one), start an agent session in that
 // machine's own acpmux, and answer `{machine_id, session_id, host}`. Titles
 // live in CloudSessionActions.xcstrings; the handler is CloudStartSession.swift.
+// `cmux cloud computer-control` (Chief computer take-over): who drives a Chief's computer on a
+// Cloud machine; the handler is in CloudHandlers+List.swift, the rules in ChiefComputerControlStore.
 
 nonisolated enum CloudSessionActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
@@ -27,7 +29,44 @@ nonisolated enum CloudSessionActionCatalog: ActionCatalogGroup {
         )
         // The CLI waits for the turn's answer (or what came of it within CloudHandlers.answerWithin).
         relay.waitsForResult = true
-        return [start, relay]
+        // One owner per machine (ChiefComputerControlStore): the Chief asks the person to take over
+        // (request_human) and reads `status` before each input; the person takes over and gives it back.
+        var control = ActionDescriptor(
+            id: "cloud.computerControl",
+            title: String(localized: "action.cloud.computerControl", defaultValue: "Chief Computer Control…", table: "CloudSessionActions", bundle: .module),
+            description: "Who drives the Chief's computer on a Cloud machine (--machine <id>, the bare id): action status, request_human (with --reason: what the person should do), hand_back (ends your own ask) or take_over (the person only). Returns machine, holder (chief or human), since_ms and reason. While holder is human, send the computer no input.",
+            keywords: ["vm", "cloud", "chief", "computer", "desktop", "control", "take over", "hand back", "human"], category: .cloud,
+            symbol: "hand.raised.square", surfaces: [.palette], arguments: [controlMachine, controlAction, controlReason],
+            cliName: "cloud computer-control",
+            surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .pointerMenuTrim)
+        )
+        // The CLI and MCP get the lease back (`status` answers it on this turn).
+        control.waitsForResult = true
+        return [start, relay, control]
+    }
+
+    /// `--machine`: the Cloud machine id whose computer the lease is for.
+    static var controlMachine: ActionArgument {
+        ActionArgument(name: "machine", title: String(localized: "argument.cloud.computerControl.machine", defaultValue: "Machine", table: "CloudSessionActions", bundle: .module),
+                       kind: .string)
+    }
+
+    /// `--action`: status, take_over, hand_back or request_human.
+    static var controlAction: ActionArgument {
+        let cases = [
+            ActionEnumCase(value: "status", title: String(localized: "argument.value.cloud.computerControl.status", defaultValue: "Status", table: "CloudSessionActions", bundle: .module)),
+            ActionEnumCase(value: "take_over", title: String(localized: "argument.value.cloud.computerControl.takeOver", defaultValue: "Take Over", table: "CloudSessionActions", bundle: .module)),
+            ActionEnumCase(value: "hand_back", title: String(localized: "argument.value.cloud.computerControl.handBack", defaultValue: "Give Back to Chief", table: "CloudSessionActions", bundle: .module)),
+            ActionEnumCase(value: "request_human", title: String(localized: "argument.value.cloud.computerControl.requestHuman", defaultValue: "Ask the Person to Take Over", table: "CloudSessionActions", bundle: .module)),
+        ]
+        return ActionArgument(name: "action", title: String(localized: "argument.cloud.computerControl.action", defaultValue: "Control", table: "CloudSessionActions", bundle: .module),
+                              kind: .enumeration(cases))
+    }
+
+    /// `--reason`: with request_human, what the Chief needs the person to do ("Sign in to Gmail").
+    static var controlReason: ActionArgument {
+        ActionArgument(name: "reason", title: String(localized: "argument.cloud.computerControl.reason", defaultValue: "Reason", table: "CloudSessionActions", bundle: .module),
+                       kind: .string, isRequired: false)
     }
 
     /// `--prompt`: what the relay chat sends.
