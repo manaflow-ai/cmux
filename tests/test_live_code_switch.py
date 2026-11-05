@@ -33,6 +33,8 @@ class LiveCodeSwitchTests(unittest.TestCase):
             path = self.repo / name
             path.write_text(RECORD)
             path.chmod(0o755)
+        # A reload launches the tag's app: from then on, its CLI answers.
+        (self.repo / "scripts/reload.sh").write_text(RECORD + 'touch "$CALLS.app"\n')
         self.calls = self.tmp / "calls"
         self.builds = self.tmp / "builds"
 
@@ -58,19 +60,33 @@ class LiveCodeSwitchTests(unittest.TestCase):
 
     def test_on_with_no_app_running_sets_live_code_on_the_new_one(self):
         cli = self.repo / "scripts/cmux-debug-cli.sh"
-        # The first call finds no app; the launch below starts one.
-        cli.write_text(RECORD + '[[ -e "$CALLS.app" ]] || { touch "$CALLS.app"; exit 1; }\n')
+        # No app answers until the launch below starts one.
+        cli.write_text(RECORD + '[[ -e "$CALLS.app" ]]\n')
         result = self.run_switch("on", "t1")
         self.assertEqual(result.returncode, 0, result.stderr)
         names = [line.split(" | ")[0].split(" ")[0] for line in self.recorded()]
-        self.assertEqual(names, ["cmux-debug-cli.sh", "build.sh", "reload.sh", "cmux-debug-cli.sh", "reload.sh"])
+        self.assertEqual([n for n in names if n != "cmux-debug-cli.sh"], ["build.sh", "reload.sh", "reload.sh"])
+        self.assertIn("Labs > Live Code true", result.stdout)
 
-    def test_off_with_no_app_running_still_launches(self):
+    def test_on_first_time_reaches_the_live_build_cli(self):
+        # No regular build of the tag: only the live build's CLI (in its DerivedData) answers.
+        out = self.builds / "t1"
         cli = self.repo / "scripts/cmux-debug-cli.sh"
-        cli.write_text(RECORD + "exit 1\n")
+        cli.write_text(RECORD + f'[[ -e "$CALLS.app" && "${{CMUX_DERIVED_DATA:-}}" == "{out}/DerivedData" ]]\n')
+        result = self.run_switch("on", "t1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Labs > Live Code true", result.stdout)
+        self.assertEqual(self.recorded()[-1].split(" | ")[0], "reload.sh --tag t1 --config debug --launch")
+
+    def test_off_with_no_app_running_sets_live_code_off_on_the_new_one(self):
+        cli = self.repo / "scripts/cmux-debug-cli.sh"
+        cli.write_text(RECORD + '[[ -e "$CALLS.app" ]]\n')
         result = self.run_switch("off", "t1")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.recorded()[-1].split(" | ")[0], "reload.sh --tag t1 --config debug --launch")
+        self.assertIn("Labs > Live Code false", result.stdout)
+        names = [line.split(" | ")[0].split(" ")[0] for line in self.recorded()]
+        self.assertEqual(names[-2:], ["cmux-debug-cli.sh", "reload.sh"])
+        self.assertEqual(names.count("reload.sh"), 2)
 
     def test_off_launches_the_regular_build(self):
         result = self.run_switch("off", "t1")

@@ -27,7 +27,12 @@ cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 out="${CMUX_LIVE_CODE_BUILDS:-$HOME/Library/Caches/cmux-next/live-code-builds}/$tag"
 live_dir="$HOME/Library/Caches/cmux-next/live-code"
 
-cli() { CMUX_TAG="$tag" scripts/cmux-debug-cli.sh "$@"; }
+# The tag's CLI from either build: each talks to the tag's one socket. The regular build's comes
+# from the tag's own DerivedData, never one the caller's shell names.
+cli() {
+  env -u CMUX_DERIVED_DATA CMUX_TAG="$tag" scripts/cmux-debug-cli.sh "$@" ||
+    env CMUX_DERIVED_DATA="$out/DerivedData" CMUX_TAG="$tag" scripts/cmux-debug-cli.sh "$@"
+}
 # Labs > Live Code, through the running app. The setting is the tag's, so either build can set it.
 set_switch() {
   if cli settings set labs.liveCode "$1" >/dev/null 2>&1; then
@@ -67,9 +72,15 @@ if [[ "$mode" == "on" ]]; then
   echo "  scripts/live-code/patch.py --log $out/xcodebuild.log --module CmuxNextApp --live $live_dir FILE.swift"
   echo "switch: back to the regular build: scripts/live-code/switch.sh off $tag"
 else
-  set_switch false || true
+  set_before=1
+  set_switch false 2>/dev/null || set_before=0
   # The tag's own DerivedData (reload.sh's default for a tag), never the live build's.
-  env -u CMUX_DERIVED_DATA -u CMUX_LIVE_CODE_BUILD -u CMUX_LIVE_CODE_INTERPOSABLE_LIST \
-    ./scripts/reload.sh --tag "$tag" --config debug --launch
+  launch_regular() {
+    env -u CMUX_DERIVED_DATA -u CMUX_LIVE_CODE_BUILD -u CMUX_LIVE_CODE_INTERPOSABLE_LIST \
+      ./scripts/reload.sh --tag "$tag" --config debug --launch
+  }
+  launch_regular
+  # No app was running to take the setting: set it on this one, then launch it again to read it.
+  if [[ "$set_before" -eq 0 ]] && set_switch false; then launch_regular; fi
   echo "switch: live code off for $tag: the regular build runs"
 fi
