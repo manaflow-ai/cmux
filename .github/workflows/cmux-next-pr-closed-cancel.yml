@@ -1,0 +1,34 @@
+name: cmux-next PR closed
+
+# Ends a merged or closed pull request's cmux-next run the moment the pull
+# request closes. The run joins that pull request's own concurrency group
+# (cmux-next.yml: cmux-next-<number>) with cancel-in-progress, so GitHub cancels
+# the run still in it; its one job never runs, so the close takes no runner.
+# Until now ci-queue-janitor.yml's stale pull request sweep (category b of
+# scripts/ci/queue_janitor.py) did this on its 10-minute cron: in a sample of 40
+# merges (hq#7111 track 1) cmux-next Mac jobs ran on for 0.4 to 13 minutes after
+# the merge, and two started after it. The janitor still sweeps what this misses.
+#
+# Only pull request groups: push, dispatch, DEV daily and nightly runs are
+# grouped by run id or ref (cmux-next.yml), so no name here can match them. A
+# pull request labelled no-janitor keeps its run, as the janitor's does.
+on:
+  pull_request:
+    types: [closed]
+    branches: [feat-cmux-next]
+
+permissions: {}
+
+concurrency:
+  group: ${{ contains(github.event.pull_request.labels.*.name, 'no-janitor') && format('cmux-next-pr-closed-kept-{0}', github.event.pull_request.number) || format('cmux-next-{0}', github.event.pull_request.number) }}
+  cancel-in-progress: true
+
+jobs:
+  cancelled:
+    # The run's concurrency group does the work when the run is created; this
+    # job is here because a workflow needs one, and it never takes a runner.
+    if: false
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 1
+    steps:
+      - run: "true"
