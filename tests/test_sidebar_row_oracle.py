@@ -347,8 +347,10 @@ class OtherChangesInTheFilm(unittest.TestCase):
     """Review FIX at 1faa2b697d1: windows() joined every other change in the film to the press. A correct insert
     must PASS when another row changes before or after it."""
 
-    def assert_pass(self, frames, kind="insert"):
-        for result in (judge_press(frames, kind), judge(frames)):
+    def assert_pass(self, frames, kind="insert", rows_after=None):
+        # rows_after lists every row of the list, realized or not (ext_sidebar_film.py row_list): a row that only
+        # leaves the view stays in it.
+        for result in (judge_press(frames, kind, rows_after=rows_after), judge(frames)):
             self.assertEqual(result["verdict"], "PASS", result["fails"])
 
     def test_new_row_that_grows_later_with_the_rows_below_still_passes(self):
@@ -365,16 +367,18 @@ class OtherChangesInTheFilm(unittest.TestCase):
 
     def test_a_row_that_leaves_the_view_at_the_last_frame_still_passes(self):
         frames = film("insert")
+        settled = rows_of(frames[-1])
         vanish(frames, key(11), len(frames) - 1)
-        self.assert_pass(frames)
+        self.assert_pass(frames, rows_after=settled)
 
     def test_a_row_that_leaves_the_view_later_on_a_hitch_still_passes(self):
         frames = film("insert")
         at = STILL + MOTION + 12
         for frame in frames[at:]:
             frame["t"] += 0.032
+        settled = rows_of(frames[-1])
         vanish(frames, key(11), at)
-        self.assert_pass(frames)
+        self.assert_pass(frames, rows_after=settled)
 
     def test_a_row_leaving_the_view_on_a_hitch_inside_the_window_is_not_a_missed_refresh(self):
         # Feat film e7bd36d8 light-50 #0, frame 23: the rows are at their place, only a row below the view leaves.

@@ -17,9 +17,10 @@ motion}), film-*.json of scripts/journeys/ext_sidebar_film.py ({presses: [{kind,
 film per press), a motion report ({frames}) or a list of frames. A folder is searched for these files.
 
 The expected place of every row in every frame:
-  - A motion is a run of frames where the set of rows or a row's y or height changes; runs of other changes before or
-    after the run where a row opens or closes join it (up to the next such run), so rows that move before the new row
-    shows or after the closing row is gone are judged on its curve. Its start frame s is the last still frame before
+  - A motion is a run of frames where the set of rows or a row's y or height changes. The run where one row opens or
+    closes takes in the runs next to it while they bring the rows below to their place (they still miss the row's slot
+    and that run moves them most of the rest of the way), so rows that open the gap before the new row shows or slide
+    after the closing row is gone are judged on its curve; other changes keep their own window. Its start frame s is the last still frame before
     it, its end frame e the first frame of the settled layout; y0 and y1 are a row's y in s and e. Positions are in
     list coordinates: a scroll during the motion is not judged (the films keep the scroll fixed).
   - Rows that moved (|y1 - y0| x scale >= 0.5 device px) share one progress p per frame, fitted by least squares:
@@ -27,11 +28,13 @@ The expected place of every row in every frame:
     did not move must stay at y0.
   - The new row (not in s, in e) has height p x its final height; the closing row (in s, not in e) has height
     (1 - p) x its start height; a frame that does not show the row counts as height 0 (also for p when no other row
-    moves). Rows the row lists name as new or closed that never open or close in the film FAIL. Their edge away from the rows
+    moves). Rows the row lists name as new or closed that never open or close in the film FAIL when their place is
+    inside the rows the film shows (outside it: a note). Their edge away from the rows
     that move stays where it ends (new row) or starts (closing row).
   - A curve shows each refresh: p may not cover more than half the motion in one refresh, nor go from start (<= 0.05)
     to end (>= 0.95) with no frame between (a jump: nothing grows).
-  - Missed refreshes: frame intervals over 1.5 display periods inside a motion across which a row moves; an interval misses
+  - Missed refreshes: frame intervals over 1.5 display periods inside a motion across which a shown row moves or the
+    new or closing row shows or leaves (a row realized or pruned at the list edge alone is not motion); an interval misses
     round(gap / period) - 1 refreshes. Period: --period-ms, else the probe's `refresh`, else the median interval,
     else 8.333 ms. Clock: `target`, else `link`, else `t` (`t` is when the main thread read the frame: its jitter can
     add or hide a miss).
@@ -186,6 +189,15 @@ def changed(a, b):
     return any(abs(a[k][1] - b[k][1]) > CHANGE_EPS_PT or abs(a[k][3] - b[k][3]) > CHANGE_EPS_PT for k in ka)
 
 
+def moves_across(a, b, events):
+    """Whether the motion shows between two frames: a row shown in both changes its y or height, or a new or closing
+    row (EVENTS) appears or leaves. A row realized or pruned at the list edge alone is not motion."""
+    for k in a.keys() & b.keys():
+        if is_row(k) and (abs(a[k][1] - b[k][1]) > CHANGE_EPS_PT or abs(a[k][3] - b[k][3]) > CHANGE_EPS_PT):
+            return True
+    return any((k in a) != (k in b) for k in events)
+
+
 def motions(frames):
     """[(s, e)]: s the last still frame before a motion, e the first frame of its settled layout."""
     changes = [i for i in range(1, len(frames)) if changed(frames[i - 1]["views"], frames[i]["views"])]
@@ -198,22 +210,64 @@ def motions(frames):
     return [(first - 1, last) for first, last in runs]
 
 
+def slot_deficit(frames, gs, ge, key, sign, slot):
+    """How far the rows below KEY still are from their place after frames gs..ge: the median over them of
+    sign x slot - (y at ge - y at gs), in points (None when no row below shows at both ends)."""
+    views = frames[gs]["views"]
+    anchor = frames[ge]["views"].get(key) or views.get(key)
+    if anchor is None:
+        return None
+    y_key = anchor[1]
+    rest = []
+    for k, box in views.items():
+        if k == key or not is_row(k) or k not in frames[ge]["views"]:
+            continue
+        if (box[1] >= y_key - 0.5) if sign > 0 else (box[1] > y_key + 0.5):
+            rest.append(sign * slot - (frames[ge]["views"][k][1] - box[1]))
+    return statistics.median(rest) if rest else None
+
+
 def windows(frames, hints):
-    """[(s, e)]: the motions, each run where a row opens or closes joined with the runs of other changes around it (up
-    to the next such run), so rows that move before or after the new or closing row, more than MERGE_FRAMES still
-    frames apart, are judged on its curve (a row that pops in after the rows opened the gap, rows that slide after the
-    row is gone). With no such run, the runs as they are."""
+    """[(s, e)]: the motions. A run where one row opens or closes takes in the runs next to it (before or after) while
+    they bring the rows below it to their place: they still miss the new or closing row's slot (its height and the
+    row spacing) and that run moves them most of the rest of the way. So rows that open the gap before the new row
+    shows, or slide after the closing row is gone, are judged on its curve; any other change (a row that grows, a row
+    realized or pruned at the list edge, a later press) keeps its own window."""
     runs = motions(frames)
-    events = [any(pick_events(frames, s, e, hints)[:2]) for s, e in runs]
-    if not any(events):
-        return runs
-    groups = []
-    for (s, e), event in zip(runs, events):
-        if groups and not (event and groups[-1][2]):
-            groups[-1] = [groups[-1][0], e, groups[-1][2] or event]
-        else:
-            groups.append([s, e, event])
-    return [(s, e) for s, e, _ in groups]
+    events = [pick_events(frames, s, e, hints)[:2] for s, e in runs]
+    used, out = set(), []
+    for index, ((s, e), (inserted, closed)) in enumerate(zip(runs, events)):
+        if index in used:
+            continue
+        if len(inserted) + len(closed) != 1:
+            out.append((s, e))
+            continue
+        key, sign = (inserted[0], 1) if inserted else (closed[0], -1)
+        box = frames[e]["views"].get(key) if inserted else frames[s]["views"].get(key)
+        if box is None:
+            out.append((s, e))
+            continue
+        shown = sorted((v[1], v[3]) for k, v in frames[s]["views"].items() if is_row(k) and k != key and v[3] > 0)
+        gaps = [b[0] - a[0] - a[1] for a, b in zip(shown, shown[1:]) if b[0] - a[0] - a[1] >= 0]
+        slot = box[3] + (statistics.median(gaps) if gaps else 0.0)
+        gs, ge, lo, hi = s, e, index, index
+        for step in (1, -1):
+            while True:
+                j = (hi if step > 0 else lo) + step
+                if not 0 <= j < len(runs) or j in used or any(events[j]):
+                    break
+                before = slot_deficit(frames, gs, ge, key, sign, slot)
+                after = slot_deficit(frames, gs, runs[j][1], key, sign, slot) if step > 0 else \
+                    slot_deficit(frames, runs[j][0], ge, key, sign, slot)
+                if before is None or after is None or abs(before) <= 0.25 * slot or abs(after) > 0.5 * abs(before):
+                    break
+                used.add(j)
+                if step > 0:
+                    hi, ge = j, runs[j][1]
+                else:
+                    lo, gs = j, runs[j][0]
+        out.append((gs, ge))
+    return sorted(out)
 
 
 def between(frame_views, key):
@@ -400,7 +454,7 @@ def judge_motion(frames, s, e, times, period, opts, scale, identity, hints):
     gaps, missed = [], 0
     if times is not None:
         for i in range(s + 1, e + 1):
-            if not changed(frames[i - 1]["views"], frames[i]["views"]):
+            if not moves_across(frames[i - 1]["views"], frames[i]["views"], events):
                 continue
             gap = times[i] - times[i - 1]
             if gap > MISS_FACTOR * period:
@@ -565,7 +619,13 @@ def judge_film(name, raw_frames, hints, opts):
     # 4. Rows the row lists name as new or closed must open or close in the film.
     opened = {k for m in contract for k in m["inserted"]}
     shut = {k for m in contract for k in m["closed"]}
-    missing = sorted(set(hints.get("inserted") or ()) - opened) + sorted(set(hints.get("closed") or ()) - shut)
+    missing, outside = [], []
+    shown_y = [v[1] for f in frames for k, v in f["views"].items() if is_row(k) and v[3] > 0]
+    shown_end = [v[1] + v[3] for f in frames for k, v in f["views"].items() if is_row(k) and v[3] > 0]
+    for k, place in [(k, (hints.get("rows_after") or {}).get(k)) for k in sorted(set(hints.get("inserted") or ()) - opened)] + \
+            [(k, (hints.get("rows_before") or {}).get(k)) for k in sorted(set(hints.get("closed") or ()) - shut)]:
+        inside = place is None or not shown_y or (min(shown_y) - 0.5 <= place[0] < max(shown_end) - 0.5)
+        (missing if inside else outside).append(k)
     if len(frames) < 2:
         invalid.append("fewer than 2 frames")
     if times is None:
@@ -593,8 +653,12 @@ def judge_film(name, raw_frames, hints, opts):
         "rebuilt_frames": sorted({f for m in contract for f in m["rebuilt_frames"]}),
         "selection_off_frames": sorted({f for m in contract if isinstance(m["selection"], dict) for f in m["selection"]["off_frames"]}),
     })
+    notes = []
     if [m for m in judged if m["kind"] == "other"]:
-        result["notes"] = ["motions with no row opening or closing are listed (kind other) and not judged"]
+        notes.append("motions with no row opening or closing are listed (kind other) and not judged")
+    notes += [f"{k} (new or closed in the row lists) is outside the rows the film shows: not judged" for k in outside]
+    if notes:
+        result["notes"] = notes
     return result
 
 
