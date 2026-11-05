@@ -160,7 +160,7 @@ await requireBrowserLane("model-picker-scaling.browser.test.ts", async () => {
               ellipsis: getComputedStyle(name).textOverflow,
             };
           });
-          expect(layout.width).toBeLessThanOrEqual(390 * scale + 0.5);
+          expect(layout.width).toBeLessThanOrEqual(370.5 * scale + 0.5);
           expect(layout.clipped).toBe(true);
           expect(layout.ellipsis).toBe("ellipsis");
           expect(layout.rowTitle).toContain(layout.name!);
@@ -173,8 +173,8 @@ await requireBrowserLane("model-picker-scaling.browser.test.ts", async () => {
     test(`${engine}: default model names fit beside the star and check`, async () => {
       const page = await open(engine);
       try {
-        expect((await geometry(page)).model).toBeGreaterThanOrEqual(200);
-        expect((await page.locator(".acpmux-cols").boundingBox())!.width).toBeLessThanOrEqual(390.5);
+        expect((await geometry(page)).model).toBeGreaterThanOrEqual(185);
+        expect((await page.locator(".acpmux-cols").boundingBox())!.width).toBeLessThanOrEqual(371);
         const labels = await page
           .locator(".acpmux-cols-body > [role=listbox] [role=option] .acpmux-cols-name")
           .evaluateAll((nodes) => nodes.map((node) => ({ width: node.clientWidth, content: node.scrollWidth })));
@@ -190,7 +190,7 @@ await requireBrowserLane("model-picker-scaling.browser.test.ts", async () => {
       try {
         const initial = await geometry(page);
         await page.evaluate(() => document.documentElement.style.setProperty("--cmux-interface-scale", "1.5"));
-        await page.waitForFunction(() => document.querySelector(".acpmux-cols")!.getBoundingClientRect().width > 550);
+        await page.waitForFunction(() => document.querySelector(".acpmux-cols")!.getBoundingClientRect().width > 540);
         const scaled = await geometry(page);
         expect(scaled.model).toBeGreaterThan(initial.model * 1.45);
         expect(scaled.rail).toBeGreaterThan(initial.rail * 1.45);
@@ -200,7 +200,7 @@ await requireBrowserLane("model-picker-scaling.browser.test.ts", async () => {
           document.documentElement.style.setProperty("--text-body", "20px");
         });
         await page.waitForFunction(
-          () => document.querySelector(".acpmux-cols-body > [role=listbox]")!.getBoundingClientRect().width > 300,
+          () => document.querySelector(".acpmux-cols-body > [role=listbox]")!.getBoundingClientRect().width > 285,
         );
         expect((await geometry(page)).model).toBeGreaterThan(initial.model * 1.45);
       } finally {

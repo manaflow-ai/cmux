@@ -8,8 +8,8 @@
   --acpmux-cols-rail-width: 3.6923em;
   --acpmux-cols-max-height: calc(259em / 13);
   /* Follow chrome type as well as interface scale. The model column gets most of the room. */
-  width: 30em;
-  max-width: min(30em, var(--available-width, calc(100vw - 24px)));
+  width: 28.5em;
+  max-width: min(28.5em, var(--available-width, calc(100vw - 24px)));
   padding: 0;
   /* The account card draws past the columns, never clipped by them. */
   overflow: visible;
@@ -164,7 +164,7 @@
    keeps its own vertical scroll, and clipped names remain available in the row's tooltip. */
 .acpmux-cols-body {
   display: grid;
-  grid-template-columns: var(--acpmux-cols-rail-width) minmax(0, 1.6fr) minmax(0, 1fr);
+  grid-template-columns: var(--acpmux-cols-rail-width) minmax(0, 1.45fr) minmax(0, 1fr);
   flex: 1 1 auto;
   min-height: 0;
 }
