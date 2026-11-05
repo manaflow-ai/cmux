@@ -15,6 +15,7 @@ public import Foundation
 ///
 /// Only the file store is read (`cli_auth_credentials_store` unset or `"file"`): in keyring or auto
 /// mode the file may be stale and the Keychain item is Codex's own, so nothing is offered.
+// TRANSITIONAL namespace-type -- https://github.com/manaflow-ai/cmux/pull/36071 ships it all-static; an injected reader replaces it there
 public nonisolated enum CloudCodexLocalAccess {
     /// A token with less left than this is not offered: the machine would need a renewal at once.
     public static let minimumLifetime: TimeInterval = 15 * 60
