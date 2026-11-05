@@ -76,6 +76,11 @@ public nonisolated struct BrowserResizeTunables {
         help: "On: through a keyboard resize a Chromium page keeps its size with its top-left corner on its pane, so it moves with the pane's left and top edges; the pane clips it. Off: the page stays at the pane edges that do not move.",
         default: true, code: "BrowserResizeTunables.keyResizeTopLeft")
 
+    /// NEVER MERGE probe (STATUS 14261 slice 1): a divider drag detaches the shown page (fork API 30).
+    public static let probeDetachInDrag = Tunable<Bool>.toggle(
+        "browserResize.probeDetachInDrag", section, "Probe: detach the page in a divider drag",
+        help: "Probe only.", default: false, code: "BrowserResizeTunables.probeDetachInDrag")
+
     /// `dragResize` as the override file holds it when Chromium starts, even when a restored tab starts
     /// Chromium before the store's own read of the file landed (`TunableStore.settledOverride`).
     static var dragResizeAtLaunch: BrowserDragResize {
@@ -90,7 +95,7 @@ public nonisolated struct BrowserResizeTunables {
     }
 
     public static var all: [TunableDescriptor] {
-        [pageBackdrop.descriptor, layerHosting.descriptor, syncDeadline.descriptor, liveResizeDeadline.descriptor, dragResize.descriptor,
+        [pageBackdrop.descriptor, layerHosting.descriptor, probeDetachInDrag.descriptor, syncDeadline.descriptor, liveResizeDeadline.descriptor, dragResize.descriptor,
          dragResizeDeadline.descriptor, keyResizeTopLeft.descriptor]
     }
 }

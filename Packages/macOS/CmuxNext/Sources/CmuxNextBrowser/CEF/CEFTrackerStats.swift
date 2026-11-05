@@ -38,6 +38,13 @@ public nonisolated struct CEFTrackerStats: Equatable, Sendable {
     /// Full page geometries worked out (`CEFHostGeometry`: ancestor walks for the rect, the visible rect and the clip
     /// inputs, and the window's occluders), by page update requests and fork reads together.
     public var geometryBuilds = 0
+    /// Detached hosting (fork API 30): pages detached and attached again (``CEFLayerHosting/setDetached(_:)``).
+    public var detaches = 0
+    public var attaches = 0
+    /// Detached spells in which the host view moved or resized, and those in which the page window's WindowServer
+    /// bounds changed too (a real window frame change; 0 when the fork's headless window keeps it in the process).
+    public var detachedHostMoves = 0
+    public var detachedWindowMoves = 0
 
     public init() {}
 
@@ -46,7 +53,9 @@ public nonisolated struct CEFTrackerStats: Equatable, Sendable {
     public var reportFields: [String: Double] {
         ["clip_reads": Double(clipReads), "occlusion_reads": Double(occlusionReads), "clip_builds": Double(clipBuilds),
          "clip_hits": Double(clipHits), "clip_ms": clipSeconds * 1_000, "geometry_posts": Double(geometryPosts),
-         "hosted_pages": Double(hostedPages), "hosting_refused": Double(hostingRefused), "geometry_skips": Double(geometrySkips)]
+         "hosted_pages": Double(hostedPages), "hosting_refused": Double(hostingRefused), "geometry_skips": Double(geometrySkips),
+         "detaches": Double(detaches), "attaches": Double(attaches), "detached_host_moves": Double(detachedHostMoves),
+         "detached_window_moves": Double(detachedWindowMoves)]
     }
 
     /// Monotonic seconds for timing a read.
