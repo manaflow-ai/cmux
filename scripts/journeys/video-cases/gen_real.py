@@ -92,13 +92,15 @@ def layout():
     s += [{"do": "file", "path": LOG[0], "text": LOG[1], "title": f"set-up: {LOG[0]}"}]
     s += typed("ls -la /usr/bin /usr/lib | head -400", "p0ls", "set-up: p0 tab 1: a long ls -la")
     s += P.new_tab("p0") + typed(f"bash {LOG[0]}", "p0log", "set-up: p0 tab 2: long log lines")
-    s += P.new_pane("p1", "newColumn") + page("p1", "text")
-    s += P.new_pane("p2", "splitDown") + typed("man ls", "p2man", "set-up: p2: a man page in its pager")
-    s += [P.focus("p2")] + P.new_pane("p3", "newColumn") + page("p3", "header")
-    s += P.new_pane("p4", "splitDown") + page("p4", "dark")
-    s += [P.focus("p4")] + P.new_pane("p5", "newColumn") + typed(f"bash {LOG[0]}", "p5log", "set-up: p5 tab 1: long log lines")
+    # Four columns that all show in the window (splits: a strip of newColumn columns scrolled past the window, ab-m28r1:
+    # one vertical divider shown), each split once more into rows, except p0's column.
+    s += P.new_pane("p1", "splitRight") + page("p1", "text")
+    s += [P.focus("p1")] + P.new_pane("p3", "splitRight") + page("p3", "header")
+    s += [P.focus("p3")] + P.new_pane("p5", "splitRight") + typed(f"bash {LOG[0]}", "p5log", "set-up: p5 tab 1: long log lines")
     s += P.new_tab("p5") + typed("ls -laR /usr/share | head -300", "p5lsr", "set-up: p5 tab 2: a recursive listing")
-    s += P.new_pane("p6", "splitDown") + page("p6", "heavy")
+    s += [P.focus("p1")] + P.new_pane("p2", "splitDown") + typed("man ls", "p2man", "set-up: p2: a man page in its pager")
+    s += [P.focus("p3")] + P.new_pane("p4", "splitDown") + page("p4", "dark")
+    s += [P.focus("p5")] + P.new_pane("p6", "splitDown") + page("p6", "heavy")
     return s + [G.settle(2.0)]
 
 

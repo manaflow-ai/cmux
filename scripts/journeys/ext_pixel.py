@@ -606,7 +606,10 @@ def step_px_film(j, step):
         except FilmNotStarted as error:
             return film_not_started(j, name, reduce, switch, done, error)
         except D.StepError as error:
-            raise D.StepError(f"px_film {name}: {sub['do']} ({sub.get('title', '')[:60]}): {error}")
+            # The film failed mid-way: stop its recording first, so the movie is finished (its moov written) and the
+            # failed film can still be watched; then report the step's error (cmux-ad m29: 20 films had no moov).
+            stopped = _stop_failed_film(j, name)
+            raise D.StepError(f"px_film {name}: {sub['do']} ({sub.get('title', '')[:60]}): {error}" + stopped)
         if sub.get("keep"):
             # `keep` (a film's measurement read, e.g. debug.frames stop raw): the whole reply in its own file, so a long
             # array is not cut at RESULT_CHARS; result.json keeps the file name.
@@ -625,6 +628,21 @@ def step_px_film(j, step):
     st["films"].append({k: line[k] for k in ("film", "status", "reason", "speed", "reduce", "springs_source", "bytes", "switch")
                         if k in line})
     return line
+
+
+def _stop_failed_film(j, name):
+    """A film whose step failed while it recorded: its recording stopped through the kit's own stop (video_stop with no
+    tail), so the movie, its scan, trace and meta are written. Returns a note for the error line; a stop that fails too is
+    named there, never hidden."""
+    rec = getattr(j, "video", None)
+    if not rec or rec.get("name") != name:
+        return ""
+    try:
+        j.step_video_stop({"name": name, "tail": 0.0})
+        return " (its recording was stopped and kept: the film shows the run up to the failure)"
+    except Exception as stop_error:  # noqa: BLE001 - reported in the step's error line
+        j.video = None
+        return f" (its recording could not be stopped: {str(stop_error)[:160]})"
 
 
 def film_not_started(j, name, reduce, switch, done, error):

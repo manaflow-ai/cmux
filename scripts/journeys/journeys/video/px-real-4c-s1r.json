@@ -146,8 +146,8 @@
   },
   {
    "do": "action",
-   "action": "newColumn",
-   "title": "set-up: newColumn (p1)"
+   "action": "splitRight",
+   "title": "set-up: splitRight (p1)"
   },
   {
    "do": "adopt_pane",
@@ -180,38 +180,14 @@
    "title": "set-up: the text page loads (local file)"
   },
   {
-   "do": "action",
-   "action": "splitDown",
-   "title": "set-up: splitDown (p2)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "p2"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "type",
-   "text": "man ls",
-   "enter": true,
-   "mark": "p2man",
-   "title": "set-up: p2: a man page in its pager"
-  },
-  {
-   "do": "wait",
-   "seconds": 1.2,
-   "title": "it prints"
-  },
-  {
    "do": "rk_focus",
-   "pane": "p2",
-   "title": "set-up: focus p2 (cmux pane focus)"
+   "pane": "p1",
+   "title": "set-up: focus p1 (cmux pane focus)"
   },
   {
    "do": "action",
-   "action": "newColumn",
-   "title": "set-up: newColumn (p3)"
+   "action": "splitRight",
+   "title": "set-up: splitRight (p3)"
   },
   {
    "do": "adopt_pane",
@@ -244,49 +220,14 @@
    "title": "set-up: the header page loads (local file)"
   },
   {
-   "do": "action",
-   "action": "splitDown",
-   "title": "set-up: splitDown (p4)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "p4"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
    "do": "rk_focus",
-   "pane": "p4",
-   "title": "set-up: focus p4 (cmux pane focus)"
-  },
-  {
-   "do": "rpc",
-   "method": "action.run",
-   "params": {
-    "action": "openBrowser",
-    "args": {
-     "url": "file:///tmp/jr-real-dark.html",
-     "engine": "cef"
-    },
-    "focus": true
-   },
-   "title": "set-up: dark page /tmp/jr-real-dark.html in a Chromium tab of p4"
-  },
-  {
-   "do": "wait",
-   "seconds": 2.5,
-   "title": "set-up: the dark page loads (local file)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "p4",
-   "title": "set-up: focus p4 (cmux pane focus)"
+   "pane": "p3",
+   "title": "set-up: focus p3 (cmux pane focus)"
   },
   {
    "do": "action",
-   "action": "newColumn",
-   "title": "set-up: newColumn (p5)"
+   "action": "splitRight",
+   "title": "set-up: splitRight (p5)"
   },
   {
    "do": "adopt_pane",
@@ -326,6 +267,80 @@
    "do": "wait",
    "seconds": 1.2,
    "title": "it prints"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "p1",
+   "title": "set-up: focus p1 (cmux pane focus)"
+  },
+  {
+   "do": "action",
+   "action": "splitDown",
+   "title": "set-up: splitDown (p2)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "p2"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "man ls",
+   "enter": true,
+   "mark": "p2man",
+   "title": "set-up: p2: a man page in its pager"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.2,
+   "title": "it prints"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "p3",
+   "title": "set-up: focus p3 (cmux pane focus)"
+  },
+  {
+   "do": "action",
+   "action": "splitDown",
+   "title": "set-up: splitDown (p4)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "p4"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "p4",
+   "title": "set-up: focus p4 (cmux pane focus)"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "openBrowser",
+    "args": {
+     "url": "file:///tmp/jr-real-dark.html",
+     "engine": "cef"
+    },
+    "focus": true
+   },
+   "title": "set-up: dark page /tmp/jr-real-dark.html in a Chromium tab of p4"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.5,
+   "title": "set-up: the dark page loads (local file)"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "p5",
+   "title": "set-up: focus p5 (cmux pane focus)"
   },
   {
    "do": "action",
