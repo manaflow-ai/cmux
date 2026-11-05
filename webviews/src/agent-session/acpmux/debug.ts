@@ -154,6 +154,7 @@ export function createAcpmuxDebug(
       const {
         syntheticRows,
         workedTurnRows,
+        workedTurnPageRows,
         incomingRows,
         linkRows,
         organizationRows,
@@ -177,6 +178,8 @@ export function createAcpmuxDebug(
           ? subagentTrayRows(trayStep(count), trayOrigin(count), agents ?? 2)
           : fixture === "worked-turn"
             ? workedTurnRows(Date.now() - 60_000)
+            : fixture === "worked-turn-page"
+              ? workedTurnPageRows(Date.now() - 60_000)
             : fixture === "incoming"
               ? incomingRows(Date.now() - 120_000)
               : fixture === "link"
