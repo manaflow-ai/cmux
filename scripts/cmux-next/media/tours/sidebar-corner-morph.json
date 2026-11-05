@@ -1,0 +1,241 @@
+{
+  "title": "Sidebar corner morph (Debug sidebar.cornerMorph): off, shell, bridge and both, comfortable sidebar density, light and dark",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 3,
+      "shot": false
+    },
+    {
+      "title": "Comfortable sidebar density (compact keeps the plain card)",
+      "cmux": [
+        "settings",
+        "set",
+        "sidebar.density",
+        "comfortable"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "Workspace Fix split node parity",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Fix split node parity"
+      ],
+      "shot": false,
+      "wait": 0.5
+    },
+    {
+      "title": "Workspace Speed up parity gates",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Speed up parity gates"
+      ],
+      "shot": false,
+      "wait": 0.5
+    },
+    {
+      "title": "Workspace Window tiling support",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Window tiling support"
+      ],
+      "shot": false,
+      "wait": 0.5
+    },
+    {
+      "title": "Workspace Review two pull requests",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Review two pull requests"
+      ],
+      "shot": false,
+      "wait": 0.5
+    },
+    {
+      "title": "Workspace Casual check-in",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Casual check-in"
+      ],
+      "shot": false,
+      "wait": 0.5
+    },
+    {
+      "title": "A second tab, so the tab row has a selected tab beside another",
+      "cmux": [
+        "action",
+        "run",
+        "tab.new"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Light",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "light"
+        }
+      },
+      "wait": 1,
+      "shot": false,
+      "optional": "debug.appearance is DEBUG only"
+    },
+    {
+      "title": "Light, sidebar.cornerMorph off: the plain card (today)",
+      "rpc": {
+        "method": "debug.tunables",
+        "params": {
+          "action": "set",
+          "key": "sidebar.cornerMorph",
+          "value": "off"
+        }
+      },
+      "wait": 2
+    },
+    {
+      "title": "Light, sidebar.cornerMorph shell: the titlebar row and the tabs are one band",
+      "rpc": {
+        "method": "debug.tunables",
+        "params": {
+          "action": "set",
+          "key": "sidebar.cornerMorph",
+          "value": "shell"
+        }
+      },
+      "wait": 2
+    },
+    {
+      "title": "Light, sidebar.cornerMorph bridge: the selected workspace joins the card",
+      "rpc": {
+        "method": "debug.tunables",
+        "params": {
+          "action": "set",
+          "key": "sidebar.cornerMorph",
+          "value": "bridge"
+        }
+      },
+      "wait": 2
+    },
+    {
+      "title": "Light, sidebar.cornerMorph both: shell and bridge",
+      "rpc": {
+        "method": "debug.tunables",
+        "params": {
+          "action": "set",
+          "key": "sidebar.cornerMorph",
+          "value": "both"
+        }
+      },
+      "wait": 2
+    },
+    {
+      "title": "Dark",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "dark"
+        }
+      },
+      "wait": 1,
+      "shot": false,
+      "optional": "debug.appearance is DEBUG only"
+    },
+    {
+      "title": "Dark, sidebar.cornerMorph off: the plain card (today)",
+      "rpc": {
+        "method": "debug.tunables",
+        "params": {
+          "action": "set",
+          "key": "sidebar.cornerMorph",
+          "value": "off"
+        }
+      },
+      "wait": 2
+    },
+    {
+      "title": "Dark, sidebar.cornerMorph shell: the titlebar row and the tabs are one band",
+      "rpc": {
+        "method": "debug.tunables",
+        "params": {
+          "action": "set",
+          "key": "sidebar.cornerMorph",
+          "value": "shell"
+        }
+      },
+      "wait": 2
+    },
+    {
+      "title": "Dark, sidebar.cornerMorph bridge: the selected workspace joins the card",
+      "rpc": {
+        "method": "debug.tunables",
+        "params": {
+          "action": "set",
+          "key": "sidebar.cornerMorph",
+          "value": "bridge"
+        }
+      },
+      "wait": 2
+    },
+    {
+      "title": "Dark, sidebar.cornerMorph both: shell and bridge",
+      "rpc": {
+        "method": "debug.tunables",
+        "params": {
+          "action": "set",
+          "key": "sidebar.cornerMorph",
+          "value": "both"
+        }
+      },
+      "wait": 2
+    },
+    {
+      "title": "Back to the system appearance",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "system"
+        }
+      },
+      "wait": 1,
+      "shot": false,
+      "optional": "debug.appearance is DEBUG only"
+    },
+    {
+      "title": "Corner morph off",
+      "rpc": {
+        "method": "debug.tunables",
+        "params": {
+          "action": "set",
+          "key": "sidebar.cornerMorph",
+          "value": "off"
+        }
+      },
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "Density back to the default",
+      "cmux": [
+        "settings",
+        "unset",
+        "sidebar.density"
+      ],
+      "wait": 1,
+      "shot": false
+    }
+  ]
+}
