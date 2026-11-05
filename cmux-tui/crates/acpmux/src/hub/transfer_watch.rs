@@ -288,46 +288,7 @@ impl Hub {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    /// A move whose begin is still making its bundle has no `alive` stamp yet: the watch a
-    /// restart starts once every log is read (`log_load.rs`) can find it then, as a client may
-    /// begin a move as soon as the daemon is ready. It is not a move left idle for a whole lease:
-    /// it is neither aborted nor its bundle removed under the begin, which then failed with
-    /// "transfer: read approval snapshot: No such file or directory" (a base red of
-    /// `transfer_authority_survives_restart_and_abort_restores_the_live_root` under load).
-    #[tokio::test(start_paused = true)]
-    async fn a_move_whose_begin_is_still_making_its_bundle_is_not_ended_as_stalled() {
-        let mut config = Config::default();
-        config.store.mode = crate::config::StoreMode::Memory;
-        let store = crate::store::open(&config.store, Path::new("/unused")).unwrap();
-        let hub = Arc::new(Hub::new(config, store));
-        let meta: SessionMeta = serde_json::from_value(json!({
-            "schema": META_SCHEMA, "id": "mid-begin", "name": "mid-begin",
-            "harness": "fake", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1
-        }))
-        .unwrap();
-        hub.store.save(&meta).unwrap();
-        let session = hub.make_session(meta);
-        hub.sessions.lock().unwrap().insert(session.id.clone(), session.clone());
-        // `transfer_begin` up to its export: the chat frozen under the move, its bundle made,
-        // no `alive` stamp, epoch marker or `transfer_out` yet.
-        let transfer = uuid::Uuid::now_v7().to_string();
-        *session.moving.lock().unwrap() = Some(transfer.clone());
-        let dir = transfers_dir().join(&transfer);
-        std::fs::create_dir_all(&dir).unwrap();
-        hub.export(&session, &dir).unwrap();
-        let watched = tokio::time::timeout(
-            std::time::Duration::from_secs(1),
-            hub.transfer_watch(&session, &transfer),
-        )
-        .await;
-        let bundle_kept = dir.join(&session.id).join("events").is_dir();
-        let _ = std::fs::remove_dir_all(&dir);
-        assert!(watched.is_err(), "the watch ended a move whose begin had not finished");
-        assert!(bundle_kept, "the watch removed the bundle its begin was reading");
-        assert_eq!(session.moving().as_deref(), Some(transfer.as_str()), "the move was ended");
-    }
+    use super::marker_is_uncommitted;
 
     #[test]
     fn marker_ahead_of_durable_epoch_is_not_resumed() {

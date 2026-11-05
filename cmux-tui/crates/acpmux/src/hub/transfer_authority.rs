@@ -137,6 +137,107 @@ mod tests {
         }
     }
 
+    /// Once armed: says the next event read began, then waits for its release.
+    type Hold = Arc<StdMutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>>;
+
+    /// Holds the first event read after it is armed (a move's export) until the test lets it go.
+    struct HeldRead {
+        inner: Box<dyn Store>,
+        hold: Hold,
+    }
+
+    impl Store for HeldRead {
+        fn list(&self) -> anyhow::Result<Vec<SessionMeta>> {
+            self.inner.list()
+        }
+        fn load(&self, id: &str) -> anyhow::Result<Option<SessionMeta>> {
+            self.inner.load(id)
+        }
+        fn save(&self, meta: &SessionMeta) -> anyhow::Result<()> {
+            self.inner.save(meta)
+        }
+        fn append(&self, id: &str, record: &EventRecord) -> anyhow::Result<()> {
+            self.inner.append(id, record)
+        }
+        fn events(&self, id: &str, after: u64, limit: usize) -> anyhow::Result<Vec<EventRecord>> {
+            self.inner.events(id, after, limit)
+        }
+        fn scan_strict(
+            &self,
+            id: &str,
+            after: u64,
+            visit: &mut dyn FnMut(EventRecord) -> bool,
+        ) -> anyhow::Result<()> {
+            let held = self.hold.lock().unwrap_or_else(|e| e.into_inner()).take();
+            if let Some((entered, release)) = held {
+                let _ = entered.send(());
+                let _ = release.recv();
+            }
+            self.inner.scan_strict(id, after, visit)
+        }
+        fn delete(&self, id: &str) -> anyhow::Result<()> {
+            self.inner.delete(id)
+        }
+    }
+
+    /// The watch a restart starts once every chat log is read (`watch_transfers`, `log_load.rs`)
+    /// leaves a move whose begin is still making its bundle: a client may begin one as soon as
+    /// the daemon is ready, and that begin watches its move itself. The startup watch found no
+    /// `alive` stamp yet, took the move for one idle a whole lease, aborted it and removed its
+    /// bundle under the begin, which then failed with "transfer: read approval snapshot: No such
+    /// file or directory" (a base red of `durable_agents`
+    /// `transfer_authority_survives_restart_and_abort_restores_the_live_root` under load).
+    #[test]
+    fn the_startup_watch_leaves_a_move_whose_begin_is_making_its_bundle() {
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let mut config: Config = serde_json::from_value(json!({
+            "harnesses": {"fake": {"argv": ["python3", fake]}},
+            "defaultHarness": "fake",
+        }))
+        .unwrap();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let inner = crate::store::open(&config.store, std::path::Path::new("/unused")).unwrap();
+        let hold: Hold = Arc::new(StdMutex::new(None));
+        let hub = Hub::new(config, Box::new(HeldRead { inner, hold: hold.clone() }));
+        let meta: SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "begin-mid-export", "name": "mid",
+            "harness": "fake", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1
+        }))
+        .unwrap();
+        hub.store.save(&meta).unwrap();
+        let session = hub.make_session(meta);
+        hub.sessions.lock().unwrap().insert(session.id.clone(), session.clone());
+        let (entered_tx, entered) = std::sync::mpsc::channel();
+        let (release, release_rx) = std::sync::mpsc::channel();
+        *hold.lock().unwrap() = Some((entered_tx, release_rx));
+        let begin = std::thread::spawn({
+            let (hub, id) = (hub.clone(), session.id.clone());
+            move || {
+                let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build();
+                runtime.unwrap().block_on(async {
+                    hub.transfer_request("_acpmux/transfer_begin", &json!({"sessionId": id})).await
+                })
+            }
+        });
+        // The begin is in its export: the chat frozen under the move, its bundle directory made.
+        entered.recv().unwrap();
+        let transfer = session.moving().expect("the begin froze the chat");
+        let dir = super::super::transfer_out::transfers_dir().join(&transfer);
+        assert!(dir.join(&session.id).is_dir(), "the begin had not made its bundle yet");
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(async {
+            hub.watch_transfers();
+            // A watch it started runs to its first wait (or its end) before this goes on.
+            tokio::task::yield_now().await;
+        });
+        let moving = session.moving();
+        release.send(()).unwrap();
+        let begun = begin.join().unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(moving.as_deref(), Some(transfer.as_str()), "the startup watch ended the move");
+        assert!(begun.is_ok(), "the begin failed under the startup watch: {begun:?}");
+    }
+
     #[test]
     fn transfer_authority_is_cached_and_old_replay_cannot_undo_a_new_append() {
         let mut config = Config::default();
