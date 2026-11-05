@@ -108,3 +108,28 @@ async fn resolve_finds_a_name_in_another_case_and_refuses_a_shared_prefix() {
     let e = hub.locate("TD2", false, true).unwrap_err();
     assert_eq!(uses(&e).len(), 2, "{e:?}");
 }
+
+/// Review of #36878 (F1): a name in another case on a peer beats a longer name here that only
+/// starts with the key, in `resolve` (and `session stop|cancel|resume`) as in every other command.
+#[tokio::test]
+async fn resolve_takes_a_name_in_another_case_over_a_longer_name_here() {
+    let hub = test_hub();
+    named(&hub, "td2-alpha").await;
+    list(&hub, "lanevm-7", "0199aaaa-1111", "TD2-A", "idle");
+    assert_eq!(hub.key_route("td2-a").unwrap().as_deref(), Some("lanevm-7/0199aaaa-1111"));
+    let found = hub.locate("td2-a", false, true).unwrap();
+    assert_eq!(found["matches"].as_array().unwrap().len(), 1, "{found}");
+    assert_eq!(found["session"]["sessionId"], "0199aaaa-1111", "{found}");
+}
+
+/// Review of #36878 (F2): a sub-session's short name in another case or without separators
+/// finds it too, bare and as `HOST/SHORT`.
+#[tokio::test]
+async fn a_sub_sessions_short_name_in_another_case_finds_it() {
+    let hub = test_hub();
+    list(&hub, "lanevm-7", "0199aaaa-1111", "coord/td2-A", "idle");
+    list(&hub, "lanevm-7", "0199bbbb-2222", "coord/td2-B", "idle");
+    for key in ["td2-a", "td2_a", "lanevm-7/td2-a", "LANEVM-7/TD2A"] {
+        assert_eq!(hub.key_route(key).unwrap().as_deref(), Some("lanevm-7/0199aaaa-1111"), "{key}");
+    }
+}
