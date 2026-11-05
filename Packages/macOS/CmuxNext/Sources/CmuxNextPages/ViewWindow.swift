@@ -58,6 +58,7 @@ import WebKit
         glass.blendingMode = .behindWindow
         glass.state = .followsWindowActiveState
         glass.autoresizingMask = [.width, .height]
+        // webview-allow: a Debug window over the gallery dev server's mock app on loopback, with no bridge to the app; not a cmux page
         let webView = WKWebView(frame: glass.bounds, configuration: WKWebViewConfiguration())
         PageWebView.clearBackground(of: webView)
         webView.autoresizingMask = [.width, .height]
