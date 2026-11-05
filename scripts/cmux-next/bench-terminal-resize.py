@@ -45,10 +45,9 @@ committed. It reads its pane's size, the size its host asked of it, and the size
 `follow`: per terminal, frames sampled, `held` frames (asked is not the pane's size, more than 0.5 pt off), `lagging`
 frames (shown is not the pane's size) and `in_flight` frames (a size asked of Ghostty and not shown yet), with the first
 3 held and lagging ones; the frame presenters' counts in the run (`presenter`: presented, keeps, group waits,
-fallbacks); and the round's `held_frames` and `lagging_frames`. A round with a held frame fails, and the message names
-the terminal, its held frames and the first sizes; so does a terminal shown at the start that was never sampled.
-Lagging frames are data only: the frame owner (`motion.frameOwner.terminals`) keeps a frame for 1-4 refreshes by
-design.
+fallbacks); and the round's `held_frames` and `lagging_frames`. A round with a held or a lagging frame fails (a late
+frame is a failure, the m14 contract), and the message names the terminal, its frames and the first sizes; so does a
+terminal shown at the start that was never sampled.
 
 Per layout it records display-frame intervals and main-thread busy time per frame (`debug.frames`,
 missed = an interval over 1.5 refresh periods), main-thread time in Ghostty's display passes
