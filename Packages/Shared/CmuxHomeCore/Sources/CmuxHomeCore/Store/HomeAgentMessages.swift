@@ -76,13 +76,13 @@ struct HomeAgentMessages {
                 items[index].author == run.author ? index : nil
             }
             let answer = run.answers.compactMap { byMessageID[$0] }.max()
-            // The Chief's words of the run's turn carry its pills (user 2026-11-05, msg 22013: text alongside
-            // the chips): its reply, else its `send` on the main line, else its first threaded one. Only with
-            // no words of that turn loaded do the pills sit under the message they answer.
-            let turnSends = run.turn.flatMap { sends["send-\(run.conversation.rawValue)-\($0.rawValue)-"] }?
+            // A `send` of the run's turn carries its pills (user 2026-11-05, msg 22013: text alongside the
+            // chips): the one on the main line, else the first threaded one. A turn that said nothing by `send`
+            // keeps its pills under the message they answer, else after its reply.
+            let turnSends = run.turn.flatMap { sends["send-\(run.conversation.rawValue)-\($0.rawValue)"] }?
                 .filter { items[$0].author == run.author } ?? []
-            let said = reply ?? turnSends.first { items[$0].threadRoot == nil } ?? turnSends.first
-            guard let anchor = said ?? answer else { continue }
+            let said = turnSends.first { items[$0].threadRoot == nil } ?? turnSends.first
+            guard let anchor = said ?? answer ?? reply else { continue }
             // Beside the Chief's words, the pills take their place: the main line or the thread they went in.
             // Otherwise a nested question is the parent, not merely the thread's root; if only Chief's reply
             // is loaded, inherit its parent rather than replying to Chief.
