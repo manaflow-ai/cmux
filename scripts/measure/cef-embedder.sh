@@ -71,10 +71,61 @@ passed=$(grep -cE '^    PASS \(' "$WORK/log" || true)
 if (( rc != 0 )) && ! grep -q '^==> case ' "$WORK/log"; then
   echo "cmux-embedder: the runner stopped (exit $rc) before its first case; its last lines are above"
 fi
-# Processes of the tests that outlived them fail the step (ended by pid).
+# Processes of the tests that outlived them fail the step (ended by pid). Chromium's
+# `--type=code-sign-clone-cleanup` helper (parent launchd) deletes the app's temporary clone and exits just
+# after the app does; a pgrep at once counted it in some fleet runs and not in others (2026-11-05, jobs d1-d4
+# of the 157 run). Each found process gets up to CMUX_EMBEDDER_SURVIVOR_WAIT_S (default 10) seconds to exit:
+# the wait is the kernel's exit event (kqueue NOTE_EXIT on macOS, pidfd on Linux), not a poll.
 survivors="$(pgrep -f "$WORK/" | grep -vx "$$" || true)"
 if [[ -n "$survivors" ]]; then
-  echo "cmux-embedder: $(echo "$survivors" | wc -l | tr -d ' ') process(es) outlived the tests (step fails)"
+  # shellcheck disable=SC2086
+  survivors="$(/usr/bin/env python3 -I - "${CMUX_EMBEDDER_SURVIVOR_WAIT_S:-10}" $survivors <<'PY'
+import os, select, sys, time
+deadline = time.monotonic() + float(sys.argv[1])
+pids = [int(p) for p in sys.argv[2:]]
+def alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+if hasattr(select, "kqueue"):
+    kq = select.kqueue()
+    live = set()
+    for pid in pids:
+        try:
+            kq.control([select.kevent(pid, select.KQ_FILTER_PROC, select.KQ_EV_ADD | select.KQ_EV_ONESHOT,
+                                      select.KQ_NOTE_EXIT)], 0, 0)
+            live.add(pid)
+        except OSError:
+            pass  # already gone
+    while live and (left := deadline - time.monotonic()) > 0:
+        for ev in kq.control(None, len(live), left):
+            live.discard(ev.ident)
+else:
+    poller, fds = select.poll(), {}
+    for pid in pids:
+        try:
+            fd = os.pidfd_open(pid)
+        except ProcessLookupError:
+            continue
+        fds[fd] = pid
+        poller.register(fd, select.POLLIN)
+    while fds and (left := deadline - time.monotonic()) > 0:
+        for fd, _ in poller.poll(left * 1000):
+            poller.unregister(fd); os.close(fd); fds.pop(fd)
+for pid in pids:
+    if alive(pid):
+        print(pid)
+PY
+)"
+fi
+if [[ -n "$survivors" ]]; then
+  echo "cmux-embedder: $(echo "$survivors" | wc -l | tr -d ' ') process(es) outlived the tests (step fails):"
+  for pid in $survivors; do ps -o pid=,ppid=,command= -p "$pid" | cut -c1-300 | sed 's/^/    /' || true; done
+  # shellcheck disable=SC2086
   kill $survivors 2>/dev/null || true
   rc=1
 fi
