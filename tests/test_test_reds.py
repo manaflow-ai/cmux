@@ -444,6 +444,15 @@ class PerTest(unittest.TestCase):
                 self.assertTrue(reds.classify(log(line), log(line), "cmux-next swift test").own)
         self.assertTrue(reds.classify("  \n", log(failed("a()")), "cmux-next swift test").own)
 
+    def test_a_harness_heading_that_names_a_crash_is_not_one_but_the_crash_under_it_is(self):
+        # cmuxterm-hq#7285, run 42053582212: fresh_home_launch_smoke.py's heading above a launch over its budget.
+        heading = "--- the app's errors in the system log (an uncaught exception or assertion names itself here)"
+        over = "relaunch restore took 3042 ms, over its 3000 ms budget"
+        self.assertFalse(reds.read(log(over, heading, "--- app output (last 60 lines)")).crashes)
+        crash = "*** Terminating app due to uncaught exception 'NSInternalInconsistencyException'"
+        self.assertTrue(reds.read(log(over, heading, crash)).crashes)
+        self.assertTrue(reds.read(log(over, f"--- {crash}")).crashes)
+
     def test_a_whole_unittest_run_and_a_known_issue_run_end_are_whole(self):
         self.assertEqual(reds.read(log("test_a (mod.T.test_a) ... ok", "Ran 1 test in 0.001s", "OK")).truncated, [])
         self.assertEqual(reds.read(log("◇ Test run started.", "━ Test run with 1 test in 1 suite passed after 0.1 "

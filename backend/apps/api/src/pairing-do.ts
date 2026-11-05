@@ -222,7 +222,9 @@ export class PairingDO extends DurableObject<Env> {
   async reserveMachineJoin(code: string, thumbprint: string, approver: string, join: PairMachineJoin, now: number): Promise<{ ok: true; join: PairMachineJoin } | { ok: false }> {
     const row = this.row(now)
     if (!row || row.code !== code || row.approver !== approver || !equal(row.thumbprint, thumbprint) || row.result !== null) return { ok: false }
-    if (row.machine_join) return { ok: true, join: JSON.parse(row.machine_join) as PairMachineJoin }
+    // A live pinned token wins; an expired one (never sent: no result yet) is replaced.
+    const pinned: PairMachineJoin | null = row.machine_join ? JSON.parse(row.machine_join) : null
+    if (pinned && machineJoinLive(pinned, now)) return { ok: true, join: pinned }
     if (!machineJoinLive(join, now)) return { ok: false }
     this.ctx.storage.sql.exec(`UPDATE pairing SET machine_join = ? WHERE id = 1`, JSON.stringify(join))
     return { ok: true, join }

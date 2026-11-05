@@ -26,8 +26,8 @@ def check(exports, binds, symbols=()):
             # dyld_info writes "<this-image>/NAME" into 4096 bytes.
             f.writelines(f"        __DATA  __la_symbol_ptr  0x10000{i:04X}  lazy-bind  {('<this-image>/' + name)[:4095]}\n"
                          for i, name in enumerate(binds))
-        with open(os.path.join(tmp, "symbols"), "w") as f:
-            f.writelines(f"{name}\n" for name in symbols)
+        with open(os.path.join(tmp, "symbols"), "wb") as f:
+            f.writelines((name if isinstance(name, bytes) else name.encode()) + b"\n" for name in symbols)
         fakes = {
             "xcrun": f'#!/bin/bash\n[[ "$2" == -exports ]] && cat {tmp}/exports || cat {tmp}/fixups\n',
             "nm": f'#!/bin/bash\n[[ "$1" == -j ]] && cat {tmp}/symbols\n',
@@ -64,6 +64,12 @@ class LiveCodeCheckTests(unittest.TestCase):
         result, missing = check([LONG, SHORT], [whole, SHORT], symbols=[whole, LONG, SHORT])
         self.assertEqual(result.returncode, 1)
         self.assertEqual(missing, [whole])
+
+    def test_a_symbol_table_that_is_not_utf8_still_matches(self):
+        # A real app's nm -j output has bytes that are not UTF-8 (0xc0 in the cmux-next app).
+        result, missing = check([LONG, SHORT], [LONG, SHORT], symbols=[b"_bad\xc0name", LONG, SHORT])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(missing, [])
 
     def test_a_short_unexported_bind_fails(self):
         result, missing = check([LONG], [LONG, SHORT])

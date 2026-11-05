@@ -616,7 +616,6 @@ impl Hub {
             agent: None,
             class: None,
             after_turn: None,
-            goal_mark: None,
             supersede: None,
             display_parts: None,
             full_access_device: None,

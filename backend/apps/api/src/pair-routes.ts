@@ -9,7 +9,7 @@ import { collectSecret, collectSecretValid } from "./pair-collect.ts"
 import { beginWithInvite, invitePairedNotify, type BegunPairing } from "./pair-invite-routes.ts"
 import { fail, isHumanSession, pairingStub, pairLimited, type OpReply } from "./pair-op-reply.ts"
 import type { PairingInvite, PairingRecord, PairingResult } from "./pairing-do.ts"
-import { mintPairMachineJoin } from "./pair-machine-join.ts"
+import { machineJoinLive, mintPairMachineJoin } from "./pair-machine-join.ts"
 import { issuePairNetwork, nativeMesh, nativeServerName, networkLocator, type PairingApproval, type PairNetworkTransport } from "./server-pair-network.ts"
 
 /**
@@ -188,7 +188,8 @@ export const pairApprove = async (
   }
   // The box's machine credential (pair-machine-join.ts): a join token for the approver, pinned on the record and
   // pushed with the result, which the box redeems as `acpmux host join` does. Before any install/host write.
-  if (!claimed.machine_join) {
+  // A pinned token that expired before this retry (the box never got it: no result yet) is replaced by a fresh one.
+  if (!claimed.machine_join || !machineJoinLive(claimed.machine_join, Date.now())) {
     const minted = await mintPairMachineJoin(env, { team, user: principal.user!, name })
     if (!minted.ok) return fail(op, frame.idempotency_key, minted.code, minted.message, minted.retryable)
     if (minted.join) {
