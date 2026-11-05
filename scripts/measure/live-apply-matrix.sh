@@ -835,9 +835,9 @@ for spec in "${ROWS[@]}"; do
   stop_shell
 
   # 2. full build of the same tree
-  # Each row's full build starts from a copy of the prebuilt's folder (warm, like an incremental CI
-  # build of the base), so no row's build sees another row's objects.
-  rm -rf "$work/full"; cp -R "$work/prebuilt" "$work/full"
+  # A clean build: an empty scratch folder of its own, so no object of the prebuilt or of another
+  # row's build is reused and clean_build_s is a full build's time (review of #35887).
+  rm -rf "$work/full"; mkdir -p "$work/full"
   f0=$(now)
   compile_checked=pass
   swift build --package-path "$package" --scratch-path "$work/full" --product cmux-view-shell >"$dir/full-build.log" 2>&1 || compile_checked=fail
@@ -885,7 +885,7 @@ row = {
             "inject_s": fl(inject_s), "edit_to_pixels_s": fl(e2p), "stale_symbol_pointers": stale or None,
             "detail": why or None},
   "full_build": {"compile_checked": compile_checked, "runtime": full_runtime, "width_px": full_w,
-                 "incremental_build_s": fl(full_s)},
+                 "clean_build_s": fl(full_s), "scratch": "empty (a clean build)"},
   "new_code_ran_in_patch": (patch_w != base_w) if outcome == "applied" and patch_w and base_w else None,
   # The change moved the full build's pixels: otherwise the row cannot tell old code from new.
   "row_valid": row_valid,
