@@ -14,6 +14,17 @@ use super::*;
 /// waits for its frame's result.
 pub(super) const HOST_INPUT_RECONNECT_WAIT: Duration = Duration::from_secs(5);
 
+/// The error of input to a hosted terminal that has no input route. Every hosted runtime publishes one when it is
+/// made and at every swap (`PtyTerminalRuntime::replace_runtime`), so this is a broken invariant: the input is
+/// refused as not written, never written to the host connection around the terminal's input port.
+#[cfg(any(unix, windows))]
+fn no_input_route() -> std::io::Error {
+    std::io::Error::new(
+        std::io::ErrorKind::NotConnected,
+        "the hosted terminal has no input route; input not written",
+    )
+}
+
 /// Whether a host send failed because the host connection is gone (the
 /// host died or its stream broke), not because the frame was refused.
 #[cfg(any(unix, windows))]
@@ -60,8 +71,9 @@ impl Surface {
                 let master = master.as_deref().map(|master| master as &dyn MasterPty);
                 crate::pty_input_room::write_input(master, writer.as_mut(), bytes).map(|_| ())
             }
+            // A hosted terminal's input went to its input port above; one with no input route is refused.
             #[cfg(any(unix, windows))]
-            PtyRuntime::Hosted(host) => host.send(MessageKind::Input, bytes),
+            PtyRuntime::Hosted(_) => Err(no_input_route()),
             // A keep-on-exit terminal outlives its child, so typing into the
             // dead PTY is an expected interaction: drop the bytes silently
             // instead of failing every keystroke on the final screen.
@@ -195,8 +207,14 @@ impl Surface {
             term.mode(2004, false)
         };
         let mut runtime = pty.runtime.lock().unwrap();
-        let PtyRuntime::Local { writer, master, .. } = &mut *runtime else {
-            unreachable!("hosted paste returned above")
+        let (writer, master) = match &mut *runtime {
+            PtyRuntime::Local { writer, master, .. } => (writer, master),
+            // A hosted terminal's paste went to its input port above; one with no input route is refused.
+            #[cfg(any(unix, windows))]
+            PtyRuntime::Hosted(_) => return Err(no_input_route()),
+            // The final screen of a keep-on-exit terminal drops a paste, as it drops keys.
+            #[cfg(any(unix, windows))]
+            PtyRuntime::ExitedHosted => return Ok(()),
         };
         #[cfg(not(unix))]
         let _ = master;
