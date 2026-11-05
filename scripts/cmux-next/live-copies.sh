@@ -40,13 +40,29 @@ cli="${CMUX_CLI:-cmux}"
 usage() { awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit "${1:-0}"; }
 die() { echo "live-copies: $*" >&2; exit 1; }
 
+# A set's name is one plain folder name under $DIR: never a path, never ".." or a dot folder.
+valid_name() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; }
 newest_set() {
-  local newest
-  newest="$(ls -1t "$DIR" 2>/dev/null | head -1 || true)"
-  [[ -n "$newest" ]] || die "no live copies yet; run: live-copies.sh start 3"
-  echo "$newest"
+  local name
+  # shellcheck disable=SC2045  # newest first; set names are plain (valid_name)
+  for name in $(ls -1t "$DIR" 2>/dev/null); do
+    if valid_name "$name" && [[ -d "$DIR/$name" ]]; then echo "$name"; return; fi
+  done
+  die "no live copies yet; run: live-copies.sh start 3"
 }
-set_dir() { [[ -d "$DIR/$1" ]] || die "no set $1 in $DIR"; echo "$DIR/$1"; }
+set_dir() {
+  valid_name "$1" || die "not a set name: $1 (letters, digits, . _ and -)"
+  [[ -d "$DIR/$1" ]] || die "no set $1 in $DIR"
+  echo "$DIR/$1"
+}
+
+# Whether origin's branch has the copy's HEAD: its tip is HEAD or comes after it.
+pushed() {
+  local tree="$1" branch="$2" remote
+  remote="$(git -C "$tree" ls-remote origin "refs/heads/$branch" 2>/dev/null | cut -f1)"
+  [[ -n "$remote" ]] || return 1
+  [[ "$remote" == "$(git -C "$tree" rev-parse HEAD)" ]] || git -C "$tree" merge-base --is-ancestor HEAD "$remote" 2>/dev/null
+}
 copies_of() {
   local f
   for f in "$1"/*/; do f="$(basename "$f")"; if [[ "$f" =~ ^[0-9]+$ ]]; then echo "$f"; fi; done | sort -n
@@ -115,7 +131,7 @@ write_json() {
   local setd="$1" name first=1 k copy
   name="$(basename "$setd")"
   {
-    printf '{"set": %s, "page": %s, "base": %s, "copies": [' "$(json_str "$name")" "$(json_str "$(meta "$setd" page)")" "$(json_str "$BASE_BRANCH")"
+    printf '{"set": %s, "page": %s, "repo": %s, "base": %s, "copies": [' "$(json_str "$name")" "$(json_str "$(meta "$setd" page)")" "$(json_str "$REPO_SLUG")" "$(json_str "$BASE_BRANCH")"
     for k in $(copies_of "$setd"); do
       copy="$setd/$k"
       [[ $first == 1 ]] || printf ','; first=0
@@ -164,7 +180,7 @@ const data = $data;
 const pageInput = document.getElementById("page");
 document.getElementById("set").textContent = data.set;
 const page = () => decodeURIComponent(location.hash.slice(1)) || data.page;
-const compareURL = (c) => "https://github.com/manaflow-ai/cmux/compare/" + data.base + "..." + encodeURIComponent(c.branch) + "?expand=1";
+const compareURL = (c) => "https://github.com/" + data.repo + "/compare/" + data.base + "..." + encodeURIComponent(c.branch) + "?expand=1";
 function render() {
   pageInput.value = page();
   const main = document.getElementById("copies");
@@ -209,8 +225,6 @@ open_page() {
   fi
 }
 
-# [SET] then the rest: the first word is a set when such a set exists.
-pick_set() { if [[ $# -gt 0 && -d "$DIR/${1:-}" && -n "${1:-}" ]]; then echo "$1"; else newest_set; fi; }
 
 cmd="${1:-}"; [[ -n "$cmd" ]] || usage 1; shift
 case "$cmd" in
@@ -239,7 +253,7 @@ case "$cmd" in
       die "$count copies but ${#sources[@]} --from; give one --from per copy or one for all"
     fi
     set_name="${set_name:-live-$(date +%Y%m%d-%H%M%S)}"
-    [[ "$set_name" =~ ^[A-Za-z0-9._-]+$ ]] || die "a set name is letters, digits, . _ and -"
+    valid_name "$set_name" || die "not a set name: $set_name (letters, digits, . _ and -)"
     setd="$DIR/$set_name"; mkdir -p "$setd"; echo "$page" >"$setd/page"
     last="$(copies_of "$setd" | tail -1)"; k="${last:-0}"
     for source in "${sources[@]}"; do
@@ -262,14 +276,15 @@ case "$cmd" in
     if [[ $open == 1 ]]; then open_page "$url" "live copies: $set_name"; fi
     ;;
   compare)
-    set_name="$(pick_set "$@")"; if [[ $# -gt 0 && "${1:-}" == "$set_name" ]]; then shift; fi
+    if [[ $# -gt 0 && "$1" != -* ]]; then set_name="$1"; shift; else set_name="$(newest_set)"; fi
     url="$(write_compare "$(set_dir "$set_name")")"
     echo "$url"
     if [[ "${1:-}" == --open ]]; then open_page "$url" "live copies: $set_name"; fi
     ;;
   keep)
-    set_name="$(pick_set "$@")"; if [[ $# -gt 0 && "${1:-}" == "$set_name" ]]; then shift; fi
+    if [[ $# -gt 1 && "$2" != -* ]]; then set_name="$1"; shift; else set_name="$(newest_set)"; fi
     k="${1:?keep needs the copy number}"; shift
+    [[ "$k" =~ ^[0-9]+$ ]] || die "keep: $k is not a copy number"
     setd="$(set_dir "$set_name")"; copy="$setd/$k"; [[ -d "$copy/tree" ]] || die "no copy $k in $set_name"
     push=0 stop_others=0 open=0
     for a in "$@"; do case "$a" in --push) push=1 ;; --stop-others) stop_others=1 ;; --open) open=1 ;; *) usage 1 ;; esac; done
@@ -285,7 +300,7 @@ case "$cmd" in
     echo "branch:   $branch ($edited commits on $(meta "$copy" source))"
     if [[ -n "$(git -C "$copy/tree" status --porcelain -- . ':!webviews/node_modules')" ]]; then echo "note:     uncommitted changes in the worktree; commit them before you push"; fi
     if [[ "$url" == "$pr" ]]; then echo "pr:       $pr (unchanged copy of it)"
-    elif git -C "$copy/tree" ls-remote --exit-code -q origin "refs/heads/$branch" >/dev/null 2>&1; then echo "open a PR: $url"
+    elif pushed "$copy/tree" "$branch"; then echo "open a PR: $url"
     else echo "open a PR: push first (live-copies.sh keep $set_name $k --push), then $url"; fi
     if [[ $stop_others == 1 ]]; then
       for o in $(copies_of "$setd"); do [[ "$o" == "$k" ]] || pstate "$setd/$o" stop "$setd/$o/tree" >/dev/null; done
@@ -295,7 +310,7 @@ case "$cmd" in
     if [[ $open == 1 ]]; then open_page "$url" "kept: $set_name copy $k"; fi
     ;;
   status)
-    set_name="$(pick_set "$@")"; if [[ $# -gt 0 && "${1:-}" == "$set_name" ]]; then shift; fi
+    if [[ $# -gt 0 && "$1" != -* ]]; then set_name="$1"; shift; else set_name="$(newest_set)"; fi
     setd="$(set_dir "$set_name")"
     if [[ "${1:-}" == --json ]]; then write_json "$setd"; cat "$setd/copies.json"; exit 0; fi
     echo "set $set_name (page $(meta "$setd" page))"
@@ -307,11 +322,12 @@ case "$cmd" in
     echo "compare: file://$setd/compare.html"
     ;;
   stop)
-    set_name="$(pick_set "$@")"; setd="$(set_dir "$set_name")"
+    if [[ $# -gt 0 && "$1" != -* ]]; then set_name="$1"; shift; else set_name="$(newest_set)"; fi
+    setd="$(set_dir "$set_name")"
     for k in $(copies_of "$setd"); do pstate "$setd/$k" stop "$setd/$k/tree"; done
     ;;
   rm)
-    set_name="$(pick_set "$@")"; if [[ $# -gt 0 && "${1:-}" == "$set_name" ]]; then shift; fi
+    if [[ $# -gt 0 && "$1" != -* ]]; then set_name="$1"; shift; else set_name="$(newest_set)"; fi
     force=0; [[ "${1:-}" == --force ]] && force=1
     setd="$(set_dir "$set_name")"
     for k in $(copies_of "$setd"); do
@@ -322,7 +338,7 @@ case "$cmd" in
       fi
       branch="$(meta "$setd/$k" branch)"
       if [[ $force == 0 && -n "$(git -C "$tree" log --oneline "$(meta "$setd/$k" base)..HEAD" 2>/dev/null)" ]] \
-        && ! git -C "$tree" ls-remote --exit-code -q origin "refs/heads/$branch" >/dev/null 2>&1; then
+        && ! pushed "$tree" "$branch"; then
         die "copy $k has commits that are not pushed ($branch); keep $set_name $k --push, or rm --force"
       fi
     done
