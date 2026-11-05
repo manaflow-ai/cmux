@@ -72,8 +72,8 @@ extension AgentIncoming {
                         return Message(sender: sender, text: unsigned(RelayEnvelope.without(words).trimmed, sender))
                     }
                 }
-                guard let preview = thread["preview"]?.nonEmpty else { return [] }
-                return [Message(sender: from, text: RelayEnvelope.withoutHead(preview))]
+                guard let preview = thread["preview"]?.nonEmpty.map(RelayEnvelope.withoutHead), !preview.isEmpty else { return [] }
+                return [Message(sender: from, text: preview)]
             }
             return messages.isEmpty ? nil : AgentIncoming(messages: messages, raw: text)
         case "agent_digest":
@@ -176,7 +176,8 @@ struct RelayEnvelope: Hashable, Sendable {
         let closing = "[end of message \(parsed.id)]"
         guard trimmed.hasSuffix(closing) else { return nil }
         let end = trimmed.index(trimmed.endIndex, offsetBy: -closing.count)
-        guard end > newline else { return nil }
+        // The closing marker is a line of its own; one written inline is the body's own text.
+        guard end > newline, trimmed[trimmed.index(before: end)] == "\n" else { return nil }
         id = parsed.id
         sender = parsed.sender
         body = trimmed[trimmed.index(after: newline)..<end].trimmed
