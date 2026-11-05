@@ -407,7 +407,10 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
             elif gate_index != 0:
                 failures.append(f"{label}: the first step must be the claim gate ({CLAIM_GATE_NAME}) before the checkout's token")
             failures.extend(f"{label}: {why}" for why in twin_failures(jobs, name, owned_reads, workflow))
-            claim = next((index for index, step in enumerate(steps) if CLAIM in str(step.get("run", ""))), None)
+            # The script has to be run, not only named: keychain_guard.CLAIM_INVOCATION, the same anchored
+            # matcher rule 7a uses, so a comment or an echo of the path never stands in for the claim.
+            claim = next((index for index, step in enumerate(steps)
+                          if keychain_guard.runs_the_claim_script(step)), None)
             first_secret = next((index for index, step in enumerate(steps) if "secrets." in json.dumps(step)), None)
             if claim is None:
                 failures.append(f"{label}: routed to owned Macs without a step that runs {CLAIM}")
@@ -1062,6 +1065,81 @@ class GlaedaExclusiveClassTests(unittest.TestCase):
                 self.assertEqual(keychain_guard.owned_route_failures(label, job), [])
                 self.assertNotIn("secrets.", json.dumps(document.get("env") or {}))
                 self.assertTrue(keychain_guard.claim_gated(label, job), "rule 7a must hold for this job")
+
+
+class ClaimInvocationTests(unittest.TestCase):
+    """The claim requirement is satisfied only by running the script, never by the path appearing in text.
+
+    A matcher that took any step whose text contained the path would let a `#` comment, an `echo` of it, a
+    quoted assignment or a longer file name stand in for the claim on an owned Mac, with a signing secret in
+    the next step. Every real call site in the workflows is here too, so the anchoring stays usable."""
+
+    REAL = (
+        f"./{CLAIM}",
+        f"bash {CLAIM}",
+        CLAIM,
+        f"bash .nightly-signing-control/{CLAIM}",
+        f"bash .publish-tooling/{CLAIM}",
+        f"set -euo pipefail\nbash {CLAIM}\n",
+        f"bash {CLAIM}  # hold the mini",
+        f"CMUX_SIGNING_KEYCHAIN=cmux-signing bash {CLAIM}",
+    )
+    FAKE = (
+        f"# bash {CLAIM}",
+        f"echo 'the first step checks that claim ({CLAIM})'",
+        f"  #   {CLAIM}",
+        f"echo {CLAIM}",
+        f"printf '%s\\n' {CLAIM}",
+        f'CLAIM_SCRIPT="{CLAIM}"',
+        f"echo \"ran {CLAIM}\" >> \"$GITHUB_STEP_SUMMARY\"",
+        f"bash {CLAIM}.bak",
+        f"bash {CLAIM}im",
+        f"grep -q claim {CLAIM} || exit 1",
+    )
+
+    def test_a_real_invocation_counts(self) -> None:
+        for run in self.REAL:
+            with self.subTest(run=run):
+                self.assertTrue(keychain_guard.runs_the_claim_script({"run": run}))
+
+    def test_the_path_in_text_does_not_count(self) -> None:
+        for run in self.FAKE:
+            with self.subTest(run=run):
+                self.assertFalse(keychain_guard.runs_the_claim_script({"run": run}))
+
+    def test_every_workflow_call_site_is_a_real_invocation(self) -> None:
+        """Every `run:` in the tree that names the script actually runs it, so the anchoring breaks no call site.
+
+        No step names it without running it today (nightly.yml's one prose mention is a YAML comment, not step
+        text); should one appear, it must be a `#` comment line, which the matcher rightly ignores."""
+        ran = commented = 0
+        for workflow, document in workflows().items():
+            for name, job in ((document.get("jobs") or {})).items():
+                if not isinstance(job, dict):
+                    continue
+                for step in keychain_guard.inline_step_scripts(job).get("steps") or []:
+                    if not isinstance(step, dict) or CLAIM not in str(step.get("run", "")):
+                        continue
+                    if keychain_guard.runs_the_claim_script(step):
+                        ran += 1
+                    else:
+                        commented += 1
+                        for line in str(step.get("run", "")).splitlines():
+                            if CLAIM in line:
+                                self.assertRegex(line.strip(), r"^#", f"{workflow} {name}: names {CLAIM} "
+                                                 "without running it, and not in a comment")
+        self.assertGreaterEqual(ran, 5, "no workflow runs the claim script: is this the right tree?")
+        self.assertEqual(commented, 0, "a step names the claim script without running it")
+
+    def test_a_gated_job_whose_claim_is_only_a_comment_fails_rule_7a(self) -> None:
+        job = {"runs-on": OwnedRouteVariableTests.RUNS_ON,
+               "steps": [{"name": CLAIM_GATE_NAME, "id": CLAIM_GATE_ID, "shell": "bash",
+                          "run": claim_gate_for("nightly.yml")},
+                         {"run": f"# bash {CLAIM}\necho held"},
+                         OwnedRouteVariableTests.SPARKLE]}
+        found: list[str] = []
+        keychain_guard.check_job("nightly.yml generate-nightly-deltas", job, found)
+        self.assertTrue(any(f"without a step that runs {CLAIM}" in why for why in found), found)
 
 
 class OwnedRouteVariableTests(unittest.TestCase):
