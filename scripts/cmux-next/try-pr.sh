@@ -28,7 +28,7 @@
 # names one.
 #
 # --live-code LOG: APP is a live code build (docs/cmux-next/live-code.md) and LOG its reload.sh log.
-# A swift-live PR whose changes are edits to CmuxNextApp's existing Swift files is then applied with
+# A swift-live PR whose changes are edits to existing Swift files of the CmuxNext modules is then applied with
 # no build: the PR's diff goes onto APP's commit (CMUXCommit; a build stamped CMUXCommitDirty, or with
 # none, is refused) in a scratch worktree, is sorted again
 # there, and scripts/live-code/patch.py compiles those files against the build into the copy's
@@ -212,9 +212,11 @@ live_swift() {
   if ! git -C "$src" add -A || ! changed="$(git -C "$src" diff --cached --name-status "$commit")"; then
     drop; echo "live code: the PR's change could not be read in the scratch worktree"; return 1
   fi
-  bad="$(awk -F'\t' '$1 != "M" || $2 !~ /^Packages\/macOS\/CmuxNext\/Sources\/CmuxNextApp\/.*\.swift$/ { print $NF }' <<<"$changed")"
+  # Every CmuxNext module is patchable in a live code build (scripts/live-code/lib/xcodebuild-args.sh);
+  # patch.py compiles each file with its own module's command.
+  bad="$(awk -F'\t' '$1 != "M" || $2 !~ /^Packages\/macOS\/CmuxNext\/Sources\/CmuxNext[A-Za-z0-9_]*\/.*\.swift$/ { print $NF }' <<<"$changed")"
   if [[ -n "$bad" ]]; then
-    drop; echo "live code takes only edits to CmuxNextApp's existing Swift files; not: $(tr '\n' ' ' <<<"$bad")"; return 1
+    drop; echo "live code takes only edits to the CmuxNext modules' existing Swift files; not: $(tr '\n' ' ' <<<"$bad")"; return 1
   fi
   # Sorted again against the build's own commit (the PR's base may be newer or older).
   if ! tree_id="$(git -C "$src" write-tree)" ||
@@ -237,7 +239,7 @@ live_swift() {
     fi
   fi
   log="$live_dir/live-code.log"; offset="$(stat -c %s "$log" 2>/dev/null || stat -f %z "$log" 2>/dev/null || echo 0)"
-  if ! patch="$(python3 "$ROOT/scripts/live-code/patch.py" --log "$live_log" --module CmuxNextApp --live "$live_dir" --tree "$src" "${files[@]}")"; then
+  if ! patch="$(python3 "$ROOT/scripts/live-code/patch.py" --log "$live_log" --live "$live_dir" --tree "$src" "${files[@]}")"; then
     drop; echo "live code: the patch did not compile against the build"; return 1
   fi
   drop

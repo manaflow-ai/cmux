@@ -7985,6 +7985,17 @@
             }
           },
           "description": "The `closed.list` groups this call stored, oldest first; `closed.reopen` of each restores exactly what it closed. Absent only on a replay of a call committed before the field existed."
+        },
+        "gone_ids": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "With `layout-bulk-bare-v1`, a `selection`'s ids that were already gone when the call came: closed, as asked, never a refusal. Absent from an older daemon."
         }
       },
       "extra": false
