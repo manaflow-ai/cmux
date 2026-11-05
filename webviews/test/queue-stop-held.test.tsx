@@ -50,14 +50,14 @@ const held = [
 ];
 const edits: [string, unknown][] = [];
 
-async function draw(reason?: string) {
+async function draw(reason?: string, queue: readonly object[] = held) {
   const { createRoot } = await import("react-dom/client");
   const { ComposerQueue } = await import("../src/agent-session/acpmux/ComposerQueue");
   root ??= createRoot(host);
   await act(async () =>
     root!.render(
       <ComposerQueue
-        queue={held as never}
+        queue={queue as never}
         paused
         {...(reason ? { pauseReason: reason } : {})}
         t={translatorFor("en")}
@@ -88,4 +88,12 @@ test("Resume sends the queue the Stop held, from its first prompt", async () => 
   const resume = host.querySelector<HTMLButtonElement>(".acpmux-queue-resume")!;
   await act(async () => resume.click());
   expect(edits).toEqual([["q1", { op: "resume" }]]);
+});
+
+test("a Stop that held only another agent's message still says the queue was stopped", async () => {
+  const message = { id: "m1", prompt: "build is green", heldByStop: true, message: { from: "builder", text: "build is green" } };
+  await draw("429 rate limited", [message]);
+  const note = host.querySelector(".acpmux-queue-paused");
+  expect(note?.textContent).toContain("Stopped. These wait for you to send them");
+  expect(note?.textContent).not.toContain("429");
 });

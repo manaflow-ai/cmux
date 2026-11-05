@@ -650,7 +650,8 @@ export function ComposerQueue({
   if (shown.length === 0 && !(paused && queue.length > 0)) return null;
   // The person's Stop holds their own queued prompts (acpmux hub/cancel.rs): the note says they wait
   // for the person to send them, never a failed turn's error.
-  const stopped = paused && shown.some((entry) => entry.heldByStop);
+  // Read from the whole queue: a Stop that held only other agents' messages still says so.
+  const stopped = paused && queue.some((entry) => entry.heldByStop);
   // Prompts sent now come first: queued prompts count from after them.
   const steering = shown.filter((entry) => entry.next).length;
   // A long queue folds to its next prompts; the rows shown are always the first ones, in order.
