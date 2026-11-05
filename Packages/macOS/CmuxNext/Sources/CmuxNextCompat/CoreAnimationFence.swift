@@ -136,6 +136,59 @@ public nonisolated final class CoreAnimationFence: @unchecked Sendable {
     }
 }
 
+/// SPIKE: one parseable `FENCE-PROBE {json}` line on stderr (a DEV build's app.log), for the Tart OS matrix. `phase`
+/// "launch" passes no layer (selectors only); "first_window" passes the first window's content layer: the main thread
+/// puts a fence in its current transaction (no wait), and a plain thread joins it in its own transaction, commits and
+/// releases the port, as the terminal's off-main present would. With no fence on this OS, `fallback` is true and
+/// nothing else runs. The main thread never blocks: the join, the release and the write all happen off main.
+public nonisolated struct CoreAnimationFenceLaunchProbe: Sendable {
+    /// The line's `phase` field.
+    public let phase: String
+
+    public init(phase: String) {
+        self.phase = phase
+    }
+
+    public func run(layer: CALayer?) {
+        let phase = phase
+        let found = CoreAnimationFence.probe(layer: layer)
+        let fence = layer.flatMap { CoreAnimationFence(contextOf: $0) }
+        let port = fence?.createFencePort()
+        let info = ProcessInfo.processInfo.operatingSystemVersion
+        let os = "\(info.majorVersion).\(info.minorVersion).\(info.patchVersion)"
+        let hadLayer = layer != nil
+        let flags: [String: Bool] = [
+            "createFencePort": found["-[CAContext createFencePort]"] ?? false,
+            "setFencePort": found["-[CAContext setFencePort:]"] ?? false,
+            "invalidateFences": found["-[CAContext invalidateFences]"] ?? false,
+            "remoteContext": found["+[CAContext remoteContextWithOptions:]"] ?? false,
+            "layerHost": found["-[CALayerHost setContextId:]"] ?? false,
+            "layer_context": found["layer.context non-nil"] ?? false,
+            "fallback": hadLayer && fence == nil,
+        ]
+        let thread = Thread {
+            var line: [String: Any] = flags
+            line["phase"] = phase
+            line["os"] = os
+            if let fence, let port {
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                fence.join(port)
+                CATransaction.commit()
+                CoreAnimationFence.release(port)
+                line["fence_ok"] = true
+            } else if !hadLayer {
+                line["fence_ok"] = "not_tried"
+            } else {
+                line["fence_ok"] = fence == nil ? "fallback" : false
+            }
+            let data = (try? JSONSerialization.data(withJSONObject: line, options: [.sortedKeys])) ?? Data()
+            fputs("FENCE-PROBE \(String(decoding: data, as: UTF8.self))\n", stderr)
+        }
+        thread.start()
+    }
+}
+
 /// SPIKE: a layer tree in its own CAContext, shown in a window's tree through a `CALayerHost`, as WebKit's and
 /// Chromium's remote layers are, in one process. A fence made from ``fence`` holds only this context's commits.
 /// nil when this OS lacks a selector or class.

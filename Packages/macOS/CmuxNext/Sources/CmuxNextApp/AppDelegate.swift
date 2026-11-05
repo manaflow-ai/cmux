@@ -183,6 +183,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), files: services.agentPaneStateFiles)
         #if DEBUG || CMUX_BENCH_HOOKS
         services.windowRecord.watchLaunch() // `--record-launch`: before the first window is made
+        // SPIKE (scratch/frame-owner-s4-fence-spike-nomerge): Core Animation fence selectors, then a real fence on the
+        // first window's context, logged as FENCE-PROBE lines for the Tart OS matrix.
+        CoreAnimationFenceLaunchProbe(phase: "launch").run(layer: nil)
+        firstFrame.whenOpen {
+            let window = NSApp.windows.first { $0.isVisible && $0.contentView?.layer != nil }
+            CoreAnimationFenceLaunchProbe(phase: "first_window").run(layer: window?.contentView?.layer)
+        }
         #endif
         // Hangs, lag spikes and opt-in hang reports (WatchdogReporting); the controller lives with the process.
         AppProcessRoot.shared.adopt(hangReports: WatchdogReporting.install(control.watchdog, services: services))
