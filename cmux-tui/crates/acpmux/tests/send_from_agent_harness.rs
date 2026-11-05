@@ -103,7 +103,9 @@ fn a_plain_send_from_a_codex_shell_is_that_agents_message_and_an_unnamed_one_is_
         provenance["fromName"].as_str().is_some_and(|name| name.starts_with("codex@")),
         "{provenance}"
     );
-    assert_eq!(provenance["fromHarness"], "codex", "{provenance}");
+    // Its harness is only its claim: a label for its card, beside who the daemon knows sent it.
+    assert_eq!(provenance["claimed"]["fromHarness"], "codex", "{provenance}");
+    assert!(provenance.get("fromHarness").is_none(), "{provenance}");
 
     assert_eq!(provenance["verified"], false, "{provenance}");
     assert_eq!(provenance["transport"], "unix", "{provenance}");

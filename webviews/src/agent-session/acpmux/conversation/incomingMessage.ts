@@ -348,7 +348,10 @@ function promptOf(
   const remote = String(msg?.client ?? "").startsWith("acpmux-peer#") ? { remote: true as const } : {};
   // The sender's harness, model and effort, when acpmux names them (a relayed message's sender is
   // not listed here).
-  const fromHarness = trimmed(provenance?.fromHarness) ?? trimmed(msg?.fromHarness);
+  // A local sender's own word for its harness is only its claim (`claimed.fromHarness`), still the
+  // mark its card draws.
+  const claimed = provenance?.claimed as Record<string, unknown> | undefined;
+  const fromHarness = trimmed(provenance?.fromHarness) ?? trimmed(claimed?.fromHarness) ?? trimmed(msg?.fromHarness);
   const fromModel = trimmed(provenance?.fromModel) ?? trimmed(msg?.fromModel);
   const fromEffort = trimmed(provenance?.fromEffort) ?? trimmed(msg?.fromEffort);
   const edited = provenance?.editedBy ? { edited: true as const } : {};

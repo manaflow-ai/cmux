@@ -321,6 +321,22 @@ pub fn unverified(to: &str, transport: &str, claimed: Map<String, Value>) -> Val
     out
 }
 
+/// `provenance` with labels its sender claimed ([`CLAIMED`]), beside any it had.
+pub fn with_claimed<'a>(
+    mut provenance: Value,
+    labels: impl IntoIterator<Item = (&'a str, String)>,
+) -> Value {
+    if let Some(fields) = provenance.as_object_mut() {
+        let claimed = fields.entry(CLAIMED).or_insert_with(|| json!({}));
+        if let Some(claimed) = claimed.as_object_mut() {
+            for (key, value) in labels {
+                claimed.insert(key.to_owned(), json!(value));
+            }
+        }
+    }
+    provenance
+}
+
 /// `provenance` with `verified` false unless the daemon set it, and the transport it came over.
 pub fn observed(mut provenance: Value, transport: &str) -> Value {
     if let Some(fields) = provenance.as_object_mut() {
@@ -346,6 +362,14 @@ pub fn edited_by(mut provenance: Value, editor: crate::author::Editor<'_>) -> Va
         fields.insert(EDITED_BY.to_owned(), by);
     }
     provenance
+}
+
+/// Whether `provenance` is [`UNVERIFIED_KIND`]: no one's for sure. It is never the person's (no
+/// protected hold goes on for it, `hub/turns.rs`, and the apps draw no person's bubble), and it names
+/// no other sender either, so what acpmux does for an unnamed prompt's activity (the person's
+/// presence, the CLI host on its record, a withdraw's refusal) stays as it was.
+pub fn is_unverified(provenance: Option<&Value>) -> bool {
+    provenance.and_then(|p| p.get("kind")).and_then(Value::as_str) == Some(UNVERIFIED_KIND)
 }
 
 /// Who passed the prompt on to this daemon when its sender is elsewhere: `{actor: "peer"}` and the

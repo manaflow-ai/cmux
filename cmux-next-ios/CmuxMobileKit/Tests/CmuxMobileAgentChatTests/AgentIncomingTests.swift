@@ -54,6 +54,9 @@ import Testing
         let incoming = AgentIncoming.parse(text: text, provenance: provenance)
         #expect(incoming?.messages == [.init(sender: "codex@workstation", text: text)])
         #expect(incoming?.harness == "codex")
+        // acpmux now keeps a local sender's harness as its claim: still the card's mark.
+        let claimed = try json(#"{"kind":"agent_message","from":"fromAgent","fromName":"codex@workstation","to":"s-1","claimed":{"fromHarness":"codex"}}"#)
+        #expect(AgentIncoming.parse(text: text, provenance: claimed)?.harness == "codex")
     }
 
     @Test func aPromptAcpmuxCouldNotAttributeIsAnUnverifiedCardNeverThePersons() throws {

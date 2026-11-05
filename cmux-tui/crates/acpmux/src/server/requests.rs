@@ -1628,13 +1628,20 @@ async fn dispatch_request_with_identity(
                 let name = declared
                     .as_deref()
                     .filter(|name| conn.origin == super::Origin::Peer || *name != own)?;
-                // An agent harness's own shell says its harness too (`cli/sender.rs`); a peer's
-                // is bound below instead.
+                // An agent harness's own shell says its harness too (`cli/sender.rs`): only its
+                // claim (`claimed.fromHarness`); a peer's is bound below instead.
                 let named = crate::prompt_provenance::named_sender(name, &s.id);
                 let harness = (conn.origin == super::Origin::Local)
                     .then(|| crate::prompt_provenance::declared_harness(&params))
-                    .flatten();
-                Some(crate::prompt_provenance::stamp_sender(named, harness.as_ref()))
+                    .flatten()
+                    .and_then(|declared| declared.harness);
+                Some(match harness {
+                    Some(harness) => crate::prompt_provenance::with_claimed(
+                        named,
+                        [(crate::prompt_provenance::FROM_HARNESS, harness)],
+                    ),
+                    None => named,
+                })
             });
             let provenance =
                 stamp_bound_sender(hub, conn, &s.id, &params, provenance, person_message);
@@ -1651,6 +1658,14 @@ async fn dispatch_request_with_identity(
             let provenance = match provenance {
                 Some(p) => Some(crate::prompt_provenance::observed(p, transport)),
                 None if person_admitted(conn, &params) => None,
+                // A proven session's note to itself: that session's, as the daemon knows.
+                None if conn.caller() == Some(s.id.as_str()) => {
+                    let name = hub.session_name(&s.id);
+                    Some(crate::prompt_provenance::observed(
+                        crate::prompt_provenance::session_message(&s.id, &name, &s.id),
+                        transport,
+                    ))
+                }
                 None => Some(crate::prompt_provenance::unverified(
                     &s.id,
                     transport,
@@ -1821,7 +1836,11 @@ async fn dispatch_request_with_identity(
                         given_provenance,
                     ),
             };
-            let agent_message = opts.provenance.is_some() && !person_message;
+            // An unverified prompt names no other sender: its activity is counted as an
+            // unnamed prompt's was (`prompt_provenance::is_unverified`).
+            let agent_message = opts.provenance.is_some()
+                && !crate::prompt_provenance::is_unverified(opts.provenance.as_ref())
+                && !person_message;
             super::agent_messages::person_prompt(hub, conn, &s, agent_message).await;
             // The person's own `acpmux send` names the machine it ran on (`cli/sender.rs`): the
             // recorded client says it (`acpmux-cli#…@big-red`), and the transcript shows "via CLI on

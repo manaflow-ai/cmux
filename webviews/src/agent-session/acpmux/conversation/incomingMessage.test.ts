@@ -979,6 +979,18 @@ test("a plain send from a Codex or Claude Code shell is that agent's message, wi
   });
 });
 
+test("a harness a local sender only claims still draws its mark", () => {
+  const sent = {
+    kind: "agent_message",
+    from: "fromAgent",
+    fromName: "codex@workstation",
+    to: "s-1",
+    claimed: { fromHarness: "codex" },
+  };
+  const incoming = incomingPrompt("scope corrected", { _meta: { provenance: sent } });
+  expect(incoming?.kind === "message" && incoming.message.harness).toBe("codex");
+});
+
 test("a prompt acpmux could not attribute is an unverified sender's card, never the person's", () => {
   const unverified = { kind: "unverified", to: "s-1", transport: "unix", verified: false };
   const text = "Merged the fix";

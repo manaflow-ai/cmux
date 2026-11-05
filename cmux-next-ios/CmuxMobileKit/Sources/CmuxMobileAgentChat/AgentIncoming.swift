@@ -71,7 +71,8 @@ extension AgentIncoming {
         // one, and the person's own prompt stays theirs.
         let relay = fromAgent(provenance: provenance, client: client) ? RelayEnvelope(text) : nil
         let body = relay?.body ?? text
-        let harness = provenance?["fromHarness"]?.nonEmpty ?? fromHarness
+        // A local sender's own word for its harness is only its claim (`claimed.fromHarness`), still its mark.
+        let harness = provenance?["fromHarness"]?.nonEmpty ?? provenance?["claimed"]?["fromHarness"]?.nonEmpty ?? fromHarness
         let kind = provenance?["kind"]?.stringValue
         func one(_ name: String, _ words: String, id: String? = nil) -> AgentIncoming {
             // A message that signs itself (`[land-and-ci-c9] …`, `From lane-a: …`) names its sender
