@@ -446,16 +446,23 @@ fn diag_tab_cost_growth() {
             open_chat_tab(&mux, others[i % others.len()], format!("grow-{round}-{i}"));
         }
         let mut costs = Vec::new();
+        let mut off = Vec::new();
         for i in 0..5 {
             let started = Instant::now();
             open_chat_tab(&mux, one, format!("probe-{round}-{i}"));
             costs.push(started.elapsed().as_secs_f64() * 1000.0);
+            let started = Instant::now();
+            crate::mux::resource_content::scoped_projection::without_crosscheck(|| {
+                open_chat_tab(&mux, one, format!("probe-off-{round}-{i}"));
+            });
+            off.push(started.elapsed().as_secs_f64() * 1000.0);
         }
         costs.sort_by(f64::total_cmp);
+        off.sort_by(f64::total_cmp);
         let surfaces = mux.with_state(|state| state.surfaces.len());
         lines.push(format!(
-            "DIAGGROW round={round} surfaces={surfaces} median={:.2}ms max={:.2}ms",
-            costs[2], costs[4]
+            "DIAGGROW round={round} surfaces={surfaces} median={:.2}ms max={:.2}ms off_median={:.2}ms off_max={:.2}ms",
+            costs[2], costs[4], off[2], off[4]
         ));
     }
     mux.shutdown();
