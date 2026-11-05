@@ -264,6 +264,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var terminalFontFamily: String?
     /// `terminal.fontSize` in points; nil (the Ghostty config's size) when unset or invalid.
     public var terminalFontSize: Double?
+    /// `terminal.term`: the `TERM` new local terminals start with; `xterm-256color` when unset or invalid.
+    public var terminalTerm: TerminalTerm = TerminalTermSetting.fallback
     /// `history.terminalCommands` (opt-in terminal command history).
     public var recordsTerminalCommands: Bool = TerminalCommandHistorySetting.fallback
     /// `navigation.historyScope`: what Back and Forward walk (`workspace`, `window`, `surface`).
@@ -353,6 +355,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(BrowserLinkClickSetting.parse(root), \.browserLinkClicks)
         snapshot.take(LinkRouting.parse(root), \.linkRouting)
         snapshot.take(TerminalLinkOpener.parse(root), \.terminalLinkOpener)
+        snapshot.take(TerminalTermSetting.parse(root), \.terminalTerm)
         snapshot.take(TextEditorSetting.parse(root), \.textEditor)
         snapshot.take(RemoteLocalhostSetting.parse(root), \.remoteLocalhost)
         let paneChrome = PaneChromeConfigParser.parse(root)
