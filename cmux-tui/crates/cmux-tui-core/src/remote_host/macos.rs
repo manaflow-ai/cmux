@@ -1,10 +1,10 @@
 //! macOS parts of cmux Remote: the staged copy of the signed bundle, the
 //! responsibility-disclaimed spawn, and process identity checks.
 
+use cmux_process::{Command, Stdio};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
-use cmux_process::{Command, Stdio};
 use std::time::Duration;
 
 use serde_json::Value;
@@ -32,10 +32,16 @@ pub(super) struct Staged {
 /// of the app whose `Contents/Resources/bin` holds this daemon.
 fn embedded() -> Result<PathBuf, String> {
     if let Some(path) = std::env::var_os("CMUX_REMOTE_APP").map(PathBuf::from) {
-        return path.is_dir().then_some(path).ok_or_else(|| "CMUX_REMOTE_APP is not a bundle".into());
+        return path
+            .is_dir()
+            .then_some(path)
+            .ok_or_else(|| "CMUX_REMOTE_APP is not a bundle".into());
     }
     let exe = std::env::current_exe().map_err(|error| format!("{error}"))?;
-    let contents = exe.parent().and_then(Path::parent).and_then(Path::parent)
+    let contents = exe
+        .parent()
+        .and_then(Path::parent)
+        .and_then(Path::parent)
         .ok_or("the daemon is not inside an app bundle")?;
     BUNDLE_NAMES
         .iter()
@@ -47,8 +53,13 @@ fn embedded() -> Result<PathBuf, String> {
 fn digest_of(app: &Path) -> Result<String, String> {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
-    for part in ["Contents/MacOS/cmux-remote", "Contents/_CodeSignature/CodeResources", "Contents/Info.plist"] {
-        let mut file = std::fs::File::open(app.join(part)).map_err(|error| format!("{part}: {error}"))?;
+    for part in [
+        "Contents/MacOS/cmux-remote",
+        "Contents/_CodeSignature/CodeResources",
+        "Contents/Info.plist",
+    ] {
+        let mut file =
+            std::fs::File::open(app.join(part)).map_err(|error| format!("{part}: {error}"))?;
         let mut buffer = vec![0_u8; 1 << 20];
         loop {
             let count = file.read(&mut buffer).map_err(|error| format!("{part}: {error}"))?;
@@ -134,7 +145,9 @@ pub(super) fn stage(state: &Path) -> Result<Staged, String> {
             return Err("cannot copy cmux Remote out of the app".into());
         }
         if let Err(error) = verify(&copy).and_then(|()| {
-            (digest_of(&copy)? == digest).then_some(()).ok_or("the copy differs from the embedded bundle".into())
+            (digest_of(&copy)? == digest)
+                .then_some(())
+                .ok_or("the copy differs from the embedded bundle".into())
         }) {
             let _ = std::fs::remove_dir_all(&temporary);
             return Err(error);
@@ -154,7 +167,10 @@ fn prune(root: &Path, current: &Path) {
     let mut others: Vec<(std::time::SystemTime, PathBuf)> = entries
         .filter_map(Result::ok)
         .map(|entry| entry.path())
-        .filter(|path| path != current && !path.file_name().is_some_and(|name| name.to_string_lossy().starts_with('.')))
+        .filter(|path| {
+            path != current
+                && !path.file_name().is_some_and(|name| name.to_string_lossy().starts_with('.'))
+        })
         .filter_map(|path| Some((std::fs::metadata(&path).ok()?.modified().ok()?, path)))
         .collect();
     others.sort();
@@ -168,7 +184,12 @@ fn prune(root: &Path, current: &Path) {
 /// process: macOS checks its grants as cmux Remote's), in its own session,
 /// with the bootstrap line on fd 3, and waits for its `ready` line. Without
 /// the disclaim it does not start: the grants would belong to cmux.
-pub(super) fn spawn_host(staged: &Staged, paths: &Paths, bootstrap: &Value, ready_timeout: Duration) -> Result<u32, String> {
+pub(super) fn spawn_host(
+    staged: &Staged,
+    paths: &Paths,
+    bootstrap: &Value,
+    ready_timeout: Duration,
+) -> Result<u32, String> {
     let worker_state = paths.state.join("worker");
     std::fs::create_dir_all(&paths.runtime).map_err(|error| format!("{error}"))?;
     {
@@ -180,7 +201,8 @@ pub(super) fn spawn_host(staged: &Staged, paths: &Paths, bootstrap: &Value, read
         .append(true)
         .open(paths.log())
         .map_err(|error| format!("{}: {error}", paths.log().display()))?;
-    let (bootstrap_read, bootstrap_write) = std::io::pipe().map_err(|error| format!("pipe: {error}"))?;
+    let (bootstrap_read, bootstrap_write) =
+        std::io::pipe().map_err(|error| format!("pipe: {error}"))?;
     let mut command = Command::new(&staged.executable);
     command
         .args(["host", "--layout-dir"])
@@ -206,7 +228,8 @@ pub(super) fn spawn_host(staged: &Staged, paths: &Paths, bootstrap: &Value, read
     }
     use std::os::fd::AsFd;
     command.inherit_fd(bootstrap_read.as_fd(), 3).map_err(|error| format!("{error}"))?;
-    let mut child = command.spawn().map_err(|error| format!("cmux Remote did not start: {error}"))?;
+    let mut child =
+        command.spawn().map_err(|error| format!("cmux Remote did not start: {error}"))?;
     drop(bootstrap_read);
     let pid = child.id();
     let stdout = child.stdout.take().ok_or("cmux Remote has no stdout")?;
@@ -238,7 +261,13 @@ pub(super) fn process_start(pid: u32) -> Option<(u64, u64)> {
     let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
     // SAFETY: proc_pidinfo into a correctly sized buffer.
     let read = unsafe {
-        libc::proc_pidinfo(pid as libc::c_int, libc::PROC_PIDTBSDINFO, 0, (&raw mut info).cast(), size)
+        libc::proc_pidinfo(
+            pid as libc::c_int,
+            libc::PROC_PIDTBSDINFO,
+            0,
+            (&raw mut info).cast(),
+            size,
+        )
     };
     (read == size).then_some((info.pbi_start_tvsec, info.pbi_start_tvusec))
 }

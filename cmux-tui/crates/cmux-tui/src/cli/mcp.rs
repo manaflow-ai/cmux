@@ -180,7 +180,11 @@ pub(super) trait Backend {
     ) -> Result<Value, CallFailure>;
     /// One legacy daemon command (cmux Remote's `remote-host-*`).
     fn daemon(&self, _request: Value) -> Result<Value, CallFailure> {
-        Err(CallFailure::local(FailureKind::NotRun, "daemon.unavailable", "this server cannot reach the daemon"))
+        Err(CallFailure::local(
+            FailureKind::NotRun,
+            "daemon.unavailable",
+            "this server cannot reach the daemon",
+        ))
     }
     /// One harness-agnostic agent dispatch request. The acpmux daemon owns
     /// target selection, brief persistence and sender attribution; this
@@ -354,7 +358,8 @@ impl Backend for LiveBackend {
         if let Some(fields) = request.as_object_mut() {
             fields.insert("id".into(), json!(1));
         }
-        super::remote_host::daemon_value(&self.global, &request).map_err(remote_tools::daemon_failure)
+        super::remote_host::daemon_value(&self.global, &request)
+            .map_err(remote_tools::daemon_failure)
     }
 
     fn resource(

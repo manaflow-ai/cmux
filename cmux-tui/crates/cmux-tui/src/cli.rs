@@ -111,13 +111,13 @@ pub(crate) use machine_server::is_lifecycle_scope;
 #[cfg(unix)]
 mod mcp;
 mod raw;
+#[cfg(unix)]
+mod remote_host;
 mod resolve;
 mod scope_help;
 mod screen_help;
 #[cfg(unix)]
 mod script;
-#[cfg(unix)]
-mod remote_host;
 #[cfg(unix)]
 mod setup;
 #[cfg(unix)]
@@ -407,8 +407,19 @@ pub(crate) fn rewrite_deprecated_server_lifecycle(args: &mut Vec<String>) {
 /// the parser whose `help <scope>` knows only its own scopes, so `cmux help
 /// agents` answered "unknown resource scope".
 pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
-    "agents", "chats", "harness", "remote", "script", "host", "github", "avatar", "chief", "setup",
-    "device", "workflow", "remote-host",
+    "agents",
+    "chats",
+    "harness",
+    "remote",
+    "script",
+    "host",
+    "github",
+    "avatar",
+    "chief",
+    "setup",
+    "device",
+    "workflow",
+    "remote-host",
 ];
 
 /// Rewrites `cmux help <scope>` to the scope's own help (`cmux <scope>

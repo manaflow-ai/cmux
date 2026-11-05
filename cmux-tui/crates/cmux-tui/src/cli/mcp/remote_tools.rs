@@ -112,8 +112,11 @@ impl RemoteTool {
             "remote_status" => json!({"cmd": "remote-host-status"}),
             "remote_refresh" => call("refresh", json!({})),
             "remote_request_permission" | "remote_open_settings" => {
-                let Some(permission) = text("permission") else { return invalid("permission is required") };
-                let method = if self.name == "remote_open_settings" { "open_settings" } else { "request" };
+                let Some(permission) = text("permission") else {
+                    return invalid("permission is required");
+                };
+                let method =
+                    if self.name == "remote_open_settings" { "open_settings" } else { "request" };
                 call(method, json!({"permission": permission}))
             }
             "remote_restart" => {
@@ -130,10 +133,18 @@ impl RemoteTool {
                 let (Some(device), Some(scope)) = (text("device"), text("scope")) else {
                     return invalid("device and scope are required");
                 };
-                match backend.daemon(call("screen.access", json!({"device": device, "scope": scope}))) {
+                match backend
+                    .daemon(call("screen.access", json!({"device": device, "scope": scope})))
+                {
                     Ok(value) => return success(value, true),
-                    Err(failure) if failure.error.get("code").and_then(Value::as_str) == Some("origin.forbidden") => {
-                        return confirm(backend, json!({"action": "access", "device": device, "scope": scope}));
+                    Err(failure)
+                        if failure.error.get("code").and_then(Value::as_str)
+                            == Some("origin.forbidden") =>
+                    {
+                        return confirm(
+                            backend,
+                            json!({"action": "access", "device": device, "scope": scope}),
+                        );
                     }
                     Err(failure) => return failure_result(failure),
                 }
@@ -162,7 +173,9 @@ fn confirm(backend: &impl Backend, params: Value) -> Value {
 /// A daemon command's failure in the tools' shape.
 pub(super) fn daemon_failure(error: Value) -> CallFailure {
     let code = error.get("code").and_then(Value::as_str).unwrap_or("request.rejected").to_string();
-    let message = error.get("message").and_then(Value::as_str).unwrap_or("request rejected").to_string();
-    let kind = if code.starts_with("transport.") { FailureKind::NotRun } else { FailureKind::Rejected };
+    let message =
+        error.get("message").and_then(Value::as_str).unwrap_or("request rejected").to_string();
+    let kind =
+        if code.starts_with("transport.") { FailureKind::NotRun } else { FailureKind::Rejected };
     CallFailure::local(kind, &code, message)
 }
