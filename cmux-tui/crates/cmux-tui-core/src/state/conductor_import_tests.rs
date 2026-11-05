@@ -284,7 +284,9 @@ fn conductor_import_record_keeps_an_open_done_workspace() {
         json!({"workspace": "w-lima", "stage": "done", "cmux_workspace": "ws-first"}),
         Some("a-done-earlier"),
     );
-    assert_eq!(error_code(earlier), "validation.invalid");
+    let earlier = earlier.expect_err("a done record over another run's pending one");
+    assert_eq!(earlier.code, "validation.invalid");
+    assert_eq!(earlier.details["field"], "cmux_workspace", "{earlier:?}");
 
     let first = open_workspace(&mux);
     mutate(

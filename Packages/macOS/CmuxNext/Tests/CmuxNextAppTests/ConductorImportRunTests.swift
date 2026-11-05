@@ -21,6 +21,9 @@ struct ConductorImportRunTests {
         var closeError: (any Error)?
         var refusedPaths: Set<String> = []
         var refusedStage: ConductorImportStage?
+        var recordError: any Error = DaemonError.command(
+            cmd: "conductor_import.record", message: "taken", code: "validation.invalid",
+            details: CmuxNextDaemon.JSONValue.object(["field": .string("cmux_workspace")]))
         private(set) var closed: [WorkspaceKey] = []
         private(set) var added: [String] = []
         private(set) var records: [(workspace: String, stage: ConductorImportStage)] = []
@@ -42,9 +45,7 @@ struct ConductorImportRunTests {
 
         func record(workspace: String, stage: ConductorImportStage, cmuxWorkspace: String?, runCompleted: Bool,
                     idempotencyKey: String) async throws {
-            if stage == refusedStage {
-                throw DaemonError.command(cmd: "conductor_import.record", message: "taken", code: "validation.invalid")
-            }
+            if stage == refusedStage { throw recordError }
             records.append((workspace, stage))
         }
     }
@@ -124,6 +125,19 @@ struct ConductorImportRunTests {
         await #expect(throws: DaemonError.self) { _ = try await Self.run(daemon, host, Preview()) }
         #expect(host.opened == ["/w/w1"])
         #expect(daemon.closed.count == 1)
+    }
+
+    /// A done record that fails any other way (a timeout, a dropped connection) may have been kept:
+    /// the workspace stays open, and the ledger's pending entry still names it for the next run.
+    @Test func anUncertainDoneRecordFailureKeepsTheWorkspace() async throws {
+        let daemon = Daemon(try Self.reply([Self.project("r1", [Self.workspace("w1", kind: "adopt", checked: true)])]))
+        daemon.listed = ["/src/r1"]
+        daemon.refusedStage = .done
+        daemon.recordError = Broke()
+        let host = Host()
+        await #expect(throws: Broke.self) { _ = try await Self.run(daemon, host, Preview()) }
+        #expect(host.opened == ["/w/w1"])
+        #expect(daemon.closed.isEmpty)
     }
 
     /// A repository that cannot be added keeps its workspaces unrecorded (Import Again offers

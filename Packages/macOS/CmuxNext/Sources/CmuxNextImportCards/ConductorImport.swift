@@ -120,10 +120,12 @@ public struct ConductorImport {
                 try await daemon.record(workspace: id, stage: .done, cmuxWorkspace: made,
                                         runCompleted: failedProjects.isEmpty && index == adopting.count - 1,
                                         idempotencyKey: "conductor-import-\(run)-\(id)-done")
-            } catch {
-                // Refused when another run took this workspace after this one's pending record: its
-                // workspace is the one the ledger keeps, so this one closes rather than stay a duplicate.
-                try? await daemon.closeWorkspace(key)
+            } catch let error as DaemonError where error.isConductorImportConflict {
+                // Another run took this workspace after this one's pending record: its workspace is
+                // the one the ledger keeps, so this one closes rather than stay a duplicate. Any other
+                // failure may have come after the record was kept, so nothing closes: the ledger's
+                // pending entry still names this workspace, and the next run cleans it up if needed.
+                try await daemon.closeWorkspace(key)
                 throw error
             }
             opened += 1
@@ -178,6 +180,15 @@ public struct ConductorImport {
     private static func toast(_ message: String) {
         guard let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
         _ = CmuxToastCenter.shared.show(CmuxToast(id: "conductorImport", message: message), in: window)
+    }
+}
+
+extension DaemonError {
+    /// `conductor_import.record`'s refusal of a record whose cmux workspace is not the ledger's
+    /// (`validation.invalid` naming `cmux_workspace`): the record was not kept.
+    var isConductorImportConflict: Bool {
+        guard case .command(_, _, let code?, let details, _) = self, code == "validation.invalid" else { return false }
+        return details?["field"]?.stringValue == "cmux_workspace"
     }
 }
 

@@ -65,11 +65,18 @@ fn usable(load: Load) -> Result<Ledger, String> {
 }
 
 /// `bad request: ...` failures are the caller's input (`validation.invalid`).
+/// A record refused by [`Record::conflict`] names the field `cmux_workspace`:
+/// the one refusal after which the caller knows its workspace is not the
+/// ledger's.
 fn record_error(error: anyhow::Error) -> ResourceError {
-    if error.downcast_ref::<ResourceError>().is_none()
-        && let Some(reason) = error.to_string().strip_prefix("bad request: ")
-    {
-        return ResourceError::validation_invalid(None, reason);
+    if error.downcast_ref::<ResourceError>().is_none() {
+        let message = error.to_string();
+        if let Some(reason) = message.strip_prefix("conflict: ") {
+            return ResourceError::validation_invalid(Some("cmux_workspace"), reason);
+        }
+        if let Some(reason) = message.strip_prefix("bad request: ") {
+            return ResourceError::validation_invalid(None, reason);
+        }
     }
     resource_operation_error(error)
 }
@@ -273,7 +280,7 @@ impl Mux {
                 let mut ledger = usable(store::load(transaction)?)
                     .map_err(|reason| anyhow::anyhow!("bad request: {reason}"))?;
                 if let Some(reason) = record.conflict(&ledger, state) {
-                    anyhow::bail!("bad request: {reason}");
+                    anyhow::bail!("conflict: {reason}");
                 }
                 record.apply(&mut ledger);
                 store::save(transaction, &ledger)?;
