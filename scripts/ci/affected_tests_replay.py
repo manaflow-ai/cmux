@@ -152,14 +152,16 @@ def collect(since: str, until: str, out: Path, max_runs: int, runs_since: str = 
     cache.mkdir(parents=True, exist_ok=True)
     failures, runs_read = [], 0
     for workflow in TEST_WORKFLOWS:
+        runs_in_workflow = 0
         for page in range(1, 11):
             data = json.loads(gh("api", f"repos/{REPO}/actions/workflows/{workflow}/runs?status=failure&event=pull_request"
                                         f"&created={runs_since or since}..{until}&per_page=100&page={page}"))
             for run in data.get("workflow_runs", []):
                 pr = by_branch.get(run["head_branch"]) or next(iter({p["number"] for p in run.get("pull_requests") or []} & numbers), None)
-                if not pr or runs_read >= max_runs:
+                if not pr or runs_in_workflow >= max_runs:
                     continue
                 runs_read += 1
+                runs_in_workflow += 1
                 text = cached_gh(cache, f"jobs-{run['id']}.json", "api", f"repos/{REPO}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100")
                 jobs = json.loads(text)["jobs"] if text else []
                 for job in jobs:
@@ -321,7 +323,7 @@ def main(argv: list[str]) -> int:
     c.add_argument("--since", required=True)
     c.add_argument("--until", default="9999")
     c.add_argument("--out", type=Path, required=True)
-    c.add_argument("--max-runs", type=int, default=400)
+    c.add_argument("--max-runs", type=int, default=400, help="failed runs read per workflow")
     c.add_argument("--runs-since", default="", help="read runs created from here (a PR fails before it merges); default --since")
     k = sub.add_parser("check")
     k.add_argument("failures", type=Path)
