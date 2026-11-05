@@ -698,6 +698,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             })?;
             let from = from.or_else(|| notice.as_ref().map(|n| n.sender().to_owned()));
             prompt_id.from_agent = from.or_else(crate::cli::sender::of_this_process);
+            prompt_id.from_harness =
+                crate::cli::sender::harness_of_this_process().map(str::to_owned);
             prompt_id.cli_host = crate::cli::sender::person_host(prompt_id.from_agent.is_some());
             let superseding = supersede.is_some();
             prompt_id.supersede = supersede;

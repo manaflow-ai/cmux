@@ -96,6 +96,9 @@ pub(crate) struct PromptId {
     pub resend: bool,
     /// `--from`: the prompt is this agent's message (`_meta.acpmux.fromAgent`, `hub/digest.rs`).
     pub from_agent: Option<String>,
+    /// The harness family of an agent harness's own shell that sent it (`_meta.acpmux.fromHarness`,
+    /// `cli/sender.rs`), which the receiver's card draws.
+    pub from_harness: Option<String>,
     /// `--supersede`: the same sender's prompt still queued under this key is replaced
     /// (`_meta.acpmux.supersede`, `hub/supersede.rs`).
     pub supersede: Option<String>,
@@ -122,6 +125,7 @@ impl PromptId {
                 id,
                 resend: true,
                 from_agent: None,
+                from_harness: None,
                 supersede: None,
                 class: None,
                 pr: None,
@@ -134,6 +138,7 @@ impl PromptId {
                 id: uuid::Uuid::now_v7().to_string(),
                 resend: false,
                 from_agent: None,
+                from_harness: None,
                 supersede: None,
                 class: None,
                 pr: None,
@@ -160,6 +165,9 @@ impl PromptId {
         }
         if let Some(name) = &self.from_agent {
             mux["fromAgent"] = json!(name);
+            if let Some(harness) = &self.from_harness {
+                mux["fromHarness"] = json!(harness);
+            }
         }
         if let Some(key) = &self.supersede {
             mux["supersede"] = json!(key);

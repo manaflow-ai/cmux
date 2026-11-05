@@ -47,6 +47,38 @@ import Testing
         #expect(incoming == AgentIncoming(messages: [.init(sender: "build-box/lane-3", text: body)], messageID: "4f4d68ff", raw: text))
     }
 
+    @Test func plainSendFromACodexShellIsThatAgentsCardWithItsHarness() throws {
+        // acpmux cli/sender.rs: a Codex or Claude Code shell outside acpmux names `<harness>@<host>`.
+        let provenance = try json(#"{"kind":"agent_message","from":"fromAgent","fromName":"codex@workstation","to":"s-1","fromHarness":"codex"}"#)
+        let text = "Message from an audit agent: scope corrected."
+        let incoming = AgentIncoming.parse(text: text, provenance: provenance)
+        #expect(incoming?.messages == [.init(sender: "codex@workstation", text: text)])
+        #expect(incoming?.harness == "codex")
+        // acpmux now keeps a local sender's harness as its claim: still the card's mark.
+        let claimed = try json(#"{"kind":"agent_message","from":"fromAgent","fromName":"codex@workstation","to":"s-1","claimed":{"fromHarness":"codex"}}"#)
+        #expect(AgentIncoming.parse(text: text, provenance: claimed)?.harness == "codex")
+    }
+
+    @Test func aPromptAcpmuxCouldNotAttributeIsAnUnverifiedCardNeverThePersons() throws {
+        // acpmux prompt_provenance.rs `unverified`: a plain `acpmux send` that proves no one.
+        let provenance = try json(#"{"kind":"unverified","to":"s-1","transport":"unix","verified":false}"#)
+        let unnamed = AgentIncoming.parse(text: "Merged the fix", provenance: provenance)
+        #expect(unnamed?.unverified == true)
+        #expect(unnamed?.messages == [.init(sender: "", text: "Merged the fix")])
+        // A name it signs first is only its claim: the card names it, still unverified.
+        let named = AgentIncoming.parse(text: "[coord-deputy] Merged the fix", provenance: provenance)
+        #expect(named?.unverified == true)
+        #expect(named?.messages == [.init(sender: "coord-deputy", text: "Merged the fix")])
+    }
+
+    @Test func anEditedAgentsMessageStaysTheAgentsAndSaysItWasEdited() throws {
+        let provenance = try json(#"{"kind":"agent_message","from":"fromAgent","fromName":"lane-a","to":"s-1","editedBy":{"actor":"owner"}}"#)
+        let incoming = AgentIncoming.parse(text: "rebase first", provenance: provenance)
+        #expect(incoming?.messages == [.init(sender: "lane-a", text: "rebase first")])
+        #expect(incoming?.edited == true)
+        #expect(incoming?.unverified == false)
+    }
+
     @Test func labelNamesTheSenderWhenNothingElseDoes() {
         let text = relayed(body)
         // An older acpmux's `acpmux send` at a shell, with no provenance.

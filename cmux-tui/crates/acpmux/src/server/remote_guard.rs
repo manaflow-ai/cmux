@@ -173,6 +173,11 @@ pub(super) fn refuse_cloud_mobile_forward() -> RpcError {
     .with_data(serde_json::json!({"reason": "remote.cloud_mobile_peer"}))
 }
 
+/// `_meta.acpmux.personProven` on a prompt a peer forwards: the forwarding daemon's connection
+/// proved the person (`hub/person.rs`). Read only from a Peer link (`person_admitted`), as that
+/// peer's word: the receiver records it as come over `peer`.
+pub(super) const PERSON_PROVEN: &str = "personProven";
+
 pub(super) fn mark_forwarded(
     origin: super::Origin,
     auth: super::ConnAuth,
@@ -181,9 +186,11 @@ pub(super) fn mark_forwarded(
 ) {
     // A peer takes a prompt's provenance from its own unix socket only (prompt_provenance.rs):
     // the prompt goes there without it. Its `author` goes on as it came (`author.rs`): the peer
-    // takes it from this link and stamps the provenance itself.
+    // takes it from this link and stamps the provenance itself. A client's own `personProven`
+    // is never passed on: only this daemon says it, of a connection that proved the person.
     if let Some(mux) = forwarded.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
         mux.remove("provenance");
+        mux.remove(PERSON_PROVEN);
     }
     let control = control_of(origin, auth, params);
     if control == crate::hub::Control::Web {
@@ -195,6 +202,14 @@ pub(super) fn mark_forwarded(
         // owner's at the peer's VM boundary (`hub/vm_boundary.rs`).
         let via = crate::hub::vm_boundary::VIA_DEVICE;
         crate::hub::merge_mux_meta(forwarded, serde_json::json!({"via": via}));
+    }
+}
+
+/// Says on a request forwarded to a peer ([`mark_forwarded`] first) that this daemon's connection
+/// proved the person (`hub/person.rs`), so the peer admits its prompt as theirs.
+pub(super) fn attest_person(forwarded: &mut Value, person: bool) {
+    if person {
+        crate::hub::merge_mux_meta(forwarded, serde_json::json!({PERSON_PROVEN: true}));
     }
 }
 

@@ -489,6 +489,9 @@ export type AcpmuxRow = {
   /// The machine the person's own `acpmux send` ran on (acpmux records it on the client, as
   /// `acpmux-cli#…@big-red`): "via CLI on big-red" under their prompt.
   viaCli?: string;
+  /// A recorded prompt that names no one (incomingMessage.ts `unattributed`: no provenance and no
+  /// `_meta.origin`, from an acpmux before that mark): its bubble says it is unverified.
+  unverifiedOrigin?: true;
   /// The originating prompt row, so Retry can restore image/PDF attachments.
   retryRowId?: string;
   /// A turn summary of the chat's last turn, which a failed turn's Retry asks acpmux to retry

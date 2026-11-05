@@ -371,6 +371,10 @@ async fn forward_inner(
             object.remove("peer");
         }
         super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut forwarded);
+        super::remote_guard::attest_person(
+            &mut forwarded,
+            super::requests::person_admitted(conn, params),
+        );
         let mut result = peer.request(m, forwarded).await?;
         if let Some(object) = result.as_object_mut() {
             object.insert("peer".into(), Value::String(peer.name.clone()));
@@ -391,6 +395,10 @@ async fn forward_inner(
             object.insert("sessionId".into(), Value::String(id));
         }
         super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut forwarded);
+        super::remote_guard::attest_person(
+            &mut forwarded,
+            super::requests::person_admitted(conn, params),
+        );
         let mut result = peer.request(m, forwarded).await?;
         if let Some(object) = result.as_object_mut() {
             object.insert("peer".into(), Value::String(peer.name.clone()));
@@ -445,6 +453,10 @@ async fn forward_inner(
             {
                 let mut header = json!({"sessionId": id});
                 super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut header);
+                super::remote_guard::attest_person(
+                    &mut header,
+                    super::requests::person_admitted(conn, params),
+                );
                 let mut result =
                     crate::hub::file_uploads::forward_put(&peer, header, params).await?;
                 result.set("peer", json!(peer.name));
@@ -560,6 +572,7 @@ async fn forward_inner(
             obj.insert("sessionId".into(), Value::String(id.clone()));
         }
         super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut p);
+        super::remote_guard::attest_person(&mut p, super::requests::person_admitted(conn, params));
         // A held prompt names its hold to the peer: a link guest's waits with `approval` left
         // off here, which a peer that reads only `approval` would run unapproved.
         if held
