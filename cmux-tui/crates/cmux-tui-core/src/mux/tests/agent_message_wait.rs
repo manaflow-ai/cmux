@@ -516,7 +516,7 @@ fn with_settings(
         managed.forced.insert((*key).to_owned(), value.clone());
     }
     let mux = test_mux();
-    assert!(mux.start_settings_owner(crate::mux::settings::SettingsPaths {
+    assert!(mux.start_settings_owner(settings::SettingsPaths {
         config,
         seed: None,
         state_dir: None,
@@ -540,7 +540,7 @@ fn a_wake_follows_the_effective_setting_and_a_forced_off_beats_the_users_file() 
         (Some(user_on), vec![], true),
         (Some(user_off), vec![], false),
         (Some(user_on), vec![("agents.messages.claudeWake", off.clone())], false),
-        (None, vec![("agents.messages.claudeWake", off.clone())], false),
+        (None, vec![("agents.messages.claudeWake", off)], false),
     ] {
         let (mux, _dir) = with_settings(file, &forced);
         let (_, terminal) = terminal_of(&mux);
