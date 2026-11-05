@@ -113,6 +113,7 @@ def target(name: str, folder: Path, out: Path) -> None:
         extras.append(window.get("extra") or {})
         per_rep.append({"repeat": rep, "kbps": kbps, "fps": fps, "typing_encode_ms": encode.get("typing"),
                         "typing_decode_ms": decode.get("typing"), "ocr_cer": (ocr or {}).get("cer"),
+                        "ocr": {k: (ocr or {}).get(k) for k in OCR_FIELDS},
                         **{f"window_{k}": v for k, v in (window.get("extra") or {}).items()}})
     if not reps:
         errors.append("window: no repeat ran")
@@ -125,15 +126,15 @@ def target(name: str, folder: Path, out: Path) -> None:
     result["fps"] = {k: median_of(r["fps"][k] for r in per_rep) for k in WINDOW_PHASES}
     result["split"]["typing"] = {"encode_ms": median_of(r["typing_encode_ms"] for r in per_rep),
                                  "decode_ms": median_of(r["typing_decode_ms"] for r in per_rep)}
-    # OCR: the numeric fields' medians; the image names are the median-CER repeat's.
+    # OCR: each numeric field's median over the repeats that measured it (extra.repeats keeps each
+    # repeat's); the image names, which have no median, are the median-CER repeat's.
     result["ocr"] = dict.fromkeys(OCR_FIELDS)
     if ocrs:
-        for k in OCR_FIELDS:
-            if all(isinstance(o.get(k), (int, float)) for o in ocrs):
-                result["ocr"][k] = median_of(o[k] for o in ocrs)
         middle = sorted(ocrs, key=lambda o: o.get("cer") if isinstance(o.get("cer"), (int, float)) else 1e9)[(len(ocrs) - 1) // 2]
         for k in OCR_FIELDS:
-            if result["ocr"][k] is None:
+            if any(isinstance(o.get(k), (int, float)) for o in ocrs):
+                result["ocr"][k] = median_of(o.get(k) for o in ocrs)
+            else:
                 result["ocr"][k] = middle.get(k)
     else:
         errors.append("ocr: no result")
