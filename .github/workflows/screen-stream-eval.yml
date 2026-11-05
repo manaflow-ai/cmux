@@ -19,7 +19,7 @@ on:
         description: "inputs per latency row"
         default: "200"
       worker:
-        description: "fleet worker (empty: vars.SCREEN_STREAM_EVAL_WORKER, else cmux-austin-mini-0)"
+        description: "fleet worker (empty: vars.SCREEN_STREAM_EVAL_WORKER, else any idle console measure worker)"
         default: ""
 
 permissions:
@@ -70,7 +70,7 @@ jobs:
         env:
           TARGETS: ${{ inputs.targets || 'rd,webrtc' }}
           SAMPLES: ${{ inputs.samples || '200' }}
-          WORKER: ${{ inputs.worker || vars.SCREEN_STREAM_EVAL_WORKER || 'cmux-austin-mini-0' }}
+          WORKER: ${{ inputs.worker || vars.SCREEN_STREAM_EVAL_WORKER || '' }}
         run: |
           set -uo pipefail
           client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
@@ -81,7 +81,10 @@ jobs:
           sha="$(git rev-parse HEAD)"
           log="$RUNNER_TEMP/eval.log"
           status=0
-          "$client" run --class exclusive --measurement --label measure --target-worker "$WORKER" \
+          # A console session worker (gui-session-v1): the hosts capture the screen and post input.
+          target=()
+          [ -n "$WORKER" ] && target=(--target-worker "$WORKER")
+          "$client" run --class exclusive --measurement --label measure --label gui-session-v1 ${target[@]+"${target[@]}"} \
             --script scripts/measure/screen-stream-eval.sh --ref "$sha" --timeout 5400 \
             --artifact artifacts/screen-stream-eval/results.json \
             --arg="targets=$TARGETS" --arg="samples=$SAMPLES" 2>&1 | tee "$log" || status=${PIPESTATUS[0]}

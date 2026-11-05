@@ -3,7 +3,7 @@
 # quiet Mac, host and viewer on that Mac, one table per target. Scenarios, schema and the target
 # interface: scripts/measure/screen-stream-eval/README.md. Run alone on a console worker whose step
 # processes hold Screen Recording and Accessibility:
-#   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/screen-stream-eval.sh \
+#   cmux-ci run --class exclusive --measurement --label measure --label gui-session-v1 --script scripts/measure/screen-stream-eval.sh \
 #     --ref SHA --artifact artifacts/screen-stream-eval/results.json [--target-worker W] \
 #     [--arg=targets=rd,webrtc] [--arg=samples=200] --timeout 5400
 # Output: SCREEN-STREAM-EVAL lines, the summary table, and artifacts/screen-stream-eval/results.json

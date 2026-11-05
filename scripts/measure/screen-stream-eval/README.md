@@ -5,7 +5,7 @@ fixed scenarios on one Mac, and writes numbers a later run can diff key by key
 (HQ#7146 goal G0). It does no tuning and has no gate. It reports.
 
 ```
-cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/screen-stream-eval.sh \
+cmux-ci run --class exclusive --measurement --label measure --label gui-session-v1 --script scripts/measure/screen-stream-eval.sh \
   --ref SHA --artifact artifacts/screen-stream-eval/results.json [--arg=targets=rd,webrtc] [--arg=samples=200]
 ```
 
