@@ -7,7 +7,8 @@ A film is the sidebar as the render server shows it, once per display frame, fro
 its motion: `debug.sidebar_rows {"motion": "start"|"stop"}` (SidebarMotionProbe). Each frame has `t` (when the
 presentation was read), `link` / `target` / `refresh` (the display link's tick: vsync time, show time, refresh period;
 null refresh = a synthesized frame), `revision` (the list's model structure), `views` {row key: [x, y, w, h,
-opacity]} (list coordinates, presented) and `ids` {row key: view object id}. Builds before the probe's `ids` / `link`
+opacity]} (list coordinates, presented), `ids` {row key: view object id}, `selected` (the key of the row that draws
+the selection) and `selection` (its presented [x, y, w, h]); each press keeps the report's `scale` (device px per pt). Builds before the probe's `ids` / `link`
 fields give `t` only: the summary then says so and counts by `t`.
 
 This file films and measures; it judges nothing about where a row should be (the y oracle is pixel-perfect's PR).
@@ -143,7 +144,8 @@ def film_one(j, key, modifiers, record):
     time.sleep(record)
     stopped = j.app.rpc("debug.sidebar_rows", {"motion": "stop"}, timeout=60) or {}
     return {"key": key, "modifiers": modifiers, "sent": sent, "returned": returned,
-            "reply": reply if isinstance(reply, dict) else {"value": reply}, "frames": stopped.get("frames") or []}
+            "reply": reply if isinstance(reply, dict) else {"value": reply}, "scale": stopped.get("scale"),
+            "frames": stopped.get("frames") or []}
 
 
 def step_film_presses(j, step):

@@ -26,6 +26,12 @@ public struct SidebarMotionFrame: Sendable {
     public var linkTimestamp: CFTimeInterval
     public var targetTimestamp: CFTimeInterval
     public var refreshInterval: Double?
+    /// The row view that draws the selection (`showsSelection`: its own layer's fill) and that view's
+    /// presented frame in list coordinates, the selection highlight as shown; nil when no row draws it.
+    public var selectedKey: String?
+    public var selection: CGRect?
+    /// Device pixels per point of the list's window (`backingScaleFactor`).
+    public var scale: CGFloat
     /// Main-thread milliseconds the list spent in its last drag update (0 when none).
     public var dragWorkMs: Double
     /// The list's model structure (`SidebarModel.sectionsRevision`): a change marks a drop's optimistic model or its echo.
@@ -66,11 +72,13 @@ final class SidebarMotionProbe {
         var views: [String: CGRect] = [:]
         var opacity: [String: Float] = [:]
         var identity: [String: UInt] = [:]
+        var selected: (key: String, frame: CGRect)?
         let fading = list.fadingRows.values.map { (key: $0.key, view: $0) }
         for (key, view) in fading + list.rowViews.map({ (key: $0.key, view: $0.value) }) { // a live row wins over a fading one
             views[String(describing: key)] = Self.presented(view)
             opacity[String(describing: key)] = view.layer?.presentation()?.opacity ?? Float(view.alphaValue)
             identity[String(describing: key)] = UInt(bitPattern: ObjectIdentifier(view).hashValue)
+            if view.showsSelection { selected = (String(describing: key), Self.presented(view)) } // a live row wins
             guard let block = view as? SidebarBlockRowView else { continue }
             let origin = Self.presented(view).origin
             for (id, item) in block.region.itemViews where !id.isTransient {
@@ -82,7 +90,8 @@ final class SidebarMotionProbe {
         frames.append(SidebarMotionFrame(time: time, scrollY: list.enclosingScrollView?.contentView.bounds.minY ?? 0,
                                          lift: lift.map(Self.presented), views: views, opacity: opacity, identity: identity,
                                          linkTimestamp: tick.timestamp, targetTimestamp: tick.targetTimestamp,
-                                         refreshInterval: tick.refreshInterval, dragWorkMs: list.lastDragWorkMs,
+                                         refreshInterval: tick.refreshInterval, selectedKey: selected?.key, selection: selected?.frame,
+                                         scale: list.window?.backingScaleFactor ?? 1, dragWorkMs: list.lastDragWorkMs,
                                          revision: list.model.sectionsRevision, settling: list.settling != nil))
         return true
     }
