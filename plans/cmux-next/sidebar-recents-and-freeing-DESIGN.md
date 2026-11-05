@@ -55,7 +55,7 @@ and aging scrollback for parked terminals, and the last-command record.
 | --- | --- | --- | --- |
 | Awake | shown, or hidden less than the hibernation idle time | everything | nothing |
 | Hibernated | today's rule (60 min) | shells, programs, agents; no app views | cold mount, terminal replay |
-| **Freed** (new) | hibernated and idle `workspaces.freeing.idleHours` (default **24**) | nothing of its terminals | a new shell in the same folder, the saved screen drawn above it |
+| **Freed** (new) | hibernated and idle `workspaces.freeing.idleMinutes` (default **1440**, one day) | nothing of its terminals | a new shell in the same folder, the saved screen drawn above it |
 
 ### Which terminal tabs free (defaults)
 
@@ -108,7 +108,7 @@ terminal shows the marker line alone.
 | Key | Default |
 | --- | --- |
 | `workspaces.freeing.enabled` | false (first release; on after dogfood, see below) |
-| `workspaces.freeing.idleHours` | 24 |
+| `workspaces.freeing.idleMinutes` | 1440 (one day) |
 | `workspaces.freeing.agents` | true |
 | `workspaces.freeing.runningCommands` | `never` |
 | `terminal.persistence.parkedTiers` | the table above |
@@ -121,8 +121,11 @@ default-off setting first). Flip it on once a week of dogfood shows no lost stat
 ### Slices
 
 1. Projects and Recents sidebar (this change).
-2. Freeing policy: `WorkspaceHibernationPlanner` gains the freed tier; the host parks eligible tabs through
-   `park-tabs`; settings rows; planner tests (eligibility table above), coordinator tests with a fake host.
+2. Freeing policy (shells): `WorkspaceFreeingPlanner` (pure) and the coordinator's freeing pass after each
+   hibernation pass; the App host reads this Mac's daemon store (prompt, command, output, OSC 7501, agent record,
+   remote) and parks through `park-tabs`; `workspaces.freeing.enabled` / `idleMinutes` rows. Agent TUIs stay
+   running in this slice (an agent record keeps a terminal); they free in slice 4 with their resume.
+   Tests: `WorkspaceFreeingTests` (eligibility table, settings, coordinator with a fake host).
 3. Daemon: parked snapshots trim by tier, budget, free-space guard (`output_store`), Rust tests with a fake clock
    and a fake statvfs.
 4. Last-command record, the restored marker line, Run Last Command Again, `runningCommands: relaunch`.

@@ -13,6 +13,13 @@ extension WorkspaceHibernationSettings {
     public nonisolated static let hiddenSpaceMinutesPath = ["workspaces", "hibernation", "hiddenSpaceMinutes"]
     public nonisolated static let hiddenSpaceMinutesDefault: Double = 15
     public nonisolated static let hiddenSpaceMinutesRange: ClosedRange<Double> = 5...1440
+    /// `workspaces.freeing.enabled`: Off by default at first (plans/cmux-next/sidebar-recents-and-freeing-DESIGN.md): it ends shell processes, user-visible high-tier behavior. On: a hibernated workspace idle freeingIdleMinutes parks each terminal that sits at an empty prompt (park-tabs); showing it starts a new shell in the same folder under the saved screen.
+    public nonisolated static let freeingEnabledPath = ["workspaces", "freeing", "enabled"]
+    public nonisolated static let freeingEnabledDefault = false
+    /// `workspaces.freeing.idleMinutes`: Minutes since the workspace was last shown, printed output, or its agent spoke. 1440: a day away.
+    public nonisolated static let freeingIdleMinutesPath = ["workspaces", "freeing", "idleMinutes"]
+    public nonisolated static let freeingIdleMinutesDefault: Double = 1440
+    public nonisolated static let freeingIdleMinutesRange: ClosedRange<Double> = 60...43_200
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -50,6 +57,26 @@ nonisolated enum WorkspaceHibernationSettingsSchema {
                 kind: .number(SettingNumber(WorkspaceHibernationSettings.hiddenSpaceMinutesRange, step: 5, unit: .minutes)),
                 default: .number(WorkspaceHibernationSettings.hiddenSpaceMinutesDefault),
                 keywords: ["hibernate", "idle", "minutes", "hidden", "space", "spaces", "window", "memory"]
+            ),
+            SettingDescriptor(
+                WorkspaceHibernationSettings.freeingEnabledPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.workspaceHibernation.freeingEnabled", "Free Idle Terminals"),
+                help: SettingsText.keyed("settings.workspaceHibernation.freeingEnabled.help", "Ends the shells of workspaces you have not used for a long time when they sit at an empty prompt. Opening the workspace starts each shell again in the same folder, with its saved screen above it. Running commands, agents, pinned workspaces and workspaces kept awake are never freed."),
+                kind: .toggle,
+                default: .bool(WorkspaceHibernationSettings.freeingEnabledDefault),
+                keywords: ["free", "freeing", "park", "shell", "terminal", "processes", "idle", "resources", "restore", "scrollback"]
+            ),
+            SettingDescriptor(
+                WorkspaceHibernationSettings.freeingIdleMinutesPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.workspaceHibernation.freeingIdleMinutes", "Free Terminals After"),
+                help: SettingsText.keyed("settings.workspaceHibernation.freeingIdleMinutes.help", "A hibernated workspace's idle shells end after this many minutes without use (1440 is one day)."),
+                kind: .number(SettingNumber(WorkspaceHibernationSettings.freeingIdleMinutesRange, step: 60, unit: .minutes)),
+                default: .number(WorkspaceHibernationSettings.freeingIdleMinutesDefault),
+                keywords: ["free", "idle", "hours", "timeout", "shell", "terminal"]
             ),
         ]
     }

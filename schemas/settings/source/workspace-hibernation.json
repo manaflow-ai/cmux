@@ -95,6 +95,62 @@
             "window",
             "memory"
           ]
+        },
+        {
+          "key": "workspaces.freeing.enabled",
+          "name": "freeingEnabled",
+          "note": "Off by default at first (plans/cmux-next/sidebar-recents-and-freeing-DESIGN.md): it ends shell processes, user-visible high-tier behavior. On: a hibernated workspace idle freeingIdleMinutes parks each terminal that sits at an empty prompt (park-tabs); showing it starts a new shell in the same folder under the saved screen.",
+          "title": {
+            "key": "settings.workspaceHibernation.freeingEnabled",
+            "text": "Free Idle Terminals"
+          },
+          "help": {
+            "key": "settings.workspaceHibernation.freeingEnabled.help",
+            "text": "Ends the shells of workspaces you have not used for a long time when they sit at an empty prompt. Opening the workspace starts each shell again in the same folder, with its saved screen above it. Running commands, agents, pinned workspaces and workspaces kept awake are never freed."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "free",
+            "freeing",
+            "park",
+            "shell",
+            "terminal",
+            "processes",
+            "idle",
+            "resources",
+            "restore",
+            "scrollback"
+          ]
+        },
+        {
+          "key": "workspaces.freeing.idleMinutes",
+          "name": "freeingIdleMinutes",
+          "note": "Minutes since the workspace was last shown, printed output, or its agent spoke. 1440: a day away.",
+          "title": {
+            "key": "settings.workspaceHibernation.freeingIdleMinutes",
+            "text": "Free Terminals After"
+          },
+          "help": {
+            "key": "settings.workspaceHibernation.freeingIdleMinutes.help",
+            "text": "A hibernated workspace's idle shells end after this many minutes without use (1440 is one day)."
+          },
+          "kind": "number",
+          "range": {
+            "min": 60,
+            "max": 43200,
+            "step": 60,
+            "unit": "minutes"
+          },
+          "default": 1440,
+          "keywords": [
+            "free",
+            "idle",
+            "hours",
+            "timeout",
+            "shell",
+            "terminal"
+          ]
         }
       ]
     }

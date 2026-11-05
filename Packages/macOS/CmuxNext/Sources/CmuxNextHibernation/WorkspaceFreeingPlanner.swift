@@ -1,0 +1,136 @@
+public import CmuxNextSettings
+public import Foundation
+
+/// Which terminals of hibernated workspaces end their shell, and when to look again
+/// (plans/cmux-next/sidebar-recents-and-freeing-DESIGN.md, "Which terminal tabs free").
+///
+/// Pure: the App gathers one ``Terminal`` per terminal tab of a hibernated workspace and parks ``Plan/due``
+/// through the daemon's `park-tabs` (the tab stays; showing it starts a new shell in the same folder under
+/// the saved screen). A terminal frees only when every fact holds; an unknown fact keeps it running:
+///
+/// - the workspace is hibernated, not shown, not pinned and not kept awake;
+/// - the shell sits at its prompt (OSC 133 A) with no command running, and printed nothing since;
+/// - no program reports a status in it (OSC 7501: an agent keeps it), and no client is attached;
+/// - it is this Mac's terminal (never an ssh or Cloud machine's);
+/// - the workspace and the prompt are both older than ``Policy/idleMinutes``.
+///
+/// ```swift
+/// let plan = WorkspaceFreeingPlanner().plan(terminals, policy: .init(settings), now: Date())
+/// host.park(plan.due)
+/// ```
+public nonisolated struct WorkspaceFreeingPlanner: Sendable {
+    /// Creates a planner (it holds no state).
+    public init() {}
+
+    /// The settings the planner reads (`workspaces.freeing.*`).
+    public nonisolated struct Policy: Equatable, Sendable {
+        /// False: no terminal frees on its own.
+        public var enabled: Bool
+        /// Minutes without use before a terminal frees.
+        public var idleMinutes: Double
+
+        /// - Parameters:
+        ///   - enabled: off by default (it ends shell processes).
+        ///   - idleMinutes: one day by default.
+        public init(enabled: Bool = WorkspaceHibernationSettings.freeingEnabledDefault,
+                    idleMinutes: Double = WorkspaceHibernationSettings.freeingIdleMinutesDefault) {
+            self.enabled = enabled
+            self.idleMinutes = idleMinutes
+        }
+
+        /// The policy cmux.json's `workspaces.freeing.*` sets; nil (no settings yet) takes the defaults.
+        public init(_ settings: WorkspaceHibernationSettings?) {
+            let settings = settings ?? WorkspaceHibernationSettings()
+            self.init(enabled: settings.freeingEnabled, idleMinutes: settings.freeingIdleMinutes)
+        }
+    }
+
+    /// One terminal tab of a workspace, and what keeps its shell running.
+    public nonisolated struct Terminal: Hashable, Sendable {
+        /// The tab's surface id (what `park-tabs` takes).
+        public var surface: String
+        /// The workspace that holds it.
+        public var workspace: String
+        /// The workspace's newest sign of use (shown, output, an agent update); nil counts as now.
+        public var workspaceLastActive: Date?
+        /// The workspace is hibernated (nothing of it is in app memory).
+        public var hibernated: Bool
+        /// The workspace is shown, pinned or kept awake.
+        public var workspaceKept: Bool
+        /// When the shell drew the prompt it sits at; nil: a command runs, or the shell sends no OSC 133.
+        public var promptSince: Date?
+        /// When the terminal last printed anything; nil: never.
+        public var lastOutput: Date?
+        /// A program reports a status in it (OSC 7501), an agent included.
+        public var programReported: Bool
+        /// A client holds an attach stream on it.
+        public var attached: Bool
+        /// It runs on this Mac (not an ssh or Cloud machine).
+        public var local: Bool
+        /// The shell already ended or the tab is already parked.
+        public var ended: Bool
+
+        /// Every flag defaults to the value that keeps the terminal running, except `local` (true) and
+        /// `hibernated` (true): a fact the caller does not set never frees a terminal.
+        public init(surface: String, workspace: String, workspaceLastActive: Date?, hibernated: Bool = true,
+                    workspaceKept: Bool = false, promptSince: Date? = nil, lastOutput: Date? = nil,
+                    programReported: Bool = false, attached: Bool = false, local: Bool = true, ended: Bool = false) {
+            self.surface = surface
+            self.workspace = workspace
+            self.workspaceLastActive = workspaceLastActive
+            self.hibernated = hibernated
+            self.workspaceKept = workspaceKept
+            self.promptSince = promptSince
+            self.lastOutput = lastOutput
+            self.programReported = programReported
+            self.attached = attached
+            self.local = local
+            self.ended = ended
+        }
+
+        /// Whether a fact keeps it running whatever its age.
+        var isKept: Bool {
+            !hibernated || workspaceKept || promptSince == nil || programReported || attached || !local || ended
+        }
+
+        /// When it was last used: the newest of the workspace's use, the prompt and the last output.
+        func lastUse(now: Date) -> Date {
+            [workspaceLastActive ?? now, promptSince ?? now, lastOutput].compactMap(\.self).max() ?? now
+        }
+    }
+
+    /// What frees now, and when the next one comes due.
+    public nonisolated struct Plan: Equatable, Sendable {
+        /// The surfaces to park now, the longest idle first.
+        public var due: [String]
+        /// When the next terminal comes due; nil when none will without a change.
+        public var nextCheck: Date?
+
+        /// - Parameters:
+        ///   - due: the surfaces to park now.
+        ///   - nextCheck: when to plan again.
+        public init(due: [String] = [], nextCheck: Date? = nil) {
+            self.due = due
+            self.nextCheck = nextCheck
+        }
+    }
+
+    /// The plan for `terminals` at `now`.
+    public func plan(_ terminals: [Terminal], policy: Policy, now: Date) -> Plan {
+        guard policy.enabled else { return Plan() }
+        let idle = max(policy.idleMinutes, 1) * 60
+        var due: [(String, Date)] = []
+        var next: Date?
+        for terminal in terminals where !terminal.isKept {
+            let used = terminal.lastUse(now: now)
+            let deadline = used.addingTimeInterval(idle)
+            if deadline <= now {
+                due.append((terminal.surface, used))
+            } else if next.map({ deadline < $0 }) ?? true {
+                next = deadline
+            }
+        }
+        let floor = now.addingTimeInterval(WorkspaceHibernationPlanner.minimumRecheck)
+        return Plan(due: due.sorted { $0.1 < $1.1 }.map(\.0), nextCheck: next.map { max($0, floor) })
+    }
+}

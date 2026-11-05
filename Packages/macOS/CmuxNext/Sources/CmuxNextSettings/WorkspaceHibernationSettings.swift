@@ -12,24 +12,41 @@ public nonisolated struct WorkspaceHibernationSettings: Sendable, Equatable {
     public var idleMinutes: Double
     /// Minutes a workspace of a space no window shows stays idle before it hibernates.
     public var hiddenSpaceMinutes: Double
+    /// `workspaces.freeing.enabled`: whether a hibernated workspace's idle shells end (off by default).
+    public var freeingEnabled: Bool
+    /// `workspaces.freeing.idleMinutes`: minutes of no use before a hibernated workspace's idle shells end.
+    public var freeingIdleMinutes: Double
 
     /// - Parameters:
     ///   - enabled: on by default.
     ///   - idleMinutes: 60 by default.
     ///   - hiddenSpaceMinutes: the generated default (``hiddenSpaceMinutesDefault``).
+    ///   - freeingEnabled: off by default (``freeingEnabledDefault``).
+    ///   - freeingIdleMinutes: one day by default (``freeingIdleMinutesDefault``).
     public init(enabled: Bool = Self.enabledDefault, idleMinutes: Double = Self.idleMinutesDefault,
-                hiddenSpaceMinutes: Double = Self.hiddenSpaceMinutesDefault) {
+                hiddenSpaceMinutes: Double = Self.hiddenSpaceMinutesDefault,
+                freeingEnabled: Bool = Self.freeingEnabledDefault, freeingIdleMinutes: Double = Self.freeingIdleMinutesDefault) {
         self.enabled = enabled
         self.idleMinutes = idleMinutes
         self.hiddenSpaceMinutes = hiddenSpaceMinutes
+        self.freeingEnabled = freeingEnabled
+        self.freeingIdleMinutes = freeingIdleMinutes
     }
 
     static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> Self {
-        guard var reader = ConfigFieldReader(root, at: ["workspaces", "hibernation"], diagnostics: &diagnostics) else { return Self() }
-        let enabled = reader.bool("enabled") ?? enabledDefault
-        let idleMinutes = reader.number("idleMinutes", range: idleMinutesRange) ?? idleMinutesDefault
-        let hiddenSpaceMinutes = reader.number("hiddenSpaceMinutes", range: hiddenSpaceMinutesRange) ?? hiddenSpaceMinutesDefault
-        diagnostics += reader.diagnostics
-        return Self(enabled: enabled, idleMinutes: idleMinutes, hiddenSpaceMinutes: hiddenSpaceMinutes)
+        var result = Self()
+        if var reader = ConfigFieldReader(root, at: ["workspaces", "hibernation"], diagnostics: &diagnostics) {
+            result.enabled = reader.bool("enabled") ?? enabledDefault
+            result.idleMinutes = reader.number("idleMinutes", range: idleMinutesRange) ?? idleMinutesDefault
+            result.hiddenSpaceMinutes = reader.number("hiddenSpaceMinutes", range: hiddenSpaceMinutesRange) ?? hiddenSpaceMinutesDefault
+            diagnostics += reader.diagnostics
+        }
+        // `workspaces.freeing.*` (plans/cmux-next/sidebar-recents-and-freeing-DESIGN.md): the tier under hibernation.
+        if var reader = ConfigFieldReader(root, at: ["workspaces", "freeing"], diagnostics: &diagnostics) {
+            result.freeingEnabled = reader.bool("enabled") ?? freeingEnabledDefault
+            result.freeingIdleMinutes = reader.number("idleMinutes", range: freeingIdleMinutesRange) ?? freeingIdleMinutesDefault
+            diagnostics += reader.diagnostics
+        }
+        return result
     }
 }

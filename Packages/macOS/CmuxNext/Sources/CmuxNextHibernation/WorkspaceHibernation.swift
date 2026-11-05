@@ -17,6 +17,12 @@ public protocol WorkspaceHibernationHost: AnyObject {
     /// Frees `workspace`'s memory: unmounts it in every window, destroys its terminal surfaces,
     /// discards its pages and lets its chat pages go (each page's own checks may keep it).
     func hibernate(workspace: String)
+    /// `workspaces.freeing.*` (plans/cmux-next/sidebar-recents-and-freeing-DESIGN.md).
+    func freeingPolicy() -> WorkspaceFreeingPlanner.Policy
+    /// The terminal tabs of `workspaces` (hibernated ones), with the facts that keep each shell running.
+    func freeingTerminals(in workspaces: Set<String>) -> [WorkspaceFreeingPlanner.Terminal]
+    /// Ends the shells of `surfaces` and keeps their tabs (`park-tabs`): showing one starts it again.
+    func park(surfaces: [String])
     /// As ``hibernate(workspace:)``; `byPerson` is the person's Hibernate Workspace, whose pages then
     /// restore only when shown, never on a hover (plans/cmux-next/hover-preload-DESIGN.md).
     func hibernate(workspace: String, byPerson: Bool)
@@ -29,6 +35,12 @@ extension WorkspaceHibernationHost {
 extension WorkspaceHibernationHost {
     /// No spaces: one implicit space every window shows.
     public func hibernationShownSpaces() -> Set<String> { [] }
+    /// No freeing: a host that cannot park terminals never frees one.
+    public func freeingPolicy() -> WorkspaceFreeingPlanner.Policy { WorkspaceFreeingPlanner.Policy(enabled: false) }
+    /// No terminals.
+    public func freeingTerminals(in workspaces: Set<String>) -> [WorkspaceFreeingPlanner.Terminal] { [] }
+    /// Parks nothing.
+    public func park(surfaces: [String]) {}
 }
 
 /// What the shown-set follow watches: the shown workspaces and the shown spaces.
@@ -98,6 +110,9 @@ public final class WorkspaceHibernation {
     private let now: @MainActor () -> Date
     private let deadline: any WorkspaceHibernationDeadline
     private let planner = WorkspaceHibernationPlanner()
+    private let freeing = WorkspaceFreeingPlanner()
+    /// How many terminals it freed this run (`debug.surfaces`).
+    public private(set) var freedCount = 0
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.hibernation")
     /// When each workspace was last shown, or first seen (never idle on arrival).
     private var lastShown: [String: Date] = [:]
@@ -150,7 +165,9 @@ public final class WorkspaceHibernation {
         // task-owner: the settings follow; cancelled in stop()
         follows.append(Task { @MainActor [weak self] in
             var first = true
-            for await _ in ObservationStream({ [weak self] in self?.host.hibernationPolicy() ?? .init() }) {
+            for await _ in ObservationStream({ [weak self] in
+                (self?.host.hibernationPolicy() ?? .init(), self?.host.freeingPolicy() ?? .init(enabled: false))
+            }) {
                 self?.schedulePass(after: first ? Self.launchDelay : .seconds(1))
                 first = false
             }
@@ -239,12 +256,36 @@ public final class WorkspaceHibernation {
         for id in plan.due {
             hibernateNow(id, cause: pressure != .normal ? "memory-pressure=\(pressure.rawValue)" : hiddenSpace.contains(id) ? "hidden-space" : "idle")
         }
-        lastShown = lastShown.filter { live.contains($0.key) || shown.contains($0.key) }
-        if let next = plan.nextCheck {
+        // A hibernated workspace keeps its last-shown time: the freeing tier measures from it.
+        lastShown = lastShown.filter { live.contains($0.key) || shown.contains($0.key) || hibernated.contains($0.key) }
+        let freed: Date? = nil // the freeing pass lands in the next commit
+        if let next = [plan.nextCheck, freed].compactMap(\.self).min() {
             schedulePass(after: .milliseconds(Int64(max(next.timeIntervalSince(time), 1) * 1000)))
         } else {
             cancelDeadline()
         }
+    }
+
+    /// The freeing tier: parks the idle shells of hibernated workspaces that are due, and returns when the next
+    /// one comes due. Nothing while `workspaces.freeing.enabled` is off.
+    func freePass(now time: Date) -> Date? {
+        let policy = host.freeingPolicy()
+        guard policy.enabled, !hibernated.isEmpty else { return nil }
+        let terminals = host.freeingTerminals(in: hibernated).map { terminal -> WorkspaceFreeingPlanner.Terminal in
+            var terminal = terminal
+            terminal.hibernated = hibernated.contains(terminal.workspace) && !shown.contains(terminal.workspace)
+            terminal.workspaceKept = terminal.workspaceKept || keepAwake.contains(terminal.workspace)
+            let seen = lastShown[terminal.workspace]
+            terminal.workspaceLastActive = [seen, terminal.workspaceLastActive].compactMap(\.self).max() ?? time
+            return terminal
+        }
+        let plan = freeing.plan(terminals, policy: policy, now: time)
+        if !plan.due.isEmpty {
+            host.park(surfaces: plan.due)
+            freedCount += plan.due.count
+            logger.notice("freed \(plan.due.count, privacy: .public) idle terminal(s) of hibernated workspaces")
+        }
+        return plan.nextCheck
     }
 
     /// Hibernate Workspace (palette, CLI): hibernates `workspace` now, idle or not, unless it is shown.
