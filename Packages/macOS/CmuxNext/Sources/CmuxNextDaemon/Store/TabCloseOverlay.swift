@@ -60,4 +60,22 @@ extension DaemonStore {
             if case .closedTabs(let hidden)? = entry.undo { ids.formUnion(hidden.map(\.tab.id)) }
         }
     }
+
+    /// `move-tab`'s final index and the tab's current index in the daemon's order of `pane` for a move of `surface`
+    /// to `index` of the visible `pane.tabs`. The daemon still holds the tabs whose close is in flight, which the
+    /// visible order leaves out: the tab goes right before the visible tab now at `index` (else after the last), so a
+    /// close of a tab left of it before its echo no longer lands it one slot early (Leo 2026-11-05, the close/create
+    /// shuffle: Cmd-T after b, close a, the new tab ended first).
+    public func daemonMoveIndex(_ index: Int, moving surface: SurfaceID, in pane: PaneModel) -> (final: Int, current: Int?) {
+        var order = pane.tabs.map(\.surface)
+        let others = order.filter { $0 != surface }
+        // Each close's overlay undone, newest first, as `TabCloseOverlay.undo` would.
+        for entry in intentLog.entries.reversed() {
+            guard case .closedTabs(let hidden)? = entry.undo else { continue }
+            for tab in hidden.reversed() where tab.pane == pane.handle { order.insert(tab.tab.surface, at: min(tab.index, order.count)) }
+        }
+        let full = order.filter { $0 != surface }
+        let final = others.dropFirst(index).first.flatMap { full.firstIndex(of: $0) } ?? full.count
+        return (final, order.firstIndex(of: surface))
+    }
 }

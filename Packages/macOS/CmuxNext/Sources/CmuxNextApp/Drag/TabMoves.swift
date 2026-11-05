@@ -27,8 +27,8 @@ enum TabMoves {
         guard !refusesIncognitoCrossing(tab, to: pane, services: services),
               !ChatDockRules.refusesMove(tab, to: pane, services: services) else { return completion(false) }
         let surface = tab.surface, target = pane.handle
-        let current = pane.tabs.firstIndex { $0.surface == surface }
-        let wire = TabMoveIndex.wireIndex(finalIndex: index, currentIndex: current)
+        let (final, current) = daemon.store.daemonMoveIndex(index, moving: surface, in: pane) // the daemon still lists closing tabs
+        let wire = TabMoveIndex.wireIndex(finalIndex: final, currentIndex: current)
         let echoes = daemon.supports(DaemonCapability.tabDrag.rawValue)
         services.registry.track(Task {
             let ok = await daemon.intend("move-tab", .moveTab(surface: surface, toPane: target, index: index),

@@ -1,0 +1,165 @@
+ci-step tab-optimistic-order-green-34565a5: scripts/ci/package-test-lane.sh suite Packages/macOS/CmuxNext NewTabCloseInterleaveOrderTests,TabStripAnchorRebaseTests,NewTabSuccessionKeepsShownTabsTests,NewTabPositionSlotTests,NewTabReplaceInPlaceTests,NewTabRapidPairTests,CmdTSpamKeepsNewTabsTests at 34565a53d4dfcb0111b3fd264e1ac09b7eb22f44: exit 1
+==> same-tree cmux-tui: source=published fallback_seconds=0 total_seconds=15
+434 |     private func recordFailure(_ key: WorkspaceKey, _ error: Error) {
+444 |     private func finishPopulating(_ key: WorkspaceKey, succeeded: Bool, error: Error? = nil) {
+434 |     private func recordFailure(_ key: WorkspaceKey, _ error: Error) {
+444 |     private func finishPopulating(_ key: WorkspaceKey, succeeded: Bool, error: Error? = nil) {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+79 |     private static func reason(_ error: any Error) -> String {
+79 |     private static func reason(_ error: any Error) -> String {
+79 |     private static func reason(_ error: any Error) -> String {
+79 |     private static func reason(_ error: any Error) -> String {
+79 |     private static func reason(_ error: any Error) -> String {
+79 |     private static func reason(_ error: any Error) -> String {
+79 |     private static func reason(_ error: any Error) -> String {
+79 |     private static func reason(_ error: any Error) -> String {
+79 |     private static func reason(_ error: any Error) -> String {
+79 |     private static func reason(_ error: any Error) -> String {
+79 |     private static func reason(_ error: any Error) -> String {
+79 |     private static func reason(_ error: any Error) -> String {
+79 |     private static func reason(_ error: any Error) -> String {
+79 |     private static func reason(_ error: any Error) -> String {
+79 |     private static func reason(_ error: any Error) -> String {
+79 |     private static func reason(_ error: any Error) -> String {
+79 |     private static func reason(_ error: any Error) -> String {
+79 |     private static func reason(_ error: any Error) -> String {
+79 |     private static func reason(_ error: any Error) -> String {
+79 |     private static func reason(_ error: any Error) -> String {
+79 |     private static func reason(_ error: any Error) -> String {
+79 |     private static func reason(_ error: any Error) -> String {
+79 |     private static func reason(_ error: any Error) -> String {
+79 |     private static func reason(_ error: any Error) -> String {
+79 |     private static func reason(_ error: any Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+✘ Test aCloseWhileANewTabIsMadeMovesNoOtherTab(closed:when:) recorded an issue with 2 arguments closed → .right, when → .sameTurn at NewTabCloseInterleaveOrderTests.swift:106:13: Expectation failed: !(frames[gone...].contains { $0.contains(victimName) } → <not evaluated>)
+✘ Test aCloseWhileANewTabIsMadeMovesNoOtherTab(closed:when:) recorded an issue with 2 arguments closed → .right, when → .sameTurn at NewTabCloseInterleaveOrderTests.swift:108:13: Expectation failed: afterClose.allSatisfy { $0 == want }
+✘ Test aCloseWhileANewTabIsMadeMovesNoOtherTab(closed:when:) recorded an issue with 2 arguments closed → .left, when → .daemonTab at NewTabCloseInterleaveOrderTests.swift:108:13: Expectation failed: afterClose.allSatisfy { $0 == want }
+✘ Test aCloseWhileANewTabIsMadeMovesNoOtherTab(closed:when:) recorded an issue with 2 arguments closed → .left, when → .daemonTab at NewTabCloseInterleaveOrderTests.swift:109:13: Expectation failed: (frames.last → ["N", "b", "c"]) == (want → ["b", "N", "c"])
+✘ Test aCloseWhileANewTabIsMadeMovesNoOtherTab(closed:when:) with 6 test cases failed after 27.458 seconds with 4 issues.
+✘ Suite NewTabCloseInterleaveOrderTests failed after 27.459 seconds with 4 issues.
+✘ Test run with 1 test in 1 suite failed after 27.459 seconds with 4 issues.
+::error title=Swift suite failed::NewTabCloseInterleaveOrderTests in Packages/macOS/CmuxNext: failed (exit 1) after 41s
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+✔ Test run with 4 tests in 1 suite passed after 0.001 seconds.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+✔ Test run with 1 test in 1 suite passed after 0.748 seconds.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+✔ Test run with 5 tests in 1 suite passed after 0.002 seconds.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+✔ Test run with 3 tests in 1 suite passed after 1.054 seconds.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+✔ Test run with 4 tests in 1 suite passed after 13.891 seconds.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+✔ Test run with 1 test in 1 suite passed after 15.398 seconds.
+NewTabCloseInterleaveOrderTests                  failed (exit 1)              41s
+TabStripAnchorRebaseTests                        passed                        3s
+NewTabSuccessionKeepsShownTabsTests              passed                        4s
+NewTabPositionSlotTests                          passed                        3s
+NewTabReplaceInPlaceTests                        passed                        4s
+NewTabRapidPairTests                             passed                       18s
+CmdTSpamKeepsNewTabsTests                        passed                       18s
+1 of 7 suites failed or gave no result.
+ci-step tab-optimistic-order-green-34565a5 exited 1
