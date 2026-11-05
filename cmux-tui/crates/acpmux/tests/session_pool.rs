@@ -307,14 +307,21 @@ fn pooled_live_lock(home: &Path, record: &Value) -> PathBuf {
 fn lock_freed_within(path: &Path, within: Duration) -> bool {
     use std::os::fd::AsRawFd;
     let deadline = Instant::now() + within;
+    let mut seen = false;
     loop {
-        if let Ok(file) = std::fs::OpenOptions::new().read(true).write(true).open(path) {
-            // SAFETY: a non-blocking lock on a descriptor this function owns, released below.
-            if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
-                // SAFETY: same descriptor.
-                unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
-                return true;
+        match std::fs::OpenOptions::new().read(true).write(true).open(path) {
+            Ok(file) => {
+                seen = true;
+                // SAFETY: a non-blocking lock on a descriptor this function owns, released below.
+                if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+                    // SAFETY: same descriptor.
+                    unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
+                    return true;
+                }
             }
+            // Removed after it was seen: the daemon ended the dead host and its artifacts.
+            Err(e) if seen && e.kind() == std::io::ErrorKind::NotFound => return true,
+            Err(_) => {}
         }
         if Instant::now() >= deadline {
             return false;
