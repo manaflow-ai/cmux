@@ -258,7 +258,7 @@ public final class WorkspaceHibernation {
         }
         // A hibernated workspace keeps its last-shown time: the freeing tier measures from it.
         lastShown = lastShown.filter { live.contains($0.key) || shown.contains($0.key) || hibernated.contains($0.key) }
-        let freed: Date? = nil // the freeing pass lands in the next commit
+        let freed = freePass(now: time)
         if let next = [plan.nextCheck, freed].compactMap(\.self).min() {
             schedulePass(after: .milliseconds(Int64(max(next.timeIntervalSince(time), 1) * 1000)))
         } else {
@@ -268,7 +268,7 @@ public final class WorkspaceHibernation {
 
     /// The freeing tier: parks the idle shells of hibernated workspaces that are due, and returns when the next
     /// one comes due. Nothing while `workspaces.freeing.enabled` is off.
-    func freePass(now time: Date) -> Date? {
+    private func freePass(now time: Date) -> Date? {
         let policy = host.freeingPolicy()
         guard policy.enabled, !hibernated.isEmpty else { return nil }
         let terminals = host.freeingTerminals(in: hibernated).map { terminal -> WorkspaceFreeingPlanner.Terminal in
