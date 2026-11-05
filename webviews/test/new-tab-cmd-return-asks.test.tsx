@@ -113,17 +113,6 @@ async function type(text: string) {
   return host.querySelector<HTMLElement>(".nt-field [contenteditable]")!;
 }
 
-/// The prompt's text as typed (no Markdown escaping).
-const typed = () => handle().agentText(handle().value());
-
-/// Focuses the field and puts the caret `offset` characters in (the end by default).
-async function caretAt(offset?: number) {
-  await act(async () => {
-    handle().focus();
-    handle().setCaret(offset ?? handle().plainText().length);
-  });
-}
-
 const rows = () => [...window.document.querySelectorAll<HTMLElement>('[role="option"]')];
 const label = (row: HTMLElement) => row.querySelector(".nt-row-title")?.textContent ?? "";
 const press = (field: HTMLElement, init: KeyboardEventInit) =>
