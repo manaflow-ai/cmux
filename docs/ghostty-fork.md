@@ -42,13 +42,17 @@ When we change the fork, update this document and the parent submodule SHA.
   the mode per surface and changes it only when the Debug switch changes).
 - Fork PR #71 (the deadlock): with the switch on and the film recorder's load, main hung in
   `CA::Transaction::commit` and the Metal completion thread in `setSurfaceOffMain`, which committed while it held
-  `[CATransaction lock]`. Now every off-main present does `begin`, lock, checks, unlock, `commit`. `ghostty.h`: the
+  `[CATransaction lock]`. Since fork PR #79 an off-main present does lock, checks, then (only for a frame it shows)
+  `begin`, set contents, unlock, `commit`; a frame that goes through main or that a newer frame superseded unlocks and
+  commits nothing. `ghostty.h`: the
   embedder presents and sets the bounds in one explicit lock span (fork PR #72: not a layout or display pass), and
   never commits, flushes or draws in it (`ghostty_surface_draw`, a first frame's display pass). Test: `host present:
   an off-main present never commits while it holds the Core Animation lock` (red run 41694823112, green run
   41694827381; Codex SHIP at `3163f4b73`).
-- Conflict notes: keep `setSurfaceOffMain` in the order `begin`, lock, checks, unlock, `commit` in both modes (never
-  commit under the lock), and its gate check (`main_pending`) after the shown-size and sequence checks. Keep
+- Conflict notes: keep `setSurfaceOffMain` in the order lock, checks (`offMainDecisionLocked`), then `begin`, set
+  contents, unlock, `commit` only for a frame it shows, in both modes: never commit under the lock, and never begin a
+  transaction for a frame it does not show (fork PR #79, test `host present: an off-main present that does not show
+  its frame commits no transaction`). Keep its gate check (`main_pending`) after the shown-size and sequence checks. Keep
   `changesShownSize` as the only condition that closes the gate in `setSurfaceCallback` and `setSurfaceSync`.
   `publishFresh` keeps the newest frame by present sequence.
 - When cmux moves to fork `main`, port #70 to `main` (it is based on the release branch).
