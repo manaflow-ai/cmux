@@ -41,7 +41,6 @@ export function installWheelGlide(node: HTMLElement): { stop(): void; remove(): 
     ride = undefined;
   };
   const onWheel = (event: WheelEvent) => {
-    const root = node.ownerDocument.documentElement;
     if (
       event.defaultPrevented ||
       !event.cancelable ||
@@ -52,7 +51,6 @@ export function installWheelGlide(node: HTMLElement): { stop(): void; remove(): 
       Math.abs(event.deltaY) <= Math.abs(event.deltaX) ||
       !isWheelNotch(event) ||
       wheelTarget(event) !== node ||
-      root.dataset.wheelGlide === "off" ||
       isAgentMotionOff() ||
       reducedMotion()
     ) {

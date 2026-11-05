@@ -32,7 +32,7 @@ mkdir -p "$ZIG_GLOBAL_CACHE_DIR/tmp"
 # any build of this revision links). Mode "needed" fetched only 1 package in
 # dry run 37263884156, because a build fetches its lazy packages while it runs.
 # zig-fetch-all.sh retries what a reset connection left missing.
-"$ROOT/scripts/cmux-next/zig-fetch-all.sh" "$ghostty"
+ZIG=zig "$ROOT/scripts/cmux-next/zig-fetch-all.sh" "$ghostty"
 notices="$ROOT/cmux-tui/build-support/notices/ghostty"
 archive_tool="$ROOT/scripts/cmux-next/notices/ghostty_source_archive.py"
 rm -rf "$out/ghostty-licenses"
@@ -50,7 +50,9 @@ next_build=() next_verify=()
 if [[ "$vt_name" != ghostty ]]; then
   vt="$ROOT/$vt_name"
   [[ "$(git -C "$vt" rev-parse HEAD 2>/dev/null)" == "$vt_revision" ]] || { echo "error: the $vt_name submodule is not checked out at $vt_revision" >&2; exit 1; }
-  "$ROOT/scripts/cmux-next/zig-fetch-all.sh" "$vt"
+  # CMUX_VT_ZIG: the Zig of the libghostty-vt tree when it needs another Zig
+  # than PATH's (ghostty-next 0.17.0 beside the classic ghostty's 0.16.0).
+  ZIG="${CMUX_VT_ZIG:-zig}" "$ROOT/scripts/cmux-next/zig-fetch-all.sh" "$vt"
   rm -rf "$out/$vt_name-licenses"
   python3 "$notices/collect-ghostty-licenses.py" --ghostty-source "$vt" --zig-cache "$ZIG_GLOBAL_CACHE_DIR" \
     --output "$out/$vt_name-licenses" --revision "$vt_revision" \

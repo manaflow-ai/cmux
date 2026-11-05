@@ -20,7 +20,8 @@ for arg in "$@"; do
   esac
 done
 [[ "$samples" =~ ^[0-9]+$ ]] || { echo "screen-stream-eval.sh: samples= is a number" >&2; exit 2; }
-root="$(git rev-parse --show-toplevel)"
+# From the script's place, not the cwd: inside the launcher app (below) the cwd is /.
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$root"
 here="$root/scripts/measure/screen-stream-eval"
 out="$root/artifacts/screen-stream-eval"
@@ -82,9 +83,53 @@ for tool in preflight scene ocr; do
 done
 swiftc -O -o "$EVAL_BIN/cmux-rd-marker" "$root/cmux-tui/crates/cmux-rd-host/scripts/mac-marker/main.swift" ||
   { finish "could not build the marker"; exit 4; }
+granted() { grep -q '"accessibility":true' <<<"$1" && grep -q '"screen_recording":true' <<<"$1"; }
 grants=$("$EVAL_BIN/screen-eval-preflight")
 echo "SCREEN-STREAM-EVAL-GRANTS $grants"
-if ! grep -q '"accessibility":true' <<<"$grants" || ! grep -q '"screen_recording":true' <<<"$grants"; then
+if ! granted "$grants" && [[ -z "${CMUX_SCREEN_EVAL_IN_LAUNCHER:-}" ]]; then
+  # The step's own processes hold no grants (a step's binaries change every commit). Run this whole
+  # eval again inside CmuxScreenEvalLauncher.app (launcher/), a stable app granted once at the console,
+  # whose children get its grants. Its files live outside $work, which the inner run starts by removing.
+  launch="$root/.build/screen-stream-eval-launcher"
+  rm -rf "$launch"
+  mkdir -p "$launch"
+  if app=$(bash "$here/launcher/install.sh" 2>"$launch/install.log"); then
+    # --request also lists the app under Privacy & Security, where the grant is made.
+    open -W -n -g -a "$app" --stdout "$launch/grants.json" --stderr "$launch/grants.err" --args --request \
+      >"$launch/open.log" 2>&1 || echo "open exited $?" >>"$launch/open.log"
+    grants=$(cat "$launch/grants.json" 2>/dev/null)
+    echo "SCREEN-STREAM-EVAL-LAUNCHER app=$app grants=${grants:-none} open=$(tr '\n' ' ' <"$launch/open.log" | cut -c1-300) err=$(tr '\n' ' ' <"$launch/grants.err" 2>/dev/null | cut -c1-300)"
+    if granted "$grants"; then
+      # An app LaunchServices starts gets launchd's environment, not ours: pass what the build needs.
+      env_args=()
+      for var in PATH HOME TMPDIR USER LANG DEVELOPER_DIR CARGO_HOME RUSTUP_HOME $(compgen -e | grep -E '^CMUX_' || true); do
+        [[ -n "${!var:-}" ]] && env_args+=(--env "$var=${!var}")
+      done
+      # The app ends the run when this process is gone (a killed step), and the step log follows its output.
+      : >"$launch/out.log"
+      tail -n +1 -F "$launch/out.log" &
+      follow=$!
+      pids+=("$follow")
+      open -W -n -g -a "$app" --stdout "$launch/out.log" --stderr "$launch/err.log" ${env_args[@]+"${env_args[@]}"} \
+        --env "CMUX_SCREEN_EVAL_PARENT=$$" --args "$root/scripts/measure/screen-stream-eval.sh" "$launch/status" "$@" || true
+      sleep 1 # the last lines reach the follower
+      kill "$follow" 2>/dev/null || true
+      tail -n 80 "$launch/err.log" 2>/dev/null >&2
+      status=$(cat "$launch/status" 2>/dev/null || echo 4)
+      if [[ ! -s "$out/results.json" ]]; then
+        mkdir -p "$out"
+        finish "the run inside $app ended (status $status) without results ($(tail -1 "$launch/err.log" 2>/dev/null))"
+        [[ "$status" == 0 ]] && status=4
+      fi
+      exit "$status"
+    fi
+    finish "this worker's step processes lack Screen Recording or Accessibility, and so does $app; grant both to it once at the console (System Settings > Privacy & Security, where it is listed) ($grants)"
+  else
+    finish "the step's processes lack Screen Recording or Accessibility, and the launcher app did not install ($(tail -1 "$launch/install.log"))"
+  fi
+  exit 3
+fi
+if ! granted "$grants"; then
   finish "the step's processes lack Screen Recording or Accessibility on this worker ($grants)"
   exit 3
 fi
@@ -100,6 +145,13 @@ for name in "${names[@]}"; do
   chmod 700 "$EVAL_STATE"
   : >"$dir/errors.txt"
   err() { echo "$*" >>"$dir/errors.txt"; echo "SCREEN-STREAM-EVAL-ERROR $name $*"; }
+  # host_start: the target's host-start, its own words kept (only results.json leaves the worker),
+  # without the WebRTC host's pairing (its link and the QR code of it: the room secret).
+  host_start() {
+    bash "$script" host-start 2>"$EVAL_STATE/host-start.err" && return 0
+    LC_ALL=en_US.UTF-8 grep -v -E 'cmux-vnc://|[█▀▄]' "$EVAL_STATE/host-start.err" | tail -8 | tr '\n' ' ' | cut -c1-600
+    return 1
+  }
   if [[ ! -f "$script" ]]; then
     err "no target script $script"
     python3 -I "$here/eval.py" target "$name" "$dir" "$dir/target.json"
@@ -125,13 +177,13 @@ for name in "${names[@]}"; do
     grep -q marker-origin "$EVAL_MARKER_LOG" && break
     sleep 0.1 # bounded wait for the marker's geometry line (5 s)
   done
-  if bash "$script" host-start; then
+  if why=$(host_start); then
     # Pointer first: its click gives the marker key focus for the key run.
     for input in pointer key; do
       bash "$script" latency "$input" "$samples" "$dir/latency-$input.json" || err "latency $input failed"
     done
   else
-    err "host did not start for latency"
+    err "host did not start for latency: $why"
   fi
   bash "$script" host-stop
   kill "$marker" 2>/dev/null || true
@@ -145,10 +197,10 @@ for name in "${names[@]}"; do
   scene=$!
   pids+=("$scene")
   sleep 2 # the scene's window is up before the host captures its first frame
-  if bash "$script" host-start; then
+  if why=$(host_start); then
     bash "$script" window "$window_s" "$dir/viewer-frame" "$go" "$dir/window.json" || err "window failed"
   else
-    err "host did not start for the window"
+    err "host did not start for the window: $why"
     touch "$go" # lets the scene run out its timeline instead of waiting 120 s for GO
   fi
   touch "$stop"

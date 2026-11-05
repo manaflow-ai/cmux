@@ -79,6 +79,7 @@ VARS = {
     # The one-mini nightly (tests/test_nightly_one_mini.py): cmux15's nightly-only labels, or unset.
     "vars.CI_NIGHTLY_MINI": ("glaeda-nightly-mini", ""),
     "vars.CI_NIGHTLY_MINI_BUILDER": ("glaeda-nightly-mini-builder", ""),
+    "vars.CI_NIGHTLY_SIGNING_POOL": ("glaeda-trusted-next-signing", ""),
     "vars.CI_SEED_TRUSTED_POOL": ("glaeda-trusted-std-xcode-26.6", ""),
     "vars.CI_PR_POOL_OWNED": ("1", "0"),
 }

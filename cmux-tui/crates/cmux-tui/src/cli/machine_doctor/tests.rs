@@ -78,7 +78,7 @@ fn no_sign_in_and_a_refused_sign_in_fail_signed_in() {
 }
 
 #[test]
-fn a_platform_with_joining_off_points_at_development() {
+fn a_platform_with_joining_off_points_at_production() {
     let off = Some(Err(CallError::Status { status: 404, code: "machine.not_found" }));
     let checked = remote_steps(ORIGIN, "lane-vm-3", off, None, 0);
     let platform = state(&checked, "platform");
@@ -87,7 +87,7 @@ fn a_platform_with_joining_off_points_at_development() {
     assert_eq!(
         platform.fix.as_deref(),
         Some(
-            "Point at development: --platform https://cmux-platform-development.debussy.workers.dev"
+            "Point at production: --platform https://cmux-platform-production.debussy.workers.dev"
         )
     );
     let down = Some(Err(CallError::Unreachable("connection refused".into())));

@@ -59,6 +59,7 @@ pub mod daemon;
 mod default_harness;
 pub mod deliver;
 pub mod deps;
+pub mod folder_instructions;
 pub mod forum;
 pub mod forum_mcp;
 pub mod frame_compress;
@@ -180,5 +181,6 @@ pub mod workflow_runs;
 pub mod worktree_sessions;
 pub mod wrap_up_suggestion;
 pub mod write_journal;
+pub mod xhost_audit;
 
 pub mod model_catalog;
