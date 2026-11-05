@@ -137,13 +137,15 @@ int main() {
       navigation(false, "about:srcdoc", page, target, true);
       navigation(false, "about:blank", artifact, target, true);
     }
-    // The Artifacts page's passive previews: the same lockdown, and no bootstrap.
+    // The Artifacts page's passive previews: the same lockdown. Its one bootstrap (an empty direct
+    // child loading the canonical endpoint, as the agent page does) is covered above.
     const std::string artifacts = "cmux-page://cmux.artifacts/";
     for (const auto& target : {std::string("https://example.test/"), std::string("about:srcdoc"),
                                std::string("about:blank"), artifacts, std::string("data:text/html,replace")}) {
       navigation(false, "about:srcdoc", artifacts, target, true);
     }
-    navigation(false, "about:blank", artifacts, artifact, true);
+    navigation(false, "about:blank", artifacts, artifact, false);
+    navigation(false, "about:srcdoc", artifacts, artifact, true);
     navigation(false, artifacts, "", "https://example.test/", false);
     Expect(!cmux_shim::ArtifactContextRestricted("about:srcdoc", "cmux-page://cmux.artifacts.evil/"),
            "a look-alike origin is not the Artifacts page");
