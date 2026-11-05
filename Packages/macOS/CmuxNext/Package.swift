@@ -176,8 +176,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-657eaccb9000deb250b05c18987b3449c4a856e3/CCmuxAppFFI.xcframework.zip",
-    checksum: "a9c614b98ec3734dcf3b695aa6cc3e4a20fd25b48e001b4d08220b3e152b26ad"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-6243f112cad89191dfd8ff1e57085f43ac2a3de0/CCmuxAppFFI.xcframework.zip",
+    checksum: "63a8f4b36bf6384c6236702152e7edb6015f82c9a856d926af2714a90113712b"
 )
 
 // Debug-only product consumed by Prototypes/UiLayerHost. Keeping this leaf
@@ -531,11 +531,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             swiftSettings: daemonSwiftSettings
         ),
         // The cards' center: the scan schedule, the job runner and the `import.*` actions, for
-        // Settings › Import (no Home or New Tab suggestion). The App supplies `ImportCardsHost`.
+        // Settings › Import (no Home or New Tab suggestion), and the sidebar's Conductor note
+        // (CmuxNextSidebar's notice card). The App supplies `ImportCardsHost`.
         .target(
             name: "CmuxNextImportCards",
-            dependencies: ["CmuxNextActions", "CmuxNextBrowserImport", "CmuxNextCompat", "CmuxNextDesign",
-                           "CmuxNextImportSuggestions", "CmuxNextOnboarding", "CmuxNextSettings"],
+            dependencies: ["CmuxNextActions", "CmuxNextBrowserImport", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesign",
+                           "CmuxNextImportSuggestions", "CmuxNextOnboarding", "CmuxNextSettings", "CmuxNextSidebar"],
             swiftSettings: uiSwiftSettings
         ),
         .target(
@@ -1203,7 +1204,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // projection of `server.status`. The App supplies the source.
         .target(
             name: "CmuxNextServer",
-            dependencies: ["CmuxNextCloud", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextRemote"],
+            // CmuxNextWakeups: the joined rows' one-shot heartbeat deadline (JoinedMachineStore aging).
+            dependencies: ["CmuxNextCloud", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextRemote", "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
             ],
@@ -1261,6 +1263,11 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextLiveCode",
             dependencies: ["CmuxNextCompat"],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextLiveCodeTests",
+            dependencies: ["CmuxNextLiveCode"],
             swiftSettings: uiSwiftSettings
         ),
         // Web updates in the app (plans/cmux-next/web-ota.md): serves a signed web update from

@@ -560,7 +560,6 @@ impl Hub {
         // from here to `queue_slot`'s choice, so it never joins the queue (`auto_resume.rs`).
         let after_turn = opts.after_turn.clone();
         super::auto_resume::check_cut(session, after_turn.as_deref(), false)?;
-        let goal_mark = opts.goal_mark.clone();
         // Queued behind the running turn (and the queue) it waits for its turn (`queue.rs`).
         let slot = super::queue::Slot {
             text: &text,
@@ -613,7 +612,8 @@ impl Hub {
         }
         // A prompt that took the turn lock first (a person's) supersedes the continuation.
         if let Err(e) = super::auto_resume::check_cut(session, after_turn.as_deref(), waiting)
-            .and_then(|()| super::goal_tools::check_goal_mark(session, goal_mark.as_deref()))
+            // Its queue entry's provenance: an edit made it the person's, a restart restored it.
+            .and_then(|()| super::goal_tools::check_goal_mark(session, run.provenance.as_ref()))
         {
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
@@ -687,6 +687,9 @@ impl Hub {
             .noticed(super::prompt_line::is_notice(provenance.as_ref()))
             .by_person(persons);
         turn.trigger = trigger;
+        // Before the turn shows: a Stop from then on fences its unwritten prompt (`cancel.rs`).
+        *session.unwritten_prompt.lock().unwrap_or_else(|e| e.into_inner()) =
+            Some((turn_id.to_string(), false));
         let retry = super::subagent_retry::is_retry(run.provenance.as_ref());
         let mut cloud_exec = if let Some(envelope) = cloud_turn.as_ref() {
             if envelope.session != session.id

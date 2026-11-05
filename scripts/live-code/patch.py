@@ -27,6 +27,7 @@ Prints `patch.py: DIR/patch-....dylib compile_s=... link_s=...`.
 """
 import argparse
 import concurrent.futures
+import json
 import os
 import re
 import shlex
@@ -82,6 +83,22 @@ def module_commands(log, module):
 def read_filelist(path):
     with open(path) as f:
         return [line.strip().replace("\\ ", " ") for line in f if line.strip()]
+
+
+def source_root(edited):
+    """The git checkout the edited files are in, or None."""
+    run = subprocess.run(["git", "-C", os.path.dirname(edited[0]), "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    return run.stdout.strip() if run.returncode == 0 else None
+
+
+def source_commit(edited):
+    """The checkout's commit, with `+dirty` when the edited files differ from it."""
+    root = source_root(edited)
+    if not root:
+        return None
+    head = subprocess.run(["git", "-C", root, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+    dirty = subprocess.run(["git", "-C", root, "diff", "--quiet", "HEAD", "--", *edited]).returncode != 0
+    return head + ("+dirty" if dirty else "") if head else None
 
 
 def checkout_root(files, module):
@@ -191,6 +208,9 @@ def main():
     parser.add_argument("--module", help="every file's module (default: each file's folder under Sources/)")
     parser.add_argument("--live", required=True, help="the live folder the app watches")
     parser.add_argument("--tree", help="read the module's sources from this tree; FILE is relative to its root")
+    parser.add_argument("--sign", default=os.environ.get("CMUX_LIVE_CODE_SIGN_IDENTITY", "-"),
+                        help="codesign identity (default: CMUX_LIVE_CODE_SIGN_IDENTITY, else - for ad hoc); outside Debug "
+                             "and bench an app signed by a team loads only a patch signed by that team")
     parser.add_argument("--optimize", action="store_true", help="compile at -O instead of the build's -Onone")
     parser.add_argument("--all", action="store_true", help="every file of the module, not only FILE")
     parser.add_argument("--jobs", type=int, default=os.cpu_count() or 4, help="compiles at once")
@@ -213,6 +233,8 @@ def main():
         sys.exit("patch.py: --all is one module's files; these are in " + ", ".join(sorted(modules)))
     work = tempfile.mkdtemp(prefix="cmux-live-code-patch.")
     objects, argv, frontend = [], None, None
+    # Every module's edited files, for the sidecar.
+    all_edited = []
     for module, edited in modules.items():
         frontend, filelist = module_commands(opts.log, module)
         if not frontend:
@@ -247,6 +269,7 @@ def main():
             sys.stderr.write(failed[0][-6000:])
             sys.exit(f"patch.py: the compile of {module} failed (command in {module_work}/command)")
         objects += module_objects
+        all_edited += edited
     compiled = time.time()
     kept = 0
     if opts.all:
@@ -270,9 +293,19 @@ def main():
     if link_run.returncode != 0:
         sys.stderr.write(link_run.stderr[-6000:])
         sys.exit("patch.py: the link failed")
-    subprocess.run(["codesign", "--force", "--sign", "-", dylib], capture_output=True, check=True)
+    sign = subprocess.run(["codesign", "--force", "--timestamp=none", "--sign", opts.sign, dylib], capture_output=True, text=True)
+    if sign.returncode != 0:
+        sys.stderr.write(sign.stderr[-2000:])
+        sys.exit(f"patch.py: codesign --sign {opts.sign} failed")
+    if opts.sign == "-":
+        print("patch.py: signed ad hoc: only a Debug or bench build loads it (a live code NIGHTLY needs "
+              "--sign with the app's team identity)", file=sys.stderr)
     linked = time.time()
     os.makedirs(opts.live, exist_ok=True)
+    # The sidecar first (`cmux live-code status` shows its commit and files), then the dylib.
+    with open(os.path.join(opts.live, name[:-len(".dylib")] + ".json"), "w") as f:
+        json.dump({"commit": source_commit(all_edited),
+                   "files": [os.path.relpath(p, source_root(all_edited) or "/") for p in all_edited]}, f)
     # Moved into place in one step, so the app never reads a half-written file.
     hidden = os.path.join(opts.live, "." + name)
     shutil.move(dylib, hidden)

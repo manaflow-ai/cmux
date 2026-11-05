@@ -9,8 +9,8 @@
  * It signs in as the agent test account (as cloud-journey.ts), makes a machine (or uses --machine, kept), opens the
  * state socket, and per round times a pause and a resume: from the call to the first pushed frame of the change
  * (`pausing`, `starting`) and to the pushed end state (`paused`, `running`). For each end state it also prints the
- * push lag: the frame's arrival minus the record's own updated_at (the commit time on the backend's clock, so a
- * few ms of clock skew are in it). The machine it made is deleted at the end unless --keep.
+ * push lag: the frame's arrival minus the state's updated_at (cmux-platform MachineState: the commit time of the
+ * change on the backend's clock, so a few ms of clock skew are in it). The machine it made is deleted at the end unless --keep.
  *
  * Secrets come from the environment or the --credentials file, go only into headers, and are never printed.
  */
@@ -120,7 +120,7 @@ async function main(argv = process.argv.slice(2)): Promise<number> {
         const first = await pushed(changing, t0, 30_000);
         const end = await pushed(done, t0, 300_000);
         const callMs = (await answered) - t0;
-        const updated = Number(end.f.state?.record?.updated_at);
+        const updated = Number(end.f.state?.updated_at ?? end.f.state?.record?.updated_at);
         const lag = Number.isFinite(updated) && updated > 0 ? end.at - updated : NaN;
         rows.push(`| ${i} | ${verb} | ${ms(callMs)} | ${ms(first.at - t0)} | ${ms(end.at - t0)} | ${Number.isNaN(lag) ? "?" : ms(lag)} |`);
         console.log(rows.at(-1));

@@ -3404,8 +3404,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setNextStepFire({ fire });
     return () => setNextStepFire((now) => (now?.fire === fire ? undefined : now));
   }, []);
+  // A background command's Bash call in the transcript (`showToolRow` below, which needs what the
+  // Inspector draws): what its task row opens where its terminal cannot (a peer's or Cloud chat),
+  // and a turn's waterfall bar opens (conversation/TurnWaterfall.tsx).
+  const showCallRef = useRef<(toolCallId: string, startedAt?: number) => boolean>(() => false);
+  const showCall = useCallback(
+    (toolCallId: string, startedAt?: number) => showCallRef.current(toolCallId, startedAt),
+    [],
+  );
   const turnActions = useMemo<TurnActions>(
     () => ({
+      showCall,
       queuedMessages: () => queuedMessageActionsRef.current,
       ...(stableBranches.size > 0 && {
         branches: {
@@ -3611,6 +3620,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     }),
     [
       access,
+      showCall,
       chatAccounts,
       snapshot.sessionId,
       stableBranches,
@@ -4388,10 +4398,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     sessionInfoSummary !== undefined &&
     !sessionInfoSummary.peer &&
     !(sessionInfoSummary.host && sessionInfoSummary.hostKind !== "local");
-  // A background command's Bash call in the transcript (`showToolRow` below, which needs what the
-  // Inspector draws): what its task row opens where its terminal cannot (a peer's or Cloud chat).
-  const showCallRef = useRef<(toolCallId: string) => boolean>(() => false);
-  const showCall = useCallback((toolCallId: string) => showCallRef.current(toolCallId), []);
   // A subagent's edited files are in its own rows, which the chat's diff (openOutput) never reads:
   // they open the Changes viewer beside the chat on the subagent's folder, its worktree when it has
   // one (a chat on this Mac; another machine's folders are not here). The folder is found on the
@@ -4674,9 +4680,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // holds the call. The reveal lets go after a moment, so the run closes again like any other.
   // False when no loaded row holds the call (a command only the registry knows).
   const showToolRow = useCallback(
-    (toolId: string | undefined) => {
+    (toolId: string | undefined, startedAt?: number) => {
       const { sourceRows: rows, transcriptRows: shown } = counted.current;
-      const index = toolId ? rows.findIndex((row) => row.items?.some((item) => item.tool?.id === toolId)) : -1;
+      // A harness can reuse a call id in a later prompt: the call that started at `startedAt` (a
+      // waterfall bar's, TurnWaterfall.tsx) is that one, else the first call with the id.
+      const holds = (row: AcpmuxRow, timed: boolean) =>
+        Boolean(row.items?.some((item) => item.tool?.id === toolId && (!timed || item.tool?.startedAt === startedAt)));
+      const timed = toolId && startedAt !== undefined ? rows.findIndex((row) => holds(row, true)) : -1;
+      const index = timed >= 0 ? timed : toolId ? rows.findIndex((row) => holds(row, false)) : -1;
       const row = rows[index];
       if (!row || !toolId) return false;
       if (!shown.some((drawn) => isFindRow(drawn, row.id))) {

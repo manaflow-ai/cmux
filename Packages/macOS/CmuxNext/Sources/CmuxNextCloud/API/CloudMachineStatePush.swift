@@ -38,10 +38,13 @@ public final class CloudMachineStatePush {
         /// A frame of the open socket reached the Cloud app server: pushes are live for this machine. A failed hand-off
         /// clears it until the next frame gets through.
         var live = false
-        /// Raised by each socket: a hand-off that finishes after its socket closed changes nothing.
+        /// The open socket's id (``nextSocket``): a hand-off that finishes after its socket closed changes nothing.
         var socket = 0
     }
     private var watches: [String: Watch] = [:]
+    /// The last socket id handed out. It only grows, across every machine and every recreated watch, so a hand-off
+    /// queued on an old socket can never match a new one.
+    private var lastSocket = 0
 
     /// The first reconnect waits this long; each failure doubles it up to ``maxBackoff``.
     static let firstBackoff: Duration = .milliseconds(500)
@@ -132,7 +135,7 @@ public final class CloudMachineStatePush {
         guard watches[machine] != nil, !Task.isCancelled else { return false }
         let task = session.webSocketTask(with: request)
         watches[machine]?.task = task
-        watches[machine]?.socket += 1
+        watches[machine]?.socket = nextSocket()
         task.resume()
         let ping = Task {
             // wakeup-allow: one keepalive send per open push socket every 30 s, ended with the socket
@@ -195,13 +198,26 @@ public final class CloudMachineStatePush {
             guard !Task.isCancelled, self?.generation == sent else { return }
             let ok: Bool
             if let connection {
-                ok = (try? await connection.request(AppsTeamEventRequest(event: "cloud.machine.state", data: value))) != nil
+                ok = Self.handedOff(try? await connection.request(AppsTeamEventRequest(event: "cloud.machine.state", data: value)))
             } else {
                 ok = false
             }
             guard !Task.isCancelled, let self, self.generation == sent else { return }
             self.delivered(machine, socket: socket, ok)
         }
+    }
+
+    /// A new socket id, larger than every one before it.
+    func nextSocket() -> Int {
+        lastSocket += 1
+        return lastSocket
+    }
+
+    /// Whether `apps-team-event` answered that a Cloud app server took the frame (`{servers: N}`, N > 0). A reply
+    /// with no server (none running, or none holding the Cloud scope) is not a hand-off: the machine stays on reads.
+    static func handedOff(_ reply: JSONValue?) -> Bool {
+        guard let servers = reply?["servers"]?.doubleValue else { return false }
+        return servers > 0
     }
 
     private func delivered(_ machine: String, socket: Int?, _ ok: Bool) {

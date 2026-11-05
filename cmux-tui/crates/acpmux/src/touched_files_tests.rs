@@ -1,7 +1,8 @@
 use super::*;
 
 fn file(repo: &str, path: &str, edited: bool, at: u64) -> TouchedFile {
-    TouchedFile { repo: repo.to_owned(), path: path.to_owned(), edited, at }
+    let edited_at = if edited { at } else { 0 };
+    TouchedFile { repo: repo.to_owned(), path: path.to_owned(), edited, at, edited_at }
 }
 
 fn candidate(id: &str, files: Vec<TouchedFile>) -> Candidate {
@@ -65,7 +66,11 @@ fn merge_keeps_one_row_per_file_an_edit_stays_one_and_the_oldest_go_past_the_bou
     let mut files = vec![];
     merge(&mut files, file(REPO, "a", true, 5));
     merge(&mut files, file(REPO, "a", false, 9));
-    assert_eq!(files, vec![file(REPO, "a", true, 9)]);
+    assert_eq!(
+        files,
+        vec![TouchedFile { at: 9, ..file(REPO, "a", true, 5) }],
+        "the edit keeps its time"
+    );
     for i in 0..MAX_FILES as u64 {
         merge(&mut files, file(REPO, &format!("f{i}"), false, 100 + i));
     }
@@ -89,6 +94,41 @@ fn a_session_that_edited_the_same_file_in_another_worktree_matches_first() {
 }
 
 #[test]
+fn one_edit_in_common_outranks_any_number_of_reads() {
+    let paths: Vec<String> = (0..11).map(|i| format!("src/f{i}.rs")).collect();
+    let q = Query {
+        files: paths.iter().map(|p| file(REPO, p, false, 0)).collect(),
+        ..Query::default()
+    };
+    let reader = candidate("reader", paths.iter().map(|p| file(REPO, p, false, 990)).collect());
+    let editor = candidate("editor", vec![file(REPO, "src/f0.rs", true, 900)]);
+    let mut rows: Vec<Value> =
+        [&reader, &editor].iter().filter_map(|c| row(&q, c, 1_000)).collect();
+    rank(&mut rows);
+    let names: Vec<&str> = rows.iter().map(|r| r["name"].as_str().unwrap()).collect();
+    assert_eq!(names, ["editor", "reader"]);
+}
+
+#[test]
+fn a_peer_row_ranks_by_its_counts_whatever_score_it_carries() {
+    let mut rows = vec![
+        json!({"name": "local-reader", "filesInCommon": 3, "editedInCommon": 0, "score": 1u64 << 40}),
+        json!({"name": "peer-editor", "filesInCommon": 1, "editedInCommon": 1, "score": 100}),
+    ];
+    rank(&mut rows);
+    assert_eq!(rows[0]["name"], "peer-editor");
+}
+
+#[test]
+fn a_read_after_an_edit_kept_before_edit_times_is_not_a_recent_edit() {
+    let mut files = vec![TouchedFile { edited_at: 0, ..file(REPO, "a", true, 5) }];
+    merge(&mut files, file(REPO, "a", false, 900));
+    assert_eq!(files[0].at, 900);
+    assert!(files[0].edited_since(5));
+    assert!(!files[0].edited_since(100), "{:?}", files[0]);
+}
+
+#[test]
 fn the_asker_and_its_own_sub_sessions_are_not_someone_else() {
     let q = Query {
         files: vec![file(REPO, "a", false, 0)],
@@ -99,6 +139,21 @@ fn the_asker_and_its_own_sub_sessions_are_not_someone_else() {
     child.root = "me".to_owned();
     assert!(row(&q, &child, 2).is_none());
     assert!(row(&q, &candidate("me", vec![file(REPO, "a", true, 1)]), 2).is_none());
+}
+
+#[test]
+fn a_recent_read_of_a_file_edited_long_ago_is_a_read_not_a_recent_edit() {
+    let mut files = vec![];
+    merge(&mut files, file(REPO, "a", true, 100));
+    merge(&mut files, file(REPO, "a", false, 900));
+    let q = Query { files: vec![file(REPO, "a", false, 0)], since: 500, ..Query::default() };
+    let r = row(&q, &candidate("reader", files.clone()), 1_000).unwrap();
+    assert_eq!(r["filesInCommon"], 1, "the recent read still counts");
+    assert_eq!(r["editedInCommon"], 0, "the edit was before the window");
+    assert_eq!(r["files"][0]["edited"], false);
+    // A window that holds the edit still sees it.
+    let q = Query { since: 50, ..q };
+    assert_eq!(row(&q, &candidate("editor", files), 1_000).unwrap()["editedInCommon"], 1);
 }
 
 #[test]

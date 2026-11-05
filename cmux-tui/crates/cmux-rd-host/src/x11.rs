@@ -111,7 +111,7 @@ impl Desktop for X11Desktop {
         self.injector.release_all()
     }
 
-    fn pump(&mut self) -> Res<bool> {
+    fn pump(&mut self) -> Res<Option<std::time::Duration>> {
         self.injector.pump()
     }
 }

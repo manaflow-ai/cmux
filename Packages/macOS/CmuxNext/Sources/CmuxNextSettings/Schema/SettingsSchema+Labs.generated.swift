@@ -11,7 +11,7 @@ extension CmuxConfigSnapshot {
     /// `labs.voiceRoomURL`: The Voice Room server (experiments/voice-room). Empty is the local server, http://127.0.0.1:4788/. A tailnet room is the https://<host>.ts.net:4789/ address its `--share` prints.
     public nonisolated static let voiceRoomURLPath = ["labs", "voiceRoomURL"]
     public nonisolated static let voiceRoomURLDefault = ""
-    /// `labs.machineJoin`: Any machine joins with one pasted line (contract: cmux machine join, J6-J8): Add Device's "Any machine: one line" way, joined rows in the Machines sidebar with Check, Rotate and Revoke, and This Mac's Screen sharing and Control consent switches in Settings > Devices. Off by default while the join routes answer only on the development platform. The person turns it on: agents may not (not in SettingsSchema agent-writable keys).
+    /// `labs.machineJoin`: This Mac's Screen sharing and Control consent switches in Settings > Devices, for a Mac that joined with a pair code or line (contract: cmux machine join, J6-J8). Add Device's join way and the Machines section's joined rows no longer depend on it (cmux#36654, cmux#36667). Off by default. The person turns it on: agents may not (not in SettingsSchema agent-writable keys).
     public nonisolated static let machineJoinPath = ["labs", "machineJoin"]
     public nonisolated static let machineJoinDefault = false
     /// `labs.liveCode`: Live code (docs/cmux-next/live-code.md): an opt-in, temporary switch. On, a live code build (CMUX_LIVE_CODE_BUILD=1 scripts/reload.sh: CmuxNextApp at -Onone, linked -interposable) watches ~/Library/Caches/cmux-next/live-code and applies Swift patches compiled from the person's checkout (scripts/live-code/patch.py) with no new build. Off, nothing is watched or loaded; Debug and bench builds only until a patch's signer is checked (cmux#13742). Read at launch. The person turns it on: agents may not (it loads code into the app).
@@ -59,8 +59,8 @@ nonisolated enum LabsSettingsSchema {
                 CmuxConfigSnapshot.machineJoinPath,
                 section: .advanced,
                 group: group,
-                title: SettingsText.keyed("settings.labs.machineJoin", "Join Any Machine with One Line"),
-                help: SettingsText.keyed("settings.labs.machineJoin.help", "Add Device shows a line to paste on any Mac or Linux computer; it joins your team's machines. Screen sharing and control stay off until that machine allows them."),
+                title: SettingsText.keyed("settings.labs.machineJoin", "Screen Sharing for Joined Machines"),
+                help: SettingsText.keyed("settings.labs.machineJoin.help", "Shows this Mac's Screen sharing and Control switches in Settings > Devices once it has joined your machines. Both stay off until you turn them on."),
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.machineJoinDefault),
                 keywords: ["labs", "machine", "join", "add", "device", "line", "curl", "remote", "mesh"]
