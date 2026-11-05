@@ -171,11 +171,32 @@ def feed_builds() -> list[tuple[str, str]]:
     builds = []
     for item in re.findall(r"<item>(.*?)</item>", xml, re.S):
         version_match = re.search(r"1\.0\.0-nightly\.(\d+)", item)
+        if not version_match:
+            continue
         commit = re.search(r"<cmux:sourceCommit[^>]*>([0-9a-f]{40})<", item)
-        if version_match and commit:
-            builds.append((version_match.group(0), commit.group(1)))
+        # The feed keeps the source commit on its newest item only (2026-11-05).
+        sha = commit.group(1) if commit else nightly_run_commit(version_match.group(1))
+        if sha:
+            builds.append((version_match.group(0), sha))
     builds.sort(key=lambda b: int(b[0].rsplit(".", 1)[1]), reverse=True)
     return builds
+
+
+def nightly_run_commit(number: str) -> str | None:
+    """A NIGHTLY's number is its nightly.yml run id and a two-digit attempt
+    (4191131679101 is run 41911316791, attempt 1): the run's head commit."""
+    if len(number) < 3:
+        return None
+    url = f"https://api.github.com/repos/manaflow-ai/cmux/actions/runs/{number[:-2]}"
+    result = subprocess.run(["curl", "-sf", url], capture_output=True, text=True, timeout=60)
+    try:
+        run = json.loads(result.stdout)
+    except ValueError:
+        return None
+    if run.get("path") != ".github/workflows/nightly.yml" or run.get("run_attempt") != int(number[-2:]):
+        return None
+    sha = run.get("head_sha") or ""
+    return sha if re.fullmatch(r"[0-9a-f]{40}", sha) else None
 
 
 def published_daemon(repo: Path, commit: str) -> str:
