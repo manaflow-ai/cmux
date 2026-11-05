@@ -119,6 +119,7 @@ SURFACE_TOL_PT = 0.5        # m18/m14 held: a terminal surface's width or height
 STALE_TOL_PX = 1.0          # m18/m14 stale: the shown IOSurface this far from the surface's size x scale (device px)
 PRE_COMMIT_HOST = ("pending", "ready")  # an owned terminal row whose present request waits (its host frame)
 PAGE_LAG_REFRESHES = 2      # m18: a page may show its last frame for at most this many refreshes
+WRAP_COLOR_TOL = 8          # m18 wrap: a block pixel is this close (every channel) to one of the note's block colors
 PILL_TOL = 6                # a strip pixel this far (max channel) from the strip's ground is not ground: the pill, text
 PILL_BRIDGE = 2             # ground gaps this narrow inside a run (between glyphs) are bridged
 PILL_MIN_PX = 12            # the selected tab's pill: the longest run of non-ground pixels, at least this long
@@ -276,6 +277,8 @@ class Film:
             if info.get("kind") in ("tui", "page") and info.get("fill"):
                 self.panes[str(pid)] = {"kind": info["kind"], "fill": code_of(info["fill"]), "label": info.get("label", pid),
                                         "fill_hex": info["fill"], "agent": bool(info.get("agent"))}
+                if isinstance(info.get("wrap"), dict):
+                    self.panes[str(pid)]["wrap"] = info["wrap"]  # m18 text wrap (judge_wrap): cell_px, pad_px, colors
 
     @property
     def n(self):
@@ -1438,7 +1441,8 @@ def judge(base, all_frames=False, stale=True):
     strips = judge_strips(film, shown, rest_frames, spring, reduce, summary, add_frame, line_codes, strip_x, strip_y, fixed)
     judge_page_windows(film, shown, measured, summary, add_frame)
     surfaces = judge_surfaces(film, clock_shown, stale)  # m18 terminals from the trace: held and stale
-    report["m6"] = judge_m6(film, shown, measured, side_rest, strips, repeats["late"], surfaces)
+    wrap = judge_wrap(film, shown, surfaces)  # m18 text wrap of a primary-screen pane (the note's `wrap`)
+    report["m6"] = judge_m6(film, shown, measured, side_rest, strips, repeats["late"], surfaces, wrap)
     report["m14"] = report["m6"].pop("m14")  # cmux-ad m14: the same edges, m6's allowances failed (judge_m14.py)
     report["m18"] = report["m6"].pop("m18")  # cmux-ad m18: m14 with its page and terminal rules replaced
     if film.main_pane_source and film.main_pane_source != "note" and film.main_pane[0] > 0:
@@ -1581,7 +1585,7 @@ M14_ORDER = M14_FAIL_CLASSES + ("pass", "not judged")
 # m18 (Lead 2026-11-05, STATUS 13889): replaces m14's terminal and page rules where they differ. held and stale come from
 # the trace (judge_surfaces; m14 stays the pixel contract of the m14 tables). lag_ok (a page on the frame of at most
 # PAGE_LAG_REFRESHES refreshes before) passes; it is counted (lag_1_2).
-M18_FAIL_CLASSES = ("held", "stale", "scaled", "protrude", "gap", "edge", "allowed", "lag")
+M18_FAIL_CLASSES = ("held", "stale", "scaled", "protrude", "gap", "edge", "allowed", "wrap", "lag")
 M18_ORDER = M18_FAIL_CLASSES + ("lag_ok", "pass", "not judged")
 M14_OF_M6 = {"pass": "pass", "late": "allowed", "page late 1": "page_late", "not judged": "not judged"}
 
@@ -1657,21 +1661,141 @@ def judge_surfaces(film, shown, stale=True):
             nxt = matched[k + 1][0].get(pid)
             votes[1] += nxt is not None and _size_off(nxt, area) <= SURFACE_TOL_PT
     phase = 1 if votes[1] > votes[0] else 0
-    per_sample = []
+    per_sample, committed = [], []
     for k, (rows, _) in enumerate(matched):
-        out = {}
+        out, used = {}, {}
         for pid, row in rows.items():
             use = row
             if phase and _pre_commit(row) and k + 1 < len(matched) and pid in matched[k + 1][0]:
                 use = matched[k + 1][0][pid]
+            used[pid] = use
             area = _pane_area(film, pid, film.samples[k].panes[pid], row)
             off_px = None
             if stale and float(use[4]) > 0 and float(use[5]) > 0:
                 off_px = max(abs(float(use[4]) - float(use[2]) * film.scale), abs(float(use[5]) - float(use[3]) * film.scale))
             out[pid] = (round(_size_off(use, area), 2), None if off_px is None else round(off_px, 1))
         per_sample.append(out)
+        committed.append(used)
     frames = {f: per_sample[shown[f]] for f in range(film.n) if shown[f] is not None and per_sample[shown[f]]}
-    return {"frames": frames, "phase": phase, "votes": votes, "unmatched": sum(u for _, u in matched), "stale": stale}
+    return {"frames": frames, "phase": phase, "votes": votes, "unmatched": sum(u for _, u in matched), "stale": stale,
+            "committed": committed}
+
+
+def judge_wrap(film, shown, surfaces):
+    """m18 text wrap (pixel-perfect's primary-screen fixture: lines of solid one-color blocks, each line about 3 pane
+    widths, in a pane whose note has `wrap`: cell_px, pad_px, colors). Per film frame (the clock SHOWN) and scan row
+    through such a pane below its header: the block-colored run from its first block pixel. The frame's columns come from
+    the trace: the committed surface's width (judge_surfaces) less twice the padding, over the cell width; the last whole
+    cell ends cols x cell after the run's start. A row that does not start within a cell of the surface's first column
+    (its x plus the padding) is not read.
+      crop      a run past the last whole cell by more than TOL_PX: the text not re-wrapped at the frame's width (its
+                old, wider wrap cut by the view)
+      narrower  the longest run of the frame's block rows (two at least) ends more than a cell short of the last whole
+                cell: the text wrapped at fewer columns than the frame's
+    A shorter row beside a full one is the last row of a line: `short` (information). Limit: a frame whose scan rows all
+    fall on the last rows of lines reads as a narrower wrap (lines about 3 pane widths: about one row in 4 is a last row).
+    {"frames": {f: [where]} (failing), "judged": {f} (frames with a row read), "rows": rows read, "short": {f}}; a frame
+    with no trace row for the pane is not judged."""
+    out = {"frames": collections.defaultdict(list), "judged": set(), "rows": 0, "short": set()}
+    wraps = {pid: info["wrap"] for pid, info in film.panes.items() if isinstance(info.get("wrap"), dict)}
+    if not wraps or film.row_px is None or surfaces is None:
+        return out
+    s = film.scale
+    for pid, w in wraps.items():
+        cell, pad = float(w.get("cell_px") or 0), float(w.get("pad_px") or 0)
+        colors = np.array([rgb_of(c) for c in w.get("colors") or []], np.int16)
+        if cell <= 0 or not len(colors):
+            continue
+        label = film.panes[pid].get("label") or pid
+        for f in range(film.n):
+            k = shown[f]
+            if k is None:
+                continue
+            row = surfaces["committed"][k].get(pid)
+            pane = film.samples[k].panes.get(pid)
+            if row is None or pane is None or len(pane) < 5:
+                continue
+            x, y, pw, ph = (float(v) for v in pane[1:5])
+            top = y + film.headers.get(pid, 0.0)
+            cols = math.floor((float(row[2]) * s - 2 * pad) / cell)
+            origin = float(row[0]) * s + pad  # the surface's first column (device px)
+            a, b = max(0, int(math.floor(x * s))), min(film.row_px.shape[2], int(math.ceil((x + pw) * s)))
+            runs, crops = [], []
+            for i, line_y in enumerate(film.rows):
+                if not top * s + 2 <= line_y <= (y + ph) * s - 2 or b <= a:
+                    continue
+                rgb = film.row_px[f, i, a:b, 2::-1].astype(np.int16)
+                block = (np.abs(rgb[:, None, :] - colors[None, :, :]).max(-1) <= WRAP_COLOR_TOL).any(-1)
+                hits = np.flatnonzero(block)
+                if not len(hits) or a + int(hits[0]) > origin + cell + TOL_PX:
+                    continue
+                start = int(hits[0])
+                end = start
+                while end < len(block) and block[end]:
+                    end += 1
+                out["rows"] += 1
+                runs.append(end - start)
+                if end - start - cols * cell > TOL_PX:
+                    crops.append(f"{label} row@{line_y}: its run of {end - start} px passes the frame's {cols} columns "
+                                 f"({cols * cell:g} px): not re-wrapped")
+            if not runs:
+                continue
+            out["judged"].add(f)
+            if crops:
+                out["frames"][f] += crops
+            elif len(runs) >= 2 and cols * cell - max(runs) > cell:
+                out["frames"][f].append(f"{label}: its longest row ({max(runs)} px) ends more than a cell short of the "
+                                        f"frame's {cols} columns ({cols * cell:g} px): a narrower wrap")
+            elif any(cols * cell - r > cell for r in runs):
+                out["short"].add(f)
+    return out
+    s = film.scale
+    for pid, w in wraps.items():
+        cell, pad = float(w.get("cell_px") or 0), float(w.get("pad_px") or 0)
+        colors = np.array([rgb_of(c) for c in w.get("colors") or []], np.int16)
+        if cell <= 0 or not len(colors):
+            continue
+        label = film.panes[pid].get("label") or pid
+        for f in range(film.n):
+            k = shown[f]
+            if k is None:
+                continue
+            row = surfaces["committed"][k].get(pid)
+            pane = film.samples[k].panes.get(pid)
+            if row is None or pane is None or len(pane) < 5:
+                continue
+            x, y, pw, ph = (float(v) for v in pane[1:5])
+            top = y + film.headers.get(pid, 0.0)
+            cols = math.floor((float(row[2]) * s - 2 * pad) / cell)
+            ends, crops = [], []
+            for i, line_y in enumerate(film.rows):
+                if not top * s + 2 <= line_y <= (y + ph) * s - 2:
+                    continue
+                a, b = max(0, int(math.floor(x * s))), min(film.row_px.shape[2], int(math.ceil((x + pw) * s)))
+                rgb = film.row_px[f, i, a:b, 2::-1].astype(np.int16)
+                block = (np.abs(rgb[:, None, :] - colors[None, :, :]).max(-1) <= WRAP_COLOR_TOL).any(-1)
+                hits = np.flatnonzero(block)
+                if not len(hits):
+                    continue
+                start = int(hits[0])
+                end = start
+                while end < len(block) and block[end]:
+                    end += 1
+                out["rows"] += 1
+                last = start + cols * cell
+                if end - last > TOL_PX:
+                    crops.append(f"{label} row@{line_y}: run to {end - start} px past the frame's {cols} columns ({cols * cell:g} px)")
+                elif last - end > cell:
+                    ends.append(end)
+            if crops:
+                out["frames"][f] += crops
+            elif len(ends) >= 2 and max(ends) - min(ends) <= cell and \
+                    len(ends) == sum(1 for line_y in film.rows if top * s + 2 <= line_y <= (y + ph) * s - 2):
+                out["frames"][f].append(f"{label}: every block row ends more than a cell short of the frame's {cols} columns, "
+                                        f"at one column (a narrower wrap)")
+            elif ends:
+                out["short"].add(f)
+    return out
 
 
 def m6_kind(info):
@@ -1737,7 +1861,7 @@ def _next_distinct(values):
     return out
 
 
-def judge_m6(film, shown, measured, side_rest, strips, late_repeats=(), surfaces=None):
+def judge_m6(film, shown, measured, side_rest, strips, late_repeats=(), surfaces=None, wrap=None):
     """3e, the judge part of cmux-ad m6 1d (FRAME OWNER): per film frame and content kind (terminal, page, agent), each
     content edge against its pane edge as cmux's own layer shows it in the same film frame (3e.1: never the trace): the
     pane's tab strip on its strip row (x edges) and the strip's top on each scan column that crosses it (the pane's top
@@ -1948,7 +2072,7 @@ def judge_m6(film, shown, measured, side_rest, strips, late_repeats=(), surfaces
     late = sorted(set(f for f, lags in (strips.get("lags_fixed") or {}).items() if lags and all(v == 1 for v in lags))
                   | set(late_repeats))
     out["late_as_a_whole"], out["late_as_a_whole_ranges"] = len(late), ranges(late)
-    surface = surface_rows(film, surfaces, m18_frames)
+    surface = surface_rows(film, surfaces, m18_frames, wrap)
     if surface is not None:
         surface.update(program_grid_lag=len(grid_lag), program_grid_lag_ranges=ranges(grid_lag))
     out["m14"] = m14_rows(m14_frames, touch_edges, touch_frames, out)
@@ -1981,7 +2105,7 @@ def m18_page_class(side, c, cur, olds):
     return "lag"
 
 
-def surface_rows(film, surfaces, m18_frames):
+def surface_rows(film, surfaces, m18_frames, wrap=None):
     """Adds each film frame's held and stale terminals (judge_surfaces) to the terminal frames of m18 (a frame with a held
     or stale terminal fails, whatever its pixels show) and gives the terminal row's surface fields: held and stale
     (frames, ranges, the worst offset), stale_judged, surface_frames (frames with a terminal row on the film's clock),
@@ -2001,7 +2125,16 @@ def surface_rows(film, surfaces, m18_frames):
                 stale.add(f)
                 worst_px = max(worst_px, off_px)
                 m18_frames["terminal"][f].append(("stale", None, where))
-    return {"held": len(held), "held_ranges": ranges(held), "held_worst_pt": worst_pt, "stale": len(stale),
+    wrap = wrap or {"frames": {}, "judged": set(), "rows": 0, "short": set()}
+    for f in wrap["judged"]:
+        wheres = wrap["frames"].get(f) or ()
+        for where in wheres:
+            m18_frames["terminal"][f].append(("wrap", None, where))
+        if not wheres:
+            m18_frames["terminal"][f].append(("pass", None, "text wrap"))  # the pixels judged the wrap: on the frame's columns
+    return {"wrap_frames": len(wrap["frames"]), "wrap_rows": wrap["rows"], "wrap_short": len(wrap["short"]),
+            "wrap_short_ranges": ranges(wrap["short"]),
+            "held": len(held), "held_ranges": ranges(held), "held_worst_pt": worst_pt, "stale": len(stale),
             "stale_ranges": ranges(stale), "stale_worst_px": worst_px, "stale_judged": bool(surfaces["stale"]),
             "surface_frames": len(surfaces["frames"]), "surface_phase": surfaces["phase"], "surface_votes": surfaces["votes"],
             "surface_unmatched": surfaces["unmatched"]}
