@@ -9228,6 +9228,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let tabManager = context.tabManager
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                // A plan without Cloud can only be refused: same gate as the New Machine sheet.
+                if NewMachineSheetPresenter.shouldPresentUpgrade(for: NewMachineSheetDataCache.shared?.readyData?.plan) {
+                    tabManager.closeWorkspace(workspace, recordHistory: false)
+                    onCompletion?(CloudVMActionLauncher.Completion(terminationStatus: 1, output: "", workspaceId: nil))
+                    ProUpgradePresenter.present(source: .newMachineAtLimit)
+                    return
+                }
                 let page = await Self.cloudVMFleetPage()
                 // A Base whose delete is in flight is gone to the person: offer a new one.
                 let deleting = MachineDeleteCoordinator.shared.hiddenMachineIDs

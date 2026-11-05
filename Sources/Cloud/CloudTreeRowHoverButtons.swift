@@ -76,6 +76,15 @@ struct CloudTreeRowHoverButtons: View {
                         machineActions.create.cancel(operation.id)
                     }
                 } else {
+                    if operation.offersUpgrade {
+                        MachinesChromeIconButton(
+                            symbolName: "arrow.up.circle",
+                            accessibilityLabel: String(localized: "machines.pending.upgrade", defaultValue: "Upgrade Plan"),
+                            isBusy: false
+                        ) {
+                            machineActions.create.upgrade(operation.id)
+                        }
+                    }
                     MachinesChromeIconButton(
                         symbolName: "arrow.counterclockwise",
                         accessibilityLabel: String(localized: "machines.pending.retry", defaultValue: "Retry Create"),

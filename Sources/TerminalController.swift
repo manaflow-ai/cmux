@@ -4583,7 +4583,10 @@ class TerminalController {
         let safe = CloudVMActionLauncher.sanitizedCloudVMStartOutput(
             formattedCloudVMHTTPError(status: status, body: publicBody)
         )
-        return safe.isEmpty || safe == CloudVMActionLauncher.hiddenOutputPlaceholder ? fallback : safe
+        guard safe.isEmpty || safe == CloudVMActionLauncher.hiddenOutputPlaceholder else { return safe }
+        // A plan refusal's action carries a checkout link, which hides the whole
+        // answer. The failed create still needs its code to offer the upgrade.
+        return CloudPlanRefusal.failureHeader(status: status, body: publicBody) ?? fallback
     }
 
     private nonisolated static func isCloudVMAuthenticationError(_ error: VMClientError) -> Bool {

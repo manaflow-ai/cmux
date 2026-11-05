@@ -12,6 +12,7 @@ struct MachineCreateRowActions {
     let dismiss: @MainActor (UUID) -> Void
     let showFailure: @MainActor (UUID) -> Void
     let copyFailure: @MainActor (UUID) -> Void
+    let upgrade: @MainActor (UUID) -> Void
 
     /// Rows with nothing behind them (previews, tests).
     static let inert = MachineCreateRowActions(
@@ -19,7 +20,8 @@ struct MachineCreateRowActions {
         cancel: { _ in },
         dismiss: { _ in },
         showFailure: { _ in },
-        copyFailure: { _ in }
+        copyFailure: { _ in },
+        upgrade: { _ in }
     )
 
     @MainActor
@@ -41,6 +43,10 @@ struct MachineCreateRowActions {
             copyFailure: { [weak coordinator] id in
                 guard let operation = coordinator?.operation(id: id), let output = operation.failureOutput else { return }
                 CloudErrorCopy.copy("\(operation.statusLabel)\n\(output)")
+            },
+            upgrade: { [weak coordinator] id in
+                guard let operation = coordinator?.operation(id: id) else { return }
+                ProUpgradePresenter.present(source: operation.upgradeSource)
             }
         )
     }

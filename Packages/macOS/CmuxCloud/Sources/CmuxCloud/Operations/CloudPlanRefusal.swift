@@ -160,6 +160,16 @@ public struct CloudPlanRefusal: Equatable, Sendable {
         return String(line[match].dropFirst("(HTTP 402: ".count).dropLast())
     }
 
+    /// The one line that keeps a refusal's code when the rest of the answer has
+    /// to be hidden from CLI output: a checkout link in `action` hides it all,
+    /// and the failed-create actions key on this code. Nil unless it is a `402`
+    /// with a code `code(inCLIFailureOutput:)` can read back.
+    public static func failureHeader(status: Int, body: String) -> String? {
+        guard let code = CloudPlanRefusal(status: status, body: body)?.code,
+              code.range(of: #"^[A-Za-z0-9_.-]+$"#, options: .regularExpression) != nil else { return nil }
+        return "Cloud VM request failed (HTTP 402: \(code))"
+    }
+
     /// A full pool whose answer did not name the numbers.
     public static var capacityMessage: String {
         String(

@@ -63,6 +63,17 @@ struct MachineCreateOperation: Identifiable, Equatable {
         refusalCode == CloudPlanRefusal.requiresProCode
     }
 
+    /// Whether a larger plan would let this failed create through.
+    @MainActor
+    var offersUpgrade: Bool {
+        CloudPlanRefusal.offersUpgrade(for: refusalCode, plan: NewMachineSheetDataCache.shared?.currentData?.plan)
+    }
+
+    /// The attribution for an upgrade started from this failed create.
+    var upgradeSource: ProUpgradeSource {
+        requiresPaidPlan ? .createFailedNeedsPlan : .createFailedAtLimit
+    }
+
     /// The create found the team's shared vCPUs or memory already in use
     /// (`vm_resource_pool_exceeded`). Pausing or deleting a running machine
     /// frees it; a larger plan is only the secondary way through.
