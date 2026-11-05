@@ -134,6 +134,13 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
             return .schedule(surfaceId: surfaceId, attempt: state.streak + 1, delay: delay, token: nextToken)
         case .turnCompleted:
             guard !isStaleLifecycleEvent(surfaceId: surfaceId, sessionId: sessionId) else { return .none }
+            // Background work or the pane's own settlement: a turn was
+            // running and may still fail, so the streak and marker count
+            // carry on.
+            guard endsTurn else {
+                surfaces[surfaceId]?.turnEnded = false
+                return cancelPending(surfaceId: surfaceId)
+            }
             // A turn finished normally: the agent recovered, so the failing
             // streak and the marker's count are both over.
             var state = surfaces[surfaceId] ?? SurfaceState()
@@ -141,7 +148,7 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
             state.streak = 0
             state.total = 0
             state.pendingToken = nil
-            state.turnEnded = endsTurn
+            state.turnEnded = true
             surfaces[surfaceId] = state
             return hadPending ? .cancel(surfaceId: surfaceId) : .none
         case .turnStarted, .attentionResolved:
