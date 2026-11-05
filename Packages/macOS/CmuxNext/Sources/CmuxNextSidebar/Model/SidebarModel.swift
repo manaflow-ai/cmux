@@ -119,6 +119,9 @@ public final class SidebarModel {
     @ObservationIgnored var itemOrderCache: (inputs: SidebarItemOrderInputs, order: SidebarItemOrder)?
     /// Told the workspaces `patchWorkspaces` changed in place (the list reconfigures their rows).
     @ObservationIgnored public var onRowsPatched: (([SidebarWorkspace]) -> Void)?
+    /// The same row patches with their previous values, for projections that only need to react
+    /// when a row crosses one of their states. The list callback above still receives every patch.
+    @ObservationIgnored public var onRowsPatchedWithPrevious: (([SidebarNeedsYou.RowPatch]) -> Void)?
     /// The workspace rows as the list draws them, top to bottom (its folder sort and filter applied; empty with no list).
     @ObservationIgnored public var drawnWorkspaceOrder: () -> [WorkspaceID] = { [] }
     /// Every workspace a selection can hold, as drawn: the pinned tiles too (`SidebarListView.selectionOrder`).
@@ -453,6 +456,7 @@ public final class SidebarModel {
         // A filter may match or drop a listed row: shown again; a row this window does not list changes nothing.
         guard filterText.isEmpty else { return !rows.contains { !index.paths(of: $0.id).isEmpty } }
         var patched: [SidebarWorkspace] = []
+        var previousPatches: [SidebarNeedsYou.RowPatch] = []
         var writes: [(SidebarRowIndex.Path, SidebarWorkspace)] = []
         for var row in rows {
             let paths = index.paths(of: row.id)
@@ -474,9 +478,13 @@ public final class SidebarModel {
                 writes.append((path, copy))
             }
             patched.append(row)
+            if onRowsPatchedWithPrevious != nil { previousPatches.append((before: old, after: row)) }
         }
         for (path, row) in writes { SidebarRowIndex.set(row, at: path, in: &storedSections) }
-        if !patched.isEmpty { onRowsPatched?(patched) }
+        if !patched.isEmpty {
+            onRowsPatched?(patched)
+            if !previousPatches.isEmpty { onRowsPatchedWithPrevious?(previousPatches) }
+        }
         return true
     }
 

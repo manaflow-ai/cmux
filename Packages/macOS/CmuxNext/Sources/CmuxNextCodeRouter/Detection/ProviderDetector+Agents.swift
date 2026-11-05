@@ -124,15 +124,17 @@ extension ProviderDetector {
     static let claudeKeychainService = "Claude Code-credentials"
 
     /// `.claude.json` next to the config dir's parent (`~/.claude.json`),
-    /// or inside `$CLAUDE_CONFIG_DIR`.
+    /// or inside `$CLAUDE_CONFIG_DIR`. No plan: `organizationName` is the
+    /// account's organization ("alex@example.com's Organization"), not its
+    /// subscription; Settings > Agents > Harnesses reads the plan from
+    /// `claude auth status` (`ClaudeAuthStatus`).
     private func claudeIdentity(configDir: URL) -> (account: AccountLabel?, plan: String?) {
         let candidates = environment.value("CLAUDE_CONFIG_DIR") != nil
             ? [configDir.appendingPathComponent(".claude.json")]
             : [environment.home.appendingPathComponent(".claude.json"), configDir.appendingPathComponent(".claude.json")]
         for url in candidates {
             guard let oauthAccount = environment.jsonObject(at: url)?["oauthAccount"] as? [String: Any] else { continue }
-            let organization = (oauthAccount["organizationName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-            return (account(.claude, oauthAccount["emailAddress"] as? String, plan: organization), organization)
+            return (account(.claude, oauthAccount["emailAddress"] as? String), nil)
         }
         return (nil, nil)
     }

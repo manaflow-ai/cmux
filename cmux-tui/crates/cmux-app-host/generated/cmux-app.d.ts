@@ -84,6 +84,9 @@ declare namespace Cmux {
   type CommandSpec = unknown
   type CommitSha = string
   type Concurrency = { max: number; on_limit: "queue" | "skip" }
+  type ConductorImportFound = { database: string | null; workspaces: string | null; app: string | null }
+  type ConductorImportPlanResult = { found: Cmux.ConductorImportFound; plan: Cmux.JsonValue | null; error?: string }
+  type ConductorImportRecordResult = { workspace: string; stage: "pending" | "done"; cmux_workspace: string | null; runs: number }
   type ConfirmationRequiredDetails = { confirmation_token: string; revision: string; closes_panes: Array<string /* pane_… */> }
   type ConfirmLevel = "strict" | "destructive-only" | "off"
   type Connection = { id: Cmux.ConnectionId; owner: Cmux.TeamId; created_by: Cmux.UserId; provider: Cmux.IntegrationProvider; account: { key: string; name: string; url?: string } | null; scopes_requested: Array<string>; scopes_granted: Array<string>; status: Cmux.ConnectionStatus; status_detail?: string; sharing: "private" | "team"; resources?: { repos: Array<string> | null }; created_at: number; updated_at: number }
@@ -159,7 +162,7 @@ declare namespace Cmux {
   type GitCheckpointSkipCode = "not_selected" | "over_limit" | "excluded" | "credential" | "ignored" | "nested_repository" | "submodule" | "unsupported_type" | "unreadable"
   type GitCommitResult = { root: string; commit: string; branch?: string; parent?: string; summary: string; files_changed: number; additions: number; deletions: number }
   type GitDiffResult = { scope: Cmux.GitDiffScope; root: string; head?: string; base?: string; files: Array<Cmux.GitChangedFile>; additions: number; deletions: number; total_files: number; files_omitted: number; untracked_skipped?: number; patch_page?: Cmux.GitPatchPage; next_path?: string }
-  type GitDiffScope = "uncommitted" | "unstaged" | "staged" | "committed" | "branch"
+  type GitDiffScope = "uncommitted" | "unstaged" | "staged" | "committed" | "branch" | "commits"
   type GitFileEntry = { name: string; kind: "file" | "directory" }
   type GitFileMatch = { path: string; matches: Array<number> }
   type GitFilesListResult = { root: string; folder: string; entries: Array<Cmux.GitFileEntry>; truncated: boolean }
@@ -265,7 +268,7 @@ declare namespace Cmux {
   type KeybindingTarget = { key: string; when?: string; command?: string }
   type LaunchCredential = { credential: string; actor: string }
   type LaunchKeyRotation = { kid: string }
-  type LayoutBulkResult = { tab_ids: Array<string /* tab_… */>; pane_ids: Array<string /* pane_… */>; screen_ids: Array<string /* screen_… */>; workspace_ids: Array<string /* workspace_… */>; closed_ids?: Array<Cmux.StateId> }
+  type LayoutBulkResult = { tab_ids: Array<string /* tab_… */>; pane_ids: Array<string /* pane_… */>; screen_ids: Array<string /* screen_… */>; workspace_ids: Array<string /* workspace_… */>; closed_ids?: Array<Cmux.StateId>; gone_ids?: Array<string> }
   type LayoutColumn = { column_id: string /* split_… */; width: number; root: Cmux.LayoutNode; dock?: Cmux.LayoutColumnDock | null; rows?: Array<Cmux.LayoutRow> }
   type LayoutColumnDock = { edge: "left" | "right" | "top" | "bottom"; mode: "docked" | "overlay"; role?: "agent_chat"; permanent?: boolean; pinned?: boolean; allow_tabs?: boolean }
   type LayoutDocument = { version: number; screen_id: string /* screen_… */; active_pane_id: string /* pane_… */; zoomed_pane_id: string /* pane_… */ | null; root: Cmux.LayoutNode; extra?: Record<string, Cmux.JsonValue> }
@@ -983,7 +986,7 @@ interface CmuxGlobal {
     /** `git.commit` (mutation, scope `git:execute`) */
     commit: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; message: string; paths?: Array<string>; all?: boolean; include_untracked?: boolean; amend?: boolean; no_verify?: boolean; expected_head?: string }, Cmux.MutationResult<Cmux.GitCommitResult>>
     /** `git.diff` (read, scope `git:read`) */
-    diff: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; scope: Cmux.GitDiffScope; paths?: Array<string>; include_patch?: boolean; max_patch_bytes?: number; context_lines?: number; max_files?: number; after_path?: string; patch_offset?: string; patch_revision?: string }, Cmux.GitDiffResult>
+    diff: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; scope: Cmux.GitDiffScope; base?: string; head?: string; paths?: Array<string>; include_patch?: boolean; max_patch_bytes?: number; context_lines?: number; max_files?: number; after_path?: string; patch_offset?: string; patch_revision?: string }, Cmux.GitDiffResult>
     files: {
       /** `git.files.list` (read, scope `git:read`) */
       list: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; limit?: number }, Cmux.GitFilesListResult>

@@ -1696,8 +1696,9 @@ RULES = (
          unchecked_sendable),
     Rule("main-async", "`DispatchQueue.main.async`",
          "an untyped hop that reorders work and hides isolation (CLAUDE.md forbids it in new code)",
-         "annotate the destination `@MainActor` and `await` it, or hop once with `Task { @MainActor in ... }` "
-         "owned by the caller",
+         "annotate the destination `@MainActor` and `await` it, or go through the scheduler (`FrameBatchQueue.enqueue`, "
+         "`MainDelivery().run`, `AfterFrameCommit().run`; a direct `Task { @MainActor in` is main-hop's debt in a UI "
+         "target)",
          "// main-async-allow: <the API that forces a GCD hop>",
          line_rule(r"\bDispatchQueue\.main\.async\b|\bOperationQueue\.main\.addOperation\b", "main-async-allow:")),
     Rule("combine-state", "`ObservableObject` / `@Published` / Combine state",
@@ -1957,13 +1958,13 @@ def main_actor_scope():
 
 def ui_targets() -> set[str]:
     """The targets HEAD's manifest builds with `uiSwiftSettings` (main-actor by default), as check-concurrency.sh
-    reads them."""
+    reads them (swift_scope.package_targets: each target from its own call, so a target with no swiftSettings
+    never takes the next target's); test targets are left out."""
     context = run_context()
     if "ui_targets" not in context:
         manifest = context.get("manifest")
-        found = re.findall(r'\.(?:target|executableTarget)\(\s*name:\s*"([^"]+)".*?swiftSettings:\s*(\w+)',
-                           manifest if isinstance(manifest, str) else "", re.S)
-        context["ui_targets"] = {name for name, settings in found if settings == "uiSwiftSettings"}
+        targets = swift_scope.package_targets(manifest if isinstance(manifest, str) else "")
+        context["ui_targets"] = {target.name for target in targets if target.main and target.path.startswith("Sources/")}
     return context["ui_targets"]
 
 
@@ -2169,6 +2170,67 @@ def undocumented_threads(changes: list[FileChange], moved: collections.Counter) 
     return changed_debt(changes, judge)
 
 
+# main-hop (cmux-ad m35 item 3): one entry point for main-thread work. A direct hop onto the main actor
+# (`Task { @MainActor in`, `Task(priority:) { @MainActor in`, `MainActor.run {`) in a uiSwiftSettings target runs
+# outside the scheduler's classes and frame budget (plans/cmux-next/main-thread-budget.md): it competes with the
+# person's input unseen. A count ratchet per file, as the other line rules: old hops and moved lines never count.
+# The scheduler's own entry points (FrameBatchQueue.enqueue, MainDelivery().run, AfterFrameCommit().run,
+# MainActorWorkQueue) are not hops. A plain `Task {` that inherits the main actor is not judged (too broad to
+# tell from a line); the counts (--main-thread-counts) report it.
+MAIN_HOP = re.compile(r"\bTask(?:\.detached)?\s*(?:\([^{}]*\))?\s*\{\s*@MainActor\b|\bMainActor\.run\b")
+MAIN_HOP_ALLOW = re.compile(r"//\s*main-hop-allow:\s*\S")
+
+
+def in_ui_target(version: Version, index: int) -> tuple[bool, list[int]]:
+    """Whether VERSION's file is in a uiSwiftSettings target (main actor by default): main-hop's scope."""
+    module = version.path[len(SOURCES):].split("/", 1)[0] if version.path.startswith(SOURCES) else ""
+    return module in ui_targets(), []
+
+
+SCHEDULER_ENTRY = re.compile(r"\.enqueue\s*\{|\.enqueue\(|\bMainDelivery\(\)\.run\b|\bAfterFrameCommit\(\)\.run\b"
+                             r"|\bFrameBatchQueue\(|\bMainActorWorkQueue\b")
+INHERITED_TASK = re.compile(r"(?<![\w.])Task\s*(?:\([^{}]*\))?\s*\{(?!\s*@MainActor\b)")
+
+
+def main_thread_counts(repo: Path, rev: str) -> dict[str, object]:
+    """The main-thread ratchet's counts at REV (`--main-thread-counts`), per scope (the uiSwiftSettings targets,
+    and all of Sources): unescaped direct hops (main-hop's debt), escaped hops, scheduler entry calls, plain
+    `Task {` that inherits the caller's actor (not judged), raw blocking calls (raw-blocking and main-blocking's
+    raw primitives and sleeps, unescaped), and checked-seam calls; each with its file count. The seams' own files
+    are left out of the blocking counts. Comments are dropped; a `/* */` block is read as code."""
+    sha = git(repo, "rev-parse", rev).strip()
+    paths = [p for p in git(repo, "ls-tree", "-r", "--name-only", sha, "--", SOURCES).splitlines() if p.endswith(".swift")]
+    texts = blobs(repo, [(sha, p) for p in paths])
+    RUN_CONTEXT.values = {"manifest": blobs(repo, [(sha, PACKAGE_MANIFEST)]).get((sha, PACKAGE_MANIFEST), "")}
+    ui = ui_targets()
+    keys = ("main_hops", "main_hops_escaped", "scheduler_entries", "inherited_tasks", "raw_blocking", "checked_blocking")
+    scopes = {scope: {k: collections.Counter() for k in keys} for scope in ("ui_targets", "all_sources")}
+    for path in paths:
+        lines = texts.get((sha, path), "").split("\n")
+        module = path[len(SOURCES):].split("/", 1)[0]
+        seam = path.startswith(BLOCKING_SEAMS)
+        for index, line in enumerate(lines):
+            code = code_of(line)
+            found = []
+            if MAIN_HOP.search(code):
+                found.append("main_hops_escaped" if escaped(lines, index, MAIN_HOP_ALLOW) else "main_hops")
+            if SCHEDULER_ENTRY.search(code):
+                found.append("scheduler_entries")
+            if INHERITED_TASK.search(code):
+                found.append("inherited_tasks")
+            if not seam:
+                if (blocking_match(RAW_SCAN, code) or ALWAYS_SCAN.search(code)) and not escaped(lines, index, BLOCKING_ALLOW):
+                    found.append("raw_blocking")
+                if SEAM_BLOCKING.search(code):
+                    found.append("checked_blocking")
+            for scope in (("ui_targets", "all_sources") if module in ui else ("all_sources",)):
+                for key in found:
+                    scopes[scope][key][path] += 1
+    return {"rev": sha, "ui_target_count": len(ui),
+            **{scope: {k: {"lines": sum(c.values()), "files": len(c)} for k, c in counters.items()}
+               for scope, counters in scopes.items()}}
+
+
 def load_blocking_context(texts: dict[tuple[str, str], str], head: str) -> None:
     """Keeps HEAD's threading doc and package manifest for the rules above, in this thread's run context (a
     missing doc fails thread-doc open)."""
@@ -2210,6 +2272,17 @@ BLOCKING_RULES = (
          "for a new kind); add a new BlockingAllowance to \"Reviewed blocking allowances\" in the same push",
          "// blocking-allow: <why this thread needs no entry>",
          undocumented_threads),
+    Rule("main-hop", "A direct hop onto the main actor (`Task { @MainActor in`, `MainActor.run {`) in a UI target",
+         "work that jumps onto the main actor directly runs outside the scheduler's priority classes and per-frame "
+         "budget (plans/cmux-next/main-thread-budget.md): it runs ahead of or between the person's input and frames "
+         "and nothing measures it (a root of Cmd-N p95 112-129 ms, cmux-ad m35)",
+         "go through the one entry point: a person's action changes the model in its own turn (an `ActionEffect`); "
+         "work for the next frame goes to a `FrameBatchQueue` (`enqueue`, a frame queue for what an action caused, "
+         "`budgeted: .visible/.automation/.background` on the app's `MainWorkScheduler` for the rest); a callback "
+         "on an unknown thread uses `MainDelivery().run`; work after the frame commit uses `AfterFrameCommit().run`; "
+         "an async caller that needs a value from main calls an `@MainActor` function with `await`",
+         "// main-hop-allow: <why no scheduler path fits and what bounds the hop's work>",
+         matcher_rule(Matcher(MAIN_HOP, MAIN_HOP_ALLOW, in_ui_target))),
 )
 RULES += BLOCKING_RULES
 # ---------------------------------------------------------------- end of main-blocking / thread-doc (PL-blocking)
@@ -2927,7 +3000,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--base")
     parser.add_argument("--head", default="HEAD")
     parser.add_argument("--list", action="store_true", help="print the rules")
+    parser.add_argument("--main-thread-counts", metavar="REV", nargs="?", const="HEAD",
+                        help="print main-hop and blocking counts at REV (default HEAD) as JSON and exit")
     args = parser.parse_args(argv)
+    if args.main_thread_counts:
+        repo = Path(args.repo or git(Path.cwd(), "rev-parse", "--show-toplevel").strip())
+        print(json.dumps(main_thread_counts(repo, args.main_thread_counts), indent=2))
+        return 0
     if args.list:
         for rule in RULES:
             print(f"{rule.id}: {rule.title}\n  why: {rule.why}\n  do:  {rule.fix}\n  escape: {rule.escape or '-'}")

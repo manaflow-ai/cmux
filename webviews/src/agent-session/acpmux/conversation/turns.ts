@@ -33,6 +33,7 @@ import { awaitsPermission, groupId, isDraftCall, isFailed as callFailed, isRunni
 import { acpmuxMcpSends } from "./acpmuxMcpSends";
 import { acpmuxSendCalls } from "./acpmuxSends";
 import { subsessionCall } from "./subsessionCalls";
+import { agentCall } from "./agentCalls";
 import { experimentArm } from "../../../experiments/experiment";
 import { finishedTaskLook } from "./taskLine.experiment";
 import { startedTasks, startsTask, TASK_LINE } from "./taskLines";
@@ -688,6 +689,8 @@ type ShapedTurn = {
   clockOffset: number;
   dated: boolean;
   liveRuns: boolean;
+  /// Whether the live line draws below (`liveSlot`): a prompt waiting for its turn shapes its line in that slot.
+  lineBelow: boolean;
   agentFamily?: string;
   /// The family's fold style as read for this shape (turnFoldStyle.ts): its opt-in can change
   /// without the family changing, and the cached turn must fold anew when it does.
@@ -779,6 +782,7 @@ function shapedTurn(
     cached.clockOffset === clockOffset &&
     cached.dated === dated &&
     cached.liveRuns === liveRuns &&
+    cached.lineBelow === lineBelow &&
     cached.agentFamily === agentFamily &&
     cached.foldStyle === foldStyle &&
     cached.endedByPerson === endedByPerson &&
@@ -909,6 +913,7 @@ function shapedTurn(
       clockOffset,
       dated,
       liveRuns,
+      lineBelow,
       agentFamily,
       foldStyle,
       endedByPerson,
@@ -1847,7 +1852,7 @@ function codexLiveTurn(
 /// The latest run's last finished call, lifted out of the run for the live line to name: a command
 /// as its short line ("Ran grep …"), any other call as its row names it. Only a plain step: a failed
 /// call keeps its mark in the run, a command sent to the background keeps its state there, and
-/// messages, sub-sessions, render cards and edits keep their own rows. Nil when the latest step is anything else.
+/// messages, sub-sessions, subagent calls, render cards and edits keep their own rows. Nil when the latest step is anything else.
 function liftedStep(
   rows: AcpmuxRow[],
   last: AcpmuxRow,
@@ -1871,6 +1876,7 @@ function liftedStep(
     isEditTool(call) ||
     renderCall(call) ||
     subsessionCall(call) ||
+    agentCall(call) ||
     agentMessage(call) ||
     acpmuxSendCalls(call) ||
     acpmuxMcpSends(call)
@@ -2077,6 +2083,7 @@ function ownRow(row: AcpmuxRow, item: AcpmuxActivity): OwnRow {
     group.type === "sendGroup" ||
     group.type === "subsession" ||
     group.type === "subsessionGroup" ||
+    group.type === "agentCall" ||
     group.type === "dispatch" ||
     (group.type === "mcp" && group.items.length === 1)
   )

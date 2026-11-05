@@ -158,7 +158,7 @@ struct AgentPaneSendPickedFolderPromptTests {
         let owner = UUID()
         let recorded = await Task.detached { [journal] in journal.record(entry, owner: owner) }.value
         #expect(recorded)
-        journal.connectionEnded(owner: owner, byDaemon: false)
+        journal.connectionEnded(owner: owner)
         transport.promptJournal = journal
         transport.webModes = { _, _, _ in nil }
         #expect(await transport.pick(pane.folder) == pane.folder)
