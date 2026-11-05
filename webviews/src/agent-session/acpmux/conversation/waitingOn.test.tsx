@@ -41,6 +41,25 @@ test("a running turn that waits on a permission shows no clock", () => {
   expect(running).not.toContain(translate("turn.waiting.permission"));
 });
 
+test("the T3 working header leaves one waiting status beside the live activity disclosure", () => {
+  const row: AcpmuxRow = { id: "t3-working-1", version: 1, at: 0, kind: "working", workingHeader: true };
+  for (const waiting of ["question", "permission", "secret"] as const) {
+    const html = within(
+      waiting,
+      <>
+        <WorkingFor row={row} now={() => 125_000} />
+        <Thinking disclosure={{ expanded: false, onToggle: () => {} }} />
+      </>,
+    );
+    expect(html.match(/data-waiting=/g)).toHaveLength(1);
+    expect(html).toContain(translate(`turn.waiting.${waiting}`));
+    expect(html).toContain(`aria-label="${translate(`turn.waiting.${waiting}`)}"`);
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).not.toContain("2m");
+  }
+  expect(within(undefined, <WorkingFor row={row} now={() => 125_000} />)).toContain("2m");
+});
+
 test("the trust question comes first, then the other asks in the stack's order", () => {
   expect(waitingOn({ ...none, trust: { cwd, state: "failed" }, permission: true })).toBe("trust");
   expect(waitingOn({ ...none, trust: { cwd, state: "remote" } })).toBe("trustRemote");

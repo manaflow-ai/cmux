@@ -262,7 +262,7 @@ export function Thinking({
       <button
         type="button"
         className="cv-live-disclosure__toggle"
-        aria-label={label}
+        aria-label={waiting ? t(WAITING_LABEL[waiting]) : label}
         aria-expanded={disclosure.expanded}
         aria-controls={disclosure.expanded ? disclosure.controls : undefined}
         onClick={disclosure.onToggle}

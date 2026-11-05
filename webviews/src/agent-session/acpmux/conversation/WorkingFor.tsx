@@ -95,6 +95,8 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
   const sending = shown !== undefined && sendName !== undefined;
   const doing = sending ? t("send.sending", { target: sendName }) : shown;
   const parts = counts ? workingParts(t, counts) : [];
+  // T3's live activity line already names the wait and keeps its disclosure available.
+  if (row.workingHeader && waiting) return null;
   return (
     // Find counts and visits transcript rows only (chatFind.ts findMatches skips this row), so the
     // line is not painted either: the call it names is matched on its own tool row.
