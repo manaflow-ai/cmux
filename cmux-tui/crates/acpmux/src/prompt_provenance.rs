@@ -687,6 +687,16 @@ pub fn drop_sender_fields(params: &mut Value) {
     }
 }
 
+/// The harness a local named sender declared for itself (`_meta.acpmux.fromHarness`, an agent
+/// harness's own shell, `cli/sender.rs`): only a label the card draws, never a proof of anything,
+/// and only beside a sender name (`fromAgent`). `None` when absent or not a harness family name.
+pub fn declared_harness(params: &Value) -> Option<BoundSender> {
+    let mux = params.pointer("/_meta/acpmux")?;
+    mux.get("fromAgent").and_then(Value::as_str)?;
+    let harness = mux.get(FROM_HARNESS)?.as_str().filter(|h| harness_fits(h))?;
+    Some(BoundSender { session_id: None, harness: Some(harness.to_owned()) })
+}
+
 /// `provenance` with the bound sender's fields set (replacing any it had).
 pub fn stamp_sender(mut provenance: Value, sender: Option<&BoundSender>) -> Value {
     if let (Some(sender), Some(fields)) = (sender, provenance.as_object_mut()) {
@@ -709,6 +719,23 @@ pub fn sender_of(provenance: Option<&Value>) -> (Option<String>, Option<String>)
 #[cfg(test)]
 mod sender_tests {
     use super::*;
+
+    #[test]
+    fn a_named_local_sender_may_say_its_harness_and_nothing_else() {
+        let sent = |mux: Value| json!({"_meta": {"acpmux": mux}});
+        let named = sent(json!({"fromAgent": "codex@big-red", "fromHarness": "codex"}));
+        let harness = declared_harness(&named);
+        assert_eq!(harness, Some(BoundSender { session_id: None, harness: Some("codex".into()) }));
+        let stamped = stamp_sender(named_sender("codex@big-red", "s-2"), harness.as_ref());
+        assert_eq!(stamped["kind"], "agent_message");
+        assert_eq!(sender_of(Some(&stamped)), (None, Some("codex".into())));
+        // No name, or a harness that is not a family name: no label.
+        assert_eq!(declared_harness(&sent(json!({"fromHarness": "codex"}))), None);
+        assert_eq!(
+            declared_harness(&sent(json!({"fromAgent": "a", "fromHarness": "co dex"}))),
+            None
+        );
+    }
 
     #[test]
     fn a_peer_link_names_a_sender_only_for_its_own_prompt_and_only_well_formed() {
