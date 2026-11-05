@@ -11,6 +11,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -145,6 +146,52 @@ class SyncTest(unittest.TestCase):
         self.assertEqual(cl.BUILT_BINARY_REL, "Chromium Embedded Framework.framework/Versions/A/"
                                               "Chromium Embedded Framework")
         self.assertNotIn("eval ", cl.BUILD_SCRIPT + cl.KEEP_SCRIPT + cl.RESTORE_SCRIPT)
+
+
+class WatcherStateTest(unittest.TestCase):
+    def test_a_reused_pid_is_not_the_watcher(self):
+        with tempfile.TemporaryDirectory() as d:
+            state = Path(d)
+            cl.pid_file(state).write_text(f"{os.getpid()} /tree\n")  # alive, but this test is not a watcher
+            self.assertIsNone(cl.running_pid(state))
+            self.assertFalse(cl.pid_file(state).exists())
+            with mock.patch.object(cl, "run", return_value=mock.Mock(
+                    stdout=b"python3 /x/scripts/cmux-next/chromium-live.py _watch")):
+                cl.pid_file(state).write_text(f"{os.getpid()} /tree\n")
+                self.assertEqual(cl.running_pid(state), os.getpid())
+
+    def test_a_stop_sent_before_the_watcher_starts_is_kept(self):
+        with tempfile.TemporaryDirectory() as d:
+            state = Path(d)
+            (state / "stop").write_text("stop\n")
+            cfg = {"build_host": "h", "src": "/s", "out": "out/R", "target": "libcef", "session": "s",
+                   "edits": str(state / "edits")}
+            with mock.patch.object(cl, "scan", return_value={}), mock.patch.object(cl.time, "sleep") as slept:
+                self.assertEqual(cl.watch(cfg, state), 0)
+            slept.assert_not_called()  # the stop is seen before the first scan interval
+            self.assertFalse((state / "stop").exists())
+
+
+class RestoreScriptTest(unittest.TestCase):
+    def test_a_deleted_edit_restores_only_that_path(self):
+        with tempfile.TemporaryDirectory() as d:
+            src, keep = Path(d) / "src", Path(d) / "keep"
+            for rel, text in (("a.cc", "edit a"), ("b.cc", "edit b")):
+                (src / rel).parent.mkdir(parents=True, exist_ok=True)
+                (src / rel).write_text(text)
+                (keep / "orig").mkdir(parents=True, exist_ok=True)
+                (keep / "orig" / rel).write_text(f"orig {rel}")
+            (keep / "orig" / "new.cc.absent").write_text("")
+            (src / "new.cc").write_text("added")
+            run = lambda *a: subprocess.run(["bash", "-s", "--", str(src), str(keep), *a],
+                                            input=cl.RESTORE_SCRIPT, capture_output=True, text=True, check=True)
+            self.assertEqual(run("a.cc", "new.cc").stdout.strip(), "2")
+            self.assertEqual((src / "a.cc").read_text(), "orig a.cc")
+            self.assertFalse((src / "new.cc").exists())
+            self.assertEqual((src / "b.cc").read_text(), "edit b")  # still edited, still kept
+            self.assertEqual(run().stdout.strip(), "1")
+            self.assertEqual((src / "b.cc").read_text(), "orig b.cc")
+            self.assertFalse(keep.exists())
 
 
 if __name__ == "__main__":
