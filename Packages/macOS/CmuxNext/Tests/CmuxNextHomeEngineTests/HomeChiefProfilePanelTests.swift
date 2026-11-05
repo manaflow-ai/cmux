@@ -343,17 +343,18 @@ import Testing
         private var watchers: [@MainActor () -> Void] = []
 
         func source(machine: Bool) -> HomeChiefComputerControlSource {
-            HomeChiefComputerControlSource(
+            let send: (HomeChiefComputerInput) async throws -> Void = { [self] input in
+                await hold?.wait()
+                sent.append(input)
+                log.append("send")
+                if refusesInput { throw CancellationError() }
+            }
+            return HomeChiefComputerControlSource(
                 state: { [self] in state },
                 observe: { [self] change in watchers.append(change); return NSObject() },
                 takeOver: { [self] in try change("take_over", to: .human) },
                 handBack: { [self] in try change("hand_back", to: .chief) },
-                send: machine ? nil : { [self] input in
-                    await hold?.wait()
-                    sent.append(input)
-                    log.append("send")
-                    if refusesInput { throw CancellationError() }
-                },
+                send: machine ? nil : send,
                 openInteractive: machine ? { [self] in calls.append("open") } : nil)
         }
 
