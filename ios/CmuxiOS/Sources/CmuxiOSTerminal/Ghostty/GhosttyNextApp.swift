@@ -31,14 +31,9 @@ final class GhosttyNextApp {
         return made
     }
 
-    private init() throws {
-        let status = ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv)
-        guard status == GHOSTTY_SUCCESS else { throw Failure.initFailed(status) }
-        guard let config = ghostty_config_new() else { throw Failure.appCreationFailed }
-        // No user config files on the phone yet: product defaults plus the
-        // phone's own settings (libghostty loads config from files only).
-        Self.loadProductConfig(config)
-        ghostty_config_finalize(config)
+    /// Ghostty's runtime callbacks, nonisolated: Ghostty calls them from its
+    /// renderer and IO threads.
+    nonisolated private static func runtimeConfig() -> ghostty_runtime_config_s {
         let writeClipboard: ghostty_runtime_write_clipboard_cb = { _, _, content, count, _ in
             guard count > 0 else { return }
             let item = content.pointee
@@ -46,7 +41,7 @@ final class GhosttyNextApp {
             let text = String(decoding: bytes, as: UTF8.self)
             Task { @MainActor in UIPasteboard.general.string = text }
         }
-        var runtime = ghostty_runtime_config_s(
+        return ghostty_runtime_config_s(
             userdata: nil,
             supports_selection_clipboard: false,
             wakeup_cb: { _ in
@@ -58,6 +53,20 @@ final class GhosttyNextApp {
             write_clipboard_cb: writeClipboard,
             close_surface_cb: { _, _ in }
         )
+    }
+
+    private init() throws {
+        let status = ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv)
+        guard status == GHOSTTY_SUCCESS else { throw Failure.initFailed(status) }
+        guard let config = ghostty_config_new() else { throw Failure.appCreationFailed }
+        // No user config files on the phone yet: product defaults plus the
+        // phone's own settings (libghostty loads config from files only).
+        Self.loadProductConfig(config)
+        ghostty_config_finalize(config)
+        // Built outside the main actor: Ghostty calls these from its own
+        // threads, and a closure formed in this @MainActor init would carry
+        // main-actor isolation (Swift traps when the renderer thread calls it).
+        var runtime = Self.runtimeConfig()
         guard let app = ghostty_app_new(&runtime, config) else {
             ghostty_config_free(config)
             throw Failure.appCreationFailed
