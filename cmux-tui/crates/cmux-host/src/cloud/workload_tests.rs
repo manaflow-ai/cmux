@@ -60,6 +60,15 @@ fn the_first_probe_is_unknown_and_cpu_above_two_percent_is_busy() {
 }
 
 #[test]
+fn a_clock_stepped_back_never_moves_the_last_busy_time_earlier() {
+    let mut t = Tracker::default();
+    t.observe(&snap(0, vec![proc(10, "node", 0)]), 1);
+    t.observe(&snap(30_000, vec![proc(10, "node", 100)]), 5_000);
+    let w = t.observe(&snap(60_000, vec![proc(10, "node", 200)]), 4_000).unwrap();
+    assert_eq!(w.last_busy_at, Some(5_000));
+}
+
+#[test]
 fn a_process_new_since_the_last_probe_counts_all_its_ticks_and_a_reused_pid_is_new() {
     let mut t = Tracker::default();
     t.observe(&snap(0, vec![proc(10, "sh", 500)]), 1);
@@ -262,6 +271,12 @@ fn the_reader_finds_processes_listener_owners_and_timers_under_a_root() {
     fs::create_dir_all(r.join("proc/net/tcp6")).unwrap();
     assert!(read_snapshot(r, 5).is_none(), "an unreadable listener table: unknown");
     fs::remove_dir(r.join("proc/net/tcp6")).unwrap();
+    // IPv4's table is required: without it a listener could hide.
+    let tcp = fs::read_to_string(r.join("proc/net/tcp")).unwrap();
+    fs::rename(r.join("proc/net/tcp"), r.join("proc/net/tcp6")).unwrap();
+    assert!(read_snapshot(r, 5).is_none(), "no IPv4 table: unknown");
+    fs::remove_file(r.join("proc/net/tcp6")).unwrap();
+    fs::write(r.join("proc/net/tcp"), tcp).unwrap();
     // A process whose stat exists but does not read is unknown, not gone.
     fs::create_dir_all(r.join("proc/300/stat")).unwrap();
     assert!(read_snapshot(r, 5).is_none(), "an unreadable process: unknown");

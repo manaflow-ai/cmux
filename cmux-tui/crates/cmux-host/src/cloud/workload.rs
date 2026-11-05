@@ -253,8 +253,8 @@ impl Workload {
             "ports": self.listening_ports.iter().take(NAMES_MAX).collect::<Vec<_>>(),
             "timer_names": first(&self.timers),
         });
-        if let Some(at) = self.last_busy_at {
-            out["last_busy_at"] = json!(at);
+        if let (Some(at), Value::Object(map)) = (self.last_busy_at, &mut out) {
+            map.insert("last_busy_at".to_owned(), json!(at));
         }
         out
     }
@@ -307,7 +307,8 @@ impl Tracker {
             last_busy_at: None,
         };
         if w.busy() {
-            self.last_busy_at = Some(wall_ms);
+            // Never earlier than a busy time already seen: a clock stepped back must not lengthen the idle period.
+            self.last_busy_at = Some(self.last_busy_at.map_or(wall_ms, |t| t.max(wall_ms)));
         }
         w.last_busy_at = self.last_busy_at;
         Some(w)
@@ -328,10 +329,14 @@ mod reader {
     /// read: the workload is then unknown.
     pub fn read_snapshot(root: &Path, mono_ms: u64) -> Option<Snapshot> {
         let proc_dir = root.join("proc");
-        let pids: Vec<u32> = fs::read_dir(&proc_dir)
-            .ok()?
-            .filter_map(|e| e.ok()?.file_name().to_str()?.parse().ok())
-            .collect();
+        let mut pids: Vec<u32> = Vec::new();
+        for entry in fs::read_dir(&proc_dir).ok()? {
+            // An entry that does not read could be a running process: the workload is unknown.
+            let entry = entry.ok()?;
+            if let Some(pid) = entry.file_name().to_str().and_then(|n| n.parse().ok()) {
+                pids.push(pid);
+            }
+        }
         let mut procs: Vec<ProcStat> = Vec::with_capacity(pids.len());
         for pid in pids {
             match fs::read_to_string(proc_dir.join(format!("{pid}/stat"))) {
@@ -346,21 +351,14 @@ mod reader {
             return None;
         }
         let mut sockets: Vec<(u16, u64)> = Vec::new();
-        let mut any_table = false;
         for table in ["net/tcp", "net/tcp6"] {
             match fs::read_to_string(proc_dir.join(table)) {
-                Ok(text) => {
-                    any_table = true;
-                    sockets.extend(parse_listeners(&text));
-                }
-                // No such table (a kernel without IPv6): nothing listens there.
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Ok(text) => sockets.extend(parse_listeners(&text)),
+                // No IPv6 table (a kernel without IPv6): nothing listens there. IPv4's is required.
+                Err(e) if table == "net/tcp6" && e.kind() == std::io::ErrorKind::NotFound => {}
                 // A table that exists but does not read could hide a listener: unknown.
                 Err(_) => return None,
             }
-        }
-        if !any_table {
-            return None;
         }
         let owners = socket_owners(&proc_dir, &procs, &sockets);
         let listeners =
