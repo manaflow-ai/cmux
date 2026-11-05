@@ -5364,24 +5364,20 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         let initialFrame = hostedView.surfaceView.frame
         let initialBackground = hostedView.backgroundView.layer?.backgroundColor
         let diagnostics = MobileHostDiagnostics.log
-        let unchangedMarker = UInt64.random(in: 1...UInt64.max)
-        let changedMarker = UInt64.random(in: 1...UInt64.max)
+        // Each interval is marked and measured with no suspension inside it. AppKit
+        // runs `layout()`, which also does a geometry pass, only on a run loop turn,
+        // so these counts see the attaches alone.
+        let unchangedStart = UInt64.random(in: 1...UInt64.max)
+        let unchangedEnd = UInt64.random(in: 1...UInt64.max)
+        let changedStart = UInt64.random(in: 1...UInt64.max)
+        let changedEnd = UInt64.random(in: 1...UInt64.max)
 
-        func waitForDiagnosticMarker(_ traceID: UInt64) async {
-            while await !diagnostics.snapshot().events.contains(where: { $0.traceID == traceID }) {
-                await Task.yield()
-            }
-        }
-
-        // Layout invalidated by the settling attaches runs now, not on a display
-        // cycle while this test is suspended inside the measured interval.
-        contentView.layoutSubtreeIfNeeded()
-        diagnostics.record(DiagnosticEvent(.error, traceID: unchangedMarker))
-        await waitForDiagnosticMarker(unchangedMarker)
+        diagnostics.record(DiagnosticEvent(.error, traceID: unchangedStart))
         for _ in 0..<5 {
             hostedView.attachSurface(surface)
             hostedView.syncKeyStateIndicator(text: surface.currentKeyStateIndicatorText)
         }
+        diagnostics.record(DiagnosticEvent(.error, traceID: unchangedEnd))
         XCTAssertEqual(hostedView.surfaceView.frame, initialFrame)
         XCTAssertEqual(hostedView.backgroundView.layer?.backgroundColor, initialBackground)
 
@@ -5393,26 +5389,32 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         hostedView.setBackgroundColor(.systemRed)
         XCTAssertEqual(hostedView.backgroundView.layer?.backgroundColor, NSColor.systemRed.cgColor)
 
-        // No suspension from the first marker to the end marker: the resize
-        // also marks the view for layout, and a display cycle running that layout
-        // inside the interval would add a pass this test did not ask for.
+        diagnostics.record(DiagnosticEvent(.error, traceID: changedStart))
         hostedView.frame.size.width -= 40
         hostedView.attachSurface(surface)
+        diagnostics.record(DiagnosticEvent(.error, traceID: changedEnd))
         XCTAssertLessThan(hostedView.surfaceView.frame.width, initialFrame.width)
-        diagnostics.record(DiagnosticEvent(.error, traceID: changedMarker))
-        await waitForDiagnosticMarker(changedMarker)
 
+        while await !diagnostics.snapshot().events.contains(where: { $0.traceID == changedEnd }) {
+            await Task.yield()
+        }
         let events = await diagnostics.snapshot().events
-        let startIndex = try XCTUnwrap(events.firstIndex { $0.traceID == unchangedMarker })
-        let endIndex = try XCTUnwrap(events.firstIndex { $0.traceID == changedMarker })
-        let interval = events[(startIndex + 1)..<endIndex]
-        let layoutPasses = interval.filter {
-            $0.code == .terminalWorkStarted && $0.terminalWork?.phase == .layout
+        func layoutPasses(from start: UInt64, to end: UInt64) throws -> Int {
+            let startIndex = try XCTUnwrap(events.firstIndex { $0.traceID == start })
+            let endIndex = try XCTUnwrap(events.firstIndex { $0.traceID == end })
+            return events[(startIndex + 1)..<endIndex].filter {
+                $0.code == .terminalWorkStarted && $0.terminalWork?.phase == .layout
+            }.count
         }
         XCTAssertEqual(
-            layoutPasses.count,
+            try layoutPasses(from: unchangedStart, to: unchangedEnd),
+            0,
+            "unchanged attachments must skip geometry work"
+        )
+        XCTAssertEqual(
+            try layoutPasses(from: changedStart, to: changedEnd),
             1,
-            "unchanged attachments must skip geometry work; the width change must run one geometry pass"
+            "the width change must run one geometry pass"
         )
     }
 
