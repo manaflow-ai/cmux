@@ -27,23 +27,27 @@ extension PaletteArgumentFlow {
         }
     }
 
-    /// Makes the target, then runs the action with it; a failure is shown as the action's refusal.
+    /// Makes the target, then runs the action with it. The work goes to the registry like any action's
+    /// (``ActionRegistry/trackOrRefuse(_:)``): a capturing caller awaits it, and a palette run nobody awaits
+    /// shows a failure to make the target as the action's refusal.
     private func create(_ name: String, with creator: PaletteTargetCreator, for argument: ActionArgument,
                         collected: ActionInvocation) {
         let registry = registry
         let id = descriptor.id
         let flow = self
         // task-owner: one create-then-run after the palette closed; it ends with the action's run.
-        Task { @MainActor in
+        registry.trackOrRefuse(Task { () async -> ActionWorkFailure? in
             do {
                 let created = try await creator.create(name)
-                guard let next = flow.adding(argument, created, to: collected) else { return }
+                guard let next = flow.adding(argument, created, to: collected) else { return nil }
                 registry.perform(id, invocation: next)
+                return nil
             } catch is CancellationError {
+                return nil
             } catch {
-                registry.refuse((error as? LocalizedError)?.errorDescription ?? (error as? CustomStringConvertible)?.description
-                    ?? error.localizedDescription)
+                return ActionWorkFailure(refusal: .unavailable, reason: (error as? LocalizedError)?.errorDescription
+                    ?? (error as? CustomStringConvertible)?.description ?? error.localizedDescription)
             }
-        }
+        })
     }
 }
