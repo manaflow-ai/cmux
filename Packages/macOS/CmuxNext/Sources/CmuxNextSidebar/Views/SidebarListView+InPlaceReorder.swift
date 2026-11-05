@@ -9,13 +9,17 @@ extension SidebarListViewComponents {
     /// The layout the list shows: the model's, or during an internal drag
     /// over a slot, the model with the dragged rows moved to that slot.
     func displayLayout() -> SidebarLayout {
-        // Over a row's middle the list keeps the last slot (the row highlights instead).
+        // Over a row's middle the list keeps the last slot (the row highlights instead), and so does a held drag over
+        // a group header's: closing the gap there sprang the rows up, and the same still pointer then read a row lower
+        // (Leo 2026-11-05). A drop into the group settles into it. A group drawn as its one row has no header, and a drop
+        // into it opens no gap: the row's fill is its only mark (`standsForDropGroup`).
         let drag = shownDrag // the running drag, or a dropped one still settling
         // A group drag draws one function of its frozen base and its slot (`SidebarGroupDragPlan.layout`).
         if let group = drag?.group { return group.layout }
         let shownPosition: DropPosition? = switch drag?.target {
         case let .position(position)?: position
         case .ontoWorkspace?: drag?.lastPosition
+        case let .intoGroup(group)?: drag.flatMap { self.drag === $0 && !drawsAsOneRow(group, without: $0.payload) ? $0.lastPosition : nil }
         default: nil
         }
         // Held over the band: the list without the dragged rows (the pin drop's outcome, cx-odqn).
@@ -69,5 +73,24 @@ extension SidebarListViewComponents {
         members.insert(.item(moved), at: min(max(0, position.index), members.count))
         group.setMembers(members)
         sections[s].nodes[n] = .group(group)
+    }
+}
+
+extension SidebarListViewComponents {
+    /// Whether `id` draws as its one row (`SidebarLayout.soleMember`) with the dragged rows out of it: the model's
+    /// answer, not the shown layout's, which a slot the drag showed inside the group may have given a header.
+    func drawsAsOneRow(_ id: GroupID, without payload: DragPayload) -> Bool {
+        guard let group = groups[id] else { return false }
+        var o = SidebarLayoutOptions()
+        o.excludedWorkspaces = leaving // as the shown layout leaves them out
+        if case let .workspaces(ids) = payload { o.excludedWorkspaces.formUnion(ids) }
+        if case let .item(item) = payload { o.excludedItem = item }
+        let members = group.members.filter { member in
+            switch member {
+            case let .workspace(ws): !o.excludedWorkspaces.contains(ws.id)
+            case let .item(item): item.id != o.excludedItem
+            }
+        }
+        return SidebarLayout.soleMember(group, members, hasSubgroups: groups.values.contains { $0.parent == id }, options: o) != nil
     }
 }

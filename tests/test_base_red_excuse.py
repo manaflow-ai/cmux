@@ -1,5 +1,4 @@
 """gh-merge-green excuses a red check only when the base branch's latest completed run has the same failures."""
-import base64
 import copy
 import importlib.util
 import json
@@ -14,6 +13,15 @@ ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("base_red_excuse", ROOT / "scripts/ci/base_red_excuse.py")
 excuse = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(excuse)
+# Another repo's files are read with git first (excuse.git_text, a network fetch), then GraphQL. Tests read them from
+# their fakes only; SourceReads runs the real git reader against a local repository.
+REAL_GIT_TEXT = getattr(excuse, "git_text", None)
+
+
+def setUpModule():
+    patch = unittest.mock.patch.object(excuse, "git_text", lambda repo, ref, path: None, create=True)
+    patch.start()
+    unittest.addModuleCleanup(patch.stop)
 
 REPO = "manaflow-ai/cmux"
 HEAD = "a" * 40
@@ -71,7 +79,9 @@ class FakeGitHub:
         if f"/compare/{BASE_SHA}..." in route:
             # Any other base commit a test names is newer than that merge-base.
             return {"status": "ahead"}
-        if "/actions/runs/" in route and route.endswith("/jobs?filter=latest&per_page=100"):
+        if "/actions/runs/" in route and route.endswith(("/jobs?filter=latest&per_page=100",
+                                                         "/jobs?filter=all&per_page=100")):
+            # One attempt per run here: every attempt (filter=all) is the latest one.
             run = int(route.split("/actions/runs/", 1)[1].split("/", 1)[0])
             return [{"jobs": [copy.deepcopy(job) for job in self.jobs.values() if job["run_id"] == run]}]
         if "/actions/workflows/7/runs?" in route:
@@ -167,6 +177,99 @@ class JobListPages(unittest.TestCase):
         job_reads = [route for route in github.calls if "/jobs?" in route]
         self.assertTrue(job_reads)
         self.assertTrue(all("per_page=30&" in route for route in job_reads), job_reads)
+
+
+class LastRealAttemptGitHub(FakeGitHub):
+    """Head run 10 of cmux#35906 at e1d1894a (run 41931705470): attempt 1 ran and failed, then each later attempt
+    in ATTEMPTS ran the jobs it lists, [] for one that ended in startup_failure with no jobs. GitHub's latest-attempt
+    views (jobs?filter=latest, check-runs with no filter) show only the newest attempt, so after two startup_failure
+    reruns they show no job and no check run at all; every attempt (filter=all) still shows attempt 1's red."""
+
+    def __init__(self, *later: list[dict]):
+        super().__init__()
+        red = dict(self.jobs.pop(1), run_attempt=1)
+        self.attempts = [[red], *([dict(job, run_attempt=number) for job in jobs]
+                                  for number, jobs in enumerate(later, 2))]
+        for jobs in self.attempts:
+            self.jobs.update((job["id"], job) for job in jobs)
+
+    def check(self, job: dict) -> dict:
+        return {"id": job["id"], "name": job["name"], "status": job["status"], "conclusion": job["conclusion"],
+                "app": {"slug": "github-actions"},
+                "details_url": f"https://github.com/{REPO}/actions/runs/10/job/{job['id']}"}
+
+    def json(self, route, *, paginate=False):
+        if route.endswith("/actions/runs/10/jobs?filter=latest&per_page=100"):
+            self.routes.append(route)
+            return [{"jobs": copy.deepcopy(self.attempts[-1])}]
+        if route.endswith("/actions/runs/10/jobs?filter=all&per_page=100"):
+            self.routes.append(route)
+            return [{"jobs": copy.deepcopy([job for jobs in self.attempts for job in jobs])}]
+        if f"/commits/{HEAD}/check-runs" in route:
+            self.routes.append(route)
+            shown = [job for jobs in self.attempts for job in jobs] if "filter=all" in route else self.attempts[-1]
+            return [{"check_runs": [self.check(job) for job in shown]}]
+        if f"/commits/{HEAD}/status" in route:
+            self.routes.append(route)
+            return {"statuses": []}
+        if f"actions/runs?head_sha={HEAD}" in route:
+            self.routes.append(route)
+            return {"workflow_runs": []}
+        if "/actions/jobs/" in route:
+            self.routes.append(route)
+            return copy.deepcopy(self.jobs[int(route.rsplit("/", 1)[1])])
+        return super().json(route, paginate=paginate)
+
+
+class LastRealAttempt(unittest.TestCase):
+    """A check reads as its last real attempt left it. An attempt that ended in startup_failure, or ran no jobs, is
+    no result: it never hides the red before it. cmux#35906 merged as 633d5e38 pinned at e1d1894a with its
+    'publish tree-addressed cmux-tui' red in run 41931705470 (attempt 1) unexcused: two reruns ended in
+    startup_failure with no jobs, and the red check run dropped out of the head's latest-attempt view."""
+
+    def green(self, job_id=5):
+        job = failed_job(job_id, 10, HEAD)
+        job["conclusion"] = "success"
+        job["steps"][-1]["conclusion"] = "success"
+        return job
+
+    def test_red_then_two_startup_failures_is_still_judged_as_red_by_check(self):
+        github = LastRealAttemptGitHub([], [])
+        lines = excuse.judge(REPO, "feat-cmux-next", HEAD, [], github, checks=[SWIFT])
+        self.assertIn("run 20", "\n".join(lines))
+        self.assertTrue(any("check-runs?filter=all" in route for route in github.routes), github.routes)
+
+    def test_red_then_two_startup_failures_is_still_judged_as_red_by_run(self):
+        github = LastRealAttemptGitHub([], [])
+        lines = excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        self.assertIn("run 20", "\n".join(lines))
+
+    def test_red_hidden_by_startup_failures_stays_not_excused_when_the_base_lacks_it(self):
+        for checks, runs in (([SWIFT], []), ([], [10])):
+            with self.subTest(checks=checks, runs=runs):
+                github = LastRealAttemptGitHub([], [])
+                github.jobs[2]["conclusion"] = "success"
+                github.jobs[2]["steps"][-1]["conclusion"] = "success"
+                with self.assertRaises(excuse.Refused) as refused:
+                    excuse.judge(REPO, "feat-cmux-next", HEAD, runs, github, checks=checks)
+                # Judged against the base and refused as the head's own red, not lost as "no job".
+                self.assertIn("is not red on feat-cmux-next", str(refused.exception))
+
+    def test_red_then_a_real_green_rerun_reads_green(self):
+        # Green on its own, and green with a startup_failure rerun after it: the green is the last real attempt.
+        for later in (([self.green()],), ([self.green()], [])):
+            with self.subTest(attempts=len(later) + 1):
+                with self.assertRaisesRegex(excuse.Refused, "is success"):
+                    excuse.judge(REPO, "feat-cmux-next", HEAD, [], LastRealAttemptGitHub(*later), checks=[SWIFT])
+                with self.assertRaisesRegex(excuse.Refused, "no failed job found"):
+                    excuse.judge(REPO, "feat-cmux-next", HEAD, [10], LastRealAttemptGitHub(*later))
+
+    def test_startup_failure_alone_is_no_result_not_green(self):
+        github = LastRealAttemptGitHub()
+        github.attempts = [[]]
+        with self.assertRaisesRegex(excuse.Refused, "has not run on exact head"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], github, checks=[SWIFT])
+        self.assertEqual(excuse.last_real_jobs(REPO, 10, github), [])
 
 
 class JobLogEndpoint(unittest.TestCase):
@@ -924,7 +1027,7 @@ class Excusing(unittest.TestCase):
         original = self.gh.json
 
         def json_with_checks(route, *, paginate=False):
-            if route.endswith(f"commits/{HEAD}/check-runs?per_page=100"):
+            if route.endswith(f"commits/{HEAD}/check-runs?filter=all&per_page=100"):
                 return copy.deepcopy(self.gh.check_runs)
             if route.endswith("/actions/jobs/1"):
                 return copy.deepcopy(self.gh.jobs[1])
@@ -939,7 +1042,7 @@ class Excusing(unittest.TestCase):
         original = self.gh.json
 
         def json_with_checks(route, *, paginate=False):
-            if route.endswith(f"commits/{HEAD}/check-runs?per_page=100"):
+            if route.endswith(f"commits/{HEAD}/check-runs?filter=all&per_page=100"):
                 return copy.deepcopy(self.gh.check_runs)
             if "/actions/jobs/" in route:
                 return copy.deepcopy(self.gh.jobs[int(route.rsplit("/", 1)[1])])
@@ -1198,7 +1301,7 @@ class StatusOnlyChecks(unittest.TestCase):
         original = self.gh.json
 
         def json(route, *, paginate=False):
-            if route.endswith(f"commits/{HEAD}/check-runs?per_page=100"):
+            if route.endswith(f"commits/{HEAD}/check-runs?filter=all&per_page=100"):
                 self.gh.routes.append(route)
                 return [{"check_runs": []}]
             if route.endswith(f"commits/{HEAD}/status?per_page=100"):
@@ -1281,7 +1384,7 @@ class JoblessStatusChecks(unittest.TestCase):
 
         def json(route, *, paginate=False):
             self.gh.routes.append(route)
-            if route.endswith(f"commits/{HEAD}/check-runs?per_page=100"):
+            if route.endswith(f"commits/{HEAD}/check-runs?filter=all&per_page=100"):
                 return [{"check_runs": []}]
             if route.endswith(f"commits/{HEAD}/status?per_page=100"):
                 return {"statuses": [copy.deepcopy(self.head)]}
@@ -1594,27 +1697,37 @@ jobs:
 SKILL_DOCS = "Skill documentation tests"
 
 
+# What an agent host's gh shim (glaeda-gh's API-source guard) answers a `gh api repos/O/R/contents/...` read with.
+SOURCE_REFUSAL = ("GitHub evidence request failed: glaeda-gh: reading manaflow-ai/cmuxterm-hq source through the "
+                  "GitHub API spends the quota every agent on this account shares")
+
+
 class HQGitHub(FakeGitHub):
-    """FakeGitHub's runs as cmuxterm-hq's (base main), and HQ's skills-tests.yml at main from the contents API."""
+    """FakeGitHub's runs as cmuxterm-hq's (base main), and HQ's skills-tests.yml at main as GraphQL serves a blob.
+    A contents API read is refused, as the gh shim on an agent host refuses it."""
 
     def __init__(self):
         super().__init__()
         self.workflows = {"skills-tests.yml": SKILLS_YML}
+        self.blobs, self.source_routes = [], []
         for job_id in (1, 2):
             self.jobs[job_id]["name"] = "Skill test scope"
         self.jobs[3] = {"id": 3, "run_id": 10, "head_sha": HEAD, "name": SKILL_DOCS, "status": "completed",
                         "conclusion": "failure", "steps": [{"name": "All parallel skill shards passed",
                                                             "conclusion": "failure"}]}
 
+    def blob(self, repo, ref, path):
+        self.blobs.append((repo, ref, path))
+        assert (repo, ref) == (HQ, "main"), (repo, ref)
+        file = path.removeprefix(".github/workflows/")
+        if file not in self.workflows:
+            raise excuse.Refused(f"{repo}@{ref}: {path} is not a text file GitHub served")
+        return self.workflows[file]
+
     def json(self, route, *, paginate=False):
-        prefix = f"repos/{HQ}/contents/.github/workflows/"
-        if route.startswith(prefix):
-            self.routes.append(route)
-            file, _, query = route[len(prefix):].partition("?")
-            assert query == "ref=main", route
-            if file not in self.workflows:
-                raise excuse.Refused(f"GitHub evidence request failed: 404 {file}")
-            return {"encoding": "base64", "content": base64.b64encode(self.workflows[file].encode()).decode()}
+        if "/contents/" in route or "/git/blobs/" in route or "/git/trees/" in route:
+            self.source_routes.append(route)
+            raise excuse.Refused(SOURCE_REFUSAL)
         assert route.startswith(f"repos/{HQ}/"), route
         route = route.replace(HQ, REPO).replace("branch=main", "branch=feat-cmux-next")
         route = route.replace("/compare/main...", "/compare/feat-cmux-next...")
@@ -1638,7 +1751,8 @@ class OtherRepoRollups(unittest.TestCase):
         lines = "\n".join(self.judge())
         self.assertIn("'Skill test scope'", lines)
         self.assertNotIn(SKILL_DOCS, lines)
-        self.assertIn(f"repos/{HQ}/contents/.github/workflows/skills-tests.yml?ref=main", self.gh.routes)
+        self.assertIn((HQ, "main", ".github/workflows/skills-tests.yml"), self.gh.blobs)
+        self.assertEqual(self.gh.source_routes, [], "no contents API read: the gh shim refuses it")
         self.assertEqual(set(excuse.rollups(HQ)["run"][SKILL_DOCS]["under"]), {"scope", "tests-policy", "tests-fleet"})
 
     def test_one_unexcused_shard_keeps_the_summary_red(self):
@@ -1679,11 +1793,128 @@ class OtherRepoRollups(unittest.TestCase):
     def test_a_repo_with_no_rollups_named_judges_every_job_as_itself(self):
         self.assertEqual(excuse.rollups("manaflow-ai/other"), excuse.NO_ROLLUPS)
         excuse.load_rollups("manaflow-ai/other", "main", self.gh)
-        self.assertEqual(self.gh.routes, [])
+        self.assertEqual((self.gh.routes, self.gh.source_routes, self.gh.blobs), ([], [], []))
 
     def test_rollups_not_read_are_refused(self):
         with self.assertRaisesRegex(excuse.Refused, "not read from its workflows"):
             excuse.rollups(HQ)
+
+
+SOURCE_FAKE_GH = """#!/usr/bin/env python3
+import json, os, sys
+args = sys.argv[1:]
+with open(os.environ["SOURCE_GH_LOG"], "a") as log:
+    log.write(json.dumps({"args": args, "override": os.environ.get("GLAEDA_GH_ALLOW_API_SOURCE")}) + "\\n")
+if args[:1] == ["api"] and any("/contents/" in a or "/git/blobs/" in a or "/git/trees/" in a
+                               or "raw.githubusercontent.com" in a for a in args):
+    sys.stderr.write("glaeda-gh: reading source through the GitHub API spends the quota every agent shares\\n")
+    sys.exit(2)
+if args[:2] == ["api", "graphql"]:
+    fields = dict(a.split("=", 1) for a in args[2:] if "=" in a and not a.startswith("-"))
+    ref, _, path = fields["expression"].partition(":")
+    found = os.path.join(os.environ["SOURCE_GH_TREE"], fields["owner"], fields["name"], ref, path)
+    blob = None
+    if os.path.isfile(found):
+        blob = {"text": open(found).read(), "isBinary": False, "isTruncated": False}
+    print(json.dumps({"data": {"repository": {"object": blob}}}))
+    sys.exit(0)
+sys.stderr.write("fake gh: unexpected call " + " ".join(args) + "\\n")
+sys.exit(1)
+"""
+
+
+class SourceReads(unittest.TestCase):
+    """Another repo's files (HQ's workflows, OTHER_REPO_ROLLUPS) are read with git or GraphQL, never the REST contents
+    API, which an agent host's gh shim refuses as a source read. Nothing sets the shim's one-call override."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="bre-src-"))
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(self.tmp)])
+        bin_dir = self.tmp / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "gh").write_text(SOURCE_FAKE_GH)
+        (bin_dir / "gh").chmod(0o755)
+        self.log = self.tmp / "gh.log"
+        self.tree = self.tmp / "tree"
+        workflow = self.tree / HQ / "main/.github/workflows/skills-tests.yml"
+        workflow.parent.mkdir(parents=True)
+        workflow.write_text(SKILLS_YML)
+        env = {key: value for key, value in os.environ.items() if key != "GLAEDA_GH_ALLOW_API_SOURCE"}
+        env.update(PATH=f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}", SOURCE_GH_LOG=str(self.log),
+                   SOURCE_GH_TREE=str(self.tree), BASE_RED_EXCUSE_SOURCE_CACHE=str(self.tmp / "cache"))
+        patch = unittest.mock.patch.dict(os.environ, env, clear=True)
+        patch.start()
+        self.addCleanup(patch.stop)
+        rollups = unittest.mock.patch.object(excuse, "_REPO_ROLLUPS", {})
+        rollups.start()
+        self.addCleanup(rollups.stop)
+
+    def calls(self):
+        if not self.log.exists():
+            return []
+        return [json.loads(line) for line in self.log.read_text().splitlines()]
+
+    def test_the_real_client_derives_hq_rollups_with_contents_reads_refused(self):
+        excuse.load_rollups(HQ, "main", excuse.rate_limit_aware(excuse.GitHub()))
+        self.assertEqual(set(excuse.rollups(HQ)["run"][SKILL_DOCS]["under"]), {"scope", "tests-policy", "tests-fleet"})
+        calls = self.calls()
+        self.assertTrue(calls)
+        self.assertTrue(all(call["args"][:2] == ["api", "graphql"] for call in calls), calls)
+        self.assertTrue(all(call["override"] is None for call in calls), calls)
+
+    def test_a_missing_file_over_graphql_refuses_every_rollup(self):
+        (self.tree / HQ / "main/.github/workflows/skills-tests.yml").unlink()
+        with self.assertRaisesRegex(excuse.Refused, f"{HQ} rollups at main: .*not a text file.*no rollup red is excused"):
+            excuse.load_rollups(HQ, "main", excuse.GitHub())
+
+    def test_the_classifier_judges_an_hq_red_with_contents_reads_refused(self):
+        gh = HQGitHub()
+        gh.blob = excuse.GitHub().blob  # the real GraphQL read, through the fake gh above
+        lines = "\n".join(excuse.judge(HQ, "main", HEAD, [10], gh))
+        self.assertIn("'Skill test scope'", lines)
+        self.assertEqual(gh.source_routes, [])
+        self.assertTrue(all(call["override"] is None for call in self.calls()))
+
+    def git(self, *args, cwd=None):
+        return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout
+
+    def origin(self) -> Path:
+        work = self.tmp / "origin"
+        (work / ".github/workflows").mkdir(parents=True)
+        (work / ".github/workflows/skills-tests.yml").write_text(SKILLS_YML.replace("Other check", "From git"))
+        self.git("init", "-q", "-b", "main", str(work))
+        self.git("-c", "user.email=t@example.com", "-c", "user.name=t", "add", ".", cwd=work)
+        self.git("-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-qm", "workflows", cwd=work)
+        self.git("config", "uploadpack.allowFilter", "true", cwd=work)
+        return work
+
+    def test_git_answers_first_and_spends_no_api(self):
+        work = self.origin()
+        with unittest.mock.patch.object(excuse, "git_text", REAL_GIT_TEXT), \
+                unittest.mock.patch.object(excuse, "git_remote", lambda repo: work.as_uri()):
+            text = excuse.source_text(HQ, "main", ".github/workflows/skills-tests.yml", excuse.GitHub())
+            again = excuse.source_text(HQ, "main", ".github/workflows/skills-tests.yml", excuse.GitHub())
+        self.assertIn("From git", text)
+        self.assertEqual(text, again)
+        self.assertEqual(self.calls(), [])
+        cache = self.tmp / "cache" / "manaflow-ai__cmuxterm-hq.git"
+        self.assertEqual(self.git("--git-dir", str(cache), "for-each-ref"), "", "the run's own fetch ref is removed")
+
+    def test_git_that_cannot_answer_falls_back_to_graphql(self):
+        missing = (self.tmp / "no-such-origin").as_uri()
+        with unittest.mock.patch.object(excuse, "git_text", REAL_GIT_TEXT), \
+                unittest.mock.patch.object(excuse, "git_remote", lambda repo: missing):
+            text = excuse.source_text(HQ, "main", ".github/workflows/skills-tests.yml", excuse.GitHub())
+        self.assertEqual(text, SKILLS_YML)
+        self.assertEqual([call["args"][:2] for call in self.calls()], [["api", "graphql"]])
+
+    def test_no_code_path_sets_the_shims_source_override(self):
+        sources = [ROOT / "scripts/ci" / name for name in ("base_red_excuse.py", "main_fix_evidence.py",
+                                                           "test_reds.py", "gh_pages.py")]
+        sources += sorted((ROOT / ".github/workflows").glob("*.yml"))
+        setting = [str(path.relative_to(ROOT)) for path in sources
+                   if path.is_file() and "GLAEDA_GH_ALLOW_API_SOURCE" in path.read_text()]
+        self.assertEqual(setting, [])
 
 
 class CrashIsNeverABaseRed(unittest.TestCase):
@@ -1879,6 +2110,24 @@ class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
     def judge(self):
         return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
 
+    def test_a_compile_pass_under_startup_failure_reruns_still_counts(self):
+        # Review finding on #35949: GitHub's default check-runs list shows only each suite's newest attempt, so a
+        # compile pass whose suite was rerun into startup_failure (no jobs) was not seen. Its last real attempt counts.
+        self.release_run(5)
+        hidden = self.gh.check_runs
+        original = self.gh.json
+
+        def json(route, *, paginate=False):
+            if f"/commits/{HEAD}/check-runs" in route:
+                return [{"check_runs": copy.deepcopy(hidden if "filter=all" in route else [])}]
+            return original(route, paginate=paginate)
+
+        self.gh.json = json
+        self.assertEqual(excuse.compile_pass_at(REPO, HEAD, self.gh), f"'{self.RELEASE}' (job 1005)")
+        # And a red last real attempt still decides over an older green one.
+        self.release_run(6, "failure")
+        self.assertIsNone(excuse.compile_pass_at(REPO, HEAD, self.gh))
+
     def test_no_verdict_with_nothing_else_compiling_the_head_is_refused_even_when_the_base_has_it(self):
         with self.assertRaisesRegex(excuse.Refused, r"no compile verdict.*never a base red"):
             self.judge()
@@ -1991,10 +2240,79 @@ class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "artifact"):
             self.judge()
 
+    def test_two_different_forty_hex_digests_are_not_one_red(self):
+        # cmux#35902: a bare 40-hex token was masked whatever it was, so a head red naming one digest
+        # matched a base red naming another and passed as a base red.
+        scheme = "cmux app scheme compile (Debug)"
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, scheme, "Build"), 2: failed_job(2, 20, BASE_SHA, scheme, "Build")}
+        line = "error: the runtime pack {} is not the one this tree pins"
+        self.gh.logs[1] = log(scheme, "Build", line.format("f06132224fc58d3cd5349ed190eaadc44736abf2"))
+        self.gh.logs[2] = log(scheme, "Build", line.format("2cadcc0a5426124272e806a9dca5273ce19940ea"))
+        with self.assertRaisesRegex(excuse.Refused, "runtime pack"):
+            self.judge()
+
     def test_only_commit_shas_are_masked(self):
         self.assertEqual(excuse.mask_shas(f"defaced 1234567 accede deadbeef1 {HEAD} at 8f0c2e1 tree `5948da7` "
                                           "commit 1234567 for abcdef12"),
                          "defaced 1234567 accede deadbeef1 <sha> at 8f0c2e1 tree `<sha>` commit <sha> for abcdef12")
+
+    def test_a_forty_hex_digest_named_as_a_stored_thing_is_not_masked(self):
+        # cmux#35902: every bare 40-hex token was masked, so two digests became one error line.
+        digest = "f06132224fc58d3cd5349ed190eaadc44736abf2"
+        for named in (f"the artifact {digest} does not match", f"runtime pack {digest} is not pinned",
+                      f"checksum `{digest}` differs", f"Digest {digest} unknown"):
+            self.assertEqual(excuse.mask_shas(named), named)
+        # A commit the line does not name as a stored thing still masks, with or without a keyword.
+        self.assertEqual(excuse.mask_shas(f"this run built {HEAD}"), "this run built <sha>")
+        self.assertEqual(excuse.mask_shas(f"source stamp {HEAD} != {BASE_SHA}"), "source stamp <sha> != <sha>")
+
+    def test_a_stored_thing_id_after_punctuation_is_not_masked(self):
+        # cmux#35941 F1: the pattern took a literal space (and a backtick), so `artifact: <40-hex>` and
+        # `checksum=<40-hex>` fell back to the bare branch and two differing digests compared as one red.
+        digest = "f06132224fc58d3cd5349ed190eaadc44736abf2"
+        for named in (f"artifact: {digest}", f"checksum={digest}", f"digest ({digest})",
+                      f"hash [{digest}]", f'pack "{digest}"', f"artifact = {digest}"):
+            self.assertEqual(excuse.mask_shas(named), named)
+
+    def test_a_stored_thing_id_after_a_bracket_alone_is_not_masked(self):
+        # cmux#35941 F3: the separator still needed a space or a `:`/`=` before its optional bracket, so
+        # `artifact(<40-hex>)` and `pack"<40-hex>"` fell back to the bare branch and two differing digests
+        # compared as one red.
+        digest = "f06132224fc58d3cd5349ed190eaadc44736abf2"
+        for named in (f"artifact({digest})", f'pack"{digest}"', f"bundle[{digest}]", f"digest`{digest}`",
+                      f"checksum'{digest}'"):
+            self.assertEqual(excuse.mask_shas(named), named)
+        # Two such ids are still two error lines once every digit is masked too.
+        other = "2cadcc0a5426124272e806a9dca5273ce19940ea"
+        self.assertNotEqual(excuse.normalise_error(f"##[error]artifact({digest}) does not match"),
+                            excuse.normalise_error(f"##[error]artifact({other}) does not match"))
+
+    def test_a_bare_forty_hex_with_no_naming_word_is_still_masked(self):
+        # The separator stays required, so the wider separator does not turn the bare branch off: a 40-hex
+        # with no stored-thing word before it is each run's own commit and still masks.
+        self.assertEqual(excuse.mask_shas(f"({HEAD})"), "(<sha>)")
+        self.assertEqual(excuse.mask_shas(f'built "{HEAD}" from [{BASE_SHA}]'), 'built "<sha>" from [<sha>]')
+        # A word that names a commit rather than a stored thing masks through a bracket too.
+        self.assertEqual(excuse.mask_shas(f"tree({HEAD})"), "tree(<sha>)")
+        self.assertEqual(excuse.normalise_error(f"##[error]source stamp {HEAD} != {BASE_SHA}"),
+                         excuse.normalise_error(f"##[error]source stamp {BASE_SHA} != {HEAD}"))
+
+    def test_a_preserved_id_keeps_its_digits(self):
+        # cmux#35941 F2: normalise_error masks every digit after mask_shas, so two preserved ids that differ
+        # only in digits still normalised the same way.
+        first = "f06132224fc58d3cd5349ed190eaadc44736abf2"
+        second = "f06132224fc58d3cd5349ed190eaadc44736abf3"
+        self.assertNotEqual(excuse.normalise_error(f"##[error]artifact: {first} is not pinned"),
+                            excuse.normalise_error(f"##[error]artifact: {second} is not pinned"))
+        # The rest of the line still normalises: a run number, a duration, a pid vary run to run.
+        self.assertEqual(excuse.normalise_error(f"##[error]artifact: {first} after 12 attempts"),
+                         excuse.normalise_error(f"##[error]artifact: {first} after 3 attempts"))
+
+    def test_two_different_object_digests_are_two_error_lines(self):
+        first = "f06132224fc58d3cd5349ed190eaadc44736abf2"
+        second = "2cadcc0a5426124272e806a9dca5273ce19940ea"
+        self.assertNotEqual(excuse.normalise_error(f"##[error]artifact {first} does not match"),
+                            excuse.normalise_error(f"##[error]artifact {second} does not match"))
 
     def test_hex_ids_after_a_generic_word_are_compared_as_they_are(self):
         scheme = "cmux app scheme compile (Debug)"
@@ -2420,6 +2738,60 @@ class Script(unittest.TestCase):
                 unittest.mock.patch.object(excuse, "judge", judge), \
                 unittest.mock.patch.object(excuse.test_reds, "load_flake_state", lambda *a, **k: None):
             self.assertEqual(excuse.main(["--repo", REPO, "--base", "main", "--sha", HEAD, "--check", "x"]), 3)
+
+    def test_a_rate_limited_rollups_read_exits_3(self):
+        # The swallow this covers: load_rollups wraps every Refused from its contents reads as
+        # "no rollup red is excused", and main's RateLimited is a Refused, so a rate limit read as a
+        # verdict and main() returned 1 where gh-merge-green expects a rate limit (3).
+        class RateLimited(excuse.Refused):
+            pass
+
+        class Limited:
+            def json(self, route, *, paginate=False):
+                raise RateLimited("GitHub rate-limited `gh api`; resets in 14 minutes")
+
+            def blob(self, repo, ref, path):
+                raise RateLimited("GitHub rate-limited `gh api graphql`; resets in 14 minutes")
+
+            def log(self, repo, job):
+                raise AssertionError("no log is read once a read is rate-limited")
+
+        excuse._REPO_ROLLUPS.pop(HQ, None)
+        with unittest.mock.patch.object(excuse, "RateLimited", RateLimited), \
+                unittest.mock.patch.object(excuse, "GitHub", Limited), \
+                unittest.mock.patch.object(excuse.test_reds, "load_flake_state", lambda *a, **k: None):
+            self.assertEqual(excuse.main(["--repo", HQ, "--base", "main", "--sha", HEAD, "--check", "x"]), 3)
+
+    def test_an_ordinary_refusal_still_exits_1_with_this_branchs_reader(self):
+        # Not patched: this branch's main_fix_evidence.py has no RateLimited, so excuse.RateLimited is the empty
+        # tuple. A handler written `except (RateLimited, RateLimitedRead)` is then `except ((), RateLimitedRead)`,
+        # a TypeError on every ordinary refusal ("catching classes that do not inherit from BaseException"), so
+        # main() would crash instead of saying "not excused" (review of #35947, F1).
+        self.assertEqual(excuse.rate_limited_classes(), (excuse.RateLimitedRead,))
+
+        def judge(*args, **kwargs):
+            raise excuse.Refused("no failed job found on the head to compare with the base")
+
+        with unittest.mock.patch.object(excuse, "judge", judge), \
+                unittest.mock.patch.object(excuse.test_reds, "load_flake_state", lambda *a, **k: None):
+            self.assertEqual(excuse.main(["--repo", REPO, "--base", "main", "--sha", HEAD, "--check", "x"]), 1)
+
+    def test_a_rate_limited_read_leaves_judge_as_no_verdict(self):
+        class RateLimited(excuse.Refused):
+            pass
+
+        class Limited:
+            def json(self, route, *, paginate=False):
+                raise RateLimited("GitHub rate-limited `gh api`; resets in 14 minutes")
+
+            def blob(self, repo, ref, path):
+                raise RateLimited("GitHub rate-limited `gh api graphql`; resets in 14 minutes")
+
+        excuse._REPO_ROLLUPS.pop(HQ, None)
+        with unittest.mock.patch.object(excuse, "RateLimited", RateLimited):
+            # Not a Refused: a rate limit is no verdict on the red, so nothing may excuse or charge it.
+            with self.assertRaisesRegex(excuse.RateLimitedRead, "rate-limited"):
+                excuse.judge(HQ, "main", HEAD, [], Limited(), checks=["x"])
 
     def test_gh_merge_green_asks_the_base_before_refusing_a_red_lane(self):
         text = (ROOT / "scripts/gh-merge-green").read_text()

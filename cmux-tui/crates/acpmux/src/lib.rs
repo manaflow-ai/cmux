@@ -127,6 +127,7 @@ pub mod resume;
 pub mod review_box;
 pub mod route_account;
 mod route_probe;
+pub mod route_shadow;
 mod router_socket;
 pub mod routes;
 pub mod rpc;
@@ -143,6 +144,7 @@ mod session_scope;
 pub mod session_search;
 pub mod session_status;
 pub mod sha256;
+pub mod shell_words;
 #[cfg(feature = "sim")]
 pub mod sim_agent;
 pub mod sr2_cost_labels;
@@ -178,5 +180,6 @@ pub mod workflow_runs;
 pub mod worktree_sessions;
 pub mod wrap_up_suggestion;
 pub mod write_journal;
+pub mod xhost_audit;
 
 pub mod model_catalog;

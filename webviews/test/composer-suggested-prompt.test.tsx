@@ -116,6 +116,10 @@ async function render(
 let sent = 0;
 const APP = "/Users/you/src/app";
 const shown = () => host.querySelector(".acpmux-md-placeholder")?.textContent;
+// MenuPopup portals migrated composer menus to the shared popup host, so menu rows live under
+// document.body rather than the composer render root. Keep trigger assertions scoped to `host` and
+// inspect the portaled surface through this helper.
+const menuDocument = () => dom.window.document;
 /** The empty composer's own placeholder (#22667, as Claude's): shown when nothing is suggested. */
 const IDLE = "Type / for commands";
 const key = () => host.querySelector(".acpmux-md-placeholder-key")?.textContent;
@@ -330,13 +334,13 @@ test("the + menu renders Add rows from the shared registry", async () => {
   await render(fresh([]));
   const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
   await act(async () => plus.click());
-  const ids = [...host.querySelectorAll<HTMLElement>(".acpmux-composer-plus .acpmux-menu-item")].map(
+  const ids = [...menuDocument().querySelectorAll<HTMLElement>(".acpmux-composer-plus .acpmux-menu-item")].map(
     (row) => row.dataset.value,
   );
   expect(ids).toContain("add.files");
   expect(ids).toContain("add.project");
   expect(ids).toContain("add.mention");
-  expect(host.querySelector('[data-value="add.files"] .acpmux-menu-description')).toBeNull();
+  expect(menuDocument().querySelector('[data-value="add.files"] .acpmux-menu-description')).toBeNull();
 });
 
 test("the + menu runs the advertised plan mode and opens the existing project chooser", async () => {
@@ -357,13 +361,13 @@ test("the + menu runs the advertised plan mode and opens the existing project ch
   await render(snapshot, undefined, (id) => modes.push(id));
   const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
   await act(async () => plus.click());
-  const plan = host.querySelector<HTMLElement>('[data-value="add.mode.claude-plan"]')!;
+  const plan = menuDocument().querySelector<HTMLElement>('[data-value="add.mode.claude-plan"]')!;
   expect(plan).toBeTruthy();
-  await act(async () => plan.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true })));
+  await act(async () => plan.click());
   expect(modes).toEqual(["claude-plan"]);
   await act(async () => plus.click());
-  const project = host.querySelector<HTMLElement>('[data-value="add.project"]')!;
-  await act(async () => project.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true })));
+  const project = menuDocument().querySelector<HTMLElement>('[data-value="add.project"]')!;
+  await act(async () => project.click());
   expect(host.querySelector(".acpmux-location-button[aria-expanded=true]")).toBeTruthy();
 });
 
@@ -377,8 +381,8 @@ test("the + menu keeps the full draft as a selected goal's arguments", async () 
     await render(snapshot, undefined, undefined, "Keep these words before the caret");
     const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
     await act(async () => plus.click());
-    const choice = host.querySelector<HTMLElement>(`[data-value="${row}"]`)!;
-    await act(async () => choice.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true })));
+    const choice = menuDocument().querySelector<HTMLElement>(`[data-value="${row}"]`)!;
+    await act(async () => choice.click());
     expect(field().textContent).toContain(`/${command} Keep these words before the caret`);
     await act(async () => root?.unmount());
     root = undefined;
@@ -395,12 +399,14 @@ test("the + menu uses the current pane language for existing actions", async () 
     await render(fresh([]));
     const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
     await act(async () => plus.click());
-    expect(host.querySelector('[data-value="add.files"] .acpmux-menu-label')?.textContent).toBe(
+    expect(menuDocument().querySelector('[data-value="add.files"] .acpmux-menu-label')?.textContent).toBe(
       "Dateien oder Bilder anhängen",
     );
-    expect(host.querySelector('[data-value="add.project"] .acpmux-menu-label')?.textContent).toBe("Projekt auswählen");
-    expect(host.querySelector('[data-value="add.files"] .acpmux-menu-description')).toBeNull();
-    expect(host.querySelector('[data-value="add.project"] .acpmux-menu-description')).toBeNull();
+    expect(menuDocument().querySelector('[data-value="add.project"] .acpmux-menu-label')?.textContent).toBe(
+      "Projekt auswählen",
+    );
+    expect(menuDocument().querySelector('[data-value="add.files"] .acpmux-menu-description')).toBeNull();
+    expect(menuDocument().querySelector('[data-value="add.project"] .acpmux-menu-description')).toBeNull();
   } finally {
     await act(async () => setPaneLanguage("en"));
     globalThis.__cmuxPaneStrings = prior;
@@ -429,9 +435,9 @@ test("the + menu renders and dispatches host command-palette extensions", async 
   );
   const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
   await act(async () => plus.click());
-  expect(host.querySelector('[data-value="browser"] .acpmux-menu-label')?.textContent).toBe("Browser");
-  const row = host.querySelector<HTMLElement>('[data-value="browser"]')!;
-  await act(async () => row.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true })));
+  expect(menuDocument().querySelector('[data-value="browser"] .acpmux-menu-label')?.textContent).toBe("Browser");
+  const row = menuDocument().querySelector<HTMLElement>('[data-value="browser"]')!;
+  await act(async () => row.click());
   expect(called).toEqual(["palette.openBrowser"]);
 });
 
@@ -468,15 +474,15 @@ test("the + menu keeps host sections separate and stays open for an unsupported 
   const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
   await act(async () => plus.click());
   // Untitled groups, as ChatGPT's + menu: attach, the composer's actions, then each host group.
-  expect(host.querySelectorAll(".acpmux-composer-plus .acpmux-menu-header")).toHaveLength(0);
+  expect(menuDocument().querySelectorAll(".acpmux-composer-plus .acpmux-menu-header")).toHaveLength(0);
   expect(
-    [...host.querySelectorAll(".acpmux-composer-plus .acpmux-menu-section")].map((group) =>
+    [...menuDocument().querySelectorAll(".acpmux-composer-plus .acpmux-menu-section")].map((group) =>
       [...group.querySelectorAll<HTMLElement>(".acpmux-menu-item")].map((row) => row.dataset.value),
     ),
   ).toEqual([["add.files"], ["add.project", "add.mention"], ["browser"], ["chat"], ["tab"]]);
-  const row = host.querySelector<HTMLElement>('[data-value="browser"]')!;
-  await act(async () => row.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true })));
-  expect(host.querySelector('[data-value="browser"]')).toBeTruthy();
+  const row = menuDocument().querySelector<HTMLElement>('[data-value="browser"]')!;
+  await act(async () => row.click());
+  expect(menuDocument().querySelector('[data-value="browser"]')).toBeTruthy();
 });
 
 test("the + menu lists no skill: its one Commands and skills… row opens the slash list with the draft", async () => {
@@ -488,12 +494,12 @@ test("the + menu lists no skill: its one Commands and skills… row opens the sl
   await render(noChat([], { summary: { sessionId: "", cwd: APP } as never, commands }));
   const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
   await act(async () => plus.click());
-  const rows = [...host.querySelectorAll<HTMLElement>(".acpmux-composer-plus .acpmux-menu-item")];
+  const rows = [...menuDocument().querySelectorAll<HTMLElement>(".acpmux-composer-plus .acpmux-menu-item")];
   expect(rows.some((row) => row.dataset.value?.startsWith("add.skill."))).toBe(false);
   expect(rows.some((row) => row.querySelector(".acpmux-menu-label")?.textContent?.startsWith("/"))).toBe(false);
   const skills = rows.filter((row) => row.dataset.value === "add.commands");
   expect(skills.map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual(["Commands and skills…"]);
-  await act(async () => skills[0]!.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true })));
+  await act(async () => skills[0]!.click());
   expect(field().textContent).toBe("/");
   expect(host.querySelector("#acpmux-slash-menu, .acpmux-slash-menu")).toBeTruthy();
 });
@@ -513,19 +519,19 @@ test("the + menu lists at most three recent commands, then Commands and skills�
     await render(noChat([], { summary: { sessionId: "", cwd: APP } as never, commands }));
     const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
     await act(async () => plus.click());
-    const group = [...host.querySelectorAll(".acpmux-composer-plus .acpmux-menu-section")].find((section) =>
+    const group = [...menuDocument().querySelectorAll(".acpmux-composer-plus .acpmux-menu-section")].find((section) =>
       section.querySelector('[data-value="add.commands"]'),
     )!;
     const labels = [...group.querySelectorAll<HTMLElement>(".acpmux-menu-item")].map(
       (row) => row.querySelector(".acpmux-menu-label")?.textContent,
     );
     expect(labels).toEqual(["/skill3", "/skill1", "/skill9", "Commands and skills…"]);
-    const every = [...host.querySelectorAll<HTMLElement>(".acpmux-composer-plus .acpmux-menu-item")];
+    const every = [...menuDocument().querySelectorAll<HTMLElement>(".acpmux-composer-plus .acpmux-menu-item")];
     expect(every.filter((row) => row.querySelector(".acpmux-menu-label")?.textContent?.startsWith("/"))).toHaveLength(
       3,
     );
     const recent = group.querySelector<HTMLElement>('[data-value="commands.recent.skill9"]')!;
-    await act(async () => recent.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true })));
+    await act(async () => recent.click());
     expect(field().textContent?.trim()).toBe("/skill9");
     expect(JSON.parse(localStorage.getItem("cmux.acpmux.recentSlashCommands")!)[0]).toBe("skill9");
   } finally {

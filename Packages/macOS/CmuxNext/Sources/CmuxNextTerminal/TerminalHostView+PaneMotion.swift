@@ -25,7 +25,8 @@ extension TerminalHostView: PaneMotionHoldFollowing {
     /// size now.
     var paneMotionBasisSize: CGSize { followedHold?.heldSize ?? bounds.size }
 
-    /// The surface's frame while the host follows `followed`: its held size on the hold's edges of the area it shows in
+    /// The surface's frame while the host follows `followed`, and the edge a frame kept while its size waits rides (the
+    /// frame owner's `place(_:anchor:)`): its held size on the hold's edges of the area it shows in
     /// (less a legacy scroller's strip). One exception to the still edge: a pane that grows down with its prompt in the
     /// lower half (`motionAnchor` answered `.bottom`) keeps the surface's bottom on its moving bottom edge, so the prompt on
     /// the final grid's last row stays in view; the surface is taller than the pane then, so it still covers it.
@@ -34,13 +35,27 @@ extension TerminalHostView: PaneMotionHoldFollowing {
     /// the area it shows in, in every frame, anchored top-left: the frame owner shows each size's frame with its bounds,
     /// or keeps the last frame (clipped, top-left) until it is drawn; the PTY still gets one grid per press (the final
     /// grid, ``TerminalSurfaceView`` `restAt`). Except the low prompt above (`restAt` held the surface on the bottom edge):
-    /// it keeps that hold.
-    func followedSurfaceFrame(_ followed: (hold: PaneMotionHold, heldSize: CGSize), in area: CGRect) -> CGRect { // perf-hot: 4ms motion-frame
+    /// it keeps only that hold's height, and only while the final grid is taller than the area: its bottom rides the
+    /// area's bottom edge (the prompt stays in view) and it has the area's leading edge and width, so it never cuts the
+    /// lines on a moving side edge and never leaves a band above the terminal (review of #35470 at c4d6c936c92, H1: a press
+    /// on the other axis, or two grow presses and then a shrink, in one spring). The anchor is the frame's own: the bottom
+    /// only while that hold is taller than the area, else the top, so a frame kept while a new size waits rides the edge its
+    /// content does (review of #35914 at 03c050e893f: the area's frame on the bottom anchor cut the kept frame's top rows
+    /// and moved its text with the bottom edge).
+    func followedSurfaceFrame(_ followed: (hold: PaneMotionHold, heldSize: CGSize),
+                              in area: CGRect) -> (frame: CGRect, anchor: PaneMotionAnchor) { // perf-hot: 4ms motion-frame
         let shown = CGRect(x: area.minX, y: area.minY, width: max(0, area.width - scrollerWidth), height: area.height)
-        if TerminalDragTunables.framesOwnedByCommit.value, surfaceHold?.anchor != .bottom { return shown }
+        if TerminalDragTunables.framesOwnedByCommit.value {
+            guard case .bottom? = surfaceHold?.anchor, let held = surfaceHold?.size, held.height > shown.height else {
+                return (shown, .top)
+            }
+            // The host is not flipped: minY is the bottom edge.
+            return (CGRect(x: shown.minX, y: shown.minY, width: shown.width, height: held.height), .bottom)
+        }
         let size = surfaceHold?.size ?? surfaceSize(forHostSize: followed.heldSize)
         var hold = followed.hold
         if case .bottom? = surfaceHold?.anchor { hold.bottom = true }
-        return hold.producerFrame(size, in: shown)
+        // With the switch off, `place` does not read the anchor.
+        return (hold.producerFrame(size, in: shown), surfaceHold?.anchor ?? .top)
     }
 }

@@ -140,7 +140,7 @@
       "comment": "Command title: sends a prompt to an agent on a Cloud machine over the machine's relay, without a link to the machine.",
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Chat on Cloud Machine over the Relay…"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Chat on Cloud Machine via the Relay…"}},
         "ja": {"stringUnit": {"state": "translated", "value": "リレー経由で Cloud マシンとチャット…"}},
         "de": {"stringUnit": {"state": "needs_review", "value": "Über das Relay mit der Cloud-Maschine chatten…"}},
         "fr": {"stringUnit": {"state": "needs_review", "value": "Discuter sur la machine Cloud via le relais…"}},

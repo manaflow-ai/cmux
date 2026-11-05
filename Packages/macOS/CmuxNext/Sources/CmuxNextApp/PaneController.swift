@@ -85,7 +85,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         var takesNewTabs = true
     }
 
-    /// A pane's strip model and views, made ahead out of every window (``IdleSpare``: their init cost 3.5 ms of a New Column's key turn).
+    /// A pane's strip model and views made ahead and parked hidden in the layout (``IdleSpare``: init and window walk were 5.5 ms of a New Column's key turn).
     struct Spare {
         let stripModel = TabStripModel()
         let view: PaneContentView
@@ -311,7 +311,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             browserIcon(key: tab.id, recordFavicon: incognito ? nil : tab.faviconURL, recordURL: tab.url).apply(to: &item)
             item.audio = BrowserTabAudio.badge(services.cache.existingBrowser(tab.id)?.tab.state)
         }
-        TabItemMapping.shared.applyUserIcon(tab, to: &item, asset: IconAssetImages.shared.tabIcon(owner: daemon))
+        item.agentTone = tab.userIcon == nil ? SubagentTabTitles.shared.tone(ofTab: tab.id) : nil; TabItemMapping.shared.applyUserIcon(tab, to: &item, asset: IconAssetImages.shared.tabIcon(owner: daemon))
         return item
     }
 

@@ -87,6 +87,15 @@ await requireBrowserLane("thread-rail-total-count.test.ts", async () => {
   /// Two painted frames, so the rail's layout effects and the list's scroll have run.
   const settle = (page: Page) =>
     page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
+  /// Earlier prompts are outside the fixed rail's visible window until the reader browses there.
+  const browseStart = async (page: Page) => {
+    await page.locator(".acpmux-minimap__list").evaluate((list) => {
+      list.scrollTop = 0;
+      list.dispatchEvent(new Event("scroll"));
+    });
+    await page.waitForSelector('[data-tick="4"]');
+    await settle(page);
+  };
   /// Every drawn tick's place: its row and its top in the page, with the rail's box.
   const ticks = (page: Page) =>
     page.evaluate(() => {
@@ -126,7 +135,7 @@ await requireBrowserLane("thread-rail-total-count.test.ts", async () => {
               const rect = last?.getBoundingClientRect();
               const box = list?.getBoundingClientRect();
               if (
-                list?.scrollHeight === 100000 &&
+                list?.scrollHeight === 200000 &&
                 rect &&
                 box &&
                 rect.top >= box.top &&
@@ -164,7 +173,7 @@ await requireBrowserLane("thread-rail-total-count.test.ts", async () => {
       expect(first.all.at(-1)?.index).toBe(count - 1);
       const extent = () => page.evaluate(() => document.querySelector(".acpmux-minimap__list")!.scrollHeight);
       const initialExtent = await extent();
-      expect(initialExtent).toBe(count * 10);
+      expect(initialExtent).toBe(count * 20);
       await show(page, held(24), { promptCount: count });
       await settle(page);
       const paged = await ticks(page);
@@ -194,8 +203,8 @@ await requireBrowserLane("thread-rail-total-count.test.ts", async () => {
     await settle(page);
     const shown = await ticks(page);
     expect(shown.all[0]!.setSize).toBe(TOTAL);
-    // Full length: 45 rows of 10 px, not the 320 px floor of the twelve held.
-    expect(shown.rail.height).toBe(TOTAL * 10);
+    // The fixed box stays 480 px while the list scrolls all 45 prompts.
+    expect(shown.rail.height).toBe(480);
     await page.close();
   });
 
@@ -254,6 +263,7 @@ await requireBrowserLane("thread-rail-total-count.test.ts", async () => {
     await show(page, heldRows(12), { promptCount: TOTAL });
     await page.waitForSelector("[data-tick]");
     await settle(page);
+    await browseStart(page);
     const at = await page.evaluate(() => {
       const rect = document.querySelector<HTMLElement>('[data-tick="4"]')!.getBoundingClientRect();
       return { x: rect.left + 8, y: rect.top + rect.height / 2 };
@@ -289,6 +299,7 @@ await requireBrowserLane("thread-rail-total-count.test.ts", async () => {
     await page.waitForSelector("[data-tick]");
     await settle(page);
     // Prompt 5's tick: nothing about it is loaded yet.
+    await browseStart(page);
     const at = await page.evaluate(() => {
       const rect = document.querySelector<HTMLElement>('[data-tick="4"]')!.getBoundingClientRect();
       return { x: rect.left + 8, y: rect.top + rect.height / 2 };

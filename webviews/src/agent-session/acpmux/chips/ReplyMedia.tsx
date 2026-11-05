@@ -533,7 +533,7 @@ export function VideoThumbnail({
           }}
         >
           <span className="ui-glass cv-media__play" aria-hidden="true">
-            <PlayTriangle size={18} style={{ color: "inherit" }} />
+            <PlayTriangle size={20} style={{ color: "inherit" }} />
           </span>
           {duration && (
             <span className="cv-media__duration" aria-hidden="true">

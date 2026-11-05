@@ -51,6 +51,8 @@ public struct TabItem: Identifiable, Hashable, Sendable {
     /// User color of this tab (screens carry one). Tints the icon; a tab
     /// with no icon shows a dot of this color instead.
     public var tint: GroupColor?
+    /// Shared subagent identity tone; a user-selected tint or icon takes precedence.
+    public var agentTone: Int?
     /// The machine the tab's terminal runs on when it is not this Mac: a
     /// very subtle trailing label (plans/cmux-next/data-model.md 1.2b).
     public var machineBadge: String?

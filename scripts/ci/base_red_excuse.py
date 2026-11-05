@@ -52,10 +52,11 @@ CHROMIUM_CURRENCY_JOB = "Shipped Chromium is at most one stable milestone behind
 CHROMIUM_CURRENCY_STEP = "Pinned Chromium against Chrome stable"
 
 import argparse
-import base64
 import importlib.util
 import json
+import os
 import re
+import subprocess
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -67,6 +68,43 @@ Refused, job_for, latest_checks = _evidence.Refused, _evidence.job_for, _evidenc
 # A read GitHub rate-limited, where the evidence reader tells it apart (main's main_fix_evidence.py): exit 3, which
 # gh-merge-green reports as a rate limit rather than a red. A reader without it raises Refused (exit 1).
 RateLimited = getattr(_evidence, "RateLimited", ())
+
+
+class RateLimitedRead(Exception):
+    """A read GitHub rate-limited, as judge() re-raises it so the comparison cannot swallow it.
+
+    main's RateLimited is a Refused, and the comparison turns a Refused from a read into a refusal of its
+    own ("no rollup red is excused", say) in a dozen places, so a rate limit read as a verdict on the red
+    and main() returned 1 where gh-merge-green expects 3. This is not a Refused, so only main() catches it.
+    """
+
+
+def rate_limited_classes() -> tuple:
+    """What main() reports as a rate limit, as one flat tuple. A reader without RateLimited leaves it the empty
+    tuple, and `except ((), RateLimitedRead)` is a TypeError on every other refusal ("catching classes that do not
+    inherit from BaseException"), which would break the ordinary exit-1 path. Read at call time, so a caller that
+    loads a reader with RateLimited (main's) is honoured."""
+    return ((RateLimited,) if isinstance(RateLimited, type) else tuple(RateLimited)) + (RateLimitedRead,)
+
+
+def rate_limit_aware(github):
+    """GITHUB with every rate-limited read raised as RateLimitedRead instead (above). Reads are
+    looked up on each call, so a caller that replaces one (the tests' fakes) is still read."""
+    class Aware:
+        def __getattr__(self, name: str):
+            attribute = getattr(github, name)
+            if not callable(attribute):
+                return attribute
+
+            def read(*args, **kwargs):
+                try:
+                    return attribute(*args, **kwargs)
+                except RateLimited as error:
+                    raise RateLimitedRead(str(error)) from None
+
+            return read
+
+    return Aware()
 
 
 ESCAPE_FLAG = "--allow-escape-sequences"
@@ -108,6 +146,94 @@ class GitHub(_evidence.GitHub):
         if paginate and "/jobs?" in route:
             per_page = min(per_page, JOBS_PAGE)
         return super().json(route, paginate=paginate, per_page=per_page)
+
+    def blob(self, repo: str, ref: str, path: str) -> str:
+        """PATH's text in REPO at REF over GraphQL (`object(expression: "REF:PATH")`), never the contents API: an
+        agent host's gh shim refuses `gh api repos/O/R/contents/...` as a source read that spends the shared REST
+        quota (source_text). Refused when the object is missing, not a file, or binary."""
+        owner, _, name = repo.partition("/")
+        found = json.loads(self.run(["api", "graphql", "-f", f"query={BLOB_QUERY}", "-f", f"owner={owner}",
+                                     "-f", f"name={name}", "-f", f"expression={ref}:{path}"]))
+        repository = (found.get("data") or {}).get("repository") if isinstance(found, dict) else None
+        blob = repository.get("object") if isinstance(repository, dict) else None
+        if not isinstance(blob, dict) or blob.get("isBinary") or not isinstance(blob.get("text"), str):
+            raise Refused(f"{repo}@{ref}: {path} is not a text file GitHub served")
+        if blob.get("isTruncated"):
+            raise Refused(f"{repo}@{ref}: {path} was served truncated")
+        return blob["text"]
+
+
+BLOB_QUERY = ("query($owner: String!, $name: String!, $expression: String!) { repository(owner: $owner, name: $name) "
+              "{ object(expression: $expression) { ... on Blob { text isBinary isTruncated } } } }")
+# Where git_text keeps its shallow, blob-less fetches of other repos (one bare repo each). Override for tests or a
+# host whose cache lives elsewhere.
+SOURCE_CACHE_ENV = "BASE_RED_EXCUSE_SOURCE_CACHE"
+GIT_SECONDS = 60
+
+
+def source_cache() -> Path:
+    named = os.environ.get(SOURCE_CACHE_ENV)
+    if named:
+        return Path(named)
+    return Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "base-red-excuse" / "src"
+
+
+def git_remote(repo: str) -> str:
+    return f"https://github.com/{repo}.git"
+
+
+def git_text(repo: str, ref: str, path: str) -> str | None:
+    """PATH's text in REPO at REF from git, or None when git cannot answer (no network, no credentials, no ref).
+
+    A bare repo per REPO under source_cache(), fetched one commit deep with no blobs (`--depth=1 --filter=blob:none`),
+    so a read costs one ref fetch and the one blob `git show` asks for, and no GitHub API quota at all. The fetch goes
+    to a ref of this process's own, so two runs reading different bases at once never read each other's."""
+    if not re.fullmatch(r"[\w.-]+/[\w.-]+", repo) or ref.startswith("-") or not ref:
+        return None
+    where = source_cache() / (repo.replace("/", "__") + ".git")
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "", "SSH_ASKPASS": ""}
+
+    def git(*args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(["git", "--git-dir", str(where), *args], capture_output=True, env=env,
+                              timeout=GIT_SECONDS, stdin=subprocess.DEVNULL)
+
+    mine = f"refs/base-red-excuse/{os.getpid()}"
+    try:
+        if not (where / "HEAD").is_file():
+            where.mkdir(parents=True, exist_ok=True)
+            if subprocess.run(["git", "init", "-q", "--bare", str(where)], capture_output=True,
+                              timeout=GIT_SECONDS).returncode:
+                return None
+        for key, value in (("remote.origin.url", git_remote(repo)), ("remote.origin.promisor", "true"),
+                           ("remote.origin.partialclonefilter", "blob:none")):
+            if git("config", key, value).returncode:
+                return None
+        if git("fetch", "-q", "--no-tags", "--depth=1", "--filter=blob:none", "origin",
+               f"+{ref}:{mine}").returncode:
+            return None
+        shown = git("show", f"{mine}:{path}")
+        if shown.returncode:
+            return None
+        return shown.stdout.decode()
+    except (OSError, subprocess.SubprocessError, UnicodeDecodeError):
+        return None
+    finally:
+        try:
+            git("update-ref", "-d", mine)
+        except (OSError, subprocess.SubprocessError):
+            pass
+
+
+def source_text(repo: str, ref: str, path: str, github) -> str:
+    """PATH's text in REPO at REF: git first (git_text, no API quota), then GitHub's GraphQL blob (GitHub.blob).
+    Never the REST contents API, which an agent host's gh shim refuses as a source read (glaeda-gh's API-source
+    guard): the classifier needs no override of that guard on any path."""
+    text = git_text(repo, ref, path)
+    if text is not None:
+        return text
+    return github.blob(repo, ref, path)
+
+
 _spec = importlib.util.spec_from_file_location("test_reds", Path(__file__).with_name("test_reds.py"))
 test_reds = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(test_reds)
@@ -132,8 +258,8 @@ WORKFLOWS = Path(__file__).resolve().parents[2] / ".github" / "workflows"
 HOME_REPO = "manaflow-ai/cmux"
 # Rollups of the other repos this script judges (--repo), named the same way: (workflow file, job id). Their workflows
 # are not in this checkout, so the contract is derived when a red is judged, from the repo's own workflow files at the
-# base (derive_rollups over the contents API, load_rollups). A repo not named here has no rollups: every red job of it
-# is judged as itself. cmuxterm-hq's Skill documentation tests only reports its shards (skills-tests.yml), and was
+# base (derive_rollups over source_text: git, else GraphQL; load_rollups). A repo not named here has no rollups: every
+# red job of it is judged as itself. cmuxterm-hq's Skill documentation tests only reports its shards (skills-tests.yml), and was
 # refused on every HQ PR as "no failing test or error line to match" (2026-11-04: hq#7038, hq#7039).
 OTHER_REPO_ROLLUPS = {
     "manaflow-ai/cmuxterm-hq": {"run": (("skills-tests.yml", "tests"),), "routed": ()},
@@ -262,8 +388,22 @@ CRASH_LINE = re.compile(r"exited with unexpected signal code|the test helper die
                         r"no \"Test run with\" summary line")
 # A commit sha inside an error line: a full 40-hex sha, or 7 to 39 hex digits right after a word that
 # names a commit (commit, sha, tree, revision). The same red on the head and the base names each run's
-# own commit; any other hex id (an artifact, a hash) is compared as it is.
-SHA = re.compile(r"\b[0-9a-f]{40}\b|\b((?:commit|sha|tree|revision) `?)[0-9a-f]{7,39}\b")
+# own commit; any other hex id (an artifact, a hash) is compared as it is. A full 40-hex id right after
+# a word that names a stored thing rather than a commit (ARTIFACT) is such an id: two different digests
+# stayed one error line while every bare 40-hex token was masked, so a real red could pass as a base red
+# (cmux#35902, from the review of #35893). A commit the line does not name as an artifact still masks,
+# whatever word introduces it: a base red often names each run's own tree or stamp with no keyword at
+# all ("source stamp <40-hex> != <40-hex>"), which is why the bare case cannot ask for one.
+ARTIFACT = r"(?i:artifacts?|artefacts?|assets?|digests?|checksums?|hashe?s?|packs?|bundles?|archives?|images?|layers?)"
+# What may stand between such a word and its id: spaces, one `:` or `=`, and an opening quote or bracket
+# (`artifact: <40-hex>`, `checksum=<40-hex>`, `digest (<40-hex>)`), which the literal space alone missed
+# (cmux#35941 F1); or an opening quote or bracket on its own, with no space or `:` before it
+# (`artifact(<40-hex>)`, `pack"<40-hex>"`, `bundle[<40-hex>]`), which still fell to the bare branch
+# (cmux#35941 F3). A separator of some kind is always required, so a bare 40-hex still masks.
+NAMED = r"(?:(?:[ \t]+|[ \t]*[:=][ \t]*)[(\[`'\"]?|[(\[`'\"])"
+SHA = re.compile(rf"(?P<artifact>\b{ARTIFACT}{NAMED}[0-9a-f]{{40}}\b)"
+                 r"|\b[0-9a-f]{40}\b"
+                 r"|\b(?P<commit>(?:commit|sha|tree|revision) `?)[0-9a-f]{7,39}\b")
 # A compile check that gave no verdict (the build-fleet controller unreachable, timed out, or a result
 # for another head): nothing compiled the head, so it is never a base red, whatever the base shows
 # (2026-10-28: the fleet Release compile's "no result" was red on PRs and on the base alike while the
@@ -403,13 +543,7 @@ def load_rollups(repo: str, base: str, github) -> None:
     declared = OTHER_REPO_ROLLUPS[repo]
 
     def read(file: str) -> str:
-        found = github.json(f"repos/{repo}/contents/.github/workflows/{file}?ref={base}")
-        if not isinstance(found, dict) or found.get("encoding") != "base64" or not isinstance(found.get("content"), str):
-            raise Refused(f"{repo}@{base}: .github/workflows/{file} is not a file the contents API served in full")
-        try:
-            return base64.b64decode(found["content"]).decode()
-        except (ValueError, UnicodeDecodeError) as error:
-            raise Refused(f"{repo}@{base}: .github/workflows/{file}: {error}") from None
+        return source_text(repo, base, f".github/workflows/{file}", github)
 
     try:
         _REPO_ROLLUPS[repo] = derive_rollups(run=declared["run"], routed=declared["routed"], read=read)
@@ -466,15 +600,47 @@ def is_aggregate(name: str, repo: str = HOME_REPO) -> bool:
     return name in rollups(repo)["run"] or routed_rollup(name, repo) is not None
 
 
+def _sub_shas(text: str, keep: list | None = None) -> str:
+    """TEXT with its commit shas masked (SHA). With KEEP, each id the pattern preserves is set aside there and
+    left as a marker of letters alone, so a later pass over TEXT's numbers cannot touch its digits."""
+    def masked(match: re.Match[str]) -> str:
+        if (named := match.group("artifact")) is not None:
+            if keep is None:
+                return named
+            keep.append(named)
+            return _marker(len(keep) - 1)
+        return (match.group("commit") or "") + "<sha>"
+
+    return SHA.sub(masked, text)
+
+
+def _marker(index: int) -> str:
+    """A placeholder for the id at INDEX of a keep list: letters between two NULs, so no number masking,
+    and nothing test_reds.volatile rewrites, is in it."""
+    letters = ""
+    index += 1
+    while index:
+        index, rest = divmod(index - 1, 26)
+        letters = chr(ord("a") + rest) + letters
+    return f"\0{letters}\0"
+
+
 def mask_shas(text: str) -> str:
-    return SHA.sub(lambda match: (match.group(1) or "") + "<sha>", text)
+    """TEXT with its commit shas masked, leaving every other hex id as it is (SHA)."""
+    return _sub_shas(text)
 
 
 def normalise_error(text: str) -> str:
     """An error line as compared with the base's: the annotation prefix dropped, commit shas, run-to-run tokens
     (test_reds.volatile: run-named temp dirs, the runner's checkout root, times) and then
-    every number masked, so the same red on two runs is one line and a different red is not."""
-    return re.sub(r"\d+", "#", test_reds.volatile(mask_shas(text.replace("##[error]", "").strip())))
+    every number masked, so the same red on two runs is one line and a different red is not. An id mask_shas
+    preserves keeps its digits: they are the whole of what tells two digests apart (cmux#35941 F2)."""
+    kept: list = []
+    said = _sub_shas(text.replace("##[error]", "").strip(), keep=kept)
+    said = re.sub(r"\d+", "#", test_reds.volatile(said))
+    for index, id_ in enumerate(kept):
+        said = said.replace(_marker(index), id_)
+    return said
 
 
 def lines_of(log: str) -> list[str]:
@@ -529,7 +695,8 @@ def compile_pass_at(repo: str, sha: str, github) -> str | None:
     """What compiled SHA itself and passed: the newest Mac Release compile job at SHA that ran (its
     `Release compile` or `Reuse that pass` step succeeded), or a cmux-next/compile success."""
     candidates = []
-    for page in github.json(f"repos/{repo}/commits/{sha}/check-runs?per_page=100", paginate=True):
+    # Every attempt (filter=all): one rerun into startup_failure ran no jobs and must not hide the pass before it.
+    for page in github.json(f"repos/{repo}/commits/{sha}/check-runs?filter=all&per_page=100", paginate=True):
         for check in page.get("check_runs") or []:
             if (check.get("name") in COMPILE_PASS_CHECKS and check.get("head_sha") == sha
                     and check.get("app", {}).get("slug") == "github-actions" and check.get("status") == "completed"
@@ -724,9 +891,7 @@ def status_job(repo: str, sha: str, name: str, github, base: str | None = None) 
         listed = github.json(f"repos/{repo}/actions/runs?head_sha={sha}&per_page=100")
         runs = [run for run in listed.get("workflow_runs") or [] if tested_sha(run) == sha]
     for run in runs:
-        found = next((job for page in github.json(
-            f"repos/{repo}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100", paginate=True)
-            for job in page.get("jobs") or [] if job.get("name") == job_name), None)
+        found = next((job for job in last_real_jobs(repo, run["id"], github) if job.get("name") == job_name), None)
         if found is None:
             continue
         if found.get("status") != "completed":
@@ -767,6 +932,21 @@ def base_status(repo: str, base: str, name: str, state: str, description: str, g
                   f"newest {base} commits has a status '{name}' to compare with")
 
 
+# A run's jobs as its last real attempt left them (cmux#35906, 2026-11-05). GitHub's latest-attempt views
+# (jobs?filter=latest, and check-runs with no filter) show only the newest attempt, and an attempt that ended in
+# startup_failure runs no jobs: after two such reruns of run 41931705470 they showed no job at all, its 'publish
+# tree-addressed cmux-tui' red included, and the head read as having no red. Such an attempt is no result, never a
+# green, so every attempt is read (filter=all) and each job name keeps the jobs of the newest attempt that ran it. A
+# real rerun (red, then green) still decides; a run whose only attempt ran nothing has no jobs, which is no result.
+def last_real_jobs(repo: str, run: int, github) -> list[dict]:
+    jobs = [job for page in github.json(f"repos/{repo}/actions/runs/{run}/jobs?filter=all&per_page=100", paginate=True)
+            for job in page.get("jobs") or []]
+    newest: dict[str, int] = {}
+    for job in jobs:
+        newest[job.get("name", "")] = max(newest.get(job.get("name", ""), 0), job.get("run_attempt") or 1)
+    return [job for job in jobs if (job.get("run_attempt") or 1) == newest[job.get("name", "")]]
+
+
 def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *, base: str | None = None,
               excused: list[str] | None = None) -> list[dict]:
     """Failed head jobs; a check that is a jobless status red the base shares adds its line to EXCUSED."""
@@ -775,17 +955,16 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
         guards = []
         run_rollups = []
         children = []
-        for page in github.json(f"repos/{repo}/actions/runs/{run}/jobs?filter=latest&per_page=100", paginate=True):
-            for job in page.get("jobs") or []:
-                if is_aggregate(job.get("name", ""), repo):
-                    if job.get("conclusion") not in ("success", "skipped", "neutral", None):
-                        (run_rollups if job.get("name") in rollups(repo)["run"] else guards).append(job)
-                    continue
-                if job.get("status") == "completed" and job.get("conclusion") not in ("success", "skipped", "neutral"):
-                    if job.get("head_sha") not in (None, sha):
-                        raise Refused(f"{job.get('name')}: job is not for the exact SHA {sha}")
-                    jobs[job["id"]] = job
-                    children.append(job)
+        for job in last_real_jobs(repo, run, github):
+            if is_aggregate(job.get("name", ""), repo):
+                if job.get("conclusion") not in ("success", "skipped", "neutral", None):
+                    (run_rollups if job.get("name") in rollups(repo)["run"] else guards).append(job)
+                continue
+            if job.get("status") == "completed" and job.get("conclusion") not in ("success", "skipped", "neutral"):
+                if job.get("head_sha") not in (None, sha):
+                    raise Refused(f"{job.get('name')}: job is not for the exact SHA {sha}")
+                jobs[job["id"]] = job
+                children.append(job)
         for guard in guards:
             if not children:
                 raise Refused(f"run {run}: its aggregate check failed with no failed job to compare with the base")
@@ -1276,7 +1455,9 @@ def quarantined_only(job: dict, head_log: str, known: dict) -> bool:
 
 def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: list[str] = (),
           flake_state: dict | None = None) -> list[str]:
-    """Audit lines for every excused failure; raises Refused on the first that is not."""
+    """Audit lines for every excused failure; raises Refused on the first that is not, or RateLimitedRead
+    when a read was rate-limited (no verdict on any red, so nothing below may excuse or charge one)."""
+    github = rate_limit_aware(github)
     audit: list[str] = []
     base_runs: dict[int, list[dict]] = {}
     base_jobs: dict[int, list[dict]] = {}
@@ -1399,7 +1580,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         audit = judge(args.repo, args.base, args.sha, args.run, GitHub(), checks=args.check,
                       flake_state=test_reds.load_flake_state(args.flake_state, fetch=True))
-    except RateLimited as error:
+    except rate_limited_classes() as error:
         print(f"rate-limited: {error}", file=sys.stderr)
         return 3
     except Infra as error:

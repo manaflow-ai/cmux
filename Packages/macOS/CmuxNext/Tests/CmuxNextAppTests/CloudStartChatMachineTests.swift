@@ -221,4 +221,17 @@ struct CloudStartChatMachineTests {
         #expect(CloudStartChat.refusalMessage("not_signed_in") == CloudStrings.signInFirst)
         #expect(CloudStartChat.refusalMessage("cloud_disabled") == "cloud_disabled")
     }
+
+    /// RED before: the composer reservation and its bind named the active Stack team while the app server
+    /// list reads the install token's team, so a team account's reserved machine was never listed and the
+    /// first send failed "No Cloud machine has the id vm_…" (pr-capture dev, 2026-11-05). The reservation
+    /// now names the list's team; the classic link keeps the active team.
+    @Test func aReservationNamesTheTeamTheAppServerListReads() async throws {
+        let onAppServer = try await CloudService.reservationTeam(linkSource: .appServer, installTeam: { "team_install" }, activeTeam: { "team_active" })
+        #expect(onAppServer == "team_install")
+        let personal = try await CloudService.reservationTeam(linkSource: .appServer, installTeam: { nil }, activeTeam: { "team_active" })
+        #expect(personal == nil)
+        let onClassic = try await CloudService.reservationTeam(linkSource: .legacy, installTeam: { "team_install" }, activeTeam: { "team_active" })
+        #expect(onClassic == "team_active")
+    }
 }

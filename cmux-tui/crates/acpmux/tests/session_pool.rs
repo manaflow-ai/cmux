@@ -1345,14 +1345,16 @@ async fn a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host() {
         .await;
     assert_eq!(reply["stopReason"], "end_turn", "{reply}");
     assert!(gone_within(host, Duration::from_secs(15)), "the dead pooled host still runs");
-    // A host killed outright ends nothing under it, and the daemon cannot prove which orphan
-    // was its harness's (#35215 made exit the only end of a live start, so the wedged-host
-    // path that ended the tree under a live host no longer runs here). The test ends what it
-    // left; the orphaned helper is tracked as its own bug.
+    // A host killed outright ends nothing under it, and its harness exits on the closed pipe, so
+    // its setsid helper is left with no parent link: the daemon finds it by the host's mark in
+    // its environment (cx-jlxm2l) and ends it with the host.
+    let ended = gone_within(helper, Duration::from_secs(10));
     end_group(harness);
-    // SAFETY: the exact helper pid the fake harness reported, still the helper while its
-    // file names it for this harness.
-    unsafe { libc::kill(helper as i32, libc::SIGKILL) };
+    if !ended {
+        // SAFETY: the exact helper pid the fake harness reported.
+        unsafe { libc::kill(helper as i32, libc::SIGKILL) };
+    }
+    assert!(ended, "a process under the dead pooled host runs on without an owner");
 }
 
 /// A pooled host whose link stopped reading (an acknowledgement failed while its socket still
@@ -1658,4 +1660,67 @@ async fn with_spares_off_a_session_leaves_no_spare() {
     new_session(&mut rpc, &home, "fake").await;
     tokio::time::sleep(Duration::from_millis(INIT_MS + NEW_MS + 500)).await;
     assert!(daemon.pool_records().is_empty(), "ACPMUX_SPARE_HARNESS=0 starts no spare");
+}
+
+/// The names the fake Claude Code at `path` was renamed to (`/rename`, FAKE_CLAUDE_RENAMED), once it holds
+/// `want` or after 20 s.
+fn renamed_to(path: &Path, want: &str) -> Vec<String> {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let names: Vec<String> =
+            std::fs::read_to_string(path).unwrap_or_default().lines().map(str::to_owned).collect();
+        if names.iter().any(|n| n == want) || Instant::now() > deadline {
+            return names;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// A pooled Claude Code starts under the pool's name (`--name claude-N`); a session taken from the pool under
+/// its own name renames the running process to it, so Claude Code's peer list says what `acpmux ls` says
+/// (`hub/live_name.rs`). A rename after that reaches it too. Leo: "it's kinda weird how it's called
+/// projects-34 but it's named differnetly in cmux-next".
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pooled_claude_taken_under_a_name_runs_under_it_and_follows_a_rename() {
+    let fake_claude = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
+    let renamed = std::env::temp_dir().join(format!(
+        "acpmux-pool-renamed-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let fakeb = json!({
+        "kind": "claude-stdio",
+        "family": "claude",
+        "argv": ["python3", fake_claude],
+        "env": {"FAKE_CLAUDE_RENAMED": renamed.display().to_string()},
+    });
+    let daemon = Daemon::with_fakeb("claudenamed", 0, &fakeb);
+    let mut rpc = daemon.rpc().await;
+    let home = daemon.home.clone();
+    let warmed =
+        rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
+    assert_eq!(warmed["accepted"], true, "{warmed}");
+    wait_pool_ready(&mut rpc, "fakeb").await;
+    let created = rpc
+        .call(
+            "session/new",
+            json!({"cwd": home, "mcpServers": [], "_meta": {"acpmux": {"harness": "fakeb", "name": "reviewer"}}}),
+        )
+        .await;
+    let claimed = created["sessionId"].as_str().expect("session id").to_owned();
+    assert!(taken(&daemon, &claimed), "the session came from the pool");
+    let names = renamed_to(&renamed, "reviewer");
+    assert_eq!(names.last().map(String::as_str), Some("reviewer"), "{names:?}");
+    rpc.call("_acpmux/rename", json!({"sessionId": claimed, "newName": "lead"})).await;
+    let names = renamed_to(&renamed, "lead");
+    assert_eq!(names.last().map(String::as_str), Some("lead"), "{names:?}");
+    // None of it is the chat's: no update carries it (the event log also keeps Claude Code's raw
+    // lines, which do).
+    let events = daemon.events(&claimed);
+    assert!(
+        !events.iter().any(|e| e["msg"]["method"] == "session/update"
+            && e.to_string().contains("Session renamed to")),
+        "the chat saw a rename: {events:?}"
+    );
+    let _ = std::fs::remove_file(&renamed);
 }

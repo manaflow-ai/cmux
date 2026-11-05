@@ -108,6 +108,8 @@ impl Inner {
             order.bytes = 0;
             (order.applied, std::mem::take(&mut order.dirty), order.metas.clone())
         };
+        #[cfg(test)]
+        super::hold_after_start();
         // Every record up to `lsn` durable first (one group commit, on this background thread):
         // the checkpoint is never past the journal's durable end, and a metadata image written
         // below names only lines the journal holds (E13).
@@ -127,12 +129,26 @@ impl Inner {
             self.order.lock_or_recover().dirty.extend(dirty);
             return Err(error);
         }
-        if self.local.sync_failed.load(AtomicOrdering::SeqCst) {
+        // A close's failed sync of a log this checkpoint synced through a clone may have made the
+        // clone's sync report success: the close notes it under the writers' lock, read here.
+        if self.local.close_sync_failed() {
             self.freeze("an event log failed to sync at its close".into());
             anyhow::bail!(
                 "an event log failed to sync: the journal keeps every line until a restart"
             );
         }
+        // No LSN past a sync that failed on another thread (review of #35866, finding 2's base
+        // part). A request's `flush_session` may have failed its sync of a log since this
+        // checkpoint began, and the kernel may then report success to this checkpoint's own sync
+        // of that log for the pages the failed one dropped. Such a sync is under way until its
+        // failure froze the store (`counted_sync`), so the checkpoint waits for the syncs under
+        // way now, then reads `frozen`. The wait is bounded by those syncs: one that begins later
+        // cannot undo a sync this checkpoint saw end, and is not waited for.
+        self.syncs.wait_for_those_under_way();
+        anyhow::ensure!(
+            !self.order.lock_or_recover().frozen,
+            "the event journal's checkpoint is frozen (a sync failed while it ran): a restart writes the logs again"
+        );
         write_checkpoint(&self.home, lsn)?;
         let damage = {
             let mut order = self.order.lock_or_recover();
@@ -173,6 +189,36 @@ impl Inner {
             }
         }
         sync_directory(&self.local.root).map_err(failed)
+    }
+
+    /// Runs `sync`, a sync of the store's files that freezes the store when it fails (a request's
+    /// `flush_session`, a chat's `session.json` from the overlay or a kept-aside image, the folder
+    /// syncer), or a step that makes its own changes durable with such syncs (a retention
+    /// rewrite's commit: its record, the renames of the rewritten segments under the writers'
+    /// lock, the folder's sync after them). So a checkpoint never writes an LSN past its failure:
+    /// it is under way until its failure, if any, froze the store, and a checkpoint waits for the
+    /// syncs under way before it writes (`checkpoint_once`). Never a wait for the journal (a
+    /// settle's wait for its record runs before it): the checkpoint's wait is bounded by disk work
+    /// on the store's own files.
+    pub(super) fn counted_sync<T>(
+        &self,
+        what: &str,
+        sync: impl FnOnce() -> Result<T>,
+    ) -> Result<T> {
+        let under_way = UnderWay { inner: self, ticket: self.syncs.begin() };
+        #[cfg(test)]
+        super::hold_in_sync();
+        let result = sync();
+        if let Err(error) = &result
+            && error.chain().any(|cause| cause.is::<SyncFailed>())
+        {
+            #[cfg(test)]
+            super::hold_before_freeze();
+            self.freeze(format!("{what}: {error:#}"));
+        }
+        // Ended only now: a checkpoint that waited for it then reads the store frozen.
+        drop(under_way);
+        result
     }
 
     /// A log sync failed: no checkpoint until a restart, and the daemon is asked to stop.
@@ -303,4 +349,65 @@ fn is_not_found(error: &anyhow::Error) -> bool {
             .downcast_ref::<std::io::Error>()
             .is_some_and(|io| io.kind() == std::io::ErrorKind::NotFound)
     })
+}
+
+/// The syncs of the store's files under way that freeze the store when they fail
+/// ([`Inner::counted_sync`]), each with a ticket in the order they began.
+#[derive(Default)]
+pub(super) struct SyncsUnderWay {
+    tickets: Mutex<Tickets>,
+    ended: Condvar,
+}
+
+#[derive(Default)]
+struct Tickets {
+    /// The ticket of the next sync that begins.
+    next: u64,
+    /// The tickets of the syncs under way.
+    under_way: BTreeSet<u64>,
+}
+
+/// One sync under way ([`Inner::counted_sync`]). It ends when this drops, in a panic too, so a
+/// checkpoint never waits for it for ever; a panic first freezes the store, since what the sync
+/// did is then not known (review of #35895, P3).
+struct UnderWay<'a> {
+    inner: &'a Inner,
+    ticket: u64,
+}
+
+impl SyncsUnderWay {
+    /// A new sync's ticket, under way until [`SyncsUnderWay::end`].
+    fn begin(&self) -> u64 {
+        let mut tickets = self.tickets.lock_or_recover();
+        let ticket = tickets.next;
+        tickets.next = ticket.saturating_add(1);
+        tickets.under_way.insert(ticket);
+        ticket
+    }
+
+    fn end(&self, ticket: u64) {
+        self.tickets.lock_or_recover().under_way.remove(&ticket);
+        self.ended.notify_all();
+    }
+
+    /// Waits until each sync under way now has ended, never for one that begins meanwhile: the
+    /// wait is bounded by the syncs under way when it starts, however many begin after them.
+    fn wait_for_those_under_way(&self) {
+        let mut tickets = self.tickets.lock_or_recover();
+        let horizon = tickets.next;
+        while tickets.under_way.first().is_some_and(|&first| first < horizon) {
+            #[cfg(test)]
+            log_sync::note(&log_sync::NOTE_BEFORE_SYNCS_WAIT, "waits for the syncs under way");
+            tickets = self.ended.wait(tickets).unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+    }
+}
+
+impl Drop for UnderWay<'_> {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            self.inner.freeze("a sync of the store's files panicked".into());
+        }
+        self.inner.syncs.end(self.ticket);
+    }
 }
