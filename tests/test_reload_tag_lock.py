@@ -91,11 +91,12 @@ class ReloadTagLockTests(unittest.TestCase):
             time.sleep(0.05)
         return condition()
 
-    def start_detached_reload(self, body, grace):
+    def start_detached_reload(self, body, grace, extra_environment=None):
         """Start a supervisor in its own process group, like a fleet step."""
         script = Path(self.directory.name) / "detached.sh"
         script.write_text(body)
         environment = dict(os.environ, CMUX_RELOAD_TAG_LOCK_KILL_GRACE=str(grace))
+        environment.update(extra_environment or {})
         supervisor = subprocess.Popen(
             [sys.executable, str(HELPER), self.tag, str(script)],
             stdin=subprocess.DEVNULL,
@@ -164,6 +165,24 @@ class ReloadTagLockTests(unittest.TestCase):
         following = self.start_reload(self.tag)
         self.assertEqual(self.read_signal(following), "ready")
         self.assertEqual(self.finish_reload(following), 0)
+
+    def test_supervisor_killed_before_pid_handoff_ends_reload_session(self):
+        # The supervisor dies right after Popen returns, before it could hand
+        # the reload's pid to the watcher itself.
+        pid_file = Path(self.directory.name) / "popen-pid"
+        supervisor = self.start_detached_reload(
+            '(trap "" TERM; exec sleep 1000) &\n'
+            "wait\n",
+            grace=1,
+            extra_environment={"CMUX_RELOAD_TAG_LOCK_TEST_KILL_AFTER_POPEN": str(pid_file)},
+        )
+        self.assertEqual(supervisor.wait(timeout=10), -signal.SIGKILL)
+        session = int(pid_file.read_text())
+        self.addCleanup(self.kill_group, session)
+        self.assertTrue(
+            self.wait_until(lambda: not self.group_alive(session), 10),
+            f"Reload session {session} outlived a supervisor killed before the pid handoff",
+        )
 
     def test_normal_exit_leaves_nothing_behind(self):
         supervisor = self.start_detached_reload(

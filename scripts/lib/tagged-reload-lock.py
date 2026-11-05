@@ -120,6 +120,9 @@ def main() -> int:
         # app must not inherit it and keep later reloads locked indefinitely.
         environment = os.environ.copy()
         environment["CMUX_RELOAD_TAG_LOCK_OWNER"] = str(os.getpid())
+        # Test-only: record the reload's pid here, then SIGKILL this supervisor
+        # right after Popen returns, before anything else it would do.
+        kill_after_popen = environment.pop("CMUX_RELOAD_TAG_LOCK_TEST_KILL_AFTER_POPEN", "")
         child = None
         pending_signals = []
         forwarded = []
@@ -147,6 +150,9 @@ def main() -> int:
             start_new_session=True,
             close_fds=True,
         )
+        if kill_after_popen:
+            Path(kill_after_popen).write_text(f"{child.pid}\n")
+            os.kill(os.getpid(), signal.SIGKILL)
         os.write(watch_fd, f"{child.pid}\n".encode())
         for number in pending_signals:
             forward_signal(number, None)
