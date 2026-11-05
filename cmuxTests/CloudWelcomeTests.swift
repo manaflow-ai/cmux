@@ -224,7 +224,19 @@ struct CloudWelcomeTests {
                 return player.timeControlStatus == .playing && item.duration.seconds.isFinite
             }
         }
-        try #require(moviePlaying, "the movie never played, so the old code path would not have run either")
+        let probe = ReduceMotionProbe()
+        let probeWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 10, height: 10), styleMask: [.borderless], backing: .buffered, defer: false)
+        probeWindow.isReleasedWhenClosed = false
+        probeWindow.contentView = NSHostingView(rootView: ReduceMotionProbeView(probe: probe))
+        probeWindow.orderFrontRegardless()
+        defer { probeWindow.contentView = nil; probeWindow.close() }
+        _ = await pump(seconds: 2) { probe.value != nil }
+        let state = renderedMovieLayers(in: window).map { layer -> String in
+            let player = layer.player
+            let item = player?.currentItem
+            return "ready \(layer.isReadyForDisplay) control \(player?.timeControlStatus.rawValue ?? -1) rate \(player?.rate ?? -1) waiting \(String(describing: player?.reasonForWaitingToPlay?.rawValue)) item \(item?.status.rawValue ?? -1) error \(String(describing: item?.error)) duration \(item?.duration.seconds ?? -1)"
+        }
+        try #require(moviePlaying, "the movie never played: swiftui reduce motion \(String(describing: probe.value)), workspace \(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion), players \(state)")
 
         // Hosts without a ticking display never fire `.animation`, so each new
         // input re-runs the TimelineView body directly; a live display adds frames.
@@ -595,16 +607,31 @@ private func renderedFillOffsets(in window: NSWindow) -> [Int] {
         .compactMap { $0.layer?.sublayers?.first.map { Int($0.frame.minX.rounded()) } }
 }
 
+@MainActor
+private final class ReduceMotionProbe {
+    var value: Bool?
+}
+
+private struct ReduceMotionProbeView: View {
+    let probe: ReduceMotionProbe
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        probe.value = reduceMotion
+        return Color.clear
+    }
+}
+
 /// Swaps `accessibilityDisplayShouldReduceMotion` for a getter returning false;
 /// a second call restores it.
 private func exchangeReduceMotionGetter() {
     guard let original = class_getInstanceMethod(NSWorkspace.self, #selector(getter: NSWorkspace.accessibilityDisplayShouldReduceMotion)),
-          let motionOn = class_getInstanceMethod(NSWorkspace.self, #selector(NSWorkspace.reduceMotionOffForTest))
+          let replacement = class_getInstanceMethod(NSWorkspace.self, #selector(NSWorkspace.reduceMotionOffForTest))
     else {
         Issue.record("accessibilityDisplayShouldReduceMotion could not be exchanged")
         return
     }
-    method_exchangeImplementations(original, motionOn)
+    method_exchangeImplementations(original, replacement)
 }
 
 private extension NSWorkspace {
