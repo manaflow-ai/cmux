@@ -59,14 +59,9 @@ nonisolated enum HomeAgentRunMapping {
         let ids = output.split(separator: "\n").compactMap { line -> String? in
             guard line.hasPrefix("- a"), let colon = line.firstIndex(of: ":") else { return nil }
             let id = line[line.index(line.startIndex, offsetBy: 2)..<colon]
-            return id.count > 1 && id.dropFirst().allSatisfy(\.isASCIIDigitCharacter) ? String(id) : nil
+            return id.count > 1 && id.dropFirst().allSatisfy { $0.isASCII && $0.isNumber } ? String(id) : nil
         }
         guard ids.count == tasks.count else { return nil }
         return Array(zip(ids, tasks))
     }
-}
-
-private extension Character {
-    /// `0`-`9` only (agent ids are `a` and ASCII digits).
-    var isASCIIDigitCharacter: Bool { isASCII && isNumber }
 }
