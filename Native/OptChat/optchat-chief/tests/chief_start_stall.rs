@@ -228,19 +228,87 @@ fn a_harness_that_is_not_signed_in_still_shows() {
     assert!(sent.iter().any(|t| t.contains("Not logged in")), "{sent:?}");
 }
 
-/// A start acpmux ended because its harness did no work at all is a fault, not a slow machine.
+/// acpmux's error for a start whose harness did no work for its whole wait (`start_hung`).
+const HUNG: &str = "session/new: agent_start: its agent did no work for 300 s; its agent process (pid 15023, sr2, 5 processes in all) is alive at normal CPU class (priority 20), ran 502 s, used 0.5 s of CPU, 0 of 36 threads running, 0 page-ins; the first process it started is claude (pid 15041), which used 0.4 s of CPU and 0 page-ins";
+
+/// #36028: a Chief start waits on its harness (`waitStart`), so a start that stays stuck ends as
+/// acpmux's hung error, never its deadline. Its prompt reached no harness and acpmux ended that
+/// harness, so a fresh one is tried: the message waits in the reply ledger and a retry turn
+/// answers it, with no diagnostics posted and no in-turn cut waits (each hung try took 5 min).
 #[test]
-fn a_harness_acpmux_saw_stop_working_still_shows() {
+fn a_start_acpmux_ended_as_hung_runs_again_and_answers() {
     let mut h = harness();
-    h.agents.inner.lock().unwrap().session_errors.insert(
-        "claude-sr".into(),
-        "session/new: agent_start: its agent did no work for 300 s; its agent process (pid 7) is alive".into(),
-    );
+    h.agents
+        .inner
+        .lock()
+        .unwrap()
+        .session_errors_once
+        .push_back(HUNG.into());
+    // Upstream cuts wait 15 s each: a hung start must not take them.
+    h.brain
+        .set_upstream_resume_backoff(vec![Duration::from_secs(15)]);
     h.connect();
-    h.say("user_local", "hi");
+    h.say("user_local", "surface the PRs that are ready for my review");
+    let began = Instant::now();
     settle_with_timers(&mut h, WAIT);
+    // The retry turn is the ledger's (its due check), not a cut's.
+    h.brain.fire_reply_checks_at(u64::MAX / 2);
+    settle_with_timers(&mut h, WAIT);
+    assert!(
+        began.elapsed() < Duration::from_secs(5),
+        "{:?}",
+        began.elapsed()
+    );
+    assert_no_raw_error(&h);
+    for text in posted(&h) {
+        assert!(!text.contains("did no work"), "{text}");
+    }
+    assert_eq!(prompts(&h), 1, "the fresh start took the prompt");
     let sent = posted(&h);
-    assert!(sent.iter().any(|t| t.contains("did no work")), "{sent:?}");
+    assert!(sent.iter().any(|t| t.contains("answer 0")), "{sent:?}");
+    assert!(
+        h.brain.awaiting_replies().is_empty(),
+        "the message is answered"
+    );
+}
+
+/// A harness that hangs on every try (one waiting on a sign-in prompt) still ends: the ledger's
+/// tries are the only ones, then the person hears in plain words that no agent started.
+#[test]
+fn a_harness_that_hangs_on_every_try_is_said_in_plain_words() {
+    let mut h = harness();
+    h.agents
+        .inner
+        .lock()
+        .unwrap()
+        .session_errors
+        .insert("claude-sr".into(), HUNG.into());
+    h.brain
+        .set_upstream_resume_backoff(vec![Duration::from_secs(15)]);
+    h.connect();
+    h.say("user_local", "continue with this");
+    let began = Instant::now();
+    settle_with_timers(&mut h, WAIT);
+    for _ in 0..=optchat_chief::brain::MAX_REPLY_TRIES {
+        h.brain.fire_reply_checks_at(u64::MAX / 2);
+        settle_with_timers(&mut h, WAIT);
+    }
+    assert!(
+        began.elapsed() < Duration::from_secs(5),
+        "{:?}",
+        began.elapsed()
+    );
+    assert_no_raw_error(&h);
+    let sent = posted(&h);
+    for text in &sent {
+        assert!(!text.contains("did no work"), "{text}");
+    }
+    let note = sent
+        .iter()
+        .find(|t| t.contains("I could not answer your message"))
+        .unwrap_or_else(|| panic!("no failure note: {sent:?}"));
+    assert!(note.contains("its agent could not start"), "{note}");
+    assert!(h.brain.awaiting_replies().is_empty());
 }
 
 /// What the Chief posted in side conversation `conversation`.
@@ -285,34 +353,4 @@ fn a_side_conversation_message_hears_in_plain_words_that_no_agent_started() {
         assert!(!text.contains("agent_start"), "{text}");
         assert!(!text.contains("turn failed"), "{text}");
     }
-}
-
-/// A hung harness's error carries numbers (its pid, seconds) that must not read as an HTTP status
-/// a retry cures: it shows on the first try.
-#[test]
-fn a_hung_harness_with_a_status_like_pid_shows_without_retries() {
-    let mut h = harness();
-    h.agents.inner.lock().unwrap().session_errors.insert(
-        "claude-sr".into(),
-        "session/new: agent_start: its agent did no work for 300 s; its agent process (pid 15023, 2 processes in all) is alive at normal CPU class (priority 20), ran 502 s, used 0.1 s of CPU, 0 of 12 threads running, 9 page-ins".into(),
-    );
-    // Upstream cuts wait 15 s each by default: a misread "502" would show only after them.
-    h.brain
-        .set_upstream_resume_backoff(vec![Duration::from_secs(15)]);
-    h.connect();
-    h.say("user_local", "hi");
-    let began = Instant::now();
-    settle_with_timers(&mut h, WAIT);
-    let sent = posted(&h);
-    assert_eq!(
-        sent.iter().filter(|t| t.contains("did no work")).count(),
-        1,
-        "{sent:?}"
-    );
-    // Neither the in-turn session retries (6.5 s of backoff) nor an upstream cut ran.
-    assert!(
-        began.elapsed() < Duration::from_secs(5),
-        "{:?}",
-        began.elapsed()
-    );
 }
