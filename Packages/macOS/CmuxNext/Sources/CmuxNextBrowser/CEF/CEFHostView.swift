@@ -409,8 +409,10 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     }
 
     override func setFrameSize(_ newSize: NSSize) {
+        let wasEmpty = bounds.isEmpty
         super.setFrameSize(newSize)
         tab?.deviceEmulationViewDidResize()
+        tab?.pageWindowHostDidResize(wasEmpty: wasEmpty)
     }
 
     override func viewDidMoveToWindow() {
