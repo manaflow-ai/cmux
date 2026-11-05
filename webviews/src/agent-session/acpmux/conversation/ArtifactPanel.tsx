@@ -20,7 +20,8 @@ import {
 } from "./artifactSandbox";
 import { renderFrameCSS } from "./renderBase";
 import { copyText } from "./clipboard";
-import { CodeBlock, languageLabel } from "./CodeBlock";
+import { CodeBlock } from "./CodeBlock";
+import { languageLabel } from "./codeBlockModel";
 import { Check, ChevronLeft, ChevronRight, Close, Copy, Pin, SaveTray } from "./icons";
 import { Markdown } from "./Markdown";
 import { ranRenders, useRenderFrame } from "./renderCardModel";

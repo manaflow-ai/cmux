@@ -71,7 +71,7 @@ const { isChart } = await import("../src/agent-session/acpmux/conversation/diagr
 // The page loads the highlighted code card once it has painted (App.tsx); so does this file. Left to
 // load when the first card asks for it, the card was its plain fallback on a fast runner and the
 // highlighted card on a loaded one (react-apps-check, run 39553495850).
-const { loadHighlightedCode } = await import("../src/agent-session/acpmux/conversation/CodeBlock");
+const { loadHighlightedCode } = await import("../src/agent-session/acpmux/conversation/codeBlockModel");
 await loadHighlightedCode();
 
 /// Yields to React and the renderers until `ready` holds: a loaded runner gets more yields, not a

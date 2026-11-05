@@ -59,7 +59,7 @@ import { useCodeRouterChoice } from "./codeRouterOfferModel";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
 import { PresentationContext } from "./presentationContextModel";
 import { useTranscriptReadOnly } from "./readOnly";
-import { useTurnWaterfall } from "./TurnWaterfall";
+import { useTurnWaterfall } from "./useTurnWaterfall";
 import { thoughtIds } from "./turnRowsModel";
 
 /// Where a folded run splits (toolGroups.ts), which the row estimate (model.ts) reads too.

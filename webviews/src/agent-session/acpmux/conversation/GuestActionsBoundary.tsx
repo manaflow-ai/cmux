@@ -21,7 +21,7 @@ import { UpdateOfferContext } from "../harnessHealthNoticeModel";
 import { PromptFocus } from "../promptFocus";
 import { ShellActionsContext } from "../shell/shellRowModel";
 import { SignInContext } from "../signIn";
-import { SessionHoverContext } from "../started/SessionHoverCard";
+import { SessionHoverContext } from "../started/sessionHoverCardModel";
 import { NO_MENTIONS, StartedMentionsContext } from "../started/startedSessionCardModel";
 import { SubagentNavContext, SubagentPaneContext, SubagentStopContext } from "../subagents/subagentGroupModel";
 import { SubsessionContext } from "../subagents/subsessions";

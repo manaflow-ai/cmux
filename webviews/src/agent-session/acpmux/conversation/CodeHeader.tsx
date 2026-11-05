@@ -7,7 +7,7 @@
 // with a muted label row and the old row; design/chat-transcript.md "Code blocks" records the pick.
 import { type ReactNode } from "react";
 import { useT } from "../i18n";
-import { languageLabel } from "./CodeBlock";
+import { languageLabel } from "./codeBlockModel";
 
 import { CodeBrackets } from "./icons";
 import { type UnlabeledHeaderLook } from "./codeHeaderModel";

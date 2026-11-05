@@ -12,7 +12,7 @@ import { agentTone } from "../subagents/agentTones";
 import { TonedIcon } from "../subagents/TonedIcon";
 import { type SessionMention, type StartedSession, hasStatusLine, sessionStatus } from "./startedSessions";
 import { SessionStatusLine } from "./SessionStatusLine";
-import { useSessionHover } from "./SessionHoverCard";
+import { useSessionHover } from "./useSessionHover";
 import "./startedSessions.css";
 
 /// The chats started in one turn, oldest first, as one card.

@@ -210,7 +210,7 @@ import { SummaryButton } from "./summary/SummaryButton";
 import { SummaryCard } from "./summary/SummaryCard";
 import { type SummaryBackgroundTask, transcriptBackground } from "./summary/sessionSummary";
 import { openSourceFile } from "./session-info/sourcesSectionModel";
-import { useSessionInfo } from "./session-info/SessionInfo";
+import { useSessionInfo } from "./session-info/useSessionInfo";
 import { setRemoteControl, toggleRemoteControl, useRemoteControl } from "./remoteControl";
 import {
   type BackgroundCommand,
@@ -297,8 +297,8 @@ import { DictationNotice } from "./DictationNotice";
 import type { MarkdownFieldHandle } from "./MarkdownField";
 import { AgentNamesContext, AgentOpenContext, agentNames, agentViews } from "./conversation/agentNames";
 import { setReadAloudState } from "./conversation/readAloud";
-import { loadHighlightedCode } from "./conversation/CodeBlock";
-import { loadEditDiffHunks } from "./conversation/EditDiff";
+import { loadHighlightedCode } from "./conversation/codeBlockModel";
+import { loadEditDiffHunks } from "./conversation/editDiffModel";
 import { BackgroundTaskOutputContext, type BackgroundTaskOutputReader } from "./conversation/backgroundTaskOutput";
 import { SessionCwdContext, SessionEditsContext, sessionEdits, type SessionEdits } from "./turnChanges/sessionRows";
 import { startedNames, SubsessionNamesProvider, type StartedNames } from "./conversation/startedNames";
@@ -568,7 +568,7 @@ import { OfferDefaultsContext, offerDefaults, offerPicks } from "./offer/offerCh
 import { offerWorktree } from "./offer/offerWorktree";
 import { queueingOn, setQueueing } from "./queueing";
 import { NO_MENTIONS, StartedMentionsContext, type StartedMentions } from "./started/startedSessionCardModel";
-import { type SessionHover, SessionHoverContext } from "./started/SessionHoverCard";
+import { type SessionHover, SessionHoverContext } from "./started/sessionHoverCardModel";
 import { SessionHoverStore, withSessionIds } from "./started/sessionHover";
 import { SubsessionStore, type Subsessions, subsessionRows } from "./subagents/subsessions";
 import {

@@ -3,7 +3,8 @@ import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { sessionEntry } from "../sessionList";
 import { type SessionHoverInfo, SessionHoverStore, hoverInfo } from "./sessionHover";
-import { SessionHoverContent, SessionHoverContext } from "./SessionHoverCard";
+import { SessionHoverContent } from "./SessionHoverCard";
+import { SessionHoverContext } from "./sessionHoverCardModel";
 import { StartedSessionChip } from "./StartedSessionCard";
 
 type Props = { mode: "states" | "chip" | "reply" };

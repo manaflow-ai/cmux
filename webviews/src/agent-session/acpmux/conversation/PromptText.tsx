@@ -27,11 +27,12 @@ import { Markdown } from "./Markdown";
 import { SoftBroken } from "./softBreaks";
 import { softBreaks } from "./softBreaksModel";
 import { isPromptMarkdown } from "./promptMarkdown";
-import { githubRefLabel, UrlChip } from "../chips/LinkChips";
+import { UrlChip } from "../chips/LinkChips";
+import { githubRefLabel } from "../chips/linkChipsModel";
 import { textLinks } from "../chips/paths";
 import { deeplinks } from "../composer/deeplinks";
 import { SkillWordsContext } from "./skillWords";
-import { withSkillWords } from "./SkillWord";
+import { withSkillWords } from "./skillWords";
 import { ChevronDown } from "./icons";
 import { pastedSize } from "../composer/textAttachmentCardModel";
 

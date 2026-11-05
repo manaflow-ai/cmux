@@ -27,7 +27,8 @@ import { MathDisplay } from "./Math";
 import { installSelectionCopy } from "./selectionCopy";
 
 import { IncrementalMarkdown, type KeyedBlock } from "./incrementalMarkdown";
-import { linkedText, UrlChip } from "../chips/LinkChips";
+import { UrlChip } from "../chips/LinkChips";
+import { linkedText } from "../chips/linkedText";
 import { ReplyFoldersContext, replyFolders } from "../chips/replyFolders";
 import { softBreakNodes } from "./softBreaksModel";
 import { BareReferenceChip } from "../chips/BareReferenceChip";

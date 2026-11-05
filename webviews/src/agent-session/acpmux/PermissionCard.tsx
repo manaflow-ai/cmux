@@ -19,7 +19,6 @@ import {
 } from "./permissions/prompt";
 import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
 
-export { permissionOptionKind } from "./permissions/prompt";
 
 type PermissionOption = AcpmuxPermission["options"][number];
 

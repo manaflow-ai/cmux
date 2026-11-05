@@ -7,16 +7,7 @@
 // overlay"); everywhere else it lies over the chat above the composer, and in a short pane it is a
 // popover (POPOVER_BELOW_HEIGHT). A narrow pane waits for the toggle before it opens (cmuxterm-hq#6137).
 import { expect, test } from "bun:test";
-import {
-  POPOVER_BELOW_HEIGHT,
-  pushedRoom,
-  pushedWidth,
-  pushKeepsColumn,
-  sessionInfoFits,
-  sessionInfoPopover,
-  sessionInfoStage,
-  type SessionInfoPlacement,
-} from "../src/agent-session/acpmux/session-info/SessionInfo";
+import { POPOVER_BELOW_HEIGHT, pushedRoom, pushedWidth, pushKeepsColumn, sessionInfoFits, sessionInfoPopover, sessionInfoStage, type SessionInfoPlacement } from "../src/agent-session/acpmux/session-info/sessionInfoModel";
 import { SESSION_INFO_WIDTH } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import { transcriptColumn } from "../src/agent-session/acpmux/model";
 import type { ChatColumn } from "../src/agent-session/acpmux/chatWidth";

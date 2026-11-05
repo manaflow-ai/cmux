@@ -12,7 +12,8 @@ import {
   hoverInfo,
   withSessionIds,
 } from "../src/agent-session/acpmux/started/sessionHover";
-import { SessionHoverContent, hoverCardSide } from "../src/agent-session/acpmux/started/SessionHoverCard";
+import { SessionHoverContent } from "../src/agent-session/acpmux/started/SessionHoverCard";
+import { hoverCardSide } from "../src/agent-session/acpmux/started/sessionHoverCardModel";
 
 const ID = "01a0ebd5-0efe-721d-9edc-cf1a6ba78d98";
 const entry = (extra: Record<string, unknown> = {}) =>
@@ -222,8 +223,7 @@ test("a name chip's card waits for the pointer, shows at once for focus, takes A
   const { createRoot } = await import("react-dom/client");
   const { UiProvider } = await import("../src/ui/UiProvider");
   const { StartedSessionChip } = await import("../src/agent-session/acpmux/started/StartedSessionCard");
-  const { SessionHoverContext, SESSION_HOVER_DELAY } =
-    await import("../src/agent-session/acpmux/started/SessionHoverCard");
+  const { SessionHoverContext, SESSION_HOVER_DELAY } = await import("../src/agent-session/acpmux/started/sessionHoverCardModel");
   const rootElement = dom.window.document.getElementById("root")!;
   const root = createRoot(rootElement);
   const store = new SessionHoverStore();
