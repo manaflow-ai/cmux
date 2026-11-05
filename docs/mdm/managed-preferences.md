@@ -62,6 +62,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `updates.oneClickInstall` | boolean | `false` |  | Update in One Click. Off: Update downloads the update, then cmux asks before it restarts into it. On: one click on Update downloads it, shows its progress, then installs it and restarts cmux. Terminals and agents keep running across the restart. |
 | `updates.meteredNetwork` | string | `"defer-low-data"` | `defer-low-data`, `defer-expensive`, `download` | On Metered Networks. While downloads wait, a found update shows on Settings and one click downloads it. |
 | `updates.web` | string | `"every-merge"` | `every-merge`, `nightly`, `off` | Web UI Updates. Every Merge: changes to the web UI arrive minutes after they land, without waiting for the next app update. Off: the web UI this app shipped with. |
+| `updates.liveWebReload` | boolean | `true` |  | Live Web Reload. Edits to cmux's web UI from your own checkout show up in this app as you save, with no build and no relaunch. Start it with scripts/cmux-next/web-overlay.sh server --local. Off: cmux ignores ~/.config/cmux/web-dev.json and shows the web UI it shipped with. |
 | `updates.installOnQuit` | boolean | `false` |  | Install Updates When Quitting. A downloaded update installs as cmux quits. Terminals keep running. |
 | `updates.notify` | string | `"badge"` | `badge`, `silent` | When an Update Is Ready |
 | `updates.keepPreviousVersions` | real | `1` | 0 to 5 | Keep Previous Versions. Earlier builds kept so you can roll back. Uses almost no disk until files change. |
@@ -96,6 +97,10 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agents.subsessions.maxChildren` | real | `1000` | 1 to 1000 | Open Sub-sessions per Session. The most live sub-sessions one session can have at the same time. Running, waiting and harness-alive children count; finished, dead and closed children do not use a slot. |
 | `agents.subsessions.maxRunning` | real | `1000` | 1 to 1000 | Running Sub-sessions per Session. The most sub-sessions one session runs at the same time. More wait their turn and start as running ones finish. Running ones are never stopped when you lower it. |
 | `agents.subsessions.maxDepth` | real | `10` | 1 to 100 | Deepest Nesting. How many levels of sub-sessions can start under a session. 1 lets a session start sub-sessions that cannot start their own. |
+| `agents.guidance.claude` | boolean | `true` |  | cmux Guidance for Claude Code. New Claude Code chats are told how cmux shows their work: the plan checklist, side sessions, session links and the closing recap. |
+| `agents.guidance.codex` | boolean | `true` |  | cmux Guidance for Codex. New Codex chats are told how cmux shows their work: the plan checklist, side sessions, session links and the closing recap. |
+| `agents.guidance.otherAgents` | boolean | `true` |  | cmux Guidance for Other Agents. Other agents (Gemini, OpenCode and the ones you added) get the same guidance about how cmux shows their work. |
+| `agents.guidance.userSkills` | boolean | `true` |  | Your Skills in Every Chat. Skills you put in ~/.config/cmux/skills, one folder each with a SKILL.md, reach every new agent chat. |
 | `agents.autoRetry.enabled` | boolean | `true` |  | Retry Automatically. When a model is rate limited or out of capacity, or the connection drops, the chat tries again by itself. Retry on the error card always works. |
 | `agents.autoRetry.intervalSeconds` | real | `0` | 0 to 3600 | Seconds Between Retries. How long the chat waits before each try. 0 waits longer after each failed try: 10 seconds, 1 minute, 5 minutes, then 20 minutes. |
 | `agents.autoRetry.attempts` | real | `4` | 1 to 12 | Retries per Error. How many times the chat tries again before it stops and waits for you. |
@@ -189,7 +194,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `ui.animations.bounce` | string | `"none"` | `none`, `subtle` | Animation Bounce. None stops tabs, rows and panes exactly at their place. Subtle lets them settle with a small bounce. |
 | `layout.paneSeparation` | string |  | `none`, `dividers`, `borders`, `cards` | Separation. How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them. Default: dividers inside the curved main pane, borders otherwise. |
 | `layout.panePadding` | real |  | 0 to 16 | Padding |
-| `layout.paneCornerRadius` | real |  | 0 to 20 | Corner Radius. One radius for panes and tabs. Shapes inside a pane use this radius minus the corner padding. |
+| `layout.paneCornerRadius` | real |  | 0 to 20 | Corner Radius. One radius for panes, tabs, panels, popovers, cards and toasts. Shapes inside them use this radius minus the corner padding. |
 | `layout.cornerPadding` | real |  | 0 to 12 | Corner Padding. Space between a pane's edge and its tabs. Inner corners use the corner radius minus this. |
 | `layout.paneBorder` | string | `"subtle"` | `subtle`, `none` | Border |
 | `layout.paneBorderColor` | string |  |  | Border Color |
@@ -616,7 +621,6 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `notifications.sounds.groups` | dictionary | `{}` |  | Group Sounds. Sounds per group id or name. Set one from the group's sidebar menu. |
 | `notifications.sounds.agents` | dictionary | `{}` |  | Agent Sounds. Sounds per agent kind, such as claude or codex. |
 | `labs.previewFeatures` | boolean | `false` |  | Show Preview Features. Unfinished surfaces, such as the agent session's coverage label and Pull requests view. |
-| `labs.classicHome` | boolean | `false` |  | Classic Home. Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts. |
 | `labs.voiceRoom` | boolean | `false` |  | Voice Room. An unofficial room where you talk with people and Chief. While a room is open, cmux transcribes your mic and reads your screen's text on this Mac, then sends that text to the room. |
 | `labs.voiceRoomURL` | string | `""` |  | Voice Room Address. The room's web address. Empty uses the room server on this Mac. |
 | `labs.machineJoin` | boolean | `false` |  | Join Any Machine with One Line. Add Device shows a line to paste on any Mac or Linux computer; it joins your team's machines. Screen sharing and control stay off until that machine allows them. |

@@ -82,3 +82,11 @@ pub fn usage_limits(snapshot: &Value) -> Option<Value> {
     }
     Some(out)
 }
+
+/// `account/rateLimits/read`'s result (`{rateLimits, rateLimitsByLimitId?}`) as `usageLimits`: the
+/// plan's own snapshot (`rateLimitsByLimitId.codex` when the reply keys them, else `rateLimits`),
+/// mapped as an update's ([`usage_limits`]). None when it reports no plan limit.
+pub fn read_usage_limits(result: &Value) -> Option<Value> {
+    let keyed = result.pointer("/rateLimitsByLimitId/codex").filter(|s| s.is_object());
+    usage_limits(keyed.or_else(|| result.get("rateLimits"))?)
+}

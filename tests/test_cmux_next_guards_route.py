@@ -53,7 +53,9 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
         triggers = workflow.get(True) or workflow.get("on") or {}
         pull = triggers.get("pull_request") or {}
         self.assertIn("feat-cmux-next", pull.get("branches") or [])
-        self.assertFalse(pull.get("paths"), "a path filter would let a pull request skip the release guards")
+        # No workflow path filter: the CI guard group (a required check) runs on every pull request and routes
+        # release-notary inside it, so a change that skips the group still reports a pass.
+        self.assertFalse(pull.get("paths"), "a path filter would leave the CI guard group pending")
         jobs = workflow["jobs"]
         # nightly-guards still runs on a pull request (the submodule forward-only guard, Guard status), without
         # the release-notary matrix leg.
@@ -66,10 +68,17 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
         run = steps["Run the ci guard group and the routed groups"]
         self.assertEqual(run["env"]["EVENT_NAME"], "${{ github.event_name }}")
         script = run["run"]
-        self.assertIn('if [ "$EVENT_NAME" = pull_request ]; then\n  groups=(--group ci --group release-notary)', script)
         calls = [line for line in script.splitlines() if "scripts/ci/guards-local.sh" in line]
         self.assertEqual(len(calls), 3, calls)
-        self.assertIn("--group ci --group release-notary --feat-routes", calls[0])
+        # A pull request routes release-notary by its paths (detect_linux_guard_changes.RELEASE_NOTARY_INPUTS):
+        # no --group, so the ci group plus every group classify_feat picks, release-notary among them.
+        self.assertIn("--feat-routes", calls[0])
+        self.assertNotIn("--group", calls[0])
+        self.assertNotIn("--skip-group", calls[0])
+        # A push leaves it to nightly-guards, judged at the tip, on the head and on the base.
+        self.assertIn('else\n  groups=(--skip-group release-notary)', script)
+        self.assertIn("--feat-routes", calls[1])
+        self.assertIn("--skip-group release-notary", calls[1])
         self.assertIn('"${groups[@]}"', calls[2])
         self.assertIn('python3 scripts/ci/guards_new_reds.py "$RUNNER_TEMP/guards-head.json" "$RUNNER_TEMP/guards-base.json"',
                       script)

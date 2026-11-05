@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1304,
+    "entries": 1313,
     "shortcuts": 189
   },
   "sections": [
@@ -632,6 +632,30 @@
           "title": "Archive Idle Workspaces",
           "shortcut": null,
           "command": "cmux workspace archive-idle"
+        },
+        {
+          "id": "workspace.archiveOtherWorkspaces",
+          "title": "Archive Other Workspaces",
+          "shortcut": null,
+          "command": "cmux workspace archive-other"
+        },
+        {
+          "id": "workspace.archiveOthersInGroup",
+          "title": "Archive Other Workspaces in Group",
+          "shortcut": null,
+          "command": "cmux workspace archive-others-in-group"
+        },
+        {
+          "id": "workspace.archiveWorkspacesAbove",
+          "title": "Archive Workspaces Above",
+          "shortcut": null,
+          "command": "cmux workspace archive-above"
+        },
+        {
+          "id": "workspace.archiveWorkspacesBelow",
+          "title": "Archive Workspaces Below",
+          "shortcut": null,
+          "command": "cmux workspace archive-below"
         },
         {
           "id": "workspaceGroup.toggleArchive",
@@ -5146,6 +5170,18 @@
           "command": "cmux sidebar mark-checklist-item-in-progress"
         },
         {
+          "id": "sidebar.priority.moveEarlier",
+          "title": "Move Chat Earlier in Priority…",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "sidebar.priority.moveLater",
+          "title": "Move Chat Later in Priority…",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "sidebar.section.moveToScrolling",
           "title": "Move Section to Scrolling Area",
           "shortcut": null,
@@ -7192,6 +7228,12 @@
           "command": "cmux settings keep-no-neighbor-tabs-awake"
         },
         {
+          "id": "liveWeb.start",
+          "title": "Edit cmux Live…",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "help.featureFlags",
           "title": "Feature Flags",
           "shortcut": null,
@@ -7384,6 +7426,12 @@
           "command": null
         },
         {
+          "id": "server.pairAnotherMachine",
+          "title": "Pair Another Machine…",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "agentPane.display.railOnRight",
           "title": "Prompt Rail on Right Edge",
           "shortcut": null,
@@ -7568,6 +7616,12 @@
           "title": "Sign-In Pages: Open in cmux Browser",
           "shortcut": null,
           "command": "cmux settings open-sign-in-pages-in-cmux"
+        },
+        {
+          "id": "liveWeb.stop",
+          "title": "Stop Editing cmux Live",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "server.stopServing",

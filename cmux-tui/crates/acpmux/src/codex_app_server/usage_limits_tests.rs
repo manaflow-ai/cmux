@@ -2,7 +2,7 @@
 //! `codex app-server` sends them in `account/rateLimits/updated` (cmux-codex-acp passes them on
 //! as `_meta.codexAppServer.rateLimits`): `usedPercent` is 0-100 and `resetsAt` unix seconds.
 
-use super::usage_limits::usage_limits;
+use super::usage_limits::{read_usage_limits, usage_limits};
 use serde_json::json;
 
 #[test]
@@ -97,4 +97,34 @@ fn only_the_plans_own_snapshot_replaces_the_saved_limits() {
     assert!(is_plan_snapshot(&json!({"limitId": "codex", "primary": null})));
     assert!(!is_plan_snapshot(&json!({"limitId": "codex_other"})));
     assert!(!is_plan_snapshot(&json!(null)));
+}
+
+/// `account/rateLimits/read` at rest (Settings, `_acpmux/account/usage`): the plan's snapshot maps
+/// as an update's; the keyed `codex` one wins over `rateLimits`, another limit's is never the plan's.
+#[test]
+fn a_rate_limits_read_maps_the_plans_own_snapshot() {
+    let pro = json!({
+        "limitId": "codex",
+        "primary": {"usedPercent": 25, "windowDurationMins": 300, "resetsAt": null},
+        "secondary": {"usedPercent": 60, "windowDurationMins": 10080, "resetsAt": 1_790_500_000},
+        "credits": null,
+        "planType": "pro",
+    });
+    let expected = json!({
+        "windows": [
+            {"id": "session", "usedPercent": 25.0, "windowMins": 300},
+            {"id": "weekly", "usedPercent": 60.0, "windowMins": 10080, "resetsAt": 1_790_500_000},
+        ],
+        "plan": "pro",
+    });
+    let reply = json!({"rateLimits": pro, "rateLimitsByLimitId": null});
+    assert_eq!(read_usage_limits(&reply), Some(expected.clone()));
+    let model =
+        json!({"limitId": "gpt-6-sol", "primary": {"usedPercent": 99, "windowDurationMins": 300}});
+    let keyed =
+        json!({"rateLimits": model, "rateLimitsByLimitId": {"codex": pro, "gpt-6-sol": model}});
+    assert_eq!(read_usage_limits(&keyed), Some(expected));
+    assert_eq!(read_usage_limits(&json!({"rateLimits": model})), None, "a model's limit");
+    assert_eq!(read_usage_limits(&json!({"rateLimits": {"planType": "pro"}})), None, "no window");
+    assert_eq!(read_usage_limits(&json!({})), None);
 }

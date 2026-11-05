@@ -124,6 +124,29 @@ test("the switch asks the host to let routing use the account, and Add account t
   page.unmount();
 });
 
+test("an account whose usage was read at rest shows its 5-hour and weekly limits in the plan usage card", async () => {
+  const usage = {
+    windows: [
+      { id: "session", usedPercent: 22, windowMins: 300 },
+      { id: "weekly", usedPercent: 41, windowMins: 10080 },
+    ],
+    plan: "pro",
+  };
+  const page = await withAccounts({
+    accounts: accounts.map((account) => (account.id === "codex-login" ? { ...account, usage } : account)),
+  });
+  const codex = card(page.container).querySelector<HTMLElement>('[data-harness="codex"]')!;
+  const read = codex.querySelector<HTMLElement>('[data-account="codex-login"] [data-account-usage]')!;
+  const windows = [...read.querySelectorAll<HTMLElement>(".acpmux-plan-usage-window")];
+  expect(windows.map((w) => w.querySelector(".acpmux-plan-usage-value")?.textContent)).toEqual(["22%", "41%"]);
+  expect([...read.querySelectorAll("progress")].map((bar) => bar.getAttribute("value"))).toEqual(["22", "41"]);
+  // Settings has no pane browser: the card's usage-page link is left out.
+  expect(read.querySelector(".acpmux-plan-usage-link")).toBeNull();
+  // An account with no usage read (not signed in, Claude, a keychain login) shows no card.
+  expect(codex.querySelector('[data-account="codex-2"] [data-account-usage]')).toBeNull();
+  page.unmount();
+});
+
 test("Claude's Add account takes an API key by its reference, with the name typed", async () => {
   const page = await withAccounts();
   const claude = () => card(page.container).querySelector<HTMLElement>('[data-harness="claude"]')!;

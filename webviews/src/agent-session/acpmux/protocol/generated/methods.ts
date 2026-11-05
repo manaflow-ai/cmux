@@ -152,6 +152,7 @@ export interface AcpmuxRequests {
   "_acpmux/task_new": { params: unknown; result: unknown };
   "_acpmux/tasks": { params: unknown; result: unknown };
   "_acpmux/resolve": { params: unknown; result: unknown };
+  "_acpmux/who_else": { params: unknown; result: unknown };
   "_acpmux/media_open": { params: unknown; result: unknown };
   "_acpmux/media_range": { params: unknown; result: unknown };
   "_acpmux/permission_respond": { params: PermissionRespondParams; result: PermissionRespondResult };
@@ -241,6 +242,7 @@ export interface AcpmuxRequests {
   "_acpmux/chat/route.set": { params: unknown; result: unknown };
   "_acpmux/accounts": { params: unknown; result: unknown };
   "_acpmux/account/set": { params: unknown; result: unknown };
+  "_acpmux/account/usage": { params: unknown; result: unknown };
   "_acpmux/web_modes": { params: unknown; result: unknown };
   "_acpmux/web_token_rotate": { params: unknown; result: unknown };
   "_acpmux/reload_config": { params: unknown; result: unknown };
@@ -470,6 +472,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/task_new", kind: "request", acp: false, typed: false },
   { name: "_acpmux/tasks", kind: "request", acp: false, typed: false },
   { name: "_acpmux/resolve", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/who_else", kind: "request", acp: false, typed: false },
   { name: "_acpmux/media_open", kind: "request", acp: false, typed: false },
   { name: "_acpmux/media_range", kind: "request", acp: false, typed: false },
   { name: "_acpmux/permission_respond", kind: "request", acp: false, typed: true },
@@ -562,6 +565,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/chat/route.set", kind: "request", acp: false, typed: false },
   { name: "_acpmux/accounts", kind: "request", acp: false, typed: false },
   { name: "_acpmux/account/set", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/account/usage", kind: "request", acp: false, typed: false },
   { name: "_acpmux/web_modes", kind: "request", acp: false, typed: false },
   { name: "_acpmux/web_token_rotate", kind: "request", acp: false, typed: false },
   { name: "_acpmux/reload_config", kind: "request", acp: false, typed: false },

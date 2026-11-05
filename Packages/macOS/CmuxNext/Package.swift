@@ -176,8 +176,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-657eaccb9000deb250b05c18987b3449c4a856e3/CCmuxAppFFI.xcframework.zip",
-    checksum: "a9c614b98ec3734dcf3b695aa6cc3e4a20fd25b48e001b4d08220b3e152b26ad"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-6243f112cad89191dfd8ff1e57085f43ac2a3de0/CCmuxAppFFI.xcframework.zip",
+    checksum: "63a8f4b36bf6384c6236702152e7edb6015f82c9a856d926af2714a90113712b"
 )
 
 // Debug-only product consumed by Prototypes/UiLayerHost. Keeping this leaf
@@ -1014,6 +1014,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextGitHubViewer",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextAgentPane",
+                "CmuxNextDaemon",
                 "CmuxNextDesign",
                 "CmuxNextPages",
                 "CmuxNextSettings",
@@ -1025,7 +1026,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextGitHubViewerTests",
-            dependencies: ["CmuxNextAgentPane", "CmuxNextGitHubViewer", "CmuxNextPages", "CmuxNextSettings"],
+            dependencies: ["CmuxNextAgentPane", "CmuxNextDaemon", "CmuxNextGitHubViewer", "CmuxNextPages", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
         ),
         // The Chief view gallery (webviews/src/pages/chief-views): the page's provider over the

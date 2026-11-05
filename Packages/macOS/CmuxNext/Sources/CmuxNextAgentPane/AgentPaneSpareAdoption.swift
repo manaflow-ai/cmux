@@ -44,11 +44,6 @@ public nonisolated struct AgentPaneSpareReadiness: Sendable, Equatable {
         (self.handshake, self.painted, self.clientReady, self.lowPower, self.thermal) = (handshake, painted, clientReady, lowPower, thermal)
     }
 
-    /// Whether a tab opening an existing chat may take the spare at all. Off until the adopted page
-    /// draws its chat (HQ#5914): with #31033 it showed an empty transcript on a sidebar open and never
-    /// painted on a reopen, so every such tab opens cold, as before #31033.
-    public static let adoptsExistingChats = false
-
     public var servesChat: Bool {
         handshake && painted && clientReady && !lowPower && thermal.rawValue < ProcessInfo.ThermalState.serious.rawValue
     }
@@ -58,7 +53,7 @@ extension AgentPaneModel {
     /// Whether this page, parked as the spare, may serve a tab opening an existing chat now
     /// (``AgentPaneSpareReadiness``, with this Mac's power and thermal state read now).
     public var servesExistingChat: Bool {
-        AgentPaneSpareReadiness.adoptsExistingChats && AgentPaneSpareReadiness(handshake: hasHandshake, painted: hasPainted, clientReady: clientReady,
+        AgentPaneSpareReadiness(handshake: hasHandshake, painted: hasPainted, clientReady: clientReady,
                                 lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled,
                                 thermal: ProcessInfo.processInfo.thermalState).servesChat
     }

@@ -56,7 +56,7 @@ export default agentPaneEntry({
   area: "Agent pane",
   height: 560,
   widths: { narrow: 420, normal: 760, wide: 1100 },
-  covers: ["agent-session/acpmux/App.tsx#VirtualTranscript"],
+  covers: ["agent-session/acpmux/VirtualTranscript.tsx#VirtualTranscript"],
   variants: {
     "scrolled-to-end": {
       note: "A long chat at its latest message: the scrollbar runs to the pane's bottom corner, the composer floats over the transcript, the last answer sits whole above it.",

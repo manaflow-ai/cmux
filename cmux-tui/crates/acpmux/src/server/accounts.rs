@@ -1,4 +1,5 @@
-//! `_acpmux/accounts` and `_acpmux/account/set`: the subscription logins a
+//! `_acpmux/accounts` and `_acpmux/account/set` (and `_acpmux/account/usage`,
+//! `accounts/usage.rs`): the subscription logins a
 //! chat can run on, each with its sign-in, plan and whether routing may move a
 //! chat onto it (Leo, 2026-11-05: "we have code router, but we don't have the
 //! codex signed account, like auto routing permission", and T3 Code's
@@ -26,6 +27,8 @@ use crate::hub::Hub;
 use crate::routes::{self, Route, RouteKind};
 use crate::rpc::{RpcError, method};
 
+mod usage;
+
 /// The listed id of the Claude Code CLI's own login (not a route).
 const CLAUDE_LOGIN_ID: &str = "claude-login";
 
@@ -35,6 +38,9 @@ pub(super) async fn handle(
     m: &str,
     params: &Value,
 ) -> Result<Value, RpcError> {
+    if m == method::MUX_ACCOUNT_USAGE {
+        return usage::handle(hub, origin, params).await;
+    }
     if origin.web_class() {
         return Err(RpcError::invalid_params(
             "accounts are read only from the local app or the unix socket",

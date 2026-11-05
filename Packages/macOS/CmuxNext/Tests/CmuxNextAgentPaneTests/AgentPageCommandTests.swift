@@ -107,7 +107,7 @@ struct AgentPageCommandTests {
         let registry = ActionRegistry.standard()
         registry.context = ActionContext(rawValue: .max)
         let model = AgentPaneModel(host: NoHost(), sessionId: "session-a")
-        var header = AgentPaneHeaderState(sideSessions: false, sessionInfo: false, browserOpensPreview: false)
+        var header = AgentPaneHeaderState(sessionInfo: false, browserOpensPreview: false)
         var hooks = AgentPaneHeaderHooks(run: { _, _ in }, tabState: { header })
         hooks.shown = { header }
         model.header = hooks

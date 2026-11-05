@@ -12,6 +12,9 @@ public nonisolated struct GitHubLink: Equatable, Sendable {
     /// `owner/repo`.
     public let repository: String
     public let number: Int
+    /// The link names the pull request's Files tab (`/pull/N/files`, Session Info's View diff): it
+    /// opens the diff itself, not the page.
+    public let files: Bool
 
     public init?(_ url: URL) {
         guard let plain = AgentPaneReplyRequest.pullRequestURL(url.absoluteString) else { return nil }
@@ -20,7 +23,11 @@ public nonisolated struct GitHubLink: Equatable, Sendable {
         self.url = plain
         repository = parts[0] + "/" + parts[1]
         self.number = number
+        files = url.path(percentEncoded: true).split(separator: "/").last == "files"
     }
+
+    /// The Files tab's web page, where a diff that could not be read opens instead.
+    public var filesURL: URL { url.appendingPathComponent("files") }
 
     /// `owner/repo#n`, the tab's and the diff tab's title.
     public var reference: String { "\(repository)#\(number)" }

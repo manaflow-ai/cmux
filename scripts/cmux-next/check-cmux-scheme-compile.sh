@@ -127,6 +127,11 @@ build() {
     -project cmux.xcodeproj -scheme cmux -configuration "$configuration"
     -destination 'platform=macOS,arch=arm64'
     -derivedDataPath "$derived_data"
+    # Each build its own SwiftPM download cache: the default ~/Library/Caches/org.swift.swiftpm is shared by
+    # every runner process of the mini's user, and two builds that fetch the same binary target at once fail
+    # with "... already exists in file system" (DEV Release compile, 4 feat runs on 2026-11-05). Under
+    # SourcePackages, which cmux_next_cas_fresh_tree keeps, so a kept path does not download it again.
+    -packageCachePath "$derived_data/SourcePackages/.package-cache"
     ONLY_ACTIVE_ARCH=YES COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO
     # This is a compile check; release packaging retains the project dSYM setting.
     DEBUG_INFORMATION_FORMAT=dwarf

@@ -111,6 +111,35 @@ struct AgentPaneChromiumVisibilityTests {
         #expect(chromium.visibility.last == true)
     }
 
+    /// A spare adopted for an existing chat waits outside the window until it drew the chat
+    /// (`AgentPaneView.adoptSession`), under the pane's paint hold. Hidden by that hold's alpha, its
+    /// Chromium page was throttled and drew the chat only at the hold's 500 ms limit: the adopted open
+    /// came out slower than a cold one (HQ#5914). In place, the hold still hides it (#28002).
+    @Test func anAdoptedPageHeldAwayKeepsDrawingUnderAPaintHold() async throws {
+        let (view, chromium, window) = try await pane()
+        defer { view.page?.close(); window.close() }
+        view.loadingView.leave(over: view.pageContent, fades: false)
+        let size = NSRect(x: 0, y: 0, width: 800, height: 600)
+        let host = NSView(frame: size)
+        let outgoing = NSView(frame: size)
+        let incoming = GatedHost(frame: size)
+        window.setContentSize(size.size)
+        window.contentView = host
+        host.addSubview(outgoing)
+        host.addSubview(incoming)
+        view.frame = size
+        incoming.addSubview(view)
+        view.pageContent.frame = AgentPaneView.awayFrame(of: size)
+        let hold = PanePaintHold(owner: "test.window.adopted-away")
+        hold.begin(outgoing: outgoing, incoming: incoming, in: host, release: { $0.removeFromSuperview() })
+        #expect(chromium.visibility.last == true, "an adopted page held outside the window was hidden by the paint hold and drew late")
+        view.pageContent.frame = size
+        PageWebView.syncChromiumVisibility(in: view)
+        #expect(chromium.visibility.last == false, "a page in place under a paint hold must stay hidden (#28002)")
+        hold.end()
+        #expect(chromium.visibility.last == true)
+    }
+
     /// A prewarmed spare parked off screen must paint before it is adopted. Hidden by its parking's alpha, a
     /// Chromium spare never painted, and every Cmd-T waited for the pane hold's 500 ms limit (Leo 2026-10-30:
     /// "MAN WE FUCKINGKNOW WHAT THE NEW TAB PAGE LOOKS LIKE HOW CAN IT BE FUCKING SDLOW").

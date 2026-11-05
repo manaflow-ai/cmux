@@ -6,7 +6,10 @@
 // "i meant can you do all of htem"): Make Default, Rename, Sign In or Sign Out, and Remove for an added
 // one. Add account (Codex and Claude) signs in a new login in a folder of its own (for Codex a shadow
 // home that shares settings and chats with the CLI's), or adds an API key by its secret reference.
+// An account whose plan usage was read when Settings opened shows its 5-hour and weekly limits under
+// it, in the composer ring's plan usage card (PlanUsageCardBody).
 import { useId, useState } from "react";
+import { PlanUsageCardBody } from "../../../agent-session/acpmux/PlanUsageCard";
 import { Button } from "../../../ui/Button";
 import { Input } from "../../../ui/Input";
 import { useStore } from "../context";
@@ -178,6 +181,13 @@ function AccountRow({
             </Button>
           )}
         </div>
+        {account.usage && (
+          <div className="harness-account-usage" data-account-usage="">
+            {/* No family: the card's usage-page link opens through the agent pane's browser, which
+                Settings does not have. */}
+            <PlanUsageCardBody limits={account.usage} />
+          </div>
+        )}
       </div>
       <div className="row-control">
         <span className="row-help" id={switchId}>

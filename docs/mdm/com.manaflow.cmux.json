@@ -391,6 +391,30 @@
       "title" : "Permission Mode for New Chats",
       "type" : "string"
     },
+    "agents.guidance.claude" : {
+      "default" : true,
+      "description" : "New Claude Code chats are told how cmux shows their work: the plan checklist, side sessions, session links and the closing recap.",
+      "title" : "cmux Guidance for Claude Code",
+      "type" : "boolean"
+    },
+    "agents.guidance.codex" : {
+      "default" : true,
+      "description" : "New Codex chats are told how cmux shows their work: the plan checklist, side sessions, session links and the closing recap.",
+      "title" : "cmux Guidance for Codex",
+      "type" : "boolean"
+    },
+    "agents.guidance.otherAgents" : {
+      "default" : true,
+      "description" : "Other agents (Gemini, OpenCode and the ones you added) get the same guidance about how cmux shows their work.",
+      "title" : "cmux Guidance for Other Agents",
+      "type" : "boolean"
+    },
+    "agents.guidance.userSkills" : {
+      "default" : true,
+      "description" : "Skills you put in ~/.config/cmux/skills, one folder each with a SKILL.md, reach every new agent chat.",
+      "title" : "Your Skills in Every Chat",
+      "type" : "boolean"
+    },
     "agents.modelRouter.model" : {
       "default" : "deepseek/deepseek-v4.1-flash-1017",
       "description" : "The model a new chat on the cmux model router starts on. A model you pick in a chat applies to that chat only.",
@@ -2826,12 +2850,6 @@
       "title" : "Connect iMessage",
       "type" : "boolean"
     },
-    "labs.classicHome" : {
-      "default" : false,
-      "description" : "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts.",
-      "title" : "Classic Home",
-      "type" : "boolean"
-    },
     "labs.liveCode" : {
       "default" : false,
       "description" : "In a live code build of cmux, Swift changes you compile from your own checkout apply to the running app without waiting for a new build. Turn it off to go back to normal. Takes effect after cmux restarts.",
@@ -3024,7 +3042,7 @@
       "type" : "number"
     },
     "layout.paneCornerRadius" : {
-      "description" : "One radius for panes and tabs. Shapes inside a pane use this radius minus the corner padding.",
+      "description" : "One radius for panes, tabs, panels, popovers, cards and toasts. Shapes inside them use this radius minus the corner padding.",
       "maximum" : 20,
       "minimum" : 0,
       "title" : "Corner Radius",
@@ -5271,6 +5289,12 @@
       "minimum" : 0,
       "title" : "Keep Previous Versions",
       "type" : "number"
+    },
+    "updates.liveWebReload" : {
+      "default" : true,
+      "description" : "Edits to cmux's web UI from your own checkout show up in this app as you save, with no build and no relaunch. Start it with scripts/cmux-next/web-overlay.sh server --local. Off: cmux ignores ~/.config/cmux/web-dev.json and shows the web UI it shipped with.",
+      "title" : "Live Web Reload",
+      "type" : "boolean"
     },
     "updates.meteredNetwork" : {
       "default" : "defer-low-data",
