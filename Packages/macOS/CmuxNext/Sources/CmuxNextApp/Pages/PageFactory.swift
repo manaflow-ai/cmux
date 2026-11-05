@@ -167,7 +167,8 @@ struct PageFactory {
                 return try await updates.runPage(params, context: context, registry: services.registry)
             },
             updateState: { [weak services] in services?.agentHarnesses.updates?.state ?? .array([]) },
-            refreshUpdates: { [weak services] in await services?.agentHarnesses.updates?.refresh() }
+            refreshUpdates: { [weak services] in await services?.agentHarnesses.updates?.refresh() },
+            unsupported: { AgentHarnessStrings.unsupported }
         )
         provider.harnessesState = { harnesses.state }
         provider.harnessesRun = { params, context in try await harnesses.run(params, context: context) }

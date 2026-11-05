@@ -100,8 +100,6 @@ enum HomeMapping {
                 reactions: item.reactions.map { reaction($0, partIndex: projectedIndex($0.partIndex, owners)) }, format: format)
         // ThreadMode.tree: the message a nested reply answers (HomeMapping+Tree.swift).
         message.parent = parent(item, roots: roots)
-        // Chief's first-launch welcome (CmuxNext ChiefWelcome, client ids "chief-welcome-…"): each bubble its own group.
-        if item.key.rawValue.hasPrefix(welcomeKeyPrefix) { message.cmuxStandsAlone = true }
         // The Chief's messages to its agents and their reports: asides under its reply (no avatar, no name).
         if item.agentMessage != nil { message.cmuxAside = true }
         if !item.isRetracted, !item.parts.isEmpty, parts.isEmpty {

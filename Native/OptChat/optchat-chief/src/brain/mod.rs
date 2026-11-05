@@ -1037,6 +1037,10 @@ pub struct Brain {
     /// Turns cut in a row by a lost acpmux link (`Brain::turn_cut`): past
     /// `turns::MAX_CUTS` the next one fails as before, never a loop.
     cuts: u32,
+    /// One of the cut tries in a row reached a harness (`TurnOutcome::unstarted`
+    /// false): its work may have run, so the try that ends the row is never
+    /// treated as one that did not start.
+    cut_ran: bool,
     /// While set, an adopted turn session still runs and no turn starts; at
     /// this time it is folded and ended anyway (`children::adopt_orphans`).
     orphan_wait: Option<Instant>,
@@ -1196,6 +1200,7 @@ impl Brain {
             approval_told: HashSet::new(),
             previewer: None,
             cuts: 0,
+            cut_ran: false,
             resume_at: None,
             orphan_wait: None,
             upstream_backoff: turns::UPSTREAM_RESUME_BACKOFF.to_vec(),

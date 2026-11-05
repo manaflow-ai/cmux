@@ -148,6 +148,19 @@ public actor CloudLinkSession {
         }
     }
 
+    /// The ticket's socket for one more connection to the machine's daemon (an agent chat's attach,
+    /// the history reader): each connection to the carrier's socket is its own dial, so this neither
+    /// attaches nor ends the link. Only the daemon connection's own redial goes through
+    /// ``endpoint(_:)``, whose second call is that connection dropping.
+    public func streamEndpoint(_ ticket: CloudLinkTicket) throws -> String {
+        guard ticket.id == attempt else { throw Self.superseded }
+        switch state {
+        case .ready(let socket), .attached(let socket): return socket.path
+        case .ended(let error): throw error
+        case .idle, .connecting: throw CloudLinkError.disconnected(reason: "not connected")
+        }
+    }
+
     /// Applies a link change. Returns the ticket id of the link it ended (its
     /// connection must close), or nil. `up`, another machine, a change of an
     /// older carrier generation, and a `down` while a connect is in flight
