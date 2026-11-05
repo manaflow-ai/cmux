@@ -274,7 +274,7 @@ class Builder:
             if self.host:
                 rsh = " ".join(["ssh", *map(shlex.quote, ssh_options(self.state))])
                 source = f"{self.host}:{self.remote}/target/{self.out_dir()}/{binary}"
-                result = run(["rsync", "-z", "--inplace", "-e", rsh, source, str(staged)])
+                result = run(["rsync", "-z", "-e", rsh, source, str(staged)])
                 if result.returncode != 0:
                     raise RuntimeError(f"rsync from {self.host}: {result.stderr.strip()}")
             else:
