@@ -7,7 +7,7 @@
 //! child before enabling serving. The daemon's default remains deny-all.
 
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -138,6 +138,7 @@ pub struct NativeTokenVerifier {
     clock: Arc<Clock>,
     replay_capacity: usize,
     receiver_generation: Option<String>,
+    behind: OnceLock<Box<dyn Fn() + Send + Sync>>,
 }
 
 #[derive(Deserialize)]
@@ -205,6 +206,7 @@ impl NativeTokenVerifier {
             clock: Arc::new(clock),
             replay_capacity,
             receiver_generation: None,
+            behind: OnceLock::new(),
         })
     }
 
@@ -224,6 +226,17 @@ impl NativeTokenVerifier {
         let mut verifier = Self::new(keys, clock, replay_capacity)?;
         verifier.receiver_generation = Some(generation);
         Ok(verifier)
+    }
+
+    /// Call `hook` when a token this verifier refused was signed by the
+    /// control plane for this receiver, host, epoch and team but names a peer
+    /// binding the current policy does not hold: the control plane minted it
+    /// against newer peer authority (an ACL or grant change) than this policy
+    /// has seen. The owner reads policy again early rather than refusing every
+    /// fresh token until its next scheduled read. The token is still refused;
+    /// the hook never admits anything. Set once; later calls are ignored.
+    pub fn on_policy_behind(&self, hook: impl Fn() + Send + Sync + 'static) {
+        let _ = self.behind.set(Box::new(hook));
     }
 
     /// The production clock; construction still installs no policy or listener.
@@ -437,15 +450,19 @@ impl TokenVerifier for NativeTokenVerifier {
         {
             return Err(TokenRefused::Invalid);
         }
-        let peer = policy
-            .peers
-            .iter()
-            .find(|p| {
-                p.install == c.sub
-                    && p.binding == c.network
-                    && p.binding.key().as_ref() == Some(expected.peer_key)
-            })
-            .ok_or(TokenRefused::Invalid)?;
+        let Some(peer) = policy.peers.iter().find(|p| {
+            p.install == c.sub
+                && p.binding == c.network
+                && p.binding.key().as_ref() == Some(expected.peer_key)
+        }) else {
+            // Signed and current in every other claim: only the peer binding
+            // differs, so this policy is behind the control plane's.
+            drop(state);
+            if let Some(hook) = self.behind.get() {
+                hook();
+            }
+            return Err(TokenRefused::Invalid);
+        };
         if !c.svc.contains(&expected.service) || !peer.services.contains(&expected.service) {
             return Err(TokenRefused::ServiceNotAllowed);
         }

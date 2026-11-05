@@ -244,23 +244,43 @@ fn keeps_policy(failure: ReadFailure, admitted: Option<Instant>, now: Instant) -
     }
 }
 
+/// The least time between two policy reads that a token naming newer peer
+/// authority starts early, so a burst of such tokens costs one read.
+const EARLY_READ_GAP: Duration = Duration::from_secs(2);
+
 async fn renew(
     source: Arc<AgentReceiver>,
     send: mpsc::Sender<Option<NativePolicy>>,
     mut next: (Instant, Deadline),
     mut expires: Option<Instant>,
     mut admitted: Option<Instant>,
+    behind: Arc<tokio::sync::Notify>,
 ) -> anyhow::Result<()> {
     let mut retry = Duration::from_secs(1);
     let mut log = RenewalLog { last_slow: None };
+    let mut last_read = Instant::now();
     loop {
         // A snapshot's own renewal deadline or a failed request's backoff,
-        // never a timer that polls unrelated state.
+        // never a timer that polls unrelated state. A token the control plane
+        // minted against newer peer authority than this policy (the verifier's
+        // `on_policy_behind`) starts the read early.
         let clock = next.1.clone();
-        super::receiver_deadline::wait(next.0, Some(next.1))
-            .await
-            .map_err(|_| anyhow!("cloud.receiver.clock_unavailable"))?;
+        let early = async {
+            behind.notified().await;
+            let floor = (last_read + EARLY_READ_GAP).min(next.0);
+            tokio::time::sleep_until(floor.into()).await;
+        };
+        tokio::select! {
+            biased;
+            result = super::receiver_deadline::wait(next.0, Some(next.1)) => {
+                result.map_err(|_| anyhow!("cloud.receiver.clock_unavailable"))?;
+            }
+            () = early => eprintln!(
+                "cmux link: receiver policy read early: a token named newer peer authority than the current policy"
+            ),
+        }
         let started = Instant::now();
+        last_read = started;
         match refresh(&source).await {
             Ok(snapshot) => {
                 let arrived = Instant::now();
@@ -328,6 +348,9 @@ async fn run_child(parent: StdStream, control: StdStream, session: PathBuf) -> a
         result = &mut shutdown => return result,
         result = initialize(bootstrap, session) => result?,
     };
+    let behind = Arc::new(tokio::sync::Notify::new());
+    let hint = behind.clone();
+    authority.0.verifier().on_policy_behind(move || hint.notify_one());
     let (send, updates) = mpsc::channel(1);
     let next = renewal_at(&snapshot, snapshot.started().elapsed())?;
     let expires = Some(snapshot.admitted_until());
@@ -345,7 +368,7 @@ async fn run_child(parent: StdStream, control: StdStream, session: PathBuf) -> a
         result = closed(&mut control) => result,
         result = &mut shutdown => result,
         result = &mut serving => { finished = true; result },
-        result = renew(authority.0.clone(), send, next, expires, admitted) => result,
+        result = renew(authority.0.clone(), send, next, expires, admitted, behind) => result,
     };
     authority.0.invalidate();
     let _ = stop.send(());

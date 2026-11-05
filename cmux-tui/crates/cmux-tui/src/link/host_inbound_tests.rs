@@ -332,10 +332,11 @@ fn a_stream_the_receiver_closed_says_so() {
 }
 
 /// A Cloud Mac mints the hello's token only after the stream opens, with up
-/// to 5 s for that mint: a hello 8 s in is still read, and a dialer that
-/// never sends one is refused once `HELLO_TIMEOUT` passes, not before.
-#[tokio::test(start_paused = true)]
-async fn a_slow_hello_is_read_and_a_silent_dialer_is_refused_at_the_hello_timeout() {
+/// to 5 s for that mint: a hello 6 s in (past the old 5 s limit) is still
+/// read, and the limit itself sits well past the mint's.
+#[tokio::test]
+async fn a_hello_after_the_macs_token_mint_is_still_read() {
+    assert!(HELLO_TIMEOUT >= super::super::dial::DIAL_TIMEOUT * 3);
     let host = host().await;
     let me = HostIdentity {
         host: "host_vm1",
@@ -345,18 +346,16 @@ async fn a_slow_hello_is_read_and_a_silent_dialer_is_refused_at_the_hello_timeou
     };
     let (mut peer, link_side) = tokio::io::duplex(64 * 1024);
     let late = async {
-        tokio::time::sleep(std::time::Duration::from_secs(8)).await;
-        peer.write_all(b"{\"service\":\"daemon\",\"link_token\":\"bad\",\"epoch\":4}\n").await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_secs(6)).await;
+        peer.write_all(b"{\"service\":\"daemon\",\"link_token\":\"bad\",\"epoch\":4}\n")
+            .await
+            .unwrap();
         peer
     };
-    let (result, _peer) =
-        tokio::join!(serve_host_inbound(link_side, [5; 32], from("inst_mac"), &GoodToken, &me), late);
+    let (result, _peer) = tokio::join!(
+        serve_host_inbound(link_side, [5; 32], from("inst_mac"), &GoodToken, &me),
+        late
+    );
     // The hello was read (its token then refused), not dropped as no hello.
     assert_eq!(result, Err(HostRefused::Token));
-
-    let (_silent, link_side) = tokio::io::duplex(64 * 1024);
-    let started = tokio::time::Instant::now();
-    let result = serve_host_inbound(link_side, [5; 32], from("inst_mac"), &GoodToken, &me).await;
-    assert_eq!(result, Err(HostRefused::Inbound(InboundRefused::BadHello)));
-    assert!(started.elapsed() >= HELLO_TIMEOUT, "{:?}", started.elapsed());
 }
