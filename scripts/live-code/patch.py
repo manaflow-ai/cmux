@@ -12,6 +12,7 @@ the app watches (CMUX_LIVE_CODE_DIR). The app repoints its functions to the patc
 Prints `patch.py: DIR/patch-....dylib compile_s=... link_s=...`.
 """
 import argparse
+import json
 import os
 import shlex
 import shutil
@@ -66,6 +67,22 @@ def module_commands(log, module):
 def read_filelist(path):
     with open(path) as f:
         return [line.strip().replace("\\ ", " ") for line in f if line.strip()]
+
+
+def source_root(edited):
+    """The git checkout the edited files are in, or None."""
+    run = subprocess.run(["git", "-C", os.path.dirname(edited[0]), "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    return run.stdout.strip() if run.returncode == 0 else None
+
+
+def source_commit(edited):
+    """The checkout's commit, with `+dirty` when the edited files differ from it."""
+    root = source_root(edited)
+    if not root:
+        return None
+    head = subprocess.run(["git", "-C", root, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+    dirty = subprocess.run(["git", "-C", root, "diff", "--quiet", "HEAD", "--", *edited]).returncode != 0
+    return head + ("+dirty" if dirty else "") if head else None
 
 
 def patch_argv(frontend, files, edited, work):
@@ -141,6 +158,9 @@ def main():
     subprocess.run(["codesign", "--force", "--sign", "-", dylib], capture_output=True, check=True)
     linked = time.time()
     os.makedirs(opts.live, exist_ok=True)
+    # The sidecar first (`cmux live-code status` shows its commit and files), then the dylib.
+    with open(os.path.join(opts.live, name[:-len(".dylib")] + ".json"), "w") as f:
+        json.dump({"commit": source_commit(edited), "files": [os.path.relpath(p, source_root(edited) or "/") for p in edited]}, f)
     # Moved into place in one step, so the app never reads a half-written file.
     hidden = os.path.join(opts.live, "." + name)
     shutil.move(dylib, hidden)

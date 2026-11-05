@@ -11,8 +11,10 @@ until a patch's signer is checked (cmux#13742).
 | A live code build of your checkout (once) | `scripts/live-code/build.sh ~/live-code-build mine` (Debug; add `bench` after the tag for the bench configuration) |
 | Turn it on | Settings > Advanced > Labs > Live Code, or `cmux settings set labs.liveCode true`, then relaunch |
 | Apply your edits | `scripts/live-code/patch.py --log ~/live-code-build/xcodebuild.log --module CmuxNextApp --live ~/Library/Caches/cmux-next/live-code FILE.swift` |
-| Undo the newest patch | `touch ~/Library/Caches/cmux-next/live-code/undo-1.rollback` (each rollback a new name) |
-| See what applied | `~/Library/Caches/cmux-next/live-code/live-code.log` |
+| See what is applied | `cmux live-code status` (each patch newest first: commit, files, functions; the last error) |
+| Apply a built patch | `cmux live-code apply PATCH.dylib` (waits for the app's answer) |
+| Undo the newest patch | `cmux live-code undo` (`--all`: back to the code as built) |
+| Read the app's live code log | `cmux live-code log` |
 | Back to normal | Turn Live Code off and relaunch, or install a regular build |
 
 `CMUX_LIVE_CODE_DIR=DIR` starts the same watcher on another folder with no switch (the fleet's
@@ -35,6 +37,23 @@ measurement, `scripts/measure/live-code-app.sh`, does this).
   invalidates and draws every window. A new `*.rollback` file in the folder undoes the newest patch:
   every function it replaced runs the code before it again, and every window redraws. Each line it
   applies, rolls back or refuses goes to `live-code.log` in the folder.
+
+## Repairing a running app
+
+`cmux live-code` (the app's own bundled `cmux`) and its MCP tools (`live_code_status`,
+`live_code_apply`, `live_code_undo`, `live_code_log`, for an agent in an acpmux session or any
+harness) work through the live folder, never the app's window or its main thread. A patch that
+wedged the UI can still be undone: the app's engine is an actor off the main thread, and only the
+redraw waits for the main thread. When the app does not answer at all (exit 4, or the tools'
+`live_code.no_answer`), relaunch it: the next launch runs the code as built. Outside Debug and bench,
+only a patch signed by the app's own team loads (cmux#13742); `status` says so as
+`team_signed_only`. `--dir` (or `CMUX_LIVE_CODE_DIR`) names another live folder.
+
+The folder's protocol, for tools of their own: a new `NAME.dylib` applies (with `NAME.json`, its
+commit and files, written first); a new `*.rollback` undoes the newest patch and a new
+`*.rollback-all` undoes them all; the app answers each by name in `live-code.log` (`applied NAME`,
+`rolled back NAME`, `NAME refused: why`) and keeps `status.json`. Write a file under a hidden name
+and rename it into place.
 
 ## What applies, and what needs a rebuild
 

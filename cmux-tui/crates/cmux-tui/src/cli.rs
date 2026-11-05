@@ -29,6 +29,8 @@ mod apps_run;
 #[cfg(unix)]
 mod auth_token;
 #[cfg(unix)]
+mod live_code;
+#[cfg(unix)]
 mod automation;
 #[cfg(unix)]
 mod automation_cloud;
@@ -536,6 +538,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| automation::run_if_requested(args))
         .or_else(|| billing::run_if_requested(args))
         .or_else(|| auth_token::run_if_requested(args))
+        .or_else(|| live_code::run_if_requested(args))
         .or_else(|| sandbox_run::run_if_requested(args))
         .or_else(|| vm::run_if_requested(args))
         .or_else(|| vnc::run_if_requested(args))

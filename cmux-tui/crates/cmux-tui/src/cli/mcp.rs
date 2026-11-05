@@ -30,6 +30,7 @@ mod code_mode;
 mod computer_use_gate;
 mod config;
 mod keybinding_tools;
+mod live_code_tools;
 mod messages;
 mod open_tool;
 mod placement;
@@ -811,6 +812,7 @@ impl<B: Backend> Server<B> {
         tools.push(workflow_tools::descriptor());
         tools.extend(cloud_repo_tools::descriptors());
         tools.extend(chat_tools::descriptors());
+        tools.extend(live_code_tools::descriptors());
         tools.push(super::agents_doctor::mcp_tool());
         tools.push(agent_wait_tool::descriptor());
         tools.push(agent_events_tool::descriptor());
@@ -937,6 +939,9 @@ impl<B: Backend> Server<B> {
             return Ok(job.run(self.call_cap));
         }
         if let Some(result) = chat_tools::call(name, &arguments) {
+            return Ok(result);
+        }
+        if let Some(result) = live_code_tools::call(name, &arguments) {
             return Ok(result);
         }
         if let Some(result) = cloud_repo_tools::call(&self.backend, name, &arguments) {
