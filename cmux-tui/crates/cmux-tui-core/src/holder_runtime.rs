@@ -11,8 +11,9 @@
 //! (`mux::holder_adoption`); a holder crash loses no shell, because the
 //! daemon still holds every master and hands them to a new holder.
 //!
-//! Off unless `CMUX_TUI_TERMINAL_HOST_MODEL=holder` (slice 2: behind a flag,
-//! the per-terminal hosts stay the default).
+//! The only model for new session-owned terminals (slice 4, 2026-11-05: perf
+//! paths ship on, no switches). Terminals an older build started in their own
+//! `__terminal-host` process keep that host until they end (pty-holder 2.2).
 
 mod service;
 mod sink;
@@ -26,8 +27,5 @@ pub(crate) use terminal::{HolderTerminal, holder_local_launch};
 
 /// New session-owned terminals run on the holder.
 pub(crate) fn enabled() -> bool {
-    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| {
-        std::env::var("CMUX_TUI_TERMINAL_HOST_MODEL").is_ok_and(|model| model == "holder")
-    })
+    true
 }
