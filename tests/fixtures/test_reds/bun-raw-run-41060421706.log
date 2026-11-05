@@ -1,0 +1,65 @@
+bun test v1.4.4 (38afee6c8)
+
+::group::test/zz-capture/red.test.ts:
+1 | import { describe, expect, test } from "bun:test";
+2 | describe("chat unavailable", () => {
+3 |   test("shows the notice", () => { expect("open").toBe("unavailable"); });
+                                                      ^
+error: expect(received).toBe(expected)
+
+Expected: "unavailable"
+Received: "open"
+
+      at <anonymous> (/home/runner/_work/cmux/cmux/.fast-checks-checkout/webviews/test/zz-capture/red.test.ts:3:51)
+
+::error file=.fast-checks-checkout/webviews/test/zz-capture/red.test.ts,line=3,col=51,title=error: expect(received).toBe(expected)::Expected: "unavailable"%0AReceived: "open"%0A%0A      at <anonymous> (/home/runner/_work/cmux/cmux/.fast-checks-checkout/webviews/test/zz-capture/red.test.ts:3:51)
+(fail) chat unavailable > shows the notice [0.11ms]
+(pass) chat unavailable > keeps the composer
+1 | import { describe, expect, test } from "bun:test";
+2 | describe("chat unavailable", () => {
+3 |   test("shows the notice", () => { expect("open").toBe("unavailable"); });
+4 |   test("keeps the composer", () => { expect(1).toBe(1); });
+5 |   test("pasteWall settles at the bottom", () => { expect(3.5).toBeLessThan(2); });
+                                                                  ^
+error: expect(received).toBeLessThan(expected)
+
+Expected: < 2
+Received: 3.5
+
+      at <anonymous> (/home/runner/_work/cmux/cmux/.fast-checks-checkout/webviews/test/zz-capture/red.test.ts:5:63)
+
+::error file=.fast-checks-checkout/webviews/test/zz-capture/red.test.ts,line=5,col=63,title=error: expect(received).toBeLessThan(expected)::Expected: < 2%0AReceived: 3.5%0A%0A      at <anonymous> (/home/runner/_work/cmux/cmux/.fast-checks-checkout/webviews/test/zz-capture/red.test.ts:5:63)
+(fail) chat unavailable > pasteWall settles at the bottom [0.02ms]
+::error title=error: Test "reads the slow history" timed out after 50ms::
+(fail) chat unavailable > reads the slow history [50.08ms]
+  ^ this test timed out after 50ms.
+
+::endgroup::
+
+::group::test/zz-capture/unhandled.test.ts:
+(pass) passes
+1 | import { expect, test } from "bun:test";
+2 | test("passes", () => { expect(true).toBe(true); });
+3 | setTimeout(() => { throw new Error("late failure outside a test"); }, 0);
+                                                                    ^
+error: late failure outside a test
+      at <anonymous> (/home/runner/_work/cmux/cmux/.fast-checks-checkout/webviews/test/zz-capture/unhandled.test.ts:3:65)
+
+::error file=.fast-checks-checkout/webviews/test/zz-capture/unhandled.test.ts,line=3,col=65,title=error: late failure outside a test::%0A      at <anonymous> (/home/runner/_work/cmux/cmux/.fast-checks-checkout/webviews/test/zz-capture/unhandled.test.ts:3:65)
+(fail) waits [1.09ms]
+
+::endgroup::
+
+::group::test/zz-capture/load.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module './does-not-exist' from '/home/runner/_work/cmux/cmux/.fast-checks-checkout/webviews/test/zz-capture/load.test.ts'
+-------------------------------
+
+
+ 2 pass
+ 5 fail
+ 1 error
+ 4 expect() calls
+Ran 7 tests across 3 files. [369.00ms]

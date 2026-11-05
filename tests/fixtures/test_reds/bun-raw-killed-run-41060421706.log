@@ -1,0 +1,16 @@
+bun test v1.4.4 (38afee6c8)
+
+::group::test/zz-capture/slow.test.ts:
+1 | import { expect, test } from "bun:test";
+2 | test("first", () => { expect(1).toBe(2); });
+                                    ^
+error: expect(received).toBe(expected)
+
+Expected: 2
+Received: 1
+
+      at <anonymous> (/home/runner/_work/cmux/cmux/.fast-checks-checkout/webviews/test/zz-capture/slow.test.ts:2:33)
+
+::error file=.fast-checks-checkout/webviews/test/zz-capture/slow.test.ts,line=2,col=33,title=error: expect(received).toBe(expected)::Expected: 2%0AReceived: 1%0A%0A      at <anonymous> (/home/runner/_work/cmux/cmux/.fast-checks-checkout/webviews/test/zz-capture/slow.test.ts:2:33)
+(fail) first [0.09ms]
+bash: line 28: 11554 Killed                  timeout -s KILL 5 bun test ./test/zz-capture/slow.test.ts 2>&1
