@@ -140,14 +140,12 @@
         "TENANT_VM_QUOTAS": "{\"cmux-vm-product-smoke\":2}",
         "STACK_API_URL": "https://api.stack-auth.com",
         "UPSTREAM_API_URL": "https://api.freestyle.sh",
-        // NEXT Cloud in production: the same Cloud Native image staging runs (cloud-native-91d3ea0, bake run 41961401076,
-        // smoke 31 checks; cmux-tui 91d3ea01, whose daemon has the features the current app requires and whose receiver
-        // journals why each stream ended, #35996), approved for cmux-platform production's service key and for the CI product
-        // smoke (CMUX_VM_CI_TRUST), which boots exactly what the product boots (the first entry). cloud-native-b1f8fc4 (bake
-        // run 41857345925, #35467) and cloud-native-f7b9c57 (bake run 41815796727, #35193) stay listed for rollback.
-        // cloud-native-a6d444a first (bake run 41966716765, smoke 30 checks; cmux-tui a6d444aa: local receiver admission #36014,
-        // owner Native link file copy #36044). cloud-native-91d3ea0 and cloud-native-b1f8fc4 stay listed for rollback.
-        "VM_BOOT_IMAGES": "[{\"id\":\"cloud-native-a6d444a\",\"revision\":\"ci-41966716765-2\",\"displayName\":\"Cloud Native (cmux-tui a6d444aa)\",\"snapshotId\":\"sh-580bb95a3a874b22a472f0761983ba30\",\"services\":[\"cloud-platform-production\",\"ci-product-smoke\"]},{\"id\":\"cloud-native-91d3ea0\",\"revision\":\"ci-41961401076-1\",\"displayName\":\"Cloud Native (cmux-tui 91d3ea01)\",\"snapshotId\":\"sh-ea70074ae3de445d83bdf6474bb5f836\",\"services\":[\"cloud-platform-production\",\"ci-product-smoke\"]},{\"id\":\"cloud-native-b1f8fc4\",\"revision\":\"ci-41857345925-1\",\"displayName\":\"Cloud Native (cmux-tui b1f8fc4d)\",\"snapshotId\":\"sh-1303b460bdad411793ab6cf0e75769c7\",\"services\":[\"cloud-platform-production\",\"ci-product-smoke\"]}]",
+        // NEXT Cloud in production: cloud-native-a6d444a (bake run 41966716765, smoke 30 checks; cmux-tui a6d444aa: local
+        // receiver admission #36014, owner Native link file copy #36044), approved for cmux-platform production's service key
+        // and for the CI product smoke (CMUX_VM_CI_TRUST). GET /v1/vm-images lists ids sorted, and the smoke takes the first,
+        // so no image that sorts before the one the product boots stays listed. cloud-native-b1f8fc4 (bake run 41857345925)
+        // sorts after it and stays for rollback; rolling back to cloud-native-91d3ea0 is a revert of cmux#36178.
+        "VM_BOOT_IMAGES": "[{\"id\":\"cloud-native-a6d444a\",\"revision\":\"ci-41966716765-2\",\"displayName\":\"Cloud Native (cmux-tui a6d444aa)\",\"snapshotId\":\"sh-580bb95a3a874b22a472f0761983ba30\",\"services\":[\"cloud-platform-production\",\"ci-product-smoke\"]},{\"id\":\"cloud-native-b1f8fc4\",\"revision\":\"ci-41857345925-1\",\"displayName\":\"Cloud Native (cmux-tui b1f8fc4d)\",\"snapshotId\":\"sh-1303b460bdad411793ab6cf0e75769c7\",\"services\":[\"cloud-platform-production\",\"ci-product-smoke\"]}]",
         // The production counterpart of staging's guest coderouter.cmux.internal proxy origin.
         "VM_HTTPS_PROXY_ORIGINS": "[\"https://cmux.com\"]",
         // A request made with these service keys (CMUX_VM_SERVICE_KEYS ids, never key material) is entitled for the team it
