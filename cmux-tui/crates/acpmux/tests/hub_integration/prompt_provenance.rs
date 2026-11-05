@@ -189,9 +189,10 @@ async fn a_local_prompt_records_its_provenance_on_its_user_message() {
 
     let first = c.user_message(&session, "p-a").await;
     assert_eq!(first["text"], "hello from builder", "{first}");
-    assert_eq!(first.pointer("/_meta/provenance"), Some(&p), "{first}");
+    assert_eq!(first.pointer("/_meta/provenance"), Some(&seen(p.clone(), "unix")), "{first}");
+    // A unix client proves no person: its unnamed prompt is unverified, never the person's.
     let second = c.user_message(&session, "p-b").await;
-    assert!(second.pointer("/_meta/provenance").is_none(), "{second}");
+    assert_eq!(second.pointer("/_meta/provenance/kind"), Some(&json!("unverified")), "{second}");
 }
 
 #[tokio::test]
@@ -457,7 +458,7 @@ async fn a_steer_records_its_provenance() {
     assert_eq!(steered["steer"], true, "{steered}");
     assert_eq!(steered.pointer("/_meta/provenance"), Some(&seen(p.clone(), "unix")), "{steered}");
     let own = c.user_message(&session, "p-turn").await;
-    assert!(own.pointer("/_meta/provenance").is_none(), "{own}");
+    assert_eq!(own.pointer("/_meta/provenance/kind"), Some(&json!("unverified")), "{own}");
 }
 
 /// A connection that proved it runs inside session `id` with the caller token acpmux put in that
@@ -505,7 +506,9 @@ async fn a_prompt_sent_from_inside_another_session_records_that_session_as_its_s
     let mut bound = given.clone();
     bound["fromSessionId"] = json!(sender);
     bound["fromHarness"] = json!("codex");
-    assert_eq!(kept.pointer("/_meta/provenance"), Some(&bound), "{kept}");
+    // Its caller token proved the sending session: the daemon bound who sent it.
+    bound["verified"] = json!(true);
+    assert_eq!(kept.pointer("/_meta/provenance"), Some(&seen(bound, "unix")), "{kept}");
 }
 
 /// A queued agent message shows its sender's session and harness on its queue row, and reads back
@@ -824,7 +827,7 @@ async fn a_persons_queued_prompt_and_steer_record_who_sent_them() {
     c.cancel(&session).await;
     c.reply_to(waiting).await;
     let ran = c.user_message(&session, "p-q").await;
-    assert_eq!(ran.pointer("/_meta/provenance"), Some(&anas()), "{ran}");
+    assert_eq!(ran.pointer("/_meta/provenance"), Some(&seen(anas(), "unix")), "{ran}");
 
     let hub = hub_env(json!({"FAKE_CODEX_STEER": "1"}));
     let mut c = Client::open(&hub);
@@ -847,7 +850,7 @@ async fn a_persons_queued_prompt_and_steer_record_who_sent_them() {
     }
     let steered = c.user_message(&session, "p-steer").await;
     assert_eq!(steered["steer"], true, "{steered}");
-    assert_eq!(steered.pointer("/_meta/provenance"), Some(&anas()), "{steered}");
+    assert_eq!(steered.pointer("/_meta/provenance"), Some(&seen(anas(), "unix")), "{steered}");
 }
 
 /// Only who sent a waiting prompt edits, moves, sends or removes it: another person, or the owner
@@ -918,11 +921,13 @@ async fn only_the_sender_changes_a_waiting_prompt() {
     c.reply_to(waits[2]).await;
     let ran = c.user_message(&session, "p-ana").await;
     assert_eq!(ran["text"], "rewrite", "{ran}");
-    assert_eq!(ran.pointer("/_meta/provenance"), Some(&anas()), "her edit lost her name: {ran}");
+    assert_eq!(ran.pointer("/_meta/provenance"), Some(&her_edit), "her edit lost her name: {ran}");
+    // The owner's edit keeps the agent's message the agent's, and names the owner as its editor.
     let theirs = c.user_message(&session, "p-agent").await;
-    assert!(
-        theirs.pointer("/_meta/provenance").is_none(),
-        "the owner's edit kept the agent's: {theirs}"
+    assert_eq!(
+        theirs.pointer("/_meta/provenance/editedBy"),
+        Some(&json!({"actor": "owner"})),
+        "the owner's edit dropped the agent's: {theirs}"
     );
 }
 
@@ -1129,9 +1134,10 @@ async fn a_notice_is_recorded_on_its_user_message_and_its_queued_record() {
         let mut from = Client::open_as(&hub, origin);
         from.call("session/prompt", noticed(&session, id, &sent)).await;
         let message = c.user_message(&session, id).await;
+        let transport = if origin == Origin::Peer { "peer" } else { "unix" };
         assert_eq!(
             message.pointer("/_meta/provenance"),
-            Some(&stamped_notice(&session)),
+            Some(&seen(stamped_notice(&session), transport)),
             "{origin:?}: {message}"
         );
         assert_eq!(message["text"], "[notice from base-red-watch] body", "{message}");

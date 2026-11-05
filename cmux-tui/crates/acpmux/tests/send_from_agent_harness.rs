@@ -62,8 +62,22 @@ impl Drop for Shutdown<'_> {
     }
 }
 
-/// The `_meta.provenance` of the `user_message` whose text is `said`, from the daemon's logs.
+/// The `_meta.provenance` of the `user_message` whose text is `said`, from the daemon's logs, once
+/// it is there: a send returns when its prompt is queued, and it runs after the turn before it.
 fn provenance_of(dir: &Path, said: &str) -> Option<Value> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+    loop {
+        if let Some(found) = recorded_provenance(dir, said) {
+            return Some(found);
+        }
+        if std::time::Instant::now() > deadline {
+            return None;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+}
+
+fn recorded_provenance(dir: &Path, said: &str) -> Option<Value> {
     let mut pending = vec![dir.to_path_buf()];
     while let Some(folder) = pending.pop() {
         for entry in fs::read_dir(&folder).into_iter().flatten().flatten() {

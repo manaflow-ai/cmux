@@ -351,6 +351,7 @@ impl Hub {
                 tracing::info!(session = %session.id, prompt = %prompt_id, dropped, refused, "a queue edit dropped display parts of blocks it did not keep or that no longer fit them");
             }
             let size = super::queue_admission::content_bytes(&blocks, display_parts.as_ref());
+            let digest = super::digest::inbox_digest::is_digest(q.run.provenance.as_ref());
             q.run = Arc::new(PromptRun {
                 size: size.into(),
                 blocks,
@@ -359,14 +360,17 @@ impl Hub {
                 cloud_mobile: q.run.cloud_mobile,
                 trust_gate: q.run.trust_gate || trust_gate,
                 // The person rewrote it: it keeps who sent it, and says who edited it beside
-                // that (`prompt_provenance::edited_by`), never becoming the editor's own words.
-                provenance: q
-                    .run
-                    .provenance
-                    .clone()
-                    .map(|p| crate::prompt_provenance::edited_by(p, editor)),
-                agent: q.run.agent.clone(),
-                class: q.run.class,
+                // that (`prompt_provenance::edited_by`), never becoming the editor's own words. Its
+                // ask (`class`) and a continuation's goal mark were the sender's words' and go.
+                // A digest's rewrite is no one sender's message: the editor's own, as before.
+                provenance: q.run.provenance.clone().filter(|_| !digest).map(|mut p| {
+                    if let Some(fields) = p.as_object_mut() {
+                        fields.remove("goalMark");
+                    }
+                    crate::prompt_provenance::edited_by(p, editor)
+                }),
+                agent: q.run.agent.clone().filter(|_| !digest),
+                class: None,
                 supersede: None,
                 full_access_device: same_device(q.run.full_access_device.as_deref(), device),
                 message_id: None,

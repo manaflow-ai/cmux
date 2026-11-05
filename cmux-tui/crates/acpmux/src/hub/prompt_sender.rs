@@ -151,7 +151,8 @@ mod tests {
             prompt_params("s", json!([]), Some("Codex Chief"), Some("question"), Some(&provenance));
         assert_eq!(
             params["_meta"]["acpmux"]["sender"],
-            json!({"name": "Codex Chief", "class": "question", "threadId": "t2", "chief": "agent_codex"})
+            json!({"name": "Codex Chief", "sessionId": "s-turn", "class": "question", "threadId": "t2",
+                   "chief": "agent_codex"})
         );
     }
 
