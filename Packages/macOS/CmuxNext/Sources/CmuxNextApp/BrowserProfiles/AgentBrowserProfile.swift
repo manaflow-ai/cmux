@@ -41,22 +41,7 @@ enum AgentBrowserProfile {
     static func ensure(_ profiles: BrowserProfileService, deadline: Duration = .seconds(5)) async throws -> String {
         if profiles.isKnown(id) { return id }
         _ = try await profiles.createProfile(id: id, name: name, color: nil, icon: nil)
-        if profiles.isKnown(id) { return id }
-        let timer = DemandTimer(owner: "AgentBrowserProfile.ensure")
-        let once = ResumeOnce()
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-            once.begin(continuation)
-            // Event-driven: the profile list is observable state of the home store.
-            let watch = Task { @MainActor in
-                for await known in ObservationStream({ profiles.isKnown(id) }) where known {
-                    if once.resume(.success(())) { timer.cancel() }
-                    return
-                }
-            }
-            timer.schedule(after: deadline) {
-                if once.resume(.failure(NotReported())) { watch.cancel() }
-            }
-        }
+        try await profiles.awaitReported(id, deadline: deadline)
         return id
     }
 

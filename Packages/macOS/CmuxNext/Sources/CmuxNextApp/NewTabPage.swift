@@ -69,7 +69,8 @@ enum NewTabPage {
         let actions = paletteActions ? Self.paletteActions(services) : []
         return AgentPaneOmnibar(
             tabs: tabs, workspaces: workspaces, folders: folders, projects: folders, actions: actions, commands: Array(commands), history: Array(history),
-            uses: pickHistory(services)
+            uses: pickHistory(services),
+            profiles: profiles(services)
         )
     }
 
@@ -83,6 +84,11 @@ enum NewTabPage {
             if score > 0.01 { uses[key] = score }
         }
         return uses
+    }
+
+    /// This Mac's browser profiles in their order, for the page's Open in Profile… search.
+    static func profiles(_ services: AppServices) -> [AgentPaneOmnibar.Profile] {
+        services.browserProfiles.ordered.map { AgentPaneOmnibar.Profile(id: $0.id, name: $0.name, color: $0.color) }
     }
 
     /// Every Commands palette (Cmd-Shift-P) action as the bar lists it, from the palette's own rows.

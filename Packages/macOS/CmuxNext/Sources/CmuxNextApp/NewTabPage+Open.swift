@@ -136,6 +136,30 @@ extension NewTabPage {
         // A pairing link (its room secret) is never searched, loaded or typed: the
         // page stays, with what was typed, and Mac Screen says why.
         if let refusal = MacScreenPages.pairingLinkRefusal(for: request.text) { return services.registry.refuse(refusal) }
+        // Open in New Profile: the profile is made first (the home daemon gives its id), then the
+        // address opens in it as Open in Profile… would; a refused create keeps the page.
+        if request.kind == .browser, case .new(let name) = request.profile {
+            let profiles = services.browserProfiles
+            // task-owner: one profile create, then one open in the pane that asked; ends with the reply
+            Task { @MainActor [weak pane] in
+                do {
+                    let id = try await profiles.makeProfile(name: name)
+                    guard let pane else { return }
+                    var made = request
+                    made.profile = .existing(id)
+                    replace(key, with: made, cwd: cwd, in: pane, keep: chat)
+                } catch let error as BrowserProfileBookError {
+                    services.registry.refuse(BrowserProfileAppStrings.message(error))
+                } catch {
+                    services.registry.refuse(error.localizedDescription)
+                }
+            }
+            return
+        }
+        let profile = request.profile.flatMap(\.existingID)
+        if let profile, !services.browserProfiles.isKnown(profile) {
+            return services.registry.refuse(BrowserProfileAppStrings.noProfile(profile))
+        }
         // The page closes one frame after the new tab shows, so the frame that builds the
         // terminal surface does not also pay for the page (R81: 17.8 ms frames at 120 Hz).
         // A page beside a lone chat, the main pane: the pick takes the page's place, then the chat docks left and the
@@ -174,10 +198,10 @@ extension NewTabPage {
             let engine = BrowserEngineTag.engine(for: url)
             // A session-local browser tab is made and selected right away.
             if services.cache.browserTabs.isAvailable(in: pane.pane) {
-                pane.newBrowserTab(url: url, engine: engine, then: closePage)
+                pane.newBrowserTab(url: url, engine: engine, profile: profile, then: closePage)
             } else {
                 // A refused tab (a Chromium page without Chromium) keeps the page.
-                if pane.newBrowserTab(url: url, engine: engine), !keep { pane.close([StripTabID(key)]) }
+                if pane.newBrowserTab(url: url, engine: engine, profile: profile), !keep { pane.close([StripTabID(key)]) }
             }
         case .agent:
             return
@@ -219,7 +243,7 @@ extension NewTabPage {
             case .browser:
                 let url = browserURL(request, services: services)
                 return target.newBrowserTab(url: url, engine: BrowserEngineTag.engine(for: url), background: placed != nil,
-                                            placementOwner: placed != nil, then: landed)
+                                            profile: request.profile.flatMap(\.existingID), placementOwner: placed != nil, then: landed)
             case .agent:
                 return false
             }
