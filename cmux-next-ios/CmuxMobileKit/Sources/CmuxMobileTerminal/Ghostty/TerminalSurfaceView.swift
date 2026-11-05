@@ -104,7 +104,7 @@ final class TerminalSurfaceView: UIView {
         config.io_mode = GHOSTTY_SURFACE_IO_MANUAL_MIRROR
         config.io_write_userdata = Unmanaged.passUnretained(box).toOpaque()
         config.io_write_cb = { userdata, bytes, length in
-            guard let userdata, let bytes, length > 0 else { return }
+            guard let userdata, length > 0 else { return }
             let data = Data(bytes: bytes, count: Int(length))
             let box = Unmanaged<InputBox>.fromOpaque(userdata).takeUnretainedValue()
             if Thread.isMainThread {

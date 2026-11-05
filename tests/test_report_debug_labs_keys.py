@@ -49,14 +49,15 @@ class DebugLabsKeysReportTests(unittest.TestCase):
         report = self.report.build_report([], {}, {"gone.key": {"case": "keep", "why": "w"}}, TODAY)
         self.assertEqual(report["staleCases"], ["gone.key"])
 
-    def test_every_case_in_the_ledger_is_valid_and_names_a_declared_key(self):
+    def test_every_case_in_the_ledger_is_valid(self):
+        # A case whose key a later PR deleted is the report's to list (staleCases), never a red:
+        # deleting a flag must not have to edit the ledger in the same PR.
         cases = self.report.load_cases()
-        declared = {item["key"] for item in self.report.debug_keys() + self.report.labs_keys()}
-        self.assertEqual(sorted(set(cases) - declared), [])
+        self.assertTrue(all(case["case"] in self.report.CASE_KINDS for case in cases.values()))
 
     def test_reads_a_tunable_declaration_default(self):
         keys = {item["key"]: item for item in self.report.debug_keys()}
-        self.assertEqual(keys["agentPane.debug.turnPreviewCards"]["default"], "false")
+        self.assertEqual(keys["agentPane.debug.needsYouPill"]["default"], "false")
         self.assertEqual(keys["agentPane.debug.thoughtHeader"]["default"], ".duration")
 
 

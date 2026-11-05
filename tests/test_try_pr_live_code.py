@@ -19,6 +19,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 APP_FILE = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Greeting.swift"
+# Another CmuxNext module: the live code build makes every one of them patchable.
+DESIGN_FILE = "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Shade.swift"
 SCRIPTS = ["scripts/cmux-next/try-pr.sh", "scripts/cmux-next/side-instance.sh", "scripts/cmux-next/live_apply.py",
            "scripts/live-code/patch.py"]
 BASE_SWIFT = 'struct Greeting {\n    func text() -> String {\n        return "hello"\n    }\n}\n'
@@ -69,8 +71,9 @@ class TryPrLiveCodeTests(unittest.TestCase):
         for rel in SCRIPTS:
             (work / rel).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT / rel, work / rel)
-        (work / APP_FILE).parent.mkdir(parents=True)
-        (work / APP_FILE).write_text(BASE_SWIFT)
+        for rel in (APP_FILE, DESIGN_FILE):
+            (work / rel).parent.mkdir(parents=True)
+            (work / rel).write_text(BASE_SWIFT)
         git(work, "add", "-A")
         git(work, *ident, "commit", "-q", "-m", "base")
         self.base = git(work, "rev-parse", "HEAD")
@@ -92,11 +95,16 @@ class TryPrLiveCodeTests(unittest.TestCase):
         self.build = build
         filelist = self.tmp / "CmuxNextApp.SwiftFileList"
         filelist.write_text(f"{build / APP_FILE}\n{self.tmp}/DerivedData/resource_bundle_accessor.swift\n")
+        design_list = self.tmp / "CmuxNextDesign.SwiftFileList"
+        design_list.write_text(f"{build / DESIGN_FILE}\n")
         self.log = self.tmp / "reload.log"
         self.log.write_text(
             f"builtin-SwiftDriver -- swiftc -module-name CmuxNextApp -Onone @{filelist}\n"
             f"{tc}/swift-frontend -frontend -c -primary-file {build / APP_FILE} -module-name CmuxNextApp "
-            f"-target arm64-apple-macos14 -Onone -enable-testing -o {self.tmp}/x.o\n")
+            f"-target arm64-apple-macos14 -Onone -enable-testing -o {self.tmp}/x.o\n"
+            f"builtin-SwiftDriver -- swiftc -module-name CmuxNextDesign -Onone @{design_list}\n"
+            f"{tc}/swift-frontend -frontend -c -primary-file {build / DESIGN_FILE} -module-name CmuxNextDesign "
+            f"-target arm64-apple-macos14 -Onone -enable-testing -o {self.tmp}/y.o\n")
         self.app = self.tmp / "cmux DEV live.app"
         (self.app / "Contents").mkdir(parents=True)
         with open(self.app / "Contents/Info.plist", "wb") as f:
@@ -157,6 +165,18 @@ class TryPrLiveCodeTests(unittest.TestCase):
         self.assertEqual(len(list(self.live.glob("patch-*.dylib"))), 1)
         self.assertEqual(len(self.worktrees()), 1, "the scratch worktree is removed")
 
+    def test_a_body_change_in_another_cmuxnext_module_loads_with_its_own_command(self):
+        self.push_pr(lambda w: (w / DESIGN_FILE).write_text(BASE_SWIFT.replace('"hello"', '"design from the PR"')))
+        self.answer_patches()
+        out = self.try_pr()
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertIn("swift-live", out.stdout)
+        self.assertRegex(out.stdout, r"live code: applied patch-\d+-\d+\.dylib")
+        recorded = self.record.read_text()
+        self.assertIn(DESIGN_FILE, recorded)
+        self.assertIn("design from the PR", recorded)
+        self.assertNotIn(APP_FILE, recorded)
+
     def test_a_refused_patch_falls_back_to_the_dev_build(self):
         self.push_pr(lambda w: (w / APP_FILE).write_text(BASE_SWIFT.replace('"hello"', '"hi"')))
         self.answer_patches(word="refused")
@@ -200,42 +220,39 @@ class TryPrLiveCodeTests(unittest.TestCase):
         self.push_pr(edit)
         out = self.try_pr("--no-build")
         self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
-        self.assertIn("only edits to CmuxNextApp's existing Swift files; not: Packages/macOS/CmuxNext/Sources/CmuxNextApp/Extra.swift", out.stdout)
+        self.assertIn("only edits to the CmuxNext modules' existing Swift files; not: Packages/macOS/CmuxNext/Sources/CmuxNextApp/Extra.swift", out.stdout)
         self.assertIn("so a dev build", out.stdout)
         self.assertFalse(self.record.exists(), "nothing was compiled")
         self.assertEqual(len(self.worktrees()), 1)
 
-    def unrecorded(self):
-        """The app as a reload or DEV build: no CMUXCommit."""
+    def stamp(self, **keys):
+        """The app's Info.plist as reload.sh stamps it (CMUXCommit, CMUXCommitDirty), or without them."""
         with open(self.app / "Contents/Info.plist", "wb") as f:
-            plistlib.dump({"CFBundleIdentifier": "com.cmuxterm.app.debug.live", "CFBundleVersion": "1"}, f)
+            plistlib.dump({"CFBundleIdentifier": "com.cmuxterm.app.debug.live", "CFBundleVersion": "1", **keys}, f)
 
-    def test_a_build_with_no_recorded_commit_uses_its_checkouts_head(self):
-        self.unrecorded()
+    def test_a_clean_stamped_build_applies(self):
+        self.stamp(CMUXCommit=self.base, CMUXCommitDirty=False)
         self.push_pr(lambda w: (w / APP_FILE).write_text(BASE_SWIFT.replace('"hello"', '"hello from the PR"')))
         self.answer_patches()
         out = self.try_pr()
         self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
         self.assertRegex(out.stdout, r"live code: applied patch-")
-        self.assertIn("hello from the PR", self.record.read_text())
 
-    def test_an_edited_build_checkout_takes_the_dev_build(self):
-        self.unrecorded()
-        (self.build / APP_FILE).write_text(BASE_SWIFT.replace('"hello"', '"local edit"'))
+    def test_a_build_with_local_edits_takes_the_dev_build(self):
+        self.stamp(CMUXCommit=self.base, CMUXCommitDirty=True)
         self.push_pr(lambda w: (w / APP_FILE).write_text(BASE_SWIFT.replace('"hello"', '"hi"')))
         out = self.try_pr("--no-build")
-        self.assertIn("uncommitted CmuxNextApp changes", out.stdout)
+        self.assertIn("had local changes when it was built", out.stdout)
+        self.assertIn("so a dev build", out.stdout)
+        self.assertFalse(self.record.exists(), "nothing was compiled")
+
+    def test_a_build_that_records_no_commit_takes_the_dev_build(self):
+        self.stamp()
+        self.push_pr(lambda w: (w / APP_FILE).write_text(BASE_SWIFT.replace('"hello"', '"hi"')))
+        out = self.try_pr("--no-build")
+        self.assertIn("records no commit (CMUXCommit)", out.stdout)
         self.assertIn("so a dev build", out.stdout)
         self.assertFalse(self.record.exists())
-
-    def test_a_build_checkout_that_moved_since_the_build_takes_the_dev_build(self):
-        self.unrecorded()
-        then = time.time() - 3600
-        os.utime(self.log, (then, then))  # the build is older than the checkout's last HEAD move
-        self.push_pr(lambda w: (w / APP_FILE).write_text(BASE_SWIFT.replace('"hello"', '"hi"')))
-        out = self.try_pr("--no-build")
-        self.assertIn("moved to another commit after the build", out.stdout)
-        self.assertIn("so a dev build", out.stdout)
 
     def test_a_build_of_a_commit_this_checkout_lacks_takes_the_dev_build(self):
         with open(self.app / "Contents/Info.plist", "wb") as f:
@@ -335,6 +352,14 @@ class TryPrWebAgainstTheAppTests(TryPrLiveCodeTests):
         out = self.try_pr("--dry-run")
         self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
         self.assertIn("web only: no build", out.stdout)
+
+    def test_an_app_commit_that_is_a_ref_name_is_not_looked_up(self):
+        self.push_web_pr(self.base)
+        git(self.checkout, "branch", "none", self.base)
+        self.set_app_commit("none")
+        out = self.try_pr("--dry-run")
+        self.assertIn("is not in this checkout", out.stdout)
+        self.assertNotIn("web only: no build", out.stdout)
 
     def checkout_fetch(self):
         git(self.checkout, "fetch", "-q", "origin", "feat-cmux-next:refs/remotes/origin/feat-cmux-next")

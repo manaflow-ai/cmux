@@ -1978,6 +1978,7 @@ mod lane_parent;
 mod list_reply;
 use lane_parent::lane_parent;
 mod bg_tasks;
+mod goal;
 pub mod local_app;
 pub(crate) mod machine_health;
 mod models_fanout;
