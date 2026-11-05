@@ -152,6 +152,13 @@ public struct HomeSidebarModel: Hashable, Sendable {
                     item.accessibilityLabel = ([item.title, tag] + (rest.isEmpty ? [] : [String(rest)])).joined(separator: ", ")
                 }
             }
+            // A channel (a group with its own Chief) is tagged after its name, read right after it too.
+            if row.summary.isChannel, item.listBadge == nil {
+                let tag = HomeConversationStrings.channelTag
+                item.listBadge = tag
+                let rest = item.accessibilityLabel.dropFirst(item.title.count).drop { $0 == "," || $0 == " " }
+                item.accessibilityLabel = ([item.title, tag] + (rest.isEmpty ? [] : [String(rest)])).joined(separator: ", ")
+            }
             item.isMuted = row.summary.muted
             return item
         }

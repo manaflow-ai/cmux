@@ -594,6 +594,10 @@ export type HomeChief = {
   readonly created_at: Timestamp
   readonly updated_at: Timestamp
   readonly archived_at: Timestamp | null
+  readonly channel?: {
+    readonly conversation: ConversationId
+    readonly title: string
+  }
 }
 
 /** rev after the op; seq and message_id for a new message; change is the committed Change. */
@@ -625,6 +629,8 @@ export type HomeConversationSummary = {
   readonly last_message?: HomeMessage
   readonly read_cursors: Readonly<Record<string, number>>
   readonly kind?: ConversationKind
+  /** A channel's own Chief (channel.create): it is woken only by this conversation. */
+  readonly channel_chief?: string
   readonly team?: string
   readonly created_by?: string
   readonly state?: "active" | "archived"
@@ -1768,6 +1774,14 @@ export interface CloudOps {
       readonly page_token?: string
     }
     readonly result: unknown
+  }
+  /** Create a channel: a group conversation you own with its own Chief, scoped to it (it is woken only by that conversation and keeps its own memory, instructions, personality and avatar). Answers the channel Chief; its channel.conversation is the channel. display_name defaults to "<title> Chief". Invite people with participants.add or invite.create on the channel. */
+  readonly "channel.create": {
+    readonly params: {
+      readonly title: string
+      readonly display_name?: string
+    }
+    readonly result: HomeChief
   }
   /** Archive a chief (not the default): it stops waking; restorable for 30 days, then a tombstone keeps its id forever. */
   readonly "chief.archive": {
@@ -4072,6 +4086,7 @@ export const cloudOpMeta = {
   "calendar.event.create": { class: "mutation", idempotency: "required", owner: "cloud:ConnectionDO", risk: "send-external" },
   "calendar.event.respond": { class: "mutation", idempotency: "required", owner: "cloud:ConnectionDO", risk: "send-external" },
   "calendar.events.list": { class: "read", idempotency: "forbidden", owner: "cloud:ConnectionDO", risk: "read" },
+  "channel.create": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "mutate-own" },
   "chief.archive": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "destructive" },
   "chief.create": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "mutate-own" },
   "chief.delete": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "destructive" },

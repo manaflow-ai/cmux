@@ -43,8 +43,23 @@ fi
 # On disk, not /tmp: Linux /tmp is often tmpfs (RAM), and the variant targets are tens of GB.
 scratch="${CMUX_DEVLOOP_SCRATCH:-$HOME/.cache/cmux-rust-dev-loop}/run-$$"
 # Earlier runs' scratch whose shell is gone (a killed run skips its trap): run-PID, PID not alive.
+# A blaze daemon of that run can outlive its shell: stop it with its own binary and home first.
 for old in "${scratch%/*}"/run-*; do
-  if [[ -d "$old" ]] && ! kill -0 "${old##*/run-}" 2>/dev/null; then rm -rf "$old"; fi
+  if [[ -d "$old" ]] && ! kill -0 "${old##*/run-}" 2>/dev/null; then
+    old_blaze=""
+    if [[ -d "$old/blaze/bin" ]]; then
+      old_blaze="$(find "$old/blaze/bin" -type f -name blaze -perm -u+x | head -1)"
+    fi
+    stopped=1
+    for old_home in "$old"/cmux-rust-dev-loop-blaze-home-*; do
+      if [[ -n "$old_blaze" && -d "$old_home" ]] \
+        && ! BLAZE_HOME="$old_home" "$root/scripts/blacksmith-bounded-command.sh" 30 "$old_blaze" stop; then
+        stopped=0
+      fi
+    done
+    # A daemon that would not stop keeps its home: removing it under a live daemon is the bug.
+    if (( stopped )); then rm -rf "$old"; else echo "warning: kept $old: its blaze daemon did not stop"; fi
+  fi
 done
 mkdir -p "$scratch"
 df -h "$scratch" | tail -1
@@ -111,6 +126,5 @@ mkdir -p "$out"
 status=0
 python3 "$root/scripts/measure/rust-dev-loop.py" --workspace "$root/cmux-tui" --out "$out" \
   --target-root "$scratch/target" --zig-packages "$zig_packages/p" --variants "$variants" --n "$n" --clean-n "$clean_n" --scenarios "$scenarios" --tests "$tests" $([[ "$timings" == 1 ]] && echo --timings) ${custom[@]+"${custom[@]}"} || status=$?
-if [[ -d "${BLAZE_HOME:-}" ]]; then echo "blaze home: $(du -sh "$BLAZE_HOME" | cut -f1)"; fi
 du -sh "$scratch" | sed 's/^/scratch: /'
 exit "$status"
