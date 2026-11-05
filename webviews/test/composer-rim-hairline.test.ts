@@ -2,8 +2,9 @@
 // snaps an inset box-shadow's inner edge to whole device pixels but not its rounded outer clip, so
 // a rim thinner than one device pixel (the 0.5px rim on a 1x display, a 1px ring at 125% zoom)
 // loses whole edges and the arcs next to them. Linux engines draw such a rim fine, so this checks
-// the geometry contract instead: at each device scale, every inset ring on these boxes is a whole
-// number of device pixels (the rim one at 1x and 2x), and the composer's rim clears with
+// the geometry contract instead: at each device scale, every crisp inset ring on these boxes (not
+// the glass material's blurred highlights) is a whole number of device pixels (the rim one at 1x
+// and 2x), and the composer's rim clears with
 // `appearance.borders` none, as the New Tab box's does. Focus draws no ring and no glass rim: a
 // focused box keeps its one rim at the same width, a step brighter (Leo 2026-10-21: "a subtle
 // hairline border that brightens slightly on focus"; agent-pane-hairline-focus.test.ts).
@@ -79,12 +80,17 @@ await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
           const lengths = [...entry.replace(/\([^)]*\)/g, "").matchAll(/(-?[\d.]+)px/g)].map((match) =>
             Number(match[1]),
           );
+          // A rim line is crisp. The glass material's blurred highlights (glass.css, "GLASS MATERIAL":
+          // the specular band, its return and the sheen) are soft light, not rings: WebKit's
+          // whole-pixel snap cannot break them at the corners.
+          if ((lengths[2] ?? 0) > 0) return undefined;
           const color = entry.match(/(?:rgba?|color)\([^)]*\)/)?.[0] ?? "";
           const alphaMatch = color.match(/\/\s*([\d.]+)\)|rgba\([^,]+,[^,]+,[^,]+,\s*([\d.]+)\)/);
           const alpha =
             color === "" || color.includes("transparent") ? 0 : alphaMatch ? Number(alphaMatch[1] ?? alphaMatch[2]) : 1;
           return { offsetY: lengths[1] ?? 0, spread: lengths[3] ?? 0, alpha };
-        });
+        })
+        .filter((inset) => inset !== undefined);
     }, id);
   }
 
