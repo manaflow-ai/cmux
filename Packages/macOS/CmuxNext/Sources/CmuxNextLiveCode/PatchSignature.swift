@@ -9,6 +9,11 @@ nonisolated enum PatchSignature {
     /// thread: it reads and hashes the file.
     static func check(_ path: String) throws {
         guard let team = runningTeam() else { throw LiveCodeError.notOurTeam("the app itself has no team ID") }
+        // A team ID is ten capitals and digits; anything else never goes into the requirement text.
+        guard team.utf8.count == 10, team.utf8.allSatisfy({ (UInt8(ascii: "A")...UInt8(ascii: "Z")).contains($0)
+            || (UInt8(ascii: "0")...UInt8(ascii: "9")).contains($0) }) else {
+            throw LiveCodeError.notOurTeam("the app's team ID \(team) is malformed")
+        }
         var code: SecStaticCode?
         guard SecStaticCodeCreateWithPath(URL(fileURLWithPath: path) as CFURL, [], &code) == errSecSuccess, let code else {
             throw LiveCodeError.notOurTeam("unreadable signature")
@@ -20,7 +25,7 @@ nonisolated enum PatchSignature {
             throw LiveCodeError.notOurTeam("no requirement for team \(team)")
         }
         // concurrency-allow: called only from LiveEngine, an actor off the main thread
-        let status = SecStaticCodeCheckValidity(code, SecCSFlags(rawValue: kSecCSCheckAllArchitectures), requirement)
+        let status = SecStaticCodeCheckValidity(code, SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate), requirement)
         guard status == errSecSuccess else { throw LiveCodeError.notOurTeam("team \(team) required (OSStatus \(status))") }
     }
 

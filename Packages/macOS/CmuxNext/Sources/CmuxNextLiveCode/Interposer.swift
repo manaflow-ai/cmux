@@ -14,6 +14,7 @@ nonisolated enum LiveCodeError: Error, CustomStringConvertible {
     case layoutChanged([String])
     case notOurTeam(String)
     case nothingToUndo
+    case copy(String)
 
     var description: String {
         switch self {
@@ -24,6 +25,7 @@ nonisolated enum LiveCodeError: Error, CustomStringConvertible {
         case .layoutChanged(let types): "stored properties changed, rebuild instead: \(types.joined(separator: ", "))"
         case .notOurTeam(let detail): "not signed by this app's team: \(detail)"
         case .nothingToUndo: "no patch is applied"
+        case .copy(let detail): "cannot take a private copy: \(detail)"
         }
     }
 }

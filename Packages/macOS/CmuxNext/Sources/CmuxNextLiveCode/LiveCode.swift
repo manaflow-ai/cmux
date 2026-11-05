@@ -139,14 +139,16 @@ actor LiveEngine {
 
     private func apply(_ name: String) {
         let started = Date()
-        let path = folder.url.appendingPathComponent(name).path
         do {
+            // The check and the load read one private copy, never the shared folder's file twice.
+            let copy = try folder.privateCopy(name)
+            defer { try? FileManager.checked.removeItem(at: copy) }
             #if !DEBUG && !CMUX_BENCH_HOOKS
             // Outside Debug and bench, only a patch signed by this app's team loads (cmux#13742).
-            try PatchSignature.check(path)
+            try PatchSignature.check(copy.path)
             #endif
-            let handle = try Interposer.load(path)
-            let patched = try Interposer.apply(handle: handle, dylib: path, current: &current)
+            let handle = try Interposer.load(copy.path)
+            let patched = try Interposer.apply(handle: handle, dylib: copy.path, current: &current)
             let sidecar = folder.sidecar(name)
             let record = LivePatchRecord(name: name, commit: sidecar?.commit, files: sidecar?.files,
                                          functions: patched.after.count, appliedAt: Date().timeIntervalSince1970)
@@ -249,6 +251,51 @@ nonisolated struct LiveFolder: Sendable {
         ((try? FileManager.checked.contentsOfDirectory(atPath: url.path)) ?? []).filter {
             !$0.hasPrefix(".") && ($0.hasSuffix(".dylib") || $0.hasSuffix(".rollback") || $0.hasSuffix(".rollback-all"))
         }.sorted()
+    }
+
+    /// A private copy of the patch `name`, which the signature check and dlopen both read. The
+    /// live folder is writable by any process of this user, and the NIGHTLY's entitlements turn off
+    /// dyld's library validation (`disable-library-validation`), so checking the folder's file and
+    /// then opening its path again could see two files. The patch is read without following a link
+    /// and must be a regular file; the copy is created exclusively in a 0700 folder of this process
+    /// in the per-user temporary directory, which must be a directory this user owns that nobody
+    /// else can enter. The caller removes the copy once it is loaded (dyld keeps the mapping).
+    func privateCopy(_ name: String) throws -> URL {
+        let folder = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("cmux-live-code-\(getpid())", isDirectory: true)
+        if mkdir(folder.path, 0o700) != 0, errno != EEXIST {
+            throw LiveCodeError.copy("cannot make \(folder.path): errno \(errno)")
+        }
+        var info = stat()
+        guard lstat(folder.path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR, info.st_uid == getuid(),
+              info.st_mode & 0o077 == 0 else {
+            throw LiveCodeError.copy("\(folder.path) is not a folder only this user can enter")
+        }
+        let source = Darwin.open(url.appendingPathComponent(name).path, O_RDONLY | O_NOFOLLOW)
+        guard source >= 0 else { throw LiveCodeError.copy("cannot open \(name) without following a link: errno \(errno)") }
+        defer { close(source) }
+        guard fstat(source, &info) == 0, info.st_mode & S_IFMT == S_IFREG else {
+            throw LiveCodeError.copy("\(name) is not a regular file")
+        }
+        let copy = folder.appendingPathComponent(UUID().uuidString + ".dylib")
+        let target = Darwin.open(copy.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
+        guard target >= 0 else { throw LiveCodeError.copy("cannot create \(copy.path): errno \(errno)") }
+        defer { close(target) }
+        let size = Int(info.st_size)
+        var buffer = [UInt8](repeating: 0, count: 1 << 16)
+        var copied = 0
+        // Bounded by the size fstat gave; a file that grows meanwhile is copied only that far.
+        for _ in 0...(size / buffer.count) where copied < size {
+            // concurrency-allow: called only from LiveEngine, an actor off the main thread
+            let count = buffer.withUnsafeMutableBytes { Darwin.read(source, $0.baseAddress, min($0.count, size - copied)) }
+            guard count > 0 else { throw LiveCodeError.copy("\(name) ended after \(copied) of \(size) bytes") }
+            guard buffer.withUnsafeBytes({ blockingWrite(target, $0.baseAddress, count) }) == count else {
+                throw LiveCodeError.copy("cannot write \(copy.path): errno \(errno)")
+            }
+            copied += count
+        }
+        guard copied == size else { throw LiveCodeError.copy("\(name) ended after \(copied) of \(size) bytes") }
+        return copy
     }
 
     struct Sidecar: Decodable {
