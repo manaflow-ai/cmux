@@ -9,7 +9,7 @@
 //   Dismiss answers the offer dismissed, and acpmux's decision takes the card away.
 // - An offer's Options (offer/OfferOptions.tsx) start at "Default" for Effort and Permissions;
 //   a pick goes to the new chat before its prompt, on this chat's agent, and a pick the new chat
-//   refuses ends the start: no prompt, no answer, and the task stays open.
+//   refuses ends the start: no prompt, no answer, and the task stays open with that pick at Default.
 //
 // Real Chromium from Playwright; skipped where it is not installed (the hosted webviews job).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -368,8 +368,12 @@ await requireBrowserLane("agent-pane-session-offer.test.ts", async () => {
       expect(calls.some((c) => c.method === "session/set_mode" && c.params.sessionId === CHILD)).toBe(true);
       expect(calls.some((c) => c.method === "session/prompt")).toBe(false);
       expect(calls.some((c) => c.method === "_acpmux/offer_respond")).toBe(false);
-      // The task stays open to try again.
+      // The task stays open to try again, its spent permission pick back at Default.
       expect(await chip(page).getByRole("button", { name: "Start", exact: true }).isVisible()).toBe(true);
+      await chip(page).getByRole("button", { name: "Options" }).click();
+      const options = page.getByRole("dialog", { name: "Options" });
+      await options.getByText("This computer").waitFor({ timeout: 5_000 });
+      expect(await options.getByRole("button", { name: "Permissions" }).innerText()).toContain("Default");
       await page.close();
     });
 

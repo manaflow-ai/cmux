@@ -25,8 +25,8 @@ import {
   useOfferDefaults,
   withPick,
   type OfferChoice,
-  type OfferDefaults,
   type OfferGrant,
+  type OfferDefaults,
   type OfferPick,
   type OfferTickets,
 } from "./offerChoice";
@@ -45,10 +45,17 @@ export type OfferActions = {
 
 type Busy = "start" | "here" | "dismiss";
 
-/// A pick's ticket, and when its gesture was: the host keeps a ticket a minute
-/// (`AgentPaneUserGestures.ticketLifetime`), so Start takes a new one for an older pick.
-type Held = { ticket: Promise<string | undefined>; at: number };
-const FRESH_MS = 45_000;
+/// A grant's kind: the host keeps one ticket for each, so a new one replaces the last.
+type Grant = "mode" | "effort";
+type Held = Partial<Record<Grant, Promise<string | undefined>>>;
+
+/// `choice` without its `kinds` picks: back at Default, the new chat's own.
+function withoutGrants(choice: OfferChoice | undefined, kinds: readonly Grant[]): OfferChoice | undefined {
+  if (!choice) return choice;
+  const next = { ...choice };
+  for (const kind of kinds) delete next[kind];
+  return next;
+}
 
 export function SuggestedTasks({ offers, actions }: { offers: AcpmuxSessionOffer[]; actions: OfferActions }) {
   const t = useT();
@@ -58,29 +65,29 @@ export function SuggestedTasks({ offers, actions }: { offers: AcpmuxSessionOffer
   // Each task's Options, from the agent's ask until the person changes them, and the gesture
   // tickets of its grants.
   const [choices, setChoices] = useState<Record<string, OfferChoice>>({});
-  const [held, setHeld] = useState<Record<string, { mode?: Held; effort?: Held }>>({});
+  const [held, setHeld] = useState<Record<string, Held>>({});
   const choice = (offer: AcpmuxSessionOffer) => choices[offer.offerId] ?? initialChoice(offer);
-  const reserve = (intent: OfferGrant): Held => ({
-    ticket: actions.reserve?.(intent).catch(() => undefined) ?? Promise.resolve(undefined),
-    at: Date.now(),
-  });
-  // A pick from this chat's lists; an Effort or Permissions pick takes its ticket on this click.
+  // A pick from this chat's lists. An Effort or Permissions pick takes its ticket on this click; the
+  // host keeps one per kind, so another task's pick of that kind loses its ticket and goes back to
+  // Default (Start never sends a ticket the host has dropped). Start's own click stays the prompt's.
   const pick = (offer: AcpmuxSessionOffer, part: OfferPick) => {
     if (!defaults) return;
-    setChoices((current) => ({ ...current, [offer.offerId]: withPick(choice(offer), offer, defaults, part) }));
-    const grant = part.mode ? { mode: reserve(pickIntent({ mode: part.mode })) } : {};
-    const effort = part.effort ? { effort: reserve(pickIntent({ effort: part.effort })) } : {};
-    setHeld((current) => ({ ...current, [offer.offerId]: { ...current[offer.offerId], ...grant, ...effort } }));
-  };
-  // Start's tickets: each pick's own, or one taken by this click for a pick older than a ticket lives.
-  const tickets = (offer: AcpmuxSessionOffer, picked: OfferChoice): OfferTickets => {
-    const fresh = (kept: Held | undefined, intent: OfferGrant) =>
-      kept && Date.now() - kept.at < FRESH_MS ? kept.ticket : reserve(intent).ticket;
-    const kept = held[offer.offerId];
-    return {
-      ...(picked.mode ? { mode: fresh(kept?.mode, pickIntent({ mode: picked.mode })) } : {}),
-      ...(picked.effort ? { effort: fresh(kept?.effort, pickIntent({ effort: picked.effort })) } : {}),
-    };
+    const kind: Grant | undefined = part.mode ? "mode" : part.effort ? "effort" : undefined;
+    const intent = part.mode ? pickIntent({ mode: part.mode }) : part.effort && pickIntent({ effort: part.effort });
+    setChoices((current) => {
+      const next: Record<string, OfferChoice> = {};
+      for (const [id, kept] of Object.entries(current)) next[id] = kind ? withoutGrants(kept, [kind])! : kept;
+      next[offer.offerId] = withPick(current[offer.offerId] ?? initialChoice(offer), offer, defaults, part);
+      return next;
+    });
+    if (!kind || !intent) return;
+    const ticket = actions.reserve?.(intent).catch(() => undefined) ?? Promise.resolve(undefined);
+    setHeld((current) => {
+      const next: Record<string, Held> = {};
+      for (const [id, kept] of Object.entries(current)) next[id] = { ...kept, [kind]: undefined };
+      next[offer.offerId] = { ...current[offer.offerId], [kind]: ticket };
+      return next;
+    });
   };
   const open = offers.filter((offer) => !offer.outcome);
   const started = offers.filter((offer) => offer.outcome === "accepted" && offer.childSessionId);
@@ -92,18 +99,34 @@ export function SuggestedTasks({ offers, actions }: { offers: AcpmuxSessionOffer
     setErrors((current) => withKey(current, offerId, error));
   };
   // Busy until acpmux's decision record answers the task, so its buttons never come back between.
-  const run = async (offerId: string, which: Busy, action: () => Promise<unknown>) => {
+  const run = async (offerId: string, which: Busy, action: () => Promise<unknown>, failed?: () => void) => {
     mark(offerId, which);
     try {
       await action();
     } catch (failure) {
+      failed?.();
       mark(offerId, undefined, errorMessage(failure) || t("offer.failed"));
     }
   };
+  // A ticket redeems once: Start takes the task's. A start that fails puts its granted picks back
+  // to Default, as the Options then show, so trying again never sends a spent ticket.
   const start = (offer: AcpmuxSessionOffer) => {
     const picked = choice(offer);
-    const granted = tickets(offer, picked);
-    return run(offer.offerId, "start", () => actions.start(offer.offerId, picked, granted));
+    const kept = held[offer.offerId];
+    const granted: OfferTickets = {
+      ...(picked.mode && kept?.mode ? { mode: kept.mode } : {}),
+      ...(picked.effort && kept?.effort ? { effort: kept.effort } : {}),
+    };
+    setHeld((current) => withKey(current, offer.offerId, undefined));
+    return run(
+      offer.offerId,
+      "start",
+      () => actions.start(offer.offerId, picked, granted),
+      () =>
+        setChoices((current) =>
+          withKey(current, offer.offerId, withoutGrants(current[offer.offerId], ["mode", "effort"])),
+        ),
+    );
   };
   const here = (offer: AcpmuxSessionOffer) => void run(offer.offerId, "here", () => actions.here(offer.offerId));
   const dismiss = (offer: AcpmuxSessionOffer) =>
