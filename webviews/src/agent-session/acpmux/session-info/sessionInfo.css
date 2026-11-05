@@ -1484,3 +1484,69 @@ button.acpmux-session-info-scope__parent:focus-visible {
   color: var(--accent-color);
   font-size: var(--text-detail);
 }
+/* Progress (ProgressSection.tsx): the agent's plan, one step a row on the panel's grid. The mark sits
+   in the icon column, centred on the step's first line; the words start on the text column and wrap,
+   so a long step reads whole. The marks are the transcript todo list's (conversation.css .cv-plan):
+   a filled check is done, the shared spinner runs, a dashed ring waits, a plain ring was left in
+   progress when the turn ended. A done step mutes; nothing is struck through or bold. */
+.acpmux-session-info-progress__step {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--grid-gap);
+  min-height: var(--grid-row);
+  /* One 16px line centred in the 28px row; a wrapped step grows by whole lines. */
+  padding: calc((var(--grid-row) - var(--grid-icon-box)) / 2) var(--grid-gap);
+  box-sizing: border-box;
+  line-height: var(--grid-icon-box);
+}
+.acpmux-session-info-progress__mark {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--grid-icon-box);
+  height: var(--grid-icon-box);
+  color: var(--agent-muted);
+}
+.acpmux-session-info-progress__ring {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--grid-glyph);
+  height: var(--grid-glyph);
+  box-sizing: border-box;
+  border: 1.5px solid var(--agent-muted);
+  border-radius: 50%;
+}
+.acpmux-session-info-progress__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.acpmux-session-info-progress__step[data-status="pending"] .acpmux-session-info-progress__ring {
+  border-style: dashed;
+}
+.acpmux-session-info-progress__step[data-status="in_progress"] .acpmux-session-info-progress__mark {
+  color: var(--agent-text);
+}
+.acpmux-session-info-progress__step[data-status="completed"] {
+  color: var(--agent-muted);
+}
+.acpmux-session-info-progress__step[data-status="completed"] .acpmux-session-info-progress__ring {
+  border-color: transparent;
+  background: var(--agent-muted);
+  /* The opaque base colour (never --agent-page-bg, which is transparent in the pane), so the check
+     reads on the muted disc in light and dark alike. */
+  color: var(--acpmux-base, Canvas);
+}
+/* A step's change fades in place: only colours move, never a size, so nothing below it shifts. */
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-session-info-progress__step,
+  .acpmux-session-info-progress__ring {
+    transition:
+      color var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out),
+      background-color var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out),
+      border-color var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out);
+  }
+}

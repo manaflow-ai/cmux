@@ -943,6 +943,15 @@ export type AcpmuxSnapshot = {
   autoResume?: AutoResumeStatus;
   protocolVersion: number;
   rows: AcpmuxRow[];
+  /// The chat's latest TodoWrite/update_plan checklist (liveProgress.ts), beside the rows so Session
+  /// Info's Progress updates without rescanning the transcript on every streamed token. `ended` once
+  /// its turn stopped or a later prompt came in.
+  progress?: {
+    plan: AcpmuxPlanEntry[];
+    completed?: number;
+    total?: number;
+    ended?: boolean;
+  };
   /// Each subagent's own view by subagent id: its rows, opened from its line in a group
   /// (subagents/childRows.ts).
   subagentViews?: Record<string, AcpmuxRow[]>;
