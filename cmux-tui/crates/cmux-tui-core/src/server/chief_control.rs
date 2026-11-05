@@ -321,6 +321,8 @@ pub(super) fn tool_line(
                 "classifier_model",
                 "classifier_prompt",
                 "reactions_can_wake",
+                // The Cloud machine the Chief does computer use on (optchat-chief engine.rs, cmux issue 36047).
+                "computer",
             ] {
                 if let Some(value) = fields.get(key) {
                     line.insert(key, value.clone());

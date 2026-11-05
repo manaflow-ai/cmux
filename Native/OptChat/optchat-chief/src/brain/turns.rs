@@ -547,9 +547,19 @@ impl Brain {
         // never before a cache mark: the subagents at work now (the reference
         // client's line). Never logged.
         let at_work = self.at_work_line();
+        // The Cloud computer the owner attached (engine.json `computer`, read
+        // now like the turn's engine): one line, never in the cached prompt.
+        let computer = self
+            .settings
+            .engine_file
+            .as_deref()
+            .map(crate::engine::load)
+            .as_ref()
+            .and_then(crate::engine::computer_line);
         // The person's Home workspace as it is now: after the view, never logged.
         let tail: Vec<String> = at_work
             .iter()
+            .chain(computer.iter())
             .chain(home.iter())
             .chain(resumes.iter())
             .cloned()

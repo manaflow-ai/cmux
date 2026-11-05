@@ -121,6 +121,22 @@ public nonisolated enum HomeEngineStrings {
     static var defaultNamedFormat: String {
         String(localized: "home.engine.defaultNamed", defaultValue: "Default (%@)", table: "Home", bundle: .module)
     }
+    // Computer (cmux issue 36047): where a Chief of this Mac does computer use.
+    static var computerSection: String { String(localized: "home.engine.section.computer", defaultValue: "Computer", table: "Home", bundle: .module) }
+    static var computerRow: String { String(localized: "home.engine.computer", defaultValue: "Computer Use", table: "Home", bundle: .module) }
+    static var computerThisMac: String { String(localized: "home.engine.computer.thisMac", defaultValue: "This Mac", table: "Home", bundle: .module) }
+    static var computerNew: String { String(localized: "home.engine.computer.new", defaultValue: "New Cloud Computer…", table: "Home", bundle: .module) }
+    static var computerMacNote: String {
+        String(localized: "home.engine.computer.macNote", defaultValue: "The Chief uses this Mac's apps. Pick a Cloud computer to keep its clicks and typing off this Mac.",
+               table: "Home", bundle: .module)
+    }
+    static var computerCloudNote: String {
+        String(localized: "home.engine.computer.cloudNote", defaultValue: "The Chief uses this Cloud computer's desktop and browser, from its next turn.",
+               table: "Home", bundle: .module)
+    }
+    static var computerShowDesktop: String {
+        String(localized: "home.engine.computer.showDesktop", defaultValue: "Show Desktop", table: "Home", bundle: .module)
+    }
     static var agentSection: String { String(localized: "home.engine.section.agent", defaultValue: "Agent", table: "Home", bundle: .module) }
     static var appearanceSection: String {
         String(localized: "home.engine.section.appearance", defaultValue: "Appearance", table: "Home", bundle: .module)

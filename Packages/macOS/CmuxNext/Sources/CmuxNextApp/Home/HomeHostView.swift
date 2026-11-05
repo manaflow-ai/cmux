@@ -141,6 +141,7 @@ final class HomeHostView: NSView {
             _ = services?.registry.perform(ChiefInspectorHandlers.actionID, invocation: invocation)
         }
         settingsView.recents = services.chiefModelRecents
+        settingsView.bindCloudComputers(services.registry) { [weak services] in services?.machines.cloud.map { .init(id: $0.machineID, title: $0.machine.title) } ?? [] }
         // All Chief Settings…: Settings > Chief, the page with every Chief setting.
         settingsView.onAllSettings = { [weak self, weak services] in
             self?.settings.close()
@@ -156,8 +157,7 @@ final class HomeHostView: NSView {
         settingsView.bindPrimary(directory: service.directory, conversation: conversation)  // the Primary Chief row
         teleportChips = ChiefTeleportChips(model: services.chiefTeleport)
         teleportChips?.follow(for: self, { [weak service] in service?.showsTeleport(conversation: conversation) ?? false }) { [weak self] in
-            self?.transcript.headerPillAccessory = $0
-            self?.settingsView.showTeleport($1)
+            self?.settingsView.showTeleport($0)
         }
         // The stop button (HomeHostView+StopAll): a click, Esc and Cmd-. stop the Chief; Option-click stops all agents.
         let registry = services.registry
