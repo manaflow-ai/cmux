@@ -21,6 +21,7 @@ const CLOCK_TIMES = new RegExp(CLOCK_TIME, "g");
 // the clock times, not one nested pattern, so long runs of times cannot backtrack.
 const CLOCK_TOKEN = new RegExp(`(?<![\\d.:])${CLOCK_TIME}(?![\\d:])`, "g");
 const CLOCK_JOIN = /^(?:\s*,\s*(?:(?:and|or)\s+)?|\s+(?:and|or|to|through|until)\s+|\s*[\u2013\u2014-]\s*)$/;
+const ISO_SPAN = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?/g;
 const CLOCK_ZONE = /^(?: UTC|Z)\b/;
 const MAX_JOIN = 12;
 
@@ -33,8 +34,15 @@ function clockLists(text: string): Array<{ start: number; end: number }> {
     const zone = text.slice(run.end, run.end + 4).match(CLOCK_ZONE);
     if (zone) lists.push({ start: run.start, end: run.end + zone[0].length });
   };
+  // Clock-like pieces of an ISO timestamp ("T05:21", "-07:00") are not clock times themselves.
+  const iso = [...text.matchAll(ISO_SPAN)].map((m) => [m.index!, m.index! + m[0].length] as const);
   for (const match of text.matchAll(CLOCK_TOKEN)) {
     const start = match.index!;
+    if (iso.some(([from, to]) => start >= from && start < to)) {
+      close();
+      run = undefined;
+      continue;
+    }
     const end = start + match[0].length;
     if (run && start - run.end <= MAX_JOIN && CLOCK_JOIN.test(text.slice(run.end, start))) {
       run.end = end;

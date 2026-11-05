@@ -130,3 +130,11 @@ test("a very long run of times without a zone scans in linear time", () => {
   expect(dateTimes("00:00, ".repeat(60_000) + "01:00 UTC").length).toBe(60_001);
   expect(performance.now() - started).toBeLessThan(3000);
 });
+
+test("an ISO timestamp beside a zoned clock time keeps its own hover and is not read as a list", () => {
+  expect(dateTimes("2026-10-24T05:21-07:00 and 08:00 UTC", postedAt)).toEqual([
+    "2026-10-24T12:21:00.000Z",
+    "2026-10-24T08:00:00.000Z",
+  ]);
+  expect(sources("2026-10-24T05:21-07:00 and 08:00 UTC")).toEqual(["2026-10-24T05:21-07:00", "08:00 UTC"]);
+});
