@@ -11,7 +11,7 @@ import Testing
 
 /// FRAME OWNER REFACTOR S3: the rules the content policy keeps beside PaneGroundCoversPaneTests (the shell never shows
 /// inside a pane rect).
-/// - In a key resize with `motion.frameOwner.terminals` off (the default until the flip), the terminal surface stays
+/// - In a key resize with `motion.frameOwner.terminals` off (the default until cmux-ad m19), the terminal surface stays
 ///   on the pane edge that does not move, for each side a pane can grow or shrink on, while its host (the container)
 ///   follows the pane in every frame; the surface takes one size per press, at the press, and none in a spring frame
 ///   or at the landing (the tests named `...WithTheSwitchOff`).
