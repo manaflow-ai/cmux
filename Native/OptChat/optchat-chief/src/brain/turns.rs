@@ -173,7 +173,12 @@ impl Brain {
                     let status = chat.status();
                     let notice = stuck_notice(&status);
                     let cleared = notice.is_none();
-                    let _ = tx.send(Input::CompactorStuck(notice));
+                    // Only when a line is or was stuck: with none, there is no
+                    // notice to post or retract, and a turn start sends the
+                    // brain nothing more than it did before issue 36026.
+                    if !cleared || !status.stuck.is_empty() || status.recovered {
+                        let _ = tx.send(Input::CompactorStuck(notice));
+                    }
                     // Every stuck node built: the compactor works, which
                     // also answers the probe's notice.
                     if cleared && status.recovered {
