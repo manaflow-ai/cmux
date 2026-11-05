@@ -43,4 +43,3 @@ extension PairInviteCardPanel {
         return card
     }
 }
-
