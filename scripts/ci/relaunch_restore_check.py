@@ -388,6 +388,8 @@ def usable(inst: Instance, before: dict, chat: str, shown_before: list[dict], wh
 def live_turn(inst: Instance, chat: str, n: int, seconds: float = 30.0) -> tuple[int | None, str]:
     """(ms from send to answer, why not): a new turn through the reattached chat, answered by the test agent."""
     had = chat_messages(inst, chat)
+    if had < 0:
+        return None, "the chat could not be read before the live turn"
     started = time.monotonic()
     sent = inst.cmux("agents", "chat", "send", chat, "--", f"{PROMPT} live {n}", timeout=30)
     if isinstance(sent, dict) and sent.get("error"):
