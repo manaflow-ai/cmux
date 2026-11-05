@@ -84,7 +84,10 @@ pub(crate) fn pick_reclaim(
 /// `surfaces` without the views of a terminal a client is attached to or that is kept
 /// (`set-terminal-keep`): what `park-tabs` may park. A surface no candidate shows is kept as
 /// given; `park_terminal_tabs` skips it when it shows no live terminal.
-pub(crate) fn drop_watched(candidates: &[ReclaimCandidate], surfaces: &[SurfaceId]) -> Vec<SurfaceId> {
+pub(crate) fn drop_watched(
+    candidates: &[ReclaimCandidate],
+    surfaces: &[SurfaceId],
+) -> Vec<SurfaceId> {
     let watched: HashSet<SurfaceId> = candidates
         .iter()
         .filter(|c| c.attached || c.kept)
@@ -398,7 +401,8 @@ mod tests {
 
     #[test]
     fn park_tabs_leaves_watched_and_kept_terminals_running() {
-        let watched = ReclaimCandidate { attached: true, surfaces: vec![sid(2), sid(3)], ..idle(2, 0) };
+        let watched =
+            ReclaimCandidate { attached: true, surfaces: vec![sid(2), sid(3)], ..idle(2, 0) };
         let kept = ReclaimCandidate { kept: true, ..idle(4, 0) };
         let busy = ReclaimCandidate { prompt_since_ms: None, ..idle(5, 0) };
         let candidates = [idle(1, 0), watched, kept, busy];

@@ -212,7 +212,9 @@ pub(super) fn run_with(
     let (mut trimmed, mut removed, mut rewrites) = (0_usize, 0_usize, 0_usize);
     for (terminal_id, keep) in plan(&parked, now_ms, max_total_bytes, low) {
         let ok = match keep {
-            Keep::RecordOnly => fs::remove_file(super::snapshot::path(directory, &terminal_id)).is_ok(),
+            Keep::RecordOnly => {
+                fs::remove_file(super::snapshot::path(directory, &terminal_id)).is_ok()
+            }
             // Each rewrite replays its file a dozen times under the store's pass lock: a backlog spreads over passes.
             Keep::Lines(_) if rewrites == MAX_REWRITES_PER_PASS => false,
             Keep::Lines(lines) => {
@@ -242,7 +244,9 @@ pub(super) fn run_with(
 fn trim(directory: &Path, terminal_id: &TerminalPublicId, lines: usize) -> anyhow::Result<bool> {
     let file = super::snapshot::path(directory, terminal_id);
     let Some(mut header) = super::snapshot::read_header(&file) else { return Ok(false) };
-    let Some((replay, _, _)) = super::snapshot::read(directory, terminal_id) else { return Ok(false) };
+    let Some((replay, _, _)) = super::snapshot::read(directory, terminal_id) else {
+        return Ok(false);
+    };
     let bytes = trimmed_replay(&replay.bytes, replay.cols, replay.rows, lines)
         .ok_or_else(|| anyhow::anyhow!("the snapshot does not replay"))?;
     header["kept_lines"] = serde_json::json!(lines);
@@ -270,8 +274,13 @@ fn trim(directory: &Path, terminal_id: &TerminalPublicId, lines: usize) -> anyho
 pub(crate) fn trimmed_replay(replay: &[u8], cols: u16, rows: u16, lines: usize) -> Option<Vec<u8>> {
     let (cols, rows) = (cols.max(1), rows.max(1));
     let parse = |bytes: &[u8]| {
-        let mut terminal =
-            ghostty_vt::Terminal::new(cols, rows, 64 * 1024 * 1024, ghostty_vt::Callbacks::default()).ok()?;
+        let mut terminal = ghostty_vt::Terminal::new(
+            cols,
+            rows,
+            64 * 1024 * 1024,
+            ghostty_vt::Callbacks::default(),
+        )
+        .ok()?;
         terminal.vt_write(bytes);
         Some(terminal)
     };

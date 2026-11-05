@@ -29,7 +29,11 @@ fn snapshots_keep_fewer_lines_as_they_age() {
     ];
     assert_eq!(
         plan(&files, NOW, u64::MAX, false),
-        [(id(4), Keep::RecordOnly), (id(3), Keep::Lines(MONTH_LINES)), (id(2), Keep::Lines(WEEK_LINES))],
+        [
+            (id(4), Keep::RecordOnly),
+            (id(3), Keep::Lines(MONTH_LINES)),
+            (id(2), Keep::Lines(WEEK_LINES))
+        ],
         "the oldest first; a fresh one and one already in its tier stay"
     );
 }
@@ -42,7 +46,11 @@ fn a_trim_never_raises_what_a_file_keeps() {
 
 #[test]
 fn over_the_budget_the_oldest_step_down_first() {
-    let files = [parked(1, 0, None, 100 * MIB), parked(2, 0, None, 100 * MIB), parked(3, 0, None, 100 * MIB)];
+    let files = [
+        parked(1, 0, None, 100 * MIB),
+        parked(2, 0, None, 100 * MIB),
+        parked(3, 0, None, 100 * MIB),
+    ];
     // 300 MiB over a 256 MiB budget: the oldest (by written_at, then order) steps to 500 lines (counted as half).
     let mut older = files.clone();
     older[2].written_at_ms -= 1;
@@ -68,7 +76,8 @@ fn a_low_disk_removes_and_never_rewrites() {
 }
 
 fn replay_with_lines(count: usize) -> Vec<u8> {
-    let mut source = ghostty_vt::Terminal::new(40, 5, 64 * 1024 * 1024, Default::default()).unwrap();
+    let mut source =
+        ghostty_vt::Terminal::new(40, 5, 64 * 1024 * 1024, Default::default()).unwrap();
     for line in 0..count {
         source.vt_write(format!("\x1b[1mline {line}\x1b[0m\r\n").as_bytes());
     }
@@ -76,7 +85,8 @@ fn replay_with_lines(count: usize) -> Vec<u8> {
 }
 
 fn rows_of(replay: &[u8]) -> (usize, String) {
-    let mut terminal = ghostty_vt::Terminal::new(40, 5, 64 * 1024 * 1024, Default::default()).unwrap();
+    let mut terminal =
+        ghostty_vt::Terminal::new(40, 5, 64 * 1024 * 1024, Default::default()).unwrap();
     terminal.vt_write(replay);
     (terminal.scrollback_rows(), terminal.plain_text().unwrap())
 }
@@ -96,9 +106,10 @@ fn a_trimmed_replay_keeps_the_newest_lines_and_the_screen() {
 }
 
 fn directory(name: &str) -> std::path::PathBuf {
-    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-    let directory =
-        std::env::temp_dir().join(format!("cmux-parked-trim-{name}-{}-{stamp}", std::process::id()));
+    let stamp =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let directory = std::env::temp_dir()
+        .join(format!("cmux-parked-trim-{name}-{}-{stamp}", std::process::id()));
     fs::create_dir_all(&directory).unwrap();
     directory
 }
@@ -127,16 +138,26 @@ fn the_pass_trims_parked_files_and_leaves_running_ones() {
     run_with(&directory, &parked, NOW, u64::MAX, false);
     let (trimmed, _, _) = super::super::snapshot::read(&directory, &id(1)).unwrap();
     assert!(rows_of(&trimmed.bytes).0 <= WEEK_LINES);
-    let header = super::super::snapshot::read_header(&super::super::snapshot::path(&directory, &id(1))).unwrap();
+    let header =
+        super::super::snapshot::read_header(&super::super::snapshot::path(&directory, &id(1)))
+            .unwrap();
     assert_eq!(header["kept_lines"], WEEK_LINES);
     assert_eq!(header["written_at_ms"], NOW - 3 * DAY_MS, "a trim keeps the age");
     let (untouched, _, _) = super::super::snapshot::read(&directory, &id(2)).unwrap();
-    assert_eq!(untouched.bytes, replay, "a running (or not yet placed) terminal's snapshot is never trimmed");
-    assert!(!super::super::snapshot::path(&directory, &id(3)).exists(), "past 30 days the record alone stays");
+    assert_eq!(
+        untouched.bytes, replay,
+        "a running (or not yet placed) terminal's snapshot is never trimmed"
+    );
+    assert!(
+        !super::super::snapshot::path(&directory, &id(3)).exists(),
+        "past 30 days the record alone stays"
+    );
     // A second pass in the same tier rewrites nothing.
-    let before = fs::metadata(super::super::snapshot::path(&directory, &id(1))).unwrap().modified().unwrap();
+    let before =
+        fs::metadata(super::super::snapshot::path(&directory, &id(1))).unwrap().modified().unwrap();
     run_with(&directory, &parked, NOW, u64::MAX, false);
-    let after = fs::metadata(super::super::snapshot::path(&directory, &id(1))).unwrap().modified().unwrap();
+    let after =
+        fs::metadata(super::super::snapshot::path(&directory, &id(1))).unwrap().modified().unwrap();
     assert_eq!(before, after);
     let _ = fs::remove_dir_all(&directory);
 }

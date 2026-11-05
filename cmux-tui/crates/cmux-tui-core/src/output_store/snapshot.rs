@@ -72,7 +72,8 @@ pub(super) struct Writer {
 impl Writer {
     pub(super) fn start(&self, mux: Weak<Mux>) -> anyhow::Result<()> {
         // The store's prune at start trims the parked snapshots: the day of the next trim starts now.
-        self.state.0.lock().unwrap_or_else(PoisonError::into_inner).last_trim = Some(Instant::now());
+        self.state.0.lock().unwrap_or_else(PoisonError::into_inner).last_trim =
+            Some(Instant::now());
         let state = self.state.clone();
         let thread = std::thread::Builder::new()
             .name("mux-output-store-writer".into())
@@ -144,10 +145,12 @@ fn run(mux: &Weak<Mux>, state: &(Mutex<WriterState>, Condvar)) {
                     // An idle session wakes once a day, for the parked snapshots' trim.
                     None => {
                         let wait = guard.last_trim.map_or(super::parked_trim::PASS_EVERY, |last| {
-                            (last + super::parked_trim::PASS_EVERY).saturating_duration_since(Instant::now())
+                            (last + super::parked_trim::PASS_EVERY)
+                                .saturating_duration_since(Instant::now())
                         });
-                        let (next, waited) =
-                            changed.wait_timeout(guard, wait).unwrap_or_else(PoisonError::into_inner);
+                        let (next, waited) = changed
+                            .wait_timeout(guard, wait)
+                            .unwrap_or_else(PoisonError::into_inner);
                         guard = next;
                         if waited.timed_out() {
                             guard.due = Some(Instant::now());
