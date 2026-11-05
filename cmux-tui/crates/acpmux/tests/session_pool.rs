@@ -1340,8 +1340,7 @@ async fn a_new_session_fails_clearly_when_the_fresh_host_also_misses_hello() {
 /// A pooled host whose process exits is not served: it is ended and the
 /// session starts on a fresh host. A live but slow host is covered by the
 /// slow pooled-start regression above and remains in place.
-#[tokio::test(flavor = "multi_thread")]
-async fn a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host() {
+async fn a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_body() {
     let daemon = Daemon::new("wedge", 0);
     let mut rpc = daemon.rpc().await;
     let home = daemon.home.clone();
@@ -1393,6 +1392,102 @@ async fn a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host() {
         unsafe { libc::kill(helper as i32, libc::SIGKILL) };
     }
     assert!(ended, "a process under the dead pooled host runs on without an owner");
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_copy_0() {
+    a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_copy_1() {
+    a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_copy_2() {
+    a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_copy_3() {
+    a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_copy_4() {
+    a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_copy_5() {
+    a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_copy_6() {
+    a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_copy_7() {
+    a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_copy_8() {
+    a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_copy_9() {
+    a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_copy_10() {
+    a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_copy_11() {
+    a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_copy_12() {
+    a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_copy_13() {
+    a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_copy_14() {
+    a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_copy_15() {
+    a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_copy_16() {
+    a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_copy_17() {
+    a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_copy_18() {
+    a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_copy_19() {
+    a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_copy_20() {
+    a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_copy_21() {
+    a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_copy_22() {
+    a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_copy_23() {
+    a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host_body().await
 }
 
 /// A pooled host whose link stopped reading (an acknowledgement failed while its socket still
