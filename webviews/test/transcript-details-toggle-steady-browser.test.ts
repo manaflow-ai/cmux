@@ -234,6 +234,9 @@ await requireBrowserLane("transcript-details-toggle-steady-browser.test.ts", asy
       console.log(
         `${selector}: ${late.length} late read(s) left out, at ${late.map((frame) => `${(frame.t - frames[0]!.t).toFixed(0)}ms (+${frame.lag!.toFixed(0)}ms)`).join(", ")}`,
       );
+    // Too few reads left would let a jump pass unseen: the run is no measure then.
+    if (late.length * 2 > frames.length)
+      throw new Error(`${selector}: ${late.length} of ${frames.length} reads ran late; the frames are not measured`);
     return { frames: [before, ...frames.filter((frame) => !(frame.lag! > FRAME_MS))], rest: await read() };
   };
   const viewBox = (page: Page) =>
