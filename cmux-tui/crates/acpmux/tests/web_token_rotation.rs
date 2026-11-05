@@ -129,8 +129,7 @@ fn cli(home: &std::path::Path, args: &[&str]) -> std::process::Output {
         .unwrap()
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections() {
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body() {
     let home = home("rot");
     let (_daemon, ready) = start(&home, &[]);
     let url = ready["webUrl"].as_str().unwrap().to_owned();
@@ -204,6 +203,262 @@ async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connectio
     let out = cli(&home, &["--json", "web"]);
     let printed: Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(token_of(printed["url"].as_str().unwrap()), new);
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_0() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_1() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_2() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_3() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_4() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_5() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_6() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_7() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_8() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_9() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_10() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_11() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_12() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_13() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_14() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_15() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_16() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_17() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_18() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_19() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_20() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_21() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_22() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_23() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_24() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_25() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_26() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_27() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_28() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_29() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_30() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_31() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_32() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_33() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_34() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_35() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_36() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_37() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_38() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_39() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_40() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_41() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_42() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_43() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_44() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_45() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_46() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_47() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_48() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_49() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_50() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_51() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_52() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_53() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_54() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_55() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_56() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_57() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_58() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_59() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_60() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_61() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_62() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_copy_63() {
+    rotate_token_replaces_the_live_and_saved_token_and_closes_web_connections_body().await
 }
 
 #[test]
