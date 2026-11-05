@@ -88,7 +88,7 @@ extension WindowRootView {
     func observeMainPane() -> Task<Void, Never> {
         Task { [weak self] in
             for await _ in ObservationStream({ () -> [CGFloat] in [Metrics.mainPaneGutter, Metrics.mainPaneCornerRadius,
-                                                Metrics.mainPaneChromeShade(isDark: false), Metrics.mainPaneChromeShade(isDark: true), Metrics.chromeShapeKey] }) {
+                                                Metrics.mainPaneChromeShade(isDark: false), Metrics.mainPaneChromeShade(isDark: true), Metrics.chromeShapeKey] + CornerMorphVariant.observedInputs }) {
                 self?.applyMainPane()
             }
         }
@@ -155,6 +155,12 @@ extension WindowRootView {
             NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window)
         }
         cornerFlush.apply(content: contentHost, radius: radius, isDark: themeTokens.isDark, page: presentsPage, shade: mainPaneShade, in: self)
+        // Debug `sidebar.cornerMorph`: where the flush corner does not draw (it joins the sidebar to the tabs itself), the
+        // card's sidebar edge and the sidebar's selected row become one shape. Leo 2026-11-05: "we need to have some sort of way to morph them together".
+        if !CornerFlush.current.isOn || presentsPage {
+            let (alpha, morph) = sidebar.cornerMorphShade(Metrics.mainPaneChromeShade(isDark: themeTokens.isDark), isDark: themeTokens.isDark, in: mainPaneShade, enabled: radius > 0 && !Metrics.floatingPanes) { [weak self] in self?.updateMainPaneShade() }
+            mainPaneShade.update(card: contentHost.frame, radius: radius, alpha: alpha, morph: morph, leading: sidebarSide == .left)
+        }
     }
 }
 

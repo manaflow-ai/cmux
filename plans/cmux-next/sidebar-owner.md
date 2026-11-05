@@ -777,6 +777,15 @@
   token with the tab pills (6 pt by default, was the outer 10 pt); `densityPaneCornerRadius` is 8 in every density (was
   10 compact, 11 comfortable). Cards and edit boxes around a row stay that radius plus `space1`. The row insets are
   a590's. Regression: `DefaultCornerRadiusTests`.
+- 2026-11-05: Debug `sidebar.cornerMorph` (off by default; thunderdome direction A, "morph"). Leo, verbatim: "There's
+  just this extremely awful corner area where it's like, okay, you have this plus symbol, and then you have the divider,
+  and then you have like the workspaces, and then you have the top horizontal tab. And it's just like, bro, we need to
+  like have some sort of way to morph them together." `shell` joins the sidebar's titlebar row (+, traffic lights) to
+  the card's tab row as one band, the list in a recess under it with a concave fillet; `bridge` joins the selected
+  workspace row to the card through concave fillets above and below; `both`. Only the chrome shade's cut-out changes
+  (`CornerMorph`, `MainPaneChromeShadeView`), with the separate look's tint while on; no view moves, nothing animates.
+  Comfortable and expanded sidebar density only: compact (Lawrence's) keeps the plain card. Regression:
+  `CornerMorphShapeTests`.
 - 2026-11-05: sidebar corners follow the one concentric corner rule. Lawrence, verbatim (2026-11-04): "all nested
   radius everywhere, for all types of panes where it applies, must be concentric, where inner radius is outer minus
   padding, where padding is configurable too". Rows and rail tiles take the one corner radius
