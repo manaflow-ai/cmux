@@ -1159,7 +1159,7 @@ class PixelCasesTests(unittest.TestCase):
                 self.assertNotIn("use_pane", dos, s["id"])
                 self.assertEqual(dos[:2], ["rk_focus", "settings_file"], s["id"])
                 self.assertEqual(after[0]["pane"], "p0")
-                self.assertEqual(after[1]["unset"], ["appearance.themeEdits", "appearance.surfaces"])
+                self.assertEqual(after[1]["unset"], ["appearance.themeEdits", "appearance.surfaces", "sidebar.hoverCards"])
                 self.assertEqual(dos[-1], "expect")
                 # cmux22 2026-11-03 (sweep c7cef08): the echo was typed 0.28 s after the real HID Ctrl-C, before zsh had
                 # redrawn its prompt; the daemon showed "J> cho rv-done-..." (the 'e' lost). The line is typed only once
