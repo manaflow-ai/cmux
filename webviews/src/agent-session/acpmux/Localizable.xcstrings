@@ -55563,6 +55563,33 @@
         }
       }
     },
+    "turn.retryChangedFiles": {
+      "comment": "Agent pane: Retry warns when the response turn changed files, so retrying is visible alongside the reply (ChatGPT parity).",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "needs_review", "value": "إعادة محاولة الرد (غيّرت هذه الجولة ملفات)" } },
+        "bs": { "stringUnit": { "state": "needs_review", "value": "Ponovi odgovor (ova runda je promijenila datoteke)" } },
+        "da": { "stringUnit": { "state": "needs_review", "value": "Prøv svaret igen (denne tur ændrede filer)" } },
+        "de": { "stringUnit": { "state": "needs_review", "value": "Antwort wiederholen (dieser Durchlauf hat Dateien geändert)" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Retry response (this turn changed files)" } },
+        "es": { "stringUnit": { "state": "needs_review", "value": "Reintentar la respuesta (este turno cambió archivos)" } },
+        "fr": { "stringUnit": { "state": "needs_review", "value": "Réessayer la réponse (ce tour a modifié des fichiers)" } },
+        "it": { "stringUnit": { "state": "needs_review", "value": "Riprova la risposta (questo turno ha modificato dei file)" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "応答を再試行（このターンでファイルが変更されました）" } },
+        "km": { "stringUnit": { "state": "needs_review", "value": "ព្យាយាមចម្លើយម្ដងទៀត (វេននេះបានផ្លាស់ប្តូរឯកសារ)" } },
+        "ko": { "stringUnit": { "state": "needs_review", "value": "응답 다시 시도 (이 턴에서 파일이 변경됨)" } },
+        "nb": { "stringUnit": { "state": "needs_review", "value": "Prøv svaret på nytt (denne runden endret filer)" } },
+        "pl": { "stringUnit": { "state": "needs_review", "value": "Ponów odpowiedź (ta tura zmieniła pliki)" } },
+        "pt-BR": { "stringUnit": { "state": "needs_review", "value": "Tentar resposta novamente (esta rodada alterou arquivos)" } },
+        "ru": { "stringUnit": { "state": "needs_review", "value": "Повторить ответ (этот ход изменил файлы)" } },
+        "th": { "stringUnit": { "state": "needs_review", "value": "ลองคำตอบอีกครั้ง (เทิร์นนี้เปลี่ยนไฟล์)" } },
+        "tr": { "stringUnit": { "state": "needs_review", "value": "Yanıtı yeniden dene (bu tur dosyaları değiştirdi)" } },
+        "uk": { "stringUnit": { "state": "needs_review", "value": "Повторити відповідь (цей хід змінив файли)" } },
+        "vi": { "stringUnit": { "state": "needs_review", "value": "Thử lại phản hồi (lượt này đã thay đổi tệp)" } },
+        "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "重试回复（此轮更改了文件）" } },
+        "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "重試回覆（此輪變更了檔案）" } }
+      }
+    },
     "turn.retryLabel": {
       "comment": "Agent pane",
       "extractionState": "manual",
