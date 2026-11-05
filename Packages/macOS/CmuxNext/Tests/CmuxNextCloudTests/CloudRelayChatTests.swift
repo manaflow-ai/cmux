@@ -33,12 +33,14 @@ import Testing
     /// detail, cause and retry, an auth kind; an older machine's bare error has none of them.
     @Test func anErrorKeepsItsTypeFromTheMachine() {
         var answer = CloudRelayChat.Answer()
-        answer.apply(line: #"{"kind":"error","code":"chat.failed","message":"daemon connection closed","detail":"daemon_closed","acpmux_code":"runtime","retryable":true,"cause":"panicked","error_kind":"auth.signed_out"}"#, at: .seconds(2))
+        answer.apply(line: #"{"kind":"error","code":"chat.failed","message":"daemon connection closed","detail":"daemon_closed","acpmux_code":"runtime","retryable":true,"cause":"panicked","error_kind":"auth.signed_out","recovery":"Run acpmux again."}"#, at: .seconds(2))
         #expect(answer.errorCode == "chat.failed")
         #expect(answer.errorDetail == "daemon_closed")
         #expect(answer.errorCause == "panicked")
         #expect(answer.errorKind == "auth.signed_out")
         #expect(answer.errorRetryable == true)
+        #expect(answer.errorRecovery == "Run acpmux again.")
+        #expect(answer.errorTexts["error_recovery"] == "Run acpmux again.")
         var bare = CloudRelayChat.Answer()
         bare.apply(line: #"{"kind":"error","code":"chat.failed","message":"x","detail":7,"retryable":"yes"}"#, at: .zero)
         #expect(bare.errorDetail == nil && bare.errorCause == nil && bare.errorKind == nil && bare.errorRetryable == nil)

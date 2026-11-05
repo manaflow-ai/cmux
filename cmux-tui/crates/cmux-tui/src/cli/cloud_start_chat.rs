@@ -924,11 +924,15 @@ fn relay_chat(runner: &mut dyn Runner, request: &Request, listed: &Value) -> Rel
 }
 
 /// The machine's typed error the app relayed (`CloudStartSession.relayFields`): acpmux's detail, a closed
-/// daemon's cause, the error's kind and whether a retry may work; only the fields the app sent.
+/// daemon's cause, the error's kind, what to do and whether a retry may work; only the fields the app sent.
 fn typed_error(relayed: &Value) -> Value {
     let mut typed = serde_json::Map::new();
-    for (from, to) in [("error_detail", "detail"), ("error_cause", "cause"), ("error_kind", "kind")]
-    {
+    for (from, to) in [
+        ("error_detail", "detail"),
+        ("error_cause", "cause"),
+        ("error_kind", "kind"),
+        ("error_recovery", "recovery"),
+    ] {
         if let Some(text) = at(relayed, from).as_str() {
             typed.insert(to.to_owned(), json!(text));
         }
