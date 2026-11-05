@@ -9620,6 +9620,78 @@
             "state": "translated",
             "value": "アップデートがあります：クリックしてアップデートし再起動"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dostupno ažuriranje: kliknite za ažuriranje i ponovno pokretanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opdatering tilgængelig: Klik for at opdatere og genstarte"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiornamento disponibile: fai clic per aggiornare e riavviare"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មានការធ្វើបច្ចុប្បន្នភាព៖ ចុចដើម្បីធ្វើបច្ចុប្បន្នភាព និងចាប់ផ្តើមឡើងវិញ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppdatering tilgjengelig: Klikk for å oppdatere og starte på nytt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dostępna aktualizacja: kliknij, aby zaktualizować i uruchomić ponownie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atualização disponível: clique para atualizar e reiniciar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступно обновление: нажмите, чтобы обновить и перезапустить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มีอัปเดต: คลิกเพื่ออัปเดตและรีสตาร์ท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Güncelleme Var: Güncellemek ve Yeniden Başlatmak için Tıklayın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступне оновлення: натисніть, щоб оновити й перезапустити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Có bản cập nhật: Nhấp để cập nhật và khởi động lại"
+          }
         }
       }
     },
@@ -9678,6 +9750,78 @@
           "stringUnit": {
             "state": "translated",
             "value": "アップデートがあります（%@）：クリックしてアップデートし再起動"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dostupno ažuriranje (%@): kliknite za ažuriranje i ponovno pokretanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opdatering tilgængelig (%@): Klik for at opdatere og genstarte"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiornamento disponibile (%@): fai clic per aggiornare e riavviare"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មានការធ្វើបច្ចុប្បន្នភាព (%@)៖ ចុចដើម្បីធ្វើបច្ចុប្បន្នភាព និងចាប់ផ្តើមឡើងវិញ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppdatering tilgjengelig (%@): Klikk for å oppdatere og starte på nytt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dostępna aktualizacja (%@): kliknij, aby zaktualizować i uruchomić ponownie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atualização disponível (%@): clique para atualizar e reiniciar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступно обновление (%@): нажмите, чтобы обновить и перезапустить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มีอัปเดต (%@): คลิกเพื่ออัปเดตและรีสตาร์ท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Güncelleme Var (%@): Güncellemek ve Yeniden Başlatmak için Tıklayın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступне оновлення (%@): натисніть, щоб оновити й перезапустити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Có bản cập nhật (%@): Nhấp để cập nhật và khởi động lại"
           }
         }
       }
