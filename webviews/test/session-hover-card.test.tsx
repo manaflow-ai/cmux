@@ -1,6 +1,6 @@
 // Session reference hover cards (started/SessionHoverCard.tsx): a started chat's name chip and a
 // session id in a reply show the session as a row of Claude Code's PR list does, the title over
-// `Status · repo #N`, then its folder and branch, beside the chip (above it when more of the reply runs under
+// `Status · repo #N`, then its folder and branch and when it last changed, beside the chip (above it when more of the reply runs under
 // it), after a short rest of the pointer, at once for keyboard focus, and a click on it opens it.
 import { afterAll, beforeAll, describe, expect, jest, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -40,6 +40,7 @@ describe("hover info", () => {
       title: "Switch gh-merge-green to merge-freeze issues",
       status: "done",
       meta: ["cmux"],
+      changedAt: 5,
     });
     expect(hoverInfo(entry({ branch: "merge-freeze" })).meta).toEqual(["cmux", "merge-freeze"]);
     expect(hoverInfo(entry({ host: "mini-7", hostKind: "cloud", branch: "main" })).meta).toEqual(["cmux", "mini-7"]);
@@ -258,7 +259,7 @@ test("a name chip's card waits for the pointer, shows at once for focus, takes A
     await act(async () => wait(1));
     expect(card()?.getAttribute("role")).toBe("dialog");
     expect(card()?.getAttribute("aria-label")).toBe("Switch gh-merge-green to merge-freeze issues");
-    expect(card()?.textContent).toBe("Switch gh-merge-green to merge-freeze issuesRunningcmux");
+    expect(card()?.textContent).toBe("Switch gh-merge-green to merge-freeze issuesRunningcmux · updated just now");
     expect(chip.getAttribute("aria-describedby")).toBe(card()?.id ?? "missing");
 
     // Pointer away: the card goes after its grace.
