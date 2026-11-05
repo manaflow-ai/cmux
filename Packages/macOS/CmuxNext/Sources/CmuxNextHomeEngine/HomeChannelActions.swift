@@ -32,6 +32,7 @@ public struct HomeChannelActions {
             let (title, members, chief) = (invocation["title"]?.stringValue ?? "", invocation["members"]?.stringValue ?? "", invocation["chief"]?.stringValue)
             let shows = invocation.origin == .user
             // task-owner: the action run (its `.waiting` work awaits it; a capturing caller gets its value).
+            // main-hop-allow: the action's own `.waiting(.network)` work: it awaits the Worker's channel.create and does one show on success; no model change to batch
             let task: ActionResultWork = Task { @MainActor in
                 do {
                     let made = try await actions.create(title: title, chiefName: chief, members: members)
