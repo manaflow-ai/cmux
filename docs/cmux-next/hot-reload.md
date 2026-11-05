@@ -329,7 +329,8 @@ starts the dev server `server --local` runs and opens `/agent-pane/?mock`. For e
 sends a prompt so a fresh turn streams, types a draft, saves the edit, and checks that it shows up
 in the same page with the draft, the transcript and the streaming turn kept. `--audit` also saves every pane
 component the page loaded, one at a time, and lists the ones that reload the page instead. It
-undoes every edit before it exits. Run it on the fleet with
+edits a copy of the committed tree in a temporary directory, not your checkout, so a file you save
+while it runs is never touched; the copy is deleted when it exits. Run it on the fleet with
 `cmux-ci test -- bash -c 'cd webviews && node scripts/hot-reload-proof.mjs --audit "$FAST_CHECKS_OUT"'`.
 
 Measured on `feat-cmux-next` (2026-11-05, fleet Linux runner, Chromium):
