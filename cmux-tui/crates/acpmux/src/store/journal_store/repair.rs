@@ -65,6 +65,17 @@ enum RepairError {
     Stopped,
 }
 
+/// A log segment's range that the open's repair read and found equal to the journal's merged
+/// lines: the segment's file id when it was read, the range's start, and its bytes
+/// (`Order::read_segments`). The checkpoint writes these bytes back over the range, then syncs
+/// ([`Inner::rewrite_verified`]), only while the same file is there and still reaches the range.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct Verified {
+    pub(super) ino: u64,
+    pub(super) offset: u64,
+    pub(super) bytes: Vec<u8>,
+}
+
 /// One piece of a log read back from a repair's start: a whole line with its `seq`, or bytes
 /// that do not read (a torn tail, a hole of zeros, a line that does not parse).
 struct Piece {
@@ -200,14 +211,25 @@ impl Inner {
                     .is_some_and(|(at, bytes)| at == seq && bytes.as_slice() == *line)
             });
         if whole && !rewrite {
-            let read: BTreeSet<PathBuf> = self
-                .local
-                .segments(id)
-                .map_err(chat_error)?
-                .into_iter()
-                .filter(|(index, _)| pieces.iter().any(|piece| piece.segment == *index))
-                .map(|(_, path)| path)
-                .collect();
+            // Each segment's verified range: from its first piece to its last piece's end, the
+            // pieces' bytes in order (they are contiguous: `read_pieces` reads every byte).
+            let mut read: BTreeMap<PathBuf, Verified> = BTreeMap::new();
+            for (index, path) in self.local.segments(id).map_err(chat_error)? {
+                let mut verified: Option<Verified> = None;
+                for piece in pieces.iter().filter(|piece| piece.segment == index) {
+                    let Some((_, line)) = &piece.line else { continue };
+                    let range = verified.get_or_insert_with(|| Verified {
+                        ino: 0,
+                        offset: piece.offset,
+                        bytes: Vec::new(),
+                    });
+                    range.bytes.extend_from_slice(line);
+                }
+                if let Some(mut range) = verified {
+                    range.ino = file_ino(&path).map_err(chat_error)?;
+                    read.insert(path, range);
+                }
+            }
             self.order.lock_or_recover().read_segments.extend(read);
             return Ok(Repaired::Done);
         }
@@ -622,4 +644,20 @@ fn truncate_private(path: &Path, len: u64) -> Result<()> {
     sync_model::cut(&file, len);
     log_sync::sync_segment_ordered(&file)?;
     Ok(())
+}
+
+/// The file id (inode) of `path`; 0 where the platform gives none.
+pub(super) fn file_ino(path: &Path) -> Result<u64> {
+    let meta =
+        std::fs::symlink_metadata(path).with_context(|| format!("stat {}", path.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        Ok(meta.ino())
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = meta;
+        Ok(0)
+    }
 }

@@ -311,10 +311,13 @@ struct Order {
     /// Each chat's newest metadata image that its `session.json` does not hold yet (S3a,
     /// `journal_store/meta.rs`): reads see it first, the checkpoint writes it.
     metas: BTreeMap<String, meta::Pending>,
-    /// The log segments the open's repair read and kept as they were: the next checkpoint syncs
-    /// them before it retires their records (a killed daemon's writes may be in the page cache
-    /// only).
-    read_segments: BTreeSet<PathBuf>,
+    /// The log ranges the open's repair read and kept as they were, each with the bytes it found
+    /// there (equal to the journal's merged lines): the next checkpoint writes those bytes back
+    /// over the range and syncs it before it retires their records. A killed daemon's writes may
+    /// be in the page cache only, and a previous run's failed sync may have dropped pages that
+    /// still read back; the write marks the range dirty again, so its sync puts the bytes on the
+    /// disk whatever happened before (delta review 2 of #35866, D2).
+    read_segments: BTreeMap<PathBuf, repair::Verified>,
     /// The open replayed a `frozen` record (a previous run's failed sync) or found the freeze
     /// marker: its repair writes every replayed chat's lines again.
     rewrite_all: bool,
