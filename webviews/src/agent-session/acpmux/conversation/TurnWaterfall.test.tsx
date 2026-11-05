@@ -7,6 +7,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { TurnFooter } from "./TurnRows";
 import { SummaryRow } from "../rows/SummaryRow";
+import { sameRowFrame } from "../VirtualTranscript";
 import { TurnWaterfall } from "./TurnWaterfall";
 import { TurnActionsContext } from "./turnActions";
 import { turnView } from "./turns";
@@ -166,6 +167,9 @@ test("a background shell that ends after the summary changes the footer's end ke
     .compare;
   expect(memo({ row: footer() }, { row: footer(5_000) })).toBe(false);
   expect(memo({ row: footer(5_000) }, { row: footer(5_000) })).toBe(true);
+  // So does the transcript's frame around it, which would otherwise never reach the row's memo.
+  expect(sameRowFrame({ row: footer() }, { row: footer(5_000) })).toBe(false);
+  expect(sameRowFrame({ row: footer(5_000) }, { row: footer(5_000) })).toBe(true);
 });
 
 test("the end key is exact: 64 more ends, or one end a few ms later, still change it", () => {
