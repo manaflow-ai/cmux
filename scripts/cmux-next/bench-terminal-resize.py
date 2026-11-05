@@ -90,6 +90,7 @@ parser.add_argument("--key-settle-s", type=float, default=0.6, help="after the l
 parser.add_argument("--set", action="append", default=[], help="KEY=true|false: a boolean tunable set after launch")
 parser.add_argument("--held-repeat", type=int, default=0, help="keys layouts: also measure a held key (this many presses)")
 parser.add_argument("--xctrace-rounds", type=int, default=0, help="Time Profiler (attached to the app pid) on this many rounds per layout")
+parser.add_argument("--newtab-runs", type=int, default=0, help="keys layout: also Cmd-T this many times, each after a key resize of its pane")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 APP = (opts.app or "").rstrip("/")
@@ -488,7 +489,33 @@ def keys():
     results = [measure_keys("keys")]
     if opts.held_repeat:
         results.append(measure_keys("keys-held", opts.held_repeat))
+    if opts.newtab_runs:
+        results.append(newtab_after_resize())
     return results
+
+
+def newtab_after_resize():
+    """SCRATCH (RESIZE MAIN BUDGET fix 1): Cmd-T in the focused pane right after a key resize changed its size (the
+    spring landed, past the spare's old 120 ms settle): key ms, first visible frame, the cover the page showed, and
+    whether the spare was laid out at another size than its pane's (`refit`)."""
+    runs = []
+    for index in range(opts.newtab_runs):
+        action = "resizePaneRight" if index % 2 == 0 else "resizePaneLeft"
+        rpc("action.run", {"action": action, "focus": True})
+        time.sleep(0.8)  # bench script: the spring lands, then 120 ms more than the old fit settle
+        result = rpc("debug.new_tab", {"action": "bench_create", "command": "new_tab"}, timeout=20) or {}
+        marks = sorted({s["name"] for s in result.get("spans") or [] if s.get("ms", 0) == 0 and s["name"].startswith("newTab.cover")})
+        state = rpc("debug.new_tab", {}) or {}
+        openings = state.get("openings") or []
+        row = {"run": index, "after": action, "key_ms": result.get("key_ms"), "visible_ms": result.get("visible_ms"),
+               "frames_to_visible": result.get("frames_to_visible"), "cover": marks, "error": result.get("error"),
+               "last_opening": openings[-1] if openings else None}
+        print(f"NEWTAB-AFTER-RESIZE {json.dumps(row)}", flush=True)
+        runs.append(row)
+        time.sleep(0.5)  # bench script: the page shows before its close
+        rpc("action.run", {"action": "closeTab", "focus": True})
+        time.sleep(0.8)  # bench script: the close lands and the next spare is made
+    return {"layout": "newtab-after-resize", "runs": runs}
 
 
 def keys_stress():
