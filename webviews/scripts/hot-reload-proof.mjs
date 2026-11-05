@@ -117,7 +117,7 @@ try {
         navigationListeners.delete(onNavigate);
         if (!reloaded) return resolve();
         // The old document is still the loaded one here: wait for the new one's load.
-        page
+        void page
           .waitForEvent("load", { timeout: 30_000 })
           .catch(() => {})
           .then(resolve);
