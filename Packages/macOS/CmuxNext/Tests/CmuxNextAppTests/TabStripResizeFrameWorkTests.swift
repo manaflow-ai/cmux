@@ -34,7 +34,7 @@ struct TabStripResizeFrameWorkTests {
         init(tabCount: Int) { self.tabCount = tabCount }
 
         func makeContentView(for pane: PaneID) -> NSView {
-            let tabs = (0..<tabCount).map { TabItem(id: TabID("\(pane.rawValue)-tab\($0)"), title: "python3 /tmp/sigwinch.py --seed 100\($0)") }
+            let tabs = (0..<tabCount).map { TabItem(id: CmuxNextTabs.TabID("\(pane.rawValue)-tab\($0)"), title: "python3 /tmp/sigwinch.py --seed 100\($0)") }
             let view = PaneContentView(stripModel: TabStripModel(tabs: tabs, selectedID: tabs[0].id), reveal: reveal)
             view.show(NSView())
             views[pane] = view
@@ -74,7 +74,7 @@ struct TabStripResizeFrameWorkTests {
 
     /// One strip before a frame: what it showed and what it had done.
     struct Before {
-        let frames: [TabID: CGRect]
+        let frames: [CmuxNextTabs.TabID: CGRect]
         let edges: [CGFloat]
         let cellFrames: Int
         let cellLayouts: Int
