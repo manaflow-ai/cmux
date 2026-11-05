@@ -36,6 +36,17 @@ public nonisolated struct CloudRelayChat: Sendable {
         /// `error`'s code and message.
         public var errorCode: String?
         public var errorMessage: String?
+        /// `error`'s type from acpmux on the machine (cmux-host relay `final_event_of`), each a short code: its
+        /// detail (`daemon_closed`), a closed daemon's cause (`panicked`, `socket_left`), its kind
+        /// (`auth.signed_out`), and whether a retry may work. Nil from an older machine.
+        public var errorDetail: String?, errorCause: String?, errorKind: String?
+        public var errorRetryable: Bool?
+
+        /// The error's text fields under the names the app's answer gives them (`CloudStartSession.relayFields`).
+        public var errorTexts: [String: String?] {
+            ["error_code": errorCode, "error_message": errorMessage, "error_detail": errorDetail,
+             "error_cause": errorCause, "error_kind": errorKind]
+        }
         /// From the request to the first `text` event, and to the end.
         public var firstText: Duration?
         public var total: Duration?
@@ -78,6 +89,8 @@ public nonisolated struct CloudRelayChat: Sendable {
             case "error":
                 errorCode = (event["code"] as? String) ?? "cloud.relay.failed"
                 errorMessage = (event["message"] as? String) ?? ""
+                (errorDetail, errorCause, errorKind) = (event["detail"] as? String, event["cause"] as? String, event["error_kind"] as? String)
+                errorRetryable = event["retryable"] as? Bool
                 total = at
             default: return
             }
