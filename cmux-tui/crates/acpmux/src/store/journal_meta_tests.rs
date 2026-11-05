@@ -1237,3 +1237,66 @@ fn a_refused_frozen_record_falls_back_to_a_durable_marker() {
         "a refused frozen record left the restart nothing: it trusted the log's pages and lost acked lines"
     );
 }
+
+/// Delta review of #35866, D1, fail closed, and the bound of #35895: a freeze's fallback marker is
+/// written off the failed sync's count, so a checkpoint never waits for its disk writes. A
+/// checkpoint in flight (held right after its start, `HOLD_AFTER_START`); another thread's
+/// `flush_session` fails its log sync, its `frozen` record is refused (`FAIL_FROZEN_RECORD`), and
+/// it stops right before it writes the marker (`HOLD_BEFORE_FROZEN_MARKER`). The checkpoint must
+/// return, refused, before that thread goes on; it says if it waits for a sync under way
+/// (`NOTE_BEFORE_SYNCS_WAIT`): no timer.
+#[test]
+fn a_checkpoint_does_not_wait_for_a_freezes_fallback_marker() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(100);
+    let store: Arc<dyn Store> = Arc::from(open(home.path(), &journal));
+    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    store.append(CHAT, &record(2, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    // A checkpoint in flight: past its start. It says when it waits for a sync, or that it
+    // returned.
+    let (started_tx, started) = std::sync::mpsc::channel();
+    let (go, go_rx) = std::sync::mpsc::channel();
+    let (events_tx, events) = std::sync::mpsc::channel();
+    let flusher = {
+        let store = Arc::clone(&store);
+        std::thread::spawn(move || {
+            super::journal_store::HOLD_AFTER_START
+                .with(|hold| *hold.borrow_mut() = Some((started_tx, go_rx)));
+            NOTE_BEFORE_SYNCS_WAIT.with(|note| *note.borrow_mut() = Some(events_tx.clone()));
+            let result = store.flush();
+            let _ = events_tx.send("returned");
+            result
+        })
+    };
+    started.recv_timeout(WAIT).unwrap_or_else(|e| panic!("the checkpoint never started: {e}"));
+    // Another thread's flush_session: its log sync fails, its record is refused, and it stops
+    // right before its marker.
+    let (arrived_tx, arrived) = std::sync::mpsc::channel();
+    let (release, release_rx) = std::sync::mpsc::channel();
+    let failing = {
+        let store = Arc::clone(&store);
+        std::thread::spawn(move || {
+            super::journal_store::HOLD_BEFORE_FROZEN_MARKER
+                .with(|hold| *hold.borrow_mut() = Some((arrived_tx, release_rx)));
+            super::journal_store::FAIL_FROZEN_RECORD.with(|fail| fail.set(true));
+            FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(true));
+            let result = store.flush_session(CHAT);
+            FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(false));
+            result
+        })
+    };
+    arrived.recv_timeout(WAIT).unwrap_or_else(|e| panic!("the failed sync never froze: {e}"));
+    let _ = go.send(());
+    let first =
+        events.recv_timeout(WAIT).unwrap_or_else(|e| panic!("no word from the checkpoint: {e}"));
+    let _ = release.send(());
+    let failed = failing.join().unwrap_or_else(|_| panic!("the failing thread panicked"));
+    let checkpointed = flusher.join().unwrap_or_else(|_| panic!("the flush panicked"));
+    assert!(failed.is_err(), "flush_session's sync did not fail as the test asked");
+    assert_eq!(first, "returned", "a checkpoint waited for a freeze's fallback marker");
+    assert!(checkpointed.is_err(), "a checkpoint went past a freeze");
+    assert!(home.path().join("journal-frozen").exists(), "the refused record left no marker");
+}

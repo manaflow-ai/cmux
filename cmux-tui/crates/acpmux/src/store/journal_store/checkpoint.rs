@@ -30,12 +30,21 @@ pub(super) fn read_checkpoint(home: &Path) -> Result<Lsn> {
     }
 }
 
-/// Removes the temporary files of checkpoints a crash interrupted (`write_checkpoint`).
+/// Whether the freeze marker (`<home>/journal-frozen`) is there: a previous run's freeze whose
+/// `frozen` record may not have reached the journal.
+pub(super) fn frozen_marker(home: &Path) -> bool {
+    std::fs::symlink_metadata(home.join(FROZEN_NAME)).is_ok()
+}
+
+/// Removes the temporary files of checkpoints and freeze markers a crash interrupted
+/// (`write_home_file`).
 pub(super) fn remove_checkpoint_temporaries(home: &Path) {
     let Ok(entries) = std::fs::read_dir(home) else { return };
-    let prefix = format!("{CHECKPOINT_NAME}.tmp-");
+    let prefixes = [format!("{CHECKPOINT_NAME}.tmp-"), format!("{FROZEN_NAME}.tmp-")];
     for entry in entries.flatten() {
-        if !entry.file_name().to_string_lossy().starts_with(&prefix) {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if !prefixes.iter().any(|prefix| name.starts_with(prefix.as_str())) {
             continue;
         }
         let path = entry.path();
@@ -53,10 +62,16 @@ pub(super) fn remove_checkpoint_temporaries(home: &Path) {
 /// the checkpoint and recovery synced in write order before it is then durable against a power
 /// loss too, once per checkpoint, before any journal record is retired.
 fn write_checkpoint(home: &Path, lsn: Lsn) -> Result<()> {
-    let path = home.join(CHECKPOINT_NAME);
-    crate::config::refuse_lost_home(&path)?;
-    let tmp = home.join(format!("{CHECKPOINT_NAME}.tmp-{}", std::process::id()));
     let bytes = serde_json::to_vec(&Checkpoint { schema: CHECKPOINT_SCHEMA.into(), lsn })?;
+    write_home_file(home, CHECKPOINT_NAME, &bytes)
+}
+
+/// Writes `<home>/<name>` whole under a temporary name, fully synced, renamed into place, the home
+/// folder synced; an error at any step is returned.
+fn write_home_file(home: &Path, name: &str, bytes: &[u8]) -> Result<()> {
+    let path = home.join(name);
+    crate::config::refuse_lost_home(&path)?;
+    let tmp = home.join(format!("{name}.tmp-{}", std::process::id()));
     let mut options = OpenOptions::new();
     options.write(true).create(true).truncate(true);
     #[cfg(unix)]
@@ -65,7 +80,7 @@ fn write_checkpoint(home: &Path, lsn: Lsn) -> Result<()> {
         options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
     }
     let mut file = options.open(&tmp).with_context(|| format!("write {}", tmp.display()))?;
-    file.write_all(&bytes)?;
+    file.write_all(bytes)?;
     log_sync::sync_full(&file)?;
     drop(file);
     std::fs::rename(&tmp, &path).with_context(|| format!("rename to {}", path.display()))?;
@@ -179,6 +194,7 @@ impl Inner {
         if damage && let Err(error) = self.journal.clear_damage() {
             tracing::warn!("clear the event journal's damage report: {error}");
         }
+        self.clear_frozen_marker();
         self.retire(lsn);
         Ok(())
     }
@@ -247,15 +263,23 @@ impl Inner {
         #[cfg(test)]
         super::hold_in_sync();
         let result = sync();
-        if let Err(error) = &result
-            && error.chain().any(|cause| cause.is::<SyncFailed>())
-        {
+        let why = match &result {
+            Err(error) if error.chain().any(|cause| cause.is::<SyncFailed>()) => {
+                Some(format!("{what}: {error:#}"))
+            }
+            _ => None,
+        };
+        let refused = why.as_deref().is_some_and(|why| {
             #[cfg(test)]
             super::hold_before_freeze();
-            self.freeze(format!("{what}: {error:#}"));
-        }
-        // Ended only now: a checkpoint that waited for it then reads the store frozen.
+            self.freeze_now(why)
+        });
+        // Ended once the store is frozen: a checkpoint that waited for it reads `frozen`, and does
+        // not wait for a fallback marker's disk writes below.
         drop(under_way);
+        if let Some(why) = why {
+            self.freeze_later(refused, why);
+        }
         result
     }
 
@@ -268,8 +292,18 @@ impl Inner {
     /// LSN covers and that LSN was read before this record. It is a control record
     /// (`Journal::append_control`): a full queue never refuses it, and it never waits (delta
     /// review of #35866, D1). The group commit makes it durable as any acknowledged record; the
-    /// journal closes only after the shutdown's last checkpoint (`Store::seal`).
+    /// journal closes only after the shutdown's last checkpoint (`Store::seal`). Fail closed: a
+    /// record the journal still refuses (its writer stopped) leaves a durable marker instead
+    /// ([`Inner::keep_frozen_marker`]).
     pub(super) fn freeze(&self, why: String) {
+        let refused = self.freeze_now(&why);
+        self.freeze_later(refused, why);
+    }
+
+    /// A freeze's step under the appends' lock: `frozen` set, and the `frozen` record appended,
+    /// which never waits. True when the journal refused the record (only the first freeze of the
+    /// store journals one).
+    fn freeze_now(&self, why: &str) -> bool {
         let mut order = self.order.lock_or_recover();
         if !order.frozen {
             order.frozen = true;
@@ -280,17 +314,71 @@ impl Inner {
             let appended = if refused {
                 Err(AppendError::Closed)
             } else {
-                self.journal.append_control(KIND_FROZEN, Class::Ack, frozen_reason(&why))
+                self.journal.append_control(KIND_FROZEN, Class::Ack, frozen_reason(why))
             };
             match appended {
                 Ok(lsn) => order.applied = order.applied.max(lsn),
-                Err(error) => tracing::error!(
-                    "journal the freeze: {error}: the next start may trust pages the failed sync dropped"
-                ),
+                Err(error) => {
+                    tracing::error!("journal the freeze: {error}: a marker takes its place");
+                    return true;
+                }
             }
         }
-        drop(order);
+        false
+    }
+
+    /// A freeze's step off any sync's count: the fallback marker when the record was refused,
+    /// then the daemon asked to stop.
+    fn freeze_later(&self, refused: bool, why: String) {
+        if refused {
+            self.keep_frozen_marker(&why);
+        }
         self.ask_to_stop(why);
+    }
+
+    /// Fail closed (delta review of #35866, D1): the freeze's `frozen` record may not reach the
+    /// journal (refused, or not durable when the journal closed), so a durable marker
+    /// (`<home>/journal-frozen`) makes the next open write every replayed chat's lines again, as
+    /// the record would. The first checkpoint that succeeds after that open removes it
+    /// ([`Inner::clear_frozen_marker`]). A marker that cannot be written either is logged: the
+    /// disk fails both the logs and the home folder.
+    pub(super) fn keep_frozen_marker(&self, why: &str) {
+        #[cfg(test)]
+        super::hold_before_frozen_marker();
+        if let Err(error) = write_home_file(&self.home, FROZEN_NAME, frozen_reason(why)) {
+            tracing::error!(
+                "write the event journal's freeze marker: {error:#}: the next start may trust pages the failed sync dropped"
+            );
+        }
+    }
+
+    /// After a checkpoint that succeeded: the marker an open found goes, as the lines that open
+    /// wrote again are durable now. Under the appends' lock and only while the store is not
+    /// frozen: a freeze of this run sets `frozen` under that lock before it writes its own marker,
+    /// so its marker is never removed here. The folder's sync after the removal is off the lock;
+    /// a removal a crash takes back only makes one more open write the lines again.
+    fn clear_frozen_marker(&self) {
+        let removed = {
+            let mut order = self.order.lock_or_recover();
+            if !order.marker || order.frozen {
+                return;
+            }
+            order.marker = false;
+            let path = self.home.join(FROZEN_NAME);
+            crate::config::refuse_lost_home(&path)
+                .and_then(|()| std::fs::remove_file(&path).map_err(anyhow::Error::from))
+        };
+        match removed {
+            Ok(()) => {
+                if let Err(error) = sync_directory(&self.home) {
+                    tracing::warn!(
+                        "sync {} after the freeze marker: {error:#}",
+                        self.home.display()
+                    );
+                }
+            }
+            Err(error) => tracing::warn!("remove the event journal's freeze marker: {error:#}"),
+        }
     }
 
     pub(super) fn ask_to_stop(&self, why: String) {
@@ -471,11 +559,14 @@ impl SyncsUnderWay {
 
 impl Drop for UnderWay<'_> {
     fn drop(&mut self) {
-        // As a failed sync: the store frozen before the ticket ends.
-        if std::thread::panicking() {
-            self.inner.freeze("a sync of the store's files panicked".into());
-        }
+        // As a failed sync: the store frozen before the ticket ends, a fallback marker after.
+        const WHY: &str = "a sync of the store's files panicked";
+        let panicked = std::thread::panicking();
+        let refused = panicked && self.inner.freeze_now(WHY);
         self.inner.syncs.end(self.ticket);
+        if panicked {
+            self.inner.freeze_later(refused, WHY.into());
+        }
     }
 }
 

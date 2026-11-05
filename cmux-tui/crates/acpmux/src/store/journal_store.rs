@@ -64,7 +64,7 @@ mod meta;
 mod new_folders;
 mod repair;
 
-use checkpoint::{read_checkpoint, remove_checkpoint_temporaries};
+use checkpoint::{frozen_marker, read_checkpoint, remove_checkpoint_temporaries};
 pub(super) use fenced::FencedStorage;
 #[cfg(test)]
 pub(super) use meta::SETTLE_HOLD;
@@ -83,9 +83,13 @@ const KIND_FROZEN: u16 = 6;
 
 const JOURNAL_DIR: &str = "journal";
 const CHECKPOINT_NAME: &str = "journal-projected.json";
-/// A durable marker that a log sync failed (the checkpoint froze): the next open writes every
-/// replayed chat's lines again (`journal_store/checkpoint.rs`).
+/// The checkpoint file's schema.
 const CHECKPOINT_SCHEMA: &str = "acpmux.journal-projected.v1";
+/// A durable marker of a freeze whose `frozen` record may not have reached the journal (refused,
+/// or not durable when the journal closed): the next open writes every replayed chat's lines
+/// again, as for the record (fail closed; delta review of #35866, D1;
+/// `journal_store/checkpoint.rs`).
+const FROZEN_NAME: &str = "journal-frozen";
 /// Where the journaled lines of a log that recovery leaves as it is go.
 const UNAPPLIED_DIR: &str = "journal-unapplied";
 const CHECKPOINT_EVERY: Duration = Duration::from_secs(30);
@@ -159,6 +163,16 @@ thread_local! {
     /// journal's writer stopped (`AppendError::Closed`).
     pub(crate) static FAIL_FROZEN_RECORD: std::cell::Cell<bool> =
         const { std::cell::Cell::new(false) };
+    /// Tests: a freeze on this thread stops right before it writes its fallback marker (off any
+    /// sync's count).
+    pub(crate) static HOLD_BEFORE_FROZEN_MARKER: log_sync::HoldSlot =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Tests: the stop of [`HOLD_BEFORE_FROZEN_MARKER`].
+#[cfg(test)]
+fn hold_before_frozen_marker() {
+    log_sync::hold(&HOLD_BEFORE_FROZEN_MARKER);
 }
 
 /// Tests: the stop of [`HOLD_AFTER_START`].
@@ -298,9 +312,12 @@ struct Order {
     /// them before it retires their records (a killed daemon's writes may be in the page cache
     /// only).
     read_segments: BTreeSet<PathBuf>,
-    /// The open replayed a `frozen` record (a previous run's failed sync): its repair writes every
-    /// replayed chat's lines again.
+    /// The open replayed a `frozen` record (a previous run's failed sync) or found the freeze
+    /// marker: its repair writes every replayed chat's lines again.
     rewrite_all: bool,
+    /// The open found the freeze marker (`FROZEN_NAME`): the first checkpoint that succeeds
+    /// removes it.
+    marker: bool,
     /// Chats whose lines the open took from a repair file (`journal_store/repair.rs`): written
     /// again too, as their earlier repair could not write them.
     rewrite: BTreeSet<String>,
@@ -318,6 +335,7 @@ impl Order {
             || !self.dirty.is_empty()
             || !self.metas.is_empty()
             || !self.read_segments.is_empty()
+            || self.marker
     }
 }
 
@@ -338,6 +356,7 @@ impl JournalStore {
         remove_checkpoint_temporaries(home);
         let local = LocalStore::new(home.join("sessions"), config.segment_bytes)?;
         let from = read_checkpoint(home)?;
+        let marker = frozen_marker(home);
         let (journal, report, mut replay) =
             open_journal(storage, &home.join(JOURNAL_DIR), journal_config, from)?;
         for damage in &report.damage {
@@ -372,7 +391,8 @@ impl JournalStore {
             order: Mutex::new(Order {
                 checkpointed: from,
                 damage: !report.damage.is_empty(),
-                rewrite_all: replay.frozen,
+                rewrite_all: replay.frozen || marker,
+                marker,
                 ..Order::default()
             }),
             checkpointing: Mutex::new(()),
@@ -702,9 +722,17 @@ impl Store for JournalStore {
         if let Err(error) = self.inner.checkpoint() {
             tracing::warn!("the event journal's last checkpoint: {error:#}");
         }
-        let _order = self.inner.order.lock_or_recover();
+        let order = self.inner.order.lock_or_recover();
         if let Err(error) = self.inner.journal.seal(SEAL_WAIT) {
             tracing::error!("seal the event journal: {error}");
+            // Fail closed: a frozen store's record may not be durable.
+            let frozen = order.frozen;
+            drop(order);
+            if frozen {
+                self.inner.keep_frozen_marker(
+                    "the event journal did not close with its frozen record durable",
+                );
+            }
         }
     }
     fn close_log(&self, id: &str) {
