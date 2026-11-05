@@ -39,7 +39,7 @@ public final class TerminalSurfaceView: NSView {
     /// Whether a grid report waits for the pane's layout spring to land (``TerminalGridPolicy/held``).
     var isHeldGridPending: Bool { geometry.held }
 
-    /// The size this view asked of Ghostty while its window's commit owns its frame (``place(_:anchor:)``).
+    /// Who presents this view's new sizes and a held display scale (``place(_:)``).
     var frameOwnership = TerminalFrameOwnership()
 
     /// A person drags a divider or edge of this terminal's pane (`PaneResizeGestureFollowing`): the view's
@@ -363,10 +363,8 @@ public final class TerminalSurfaceView: NSView {
         let resized = newSize != frame.size
         super.setFrameSize(newSize)
         if resized { session?.frameChanges.bump() } // its kept frame has another size now (TerminalLaunchFrameKeeper)
-        // Taking the size Ghostty already shows (``landRequestedFrame()``) asks for no new size.
-        if resized, isShown, !frameOwnership.landing { updateSurfaceSize() }
-        // A landing runs under the Core Animation lock: its cursor box follows after it (``frameDidLand()``).
-        if !frameOwnership.landing { copyMode.syncCursor() }
+        if resized, isShown { updateSurfaceSize() }
+        copyMode.syncCursor()
     }
 
     /// `ghostty_surface_set_content_scale` + `ghostty_surface_set_display_id`
@@ -459,8 +457,7 @@ public final class TerminalSurfaceView: NSView {
             pendingForcedReport = pendingForcedReport || forceReport
             return
         }
-        // The size asked of Ghostty and not shown yet, else the view's (``place(_:anchor:)``).
-        let pixels = toBacking(frameOwnership.inFlight ?? bounds.size)
+        let pixels = toBacking(bounds.size)
         guard pixels.width >= 1, pixels.height >= 1 else { return }
         defer { copyMode.syncCursor() }
         ghostty_surface_set_size(surface, UInt32(pixels.width), UInt32(pixels.height))
@@ -470,16 +467,11 @@ public final class TerminalSurfaceView: NSView {
         let desired = TerminalGridSize(columns: Int(size.columns), rows: Int(size.rows))
         let metrics = TerminalGridMetrics(cellWidth: Int(size.cell_width_px), cellHeight: Int(size.cell_height_px),
                                           paddingWidth: 0, paddingHeight: 0)
-        // A pane on a layout spring (Cmd-Shift-Enter zoom, split, close) resizes this view on every
-        // display frame: the surface draws each size (the reflow preview), and the grid goes to the
+        // A pane on a layout spring (Cmd-Shift-Enter zoom, split, close, a key resize) resizes this view on
+        // every display frame: the surface draws each size (the reflow preview), and the grid goes to the
         // owner once the spring lands (`paneMotionDidSettle`), one PTY resize instead of one per frame.
-        // A size whose frame is not drawn yet and is no longer the one wanted (FRAME OWNER S4: the pane
-        // moved on, or its spring landed, while the frame waited) reports nothing: the wanted size
-        // reports its grid when it goes to Ghostty (`requestWantedFrame`). The landing's release sized
-        // from such a size and sent its stale grid, then the final grid again (review of #35470, F1).
-        let stale = frameOwnership.inFlight.map { $0 != frameOwnership.wanted?.size } ?? false
         let report = geometry.viewSized(desired, force: forceReport,
-                                        holding: stale || (!forceReport && (isInPaneMotion || isFollowingResizeGesture)))
+                                        holding: !forceReport && (isInPaneMotion || isFollowingResizeGesture))
         // In the same main-thread turn as set_size: the frame of the new size
         // draws at the next display pass, already reflowed.
         // A held grid is reported when the spring lands: the preview draws it meanwhile.
