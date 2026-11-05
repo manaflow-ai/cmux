@@ -19,6 +19,7 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
   let browser: Browser;
   beforeAll(async () => {
     vite = await createServer({
+      root: webviews,
       configFile: path.join(webviews, "vite.config.gallery-dev.ts"),
       server: { port: 0, host: "127.0.0.1", watch: { ignored: () => true } },
       logLevel: "error",
@@ -207,6 +208,11 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
         const rest = await send.evaluate((el) => getComputedStyle(el).backgroundColor);
         await page.keyboard.press("Tab");
         await send.focus();
+        await send.evaluate(async (el) => {
+          await Promise.all(
+            el.getAnimations({ subtree: true }).map((animation) => animation.finished.catch(() => undefined)),
+          );
+        });
         await settle(page);
         return page.evaluate((rest) => {
           const el = document.querySelector<HTMLElement>(".acpmux-composer-box .acpmux-send")!;
@@ -226,6 +232,7 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
       // The shipped ready Send remains a transparent glyph; the focus wash must not turn it into
       // the gallery-only filled-disc alternate.
       expect(ready.rest).toBe("rgba(0, 0, 0, 0)");
+      expect(ready.fill).toBe(stop.fill);
       expect(ready.fill).not.toBe(ready.rest);
       const send = await focusFill("send-alt-filled-disc");
       expect(send.focusVisible).toBe(true);
