@@ -1171,6 +1171,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-conductor-import"
+version = "0.1.0"
+dependencies = [
+ "cmux-git",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "toml",
+]
+
+[[package]]
 name = "cmux-config"
 version = "0.1.0"
 dependencies = [
@@ -1812,6 +1824,7 @@ dependencies = [
  "cmux-build-identity",
  "cmux-chat-index",
  "cmux-cloud-config",
+ "cmux-cloud-client",
  "cmux-cloud-environment",
  "cmux-config",
  "cmux-conversation",

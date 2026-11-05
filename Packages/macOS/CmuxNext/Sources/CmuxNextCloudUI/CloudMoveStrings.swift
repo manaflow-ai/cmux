@@ -44,6 +44,10 @@ public struct CloudMoveStrings {
         String(format: String(localized: "cloud.move.relativePath", defaultValue: "Move to Cloud needs a full folder path, not %@.", table: "Cloud", bundle: .module),
                path)
     }
+    /// A move's or bring back's machine is gone from the person's machines: the chat can't reach it again.
+    public static var machineDeleted: String {
+        String(localized: "cloud.move.machineDeleted", defaultValue: "This chat's Cloud machine was deleted.", table: "Cloud", bundle: .module)
+    }
     public static func noSuchMachine(_ id: String) -> String {
         String(format: String(localized: "cloud.move.noSuchMachine", defaultValue: "No Cloud machine has the id %@.", table: "Cloud", bundle: .module), id)
     }

@@ -254,15 +254,19 @@ nonisolated enum AcpmuxServerPeer {
     }
 
     /// A strict on-disk check before a Team-signed app launches its acpmux.
-    /// DEV is ad-hoc and has no team to require.
-    static func executableSignedByAppTeam(_ executable: URL, team: String? = ownTeam) -> Bool {
+    /// DEV is ad-hoc and has no team to require. The verdict is kept while the file is unchanged
+    /// (``StrictVerdicts``), so the whole-file read happens once per file, not once per ask.
+    static func executableSignedByAppTeam(_ executable: URL, team: String? = ownTeam,
+                                          verdicts: StrictVerdicts = .shared) -> Bool {
         guard let team else { return true }
         guard let requirement = requirement(team: team) else { return false }
-        var code: SecStaticCode?
         let path = executable.resolvingSymlinksInPath()
-        guard SecStaticCodeCreateWithPath(path as CFURL, [], &code) == errSecSuccess, let code else { return false }
-        let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate)
-        return SecStaticCodeCheckValidity(code, flags, requirement) == errSecSuccess
+        return verdicts.verdict(path: path.path, team: team) {
+            var code: SecStaticCode?
+            guard SecStaticCodeCreateWithPath(path as CFURL, [], &code) == errSecSuccess, let code else { return false }
+            let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate)
+            return SecStaticCodeCheckValidity(code, flags, requirement) == errSecSuccess
+        }
     }
 
     private static func requirement(team: String) -> SecRequirement? {
