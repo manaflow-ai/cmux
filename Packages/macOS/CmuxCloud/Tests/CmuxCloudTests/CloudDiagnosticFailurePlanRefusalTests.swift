@@ -116,7 +116,7 @@ extension CloudDiagnosticFailurePlanRefusalTests {
     func failureHeaderKeepsTheCode() {
         let body = #"{"error":"vm_requires_pro","action":"Upgrade at https://cmux.com/pricing"}"#
         let header = CloudPlanRefusal.failureHeader(status: 402, body: body)
-        #expect(header.map { CloudPlanRefusal.code(inCLIFailureOutput: "Error: \($0)") } == "vm_requires_pro")
+        #expect(header.flatMap { CloudPlanRefusal.code(inCLIFailureOutput: "Error: \($0)") } == "vm_requires_pro")
         #expect(CloudPlanRefusal.failureHeader(status: 500, body: body) == nil)
         #expect(CloudPlanRefusal.failureHeader(status: 402, body: "nope") == nil)
         #expect(CloudPlanRefusal.failureHeader(status: 402, body: #"{"error":"a b) (HTTP 402: x"}"#) == nil)

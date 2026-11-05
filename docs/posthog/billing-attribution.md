@@ -39,6 +39,7 @@ Sources today:
 | `mac_new_machine_at_limit` | new machine sheet at the free limit |
 | `mac_native_pricing_preview` | DEBUG native pricing window |
 | `mac_vm_requires_pro_error` | link inside the `vm_requires_pro` error text |
+| `mac_create_failed_needs_plan` | "Upgrade Plan" on a create refused with `vm_requires_pro` |
 | `cli_free_access_expiry` | link printed by the CLI free-access notice |
 | `unknown` | link with no tag (old builds, hand-typed URL) |
 
