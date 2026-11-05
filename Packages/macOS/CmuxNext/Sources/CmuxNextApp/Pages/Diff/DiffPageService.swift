@@ -83,6 +83,11 @@ final class DiffPageService: InternalPageProvider {
     private var tabs: [String: Tab] = [:]
     /// The diff tabs' open timeline (the instant-surfaces bench's `diff_right`).
     let timeline = DiffOpenTimeline()
+
+    /// Precomputes the diff of the repository `folder` is in on this Mac (an agent's turn ended there).
+    func warm(folder: String?) {
+        if let folder, folder.hasPrefix("/") { runtime.warm(folder: URL(fileURLWithPath: folder, isDirectory: true), git: diffGit) }
+    }
     /// Teardowns still closing sessions (tests wait on them).
     private(set) var closing: [Task<Void, Never>] = []
 
@@ -428,6 +433,7 @@ final class DiffPageService: InternalPageProvider {
         provider.confirmRevert = { [weak page] prompt in await DiffPageService.confirmRevert(prompt, over: page) }
         page.fileDrop = provider.folderDrop(page: page)
         provider.timeline = timeline
+        provider.startPreopen()
         tab.page = page
         tab.provider = provider
         tab.host = host
