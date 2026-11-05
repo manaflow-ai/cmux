@@ -102,6 +102,7 @@ class Instance:
         self.sock, self.app, self.home = sock, app, home
         self.cli = os.path.join(app, "Contents", "Resources", "bin", "cmux")
         self.record = sock + ".l5-seed.json"
+        self.last_rows: list[str] = []
 
     def cmux(self, *argv: str, timeout: float = 30.0):
         """The bundled CLI with --json: the parsed answer, or {"error": ...}."""
@@ -250,7 +251,11 @@ def seed(inst: Instance, fake_agent: str, work: str, front_terminal: bool = True
 # ---- state ----------------------------------------------------------------------------------
 
 def scrollback_sha256(inst: Instance, term: str) -> str | None:
-    """sha256 of every scrollback row (oldest first, paged back from the newest) and the screen's text."""
+    """sha256 of the terminal's whole text: every scrollback row (oldest first, paged back from the newest), then
+    the screen's rows, as one list. Independent of the terminal's size: a terminal first given a view after the
+    relaunch resizes, which moves rows between scrollback and screen and pads rows to the new width, so each row is
+    right-trimmed and the trailing blank rows dropped (nightly 4198271655001 reported every round "changed" when
+    the screen was hashed apart). The rows are kept on the instance (`last_rows`) for a failure's evidence."""
     rows, before = [], None
     for _ in range(100):
         page = unwrap(inst.cmux("terminal", term, "history", "read", "--limit", "1000",
@@ -267,7 +272,11 @@ def scrollback_sha256(inst: Instance, term: str) -> str | None:
     text = screen.get("text") if isinstance(screen, dict) else None
     if text is None:
         return None
-    return hashlib.sha256(("\n".join(rows) + "\n\0\n" + text.rstrip()).encode()).hexdigest()
+    rows = rows + [line.rstrip() for line in text.split("\n")]
+    while rows and not rows[-1]:
+        rows.pop()
+    inst.last_rows = rows
+    return hashlib.sha256("\n".join(rows).encode()).hexdigest()
 
 
 def chat_messages(inst: Instance, chat: str) -> int:
@@ -579,6 +588,7 @@ def check(args) -> int:
             return [f"seed: {error}"]
         before = state(inst)
         result["before"] = before
+        rows_before = list(inst.last_rows)
         missing = [k for k in KEYS if k not in before or (k == "workspaces" and before[k] < 2)
                    or (k == "chat" and before[k].endswith(":no-tab"))]
         if missing:
@@ -586,6 +596,10 @@ def check(args) -> int:
         failures = []
         for n in range(1, args.rounds + 1):
             row, process = round_once(n, process, inst, Path(app), env, before, made, args, out)
+            if any("scrollback_sha256" in f for f in row["failures"]) and args.out:
+                # Both texts, so the change can be read (a size-dependent digest looks the same as a lost line).
+                for name, rows in (("before", rows_before), (f"round{n}-after", inst.last_rows)):
+                    Path(args.out, f"scrollback-{name}.txt").write_text("\n".join(rows) + "\n")
             result["rounds"].append(row)
             failures += [f"round {n}: {f}" for f in row["failures"]]
             if process.poll() is not None:
