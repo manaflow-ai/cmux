@@ -1054,13 +1054,25 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
     ),
   );
   const links = useSameValue(useMemo(() => (drawn ? outputLinks(rows) : []), [drawn, rows]));
-  // The plan the transcript's todo list draws, read from the live rows (not `sectionRows`, which keep
-  // their identity until a row is added): a step ticked in place shows here at once. The chat's turn
-  // runs, or the subagent the panel lists does.
-  const planWorking = scopedAgent ? scopedAgent.state === "running" : snapshot.isWorking;
-  const plan = useSameValue(
-    useMemo(() => (drawn ? currentPlan(rows, planWorking) : undefined), [drawn, rows, planWorking]),
+  // The plan the transcript's todo list draws. The chat's is the one the client publishes beside its
+  // rows (snapshot.progress, liveProgress.ts): the same object until the checklist changes or its turn
+  // ends, so a streamed token neither rescans the rows nor recounts the steps (carried from #34933). A
+  // subagent's panel gets the parent's snapshot, so it never reads that one: its plan comes from its
+  // own live rows (not `sectionRows`, which keep their identity until a row is added), so a step ticked
+  // in place shows here at once.
+  const live = snapshot.progress;
+  const livePlan = useMemo<SessionInfoPlan | undefined>(
+    () => (live ? { entries: live.plan, ended: Boolean(live.ended), done: live.completed } : undefined),
+    [live],
   );
+  const scopedWorking = scopedAgent?.state === "running";
+  const scopedPlan = useSameValue(
+    useMemo(
+      () => (drawn && scopedAgent ? currentPlan(rows, scopedWorking) : undefined),
+      [drawn, scopedAgent, rows, scopedWorking],
+    ),
+  );
+  const plan = scopedAgent ? scopedPlan : drawn ? livePlan : undefined;
   const artifacts = useMemo(() => (drawn ? chatGallery(rows).length : 0), [drawn, rows]);
   const documents = useSameValue(useMemo(() => (drawn ? outputArtifacts(rows) : []), [drawn, rows]));
   const views = subagents?.views;
@@ -1190,6 +1202,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
           backLabel={scope ? subagentBackLabel(t, scope.parent) : undefined}
           summary={summary}
           usage={usage}
+          plan={plan}
           machineName={machineName}
           peerKinds={snapshot.peerKinds}
           repository={repository}

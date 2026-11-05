@@ -14,6 +14,7 @@ import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
 import { setPaneLanguage } from "../src/agent-session/acpmux/i18n";
 import { useSessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
 import { currentPlan } from "../src/agent-session/acpmux/session-info/ProgressSection";
+import { projectLiveProgress, type LiveProgress } from "../src/agent-session/acpmux/liveProgress";
 import { resetSessionInfoState, setSessionInfoOpen } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import { assistant, chat, user } from "../src/gallery/fixtures/acpmux";
 
@@ -60,6 +61,8 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  published = undefined;
+  planArrays.clear();
   resetSessionInfoState();
   setHeaderState({ inspector: false });
   dom?.window.close();
@@ -80,13 +83,25 @@ const planRow = (statuses: readonly Status[], version: number): AcpmuxRow => ({
   kind: "plan",
   plan: STEPS.map((content, index) => ({ content, status: statuses[index]! })),
 });
-/// The chat as acpmux sends it: new objects every time, the plan row in place among the rows.
+/// The checklist the client publishes beside its rows (direct.ts, liveProgress.ts): its plan array is
+/// the same object until a plan update (a new row version), so a streamed token keeps the projection.
+let published: LiveProgress | undefined;
+const planArrays = new Map<string, AcpmuxPlanEntry[]>();
+
+/// The chat as acpmux sends it: new objects every time, the plan row in place among the rows, and the
+/// client's `progress` beside them.
 const withPlan = (statuses: readonly Status[] | undefined, version = 1, fields: Partial<AcpmuxSnapshot> = {}) => {
   const base = chat([user("Fix the retry", 3)]);
+  const row = statuses ? planRow(statuses, version) : undefined;
+  const key = `${version}:${statuses?.join()}`;
+  const entries = row ? (planArrays.get(key) ?? planArrays.set(key, row.plan!).get(key)!) : undefined;
+  const isWorking = fields.isWorking ?? true;
+  published = projectLiveProgress(published, entries, isWorking);
   return {
     ...base,
-    rows: [...base.rows, ...(statuses ? [planRow(statuses, version)] : []), assistant("Working on it", 1)],
-    isWorking: true,
+    rows: [...base.rows, ...(row ? [{ ...row, plan: entries }] : []), assistant("Working on it", 1)],
+    isWorking,
+    ...(published ? { progress: published } : {}),
     ...fields,
   } satisfies AcpmuxSnapshot;
 };

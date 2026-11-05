@@ -1,4 +1,5 @@
 import { markAgentProgressSource } from "./subagents/agentProgressSource";
+import { projectLiveProgress, type LiveProgress } from "./liveProgress";
 import { UNKNOWN_AUTH, type SessionAuthQuery } from "./sessionAuth";
 import { sameJson } from "./sameJson";
 import { autoResumeAttempt, autoResumeStatus } from "./autoResumeStatus";
@@ -2198,6 +2199,13 @@ export class AcpmuxDirectClient {
   private streamingActivity?: string;
   /// The open turn's plan row: its later `plan` updates redraw this one list (cx-ncc.80).
   private planRow?: string;
+  /// The chat's latest plan row, for Session Info's Progress: unlike `planRow` it outlives its turn
+  /// (a later prompt marks it superseded, so it reads as ended) and goes only when the list is cleared.
+  private progressRow?: string;
+  private progressSuperseded = false;
+  /// Session Info's Progress as last published (liveProgress.ts): streamed snapshots reuse it until
+  /// the checklist changes or its turn ends, so Session Info does not recount it on every token.
+  private publishedProgress?: LiveProgress;
   /// When each compaction row last heard "still compacting": a running note within
   /// COMPACTION_REPEAT_WINDOW of it is the same compaction, even after the next turn's start or a
   /// forced Stop noted the row as failed. A row whose turn ended for good, or that ended, has none.
@@ -3030,6 +3038,9 @@ export class AcpmuxDirectClient {
     this.freshReactions.clear();
     this.planCalls.clear();
     this.planRow = undefined;
+    this.progressRow = undefined;
+    this.progressSuperseded = false;
+    this.publishedProgress = undefined;
     this.compactionHeardAt.clear();
     this.subagentStops = subagentStops();
     this.subagents = new SubagentFold(this.subagentStops);
@@ -6238,6 +6249,8 @@ export class AcpmuxDirectClient {
         if (msg.steer !== true) this.autoResumedAttempt = autoResumeAttempt(msg);
         // A prompt, or a steer (which starts no turn but splits it), starts a new checklist.
         this.planRow = undefined;
+        // The checklist before it has ended for Session Info's Progress (ProgressSection `currentPlan`).
+        if (this.progressRow) this.progressSuperseded = true;
         const promptId = typeof msg.promptId === "string" ? msg.promptId : undefined;
         if (msg.steer !== true) {
           this.suggestionFenced(event.seq ?? 0);
@@ -6769,6 +6782,7 @@ export class AcpmuxDirectClient {
       // A cleared list (TodoWrite with no todos, Codex's empty plan) takes the checklist away.
       if (Array.isArray(update.entries) && plan.length === 0) {
         if (existing) this.rows.delete(existing.id);
+        if (existing && this.progressRow === existing.id) this.progressRow = undefined;
         this.planRow = undefined;
         return;
       }
@@ -6779,6 +6793,8 @@ export class AcpmuxDirectClient {
       }
       const id = existing ? existing.id : `plan-${event.seq}`;
       this.planRow = id;
+      this.progressRow = id;
+      this.progressSuperseded = false;
       this.rows.set(id, {
         id,
         version: (existing?.version ?? 0) + 1,
@@ -7182,6 +7198,9 @@ export class AcpmuxDirectClient {
       (option: any) => option.category === "thought_level" || option.id === "reasoning_effort",
     );
     const publishedRows = this.rows.sorted();
+    const progressPlan = this.progressRow ? this.rows.get(this.progressRow)?.plan : undefined;
+    const progress = projectLiveProgress(this.publishedProgress, progressPlan, working && !this.progressSuperseded);
+    this.publishedProgress = progress;
     const progressSource = this.subagents.progressSource;
     markAgentProgressSource(publishedRows, progressSource);
     const changedProgress = progressSource.takeChangedProgress();
@@ -7192,6 +7211,7 @@ export class AcpmuxDirectClient {
         ? { autoResume: autoResumeStatus(summary?.retry, this.autoResumedAttempt) }
         : {}),
       rows: publishedRows,
+      ...(progress ? { progress } : {}),
       subagentViews: this.subagents.views(),
       ...(Object.keys(changedProgress).length > 0 ? { subagentProgress: changedProgress } : {}),
       subagentStructureVersion: progressSource.structureVersion,
@@ -10239,6 +10259,8 @@ export class AcpmuxDirectClient {
       assistantCut: this.assistantCut,
       streamingActivity: this.streamingActivity,
       planRow: this.planRow,
+      progressRow: this.progressRow,
+      progressSuperseded: this.progressSuperseded,
       messageRows: this.messageRows,
       toolRows: this.toolRows,
       planCalls: this.planCalls,
@@ -10278,6 +10300,8 @@ export class AcpmuxDirectClient {
     this.assistantCut = false;
     this.streamingActivity = undefined;
     this.planRow = undefined;
+    this.progressRow = undefined;
+    this.progressSuperseded = false;
     this.messageRows = new Map();
     this.toolRows = new Map();
     this.planCalls = new Set();
@@ -10394,7 +10418,11 @@ export class AcpmuxDirectClient {
     for (const agent of this.subagents.all()) {
       if (!live.subagents.progressSource.has(agent.id)) live.subagents.progressSource.updateAgent(agent);
     }
-    Object.assign(this, live, { forkedAtSeq, messageRows });
+    // Progress stays the live chat's latest plan; an older page's only when the live events hold none,
+    // and then as ended, since a later turn came after it.
+    const progressRow = live.progressRow ?? this.progressRow;
+    const progressSuperseded = live.progressRow ? live.progressSuperseded : this.progressRow !== undefined;
+    Object.assign(this, live, { forkedAtSeq, messageRows, progressRow, progressSuperseded });
     // Older turns end on their own result; a row of the live turn it closed (its typing row) stays.
     for (const [id, row] of held) if (!this.rows.has(id)) this.rows.set(id, row);
     // A held page can start at a prompt sent now whose cancel only this page holds: its row,

@@ -16,8 +16,13 @@ import { Check, Spinner } from "../conversation/icons";
 import { useT, type StringKey } from "../i18n";
 import type { AcpmuxPlanEntry, AcpmuxRow } from "../model";
 
-/// The plan Progress draws: its steps, and whether the turn that wrote them has ended.
-export type SessionInfoPlan = { readonly entries: readonly AcpmuxPlanEntry[]; readonly ended: boolean };
+/// The plan Progress draws: its steps, and whether the turn that wrote them has ended. `done` is the
+/// steps already counted where the plan was published (liveProgress.ts), so no render counts again.
+export type SessionInfoPlan = {
+  readonly entries: readonly AcpmuxPlanEntry[];
+  readonly ended: boolean;
+  readonly done?: number;
+};
 
 const STATUS: Record<AcpmuxPlanEntry["status"], StringKey> = {
   completed: "plan.status.completed",
@@ -39,7 +44,8 @@ export function currentPlan(rows: readonly AcpmuxRow[], working: boolean): Sessi
 }
 
 /// How many of the plan's steps are done.
-export const planDone = (plan: SessionInfoPlan) => plan.entries.filter((entry) => entry.status === "completed").length;
+export const planDone = (plan: SessionInfoPlan) =>
+  plan.done ?? plan.entries.filter((entry) => entry.status === "completed").length;
 
 export const ProgressSection = memo(function ProgressSection({ plan }: { plan: SessionInfoPlan }) {
   const t = useT();
