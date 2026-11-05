@@ -79,9 +79,16 @@ impl Brain {
             compactor_speed,
             compactor_harness,
             compactor_model,
+            turn_routing,
             reactions,
         } = request
         {
+            if let Some(value) = turn_routing {
+                match crate::engine::parse_turn_routing(&value) {
+                    Ok(value) => choice.turn_routing = value,
+                    Err(reason) => return error("invalid_value", reason),
+                }
+            }
             // A speed the target harness has (the turns' after this set;
             // the compactor's when acpmux says its family).
             let s = &self.settings;
@@ -235,6 +242,7 @@ impl Brain {
                     reactions.prompt.as_str()
                 },
                 "reactions_can_wake": reactions.can_wake,
+                "turn_routing": choice.turn_routing.as_deref().unwrap_or("off"),
             },
             "choice": choice,
             "last_turn": recent.first().cloned().unwrap_or(Value::Null),

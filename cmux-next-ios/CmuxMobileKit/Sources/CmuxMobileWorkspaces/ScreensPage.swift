@@ -98,6 +98,7 @@ struct ScreensPage: View {
                     if !screen.isActive {
                         Button("Select Screen", systemImage: "checkmark.rectangle.stack") { Task { await source.selectScreen(screen) } }
                     }
+                    Button("Duplicate Screen", systemImage: "plus.square.on.square") { Task { await source.duplicateScreen(screen) } }
                     Button("Rename Screen…", systemImage: "pencil") {
                         // The current name, so Rename without typing keeps it.
                         screenName = screen.name

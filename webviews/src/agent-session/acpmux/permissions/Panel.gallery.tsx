@@ -32,7 +32,7 @@ const askStyles: Record<Exclude<AskStyle, "current">, string> = {
     [data-ask-style="text"] .acpmux-ask-action.is-secondary { box-shadow: none; }`,
 };
 
-const request = (title: string, command: string, path: string) => ({
+const request = (title: string, command: string | string[], path: string) => ({
   toolCall: {
     title,
     kind: "execute",
@@ -269,6 +269,32 @@ export default componentEntry<Props>({
     expanded: {
       note: "A click on a row opens its full command, folder and scope in plain words; the answers stay on the row.",
       props: { state: baseState, ...callbacks },
+      play: expandDetails,
+    },
+    "argv-command": {
+      note: "A Codex argv command opens as a shell block, quoting arguments with spaces and apostrophes.",
+      props: {
+        state: {
+          ...baseState,
+          groups: [
+            {
+              ...pendingGroup,
+              items: [
+                {
+                  permissionId: "permission-gallery-argv",
+                  state: "pending",
+                  request: request(
+                    "Read the release notes",
+                    ["cat", "docs/release notes.md", "docs/what's next.md"],
+                    "docs",
+                  ),
+                },
+              ],
+            },
+          ],
+        },
+        ...callbacks,
+      },
       play: expandDetails,
     },
     "allow-once": {

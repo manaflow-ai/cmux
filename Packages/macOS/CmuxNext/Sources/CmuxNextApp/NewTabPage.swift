@@ -74,12 +74,7 @@ enum NewTabPage {
 
     /// Every Commands palette (Cmd-Shift-P) action as the bar lists it, from the palette's own rows.
     static func paletteActions(_ services: AppServices) -> [AgentPaneOmnibar.Action] {
-        BenchSpans.measure("newTab.paletteActions") {
-            services.palette.commandEntries().map {
-                AgentPaneOmnibar.Action(id: $0.id.rawValue, title: $0.title, detail: $0.section, keywords: $0.keywords,
-                                        keycaps: $0.keycaps.isEmpty ? nil : $0.keycaps)
-            }
-        }
+        BenchSpans.measure("newTab.paletteActions") { services.palette.commandEntries().map(AgentPaneOmnibar.Action.init(paletteEntry:)) }
     }
 
     /// One workspace as the bar reads it.

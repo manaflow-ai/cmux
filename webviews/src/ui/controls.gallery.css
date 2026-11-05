@@ -1,0 +1,143 @@
+/* Gallery stages for ui/Button, Tabs, Switch, Input and the token sheet (fixture layout only). */
+.ui-controls-stage {
+  display: grid;
+  align-content: start;
+  gap: var(--ds-space-4);
+  padding: var(--ds-space-5);
+  color: var(--ds-color-fg);
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+.ui-controls-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+.ui-controls-label {
+  min-width: 96px;
+  color: var(--ds-color-muted);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+.ui-controls-setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-4);
+  width: min(100%, 420px);
+}
+.ui-controls-receipt {
+  color: var(--ds-color-muted);
+  font-size: var(--text-detail);
+}
+.ui-controls-field {
+  width: min(100%, 320px);
+}
+
+/* TOKEN SHEET */
+.ui-token-sheet {
+  display: grid;
+  gap: var(--ds-space-5);
+  padding: var(--ds-space-5);
+  color: var(--ds-color-fg);
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+.ui-token-section {
+  display: grid;
+  gap: var(--ds-space-1);
+}
+.ui-token-title {
+  margin: 0 0 var(--ds-space-1);
+  font-size: var(--text-title);
+  line-height: var(--text-title--line-height);
+  font-weight: var(--weight-emphasis);
+}
+.ui-token-subtitle {
+  margin: 0 0 var(--ds-space-1);
+  font-size: var(--text-body);
+  font-weight: var(--weight-emphasis);
+}
+.ui-token-note {
+  margin: 0 0 var(--ds-space-2);
+  color: var(--ds-color-muted);
+  font-size: var(--text-detail);
+}
+.ui-token-row {
+  display: grid;
+  grid-template-columns: 64px minmax(160px, auto) 1fr;
+  align-items: center;
+  gap: var(--ds-space-3);
+  min-height: var(--ds-control-row);
+}
+.ui-token-swatch {
+  display: flex;
+  align-items: center;
+}
+.ui-token-name {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-detail);
+}
+.ui-token-value {
+  color: var(--ds-color-muted);
+  font-size: var(--text-detail);
+}
+.ui-token-bar {
+  display: block;
+  height: var(--ds-space-2);
+  border-radius: var(--ds-radius-sm);
+  background: var(--ds-color-fg);
+}
+.ui-token-box {
+  display: block;
+  width: var(--ds-control-primary);
+  height: var(--ds-control-row);
+  border-radius: var(--ds-radius-sm);
+  background: var(--ds-color-hover);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--ds-color-separator);
+}
+.ui-token-box--radius {
+  width: var(--ds-space-48);
+  height: var(--ds-control-primary);
+}
+.ui-token-chip {
+  display: block;
+  width: var(--ds-space-6);
+  height: var(--ds-control-compact);
+  border-radius: var(--ds-radius-md);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--ds-color-separator);
+}
+.ui-token-color-panels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: var(--ds-space-3);
+}
+.ui-token-colors {
+  padding: var(--ds-space-3);
+  border-radius: var(--ds-radius-lg);
+}
+.ui-token-colors--themed {
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--ds-color-separator);
+}
+.ui-token-glass-stage {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-4);
+  border-radius: var(--ds-radius-lg);
+  background:
+    repeating-linear-gradient(45deg, var(--ds-color-fg) 0 6px, transparent 6px 14px),
+    var(--ds-color-surface);
+}
+.ui-token-glass {
+  display: grid;
+  gap: var(--ds-space-1);
+  width: 168px;
+  padding: var(--ds-space-3);
+  border-radius: var(--ds-radius-lg);
+  box-shadow: var(--elevation-2);
+  font-size: var(--text-detail);
+}

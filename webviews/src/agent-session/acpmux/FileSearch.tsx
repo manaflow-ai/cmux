@@ -10,6 +10,7 @@ import {
 } from "./fileSearchModel";
 import { useT } from "./i18n";
 import { FileSearchLoading } from "./FileSearchLoading";
+import { useScrollEdges } from "../../ui/scrollEdges";
 
 /// How long typing settles before the palette asks again.
 const SEARCH_DEBOUNCE_MS = 80;
@@ -43,6 +44,7 @@ export function FileSearch({
   const field = useRef<HTMLInputElement>(null);
   const root = useRef<HTMLDialogElement>(null);
   const listId = useId();
+  const listEdges = useScrollEdges();
   // Only the newest request's answer lands; an older one that resolves late is dropped.
   const generation = useRef(0);
 
@@ -156,8 +158,15 @@ export function FileSearch({
         }}
         onKeyDown={keyDown}
       />
-      {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
-      <div id={listId} role="listbox" aria-label={t("files.search")} aria-busy={state.kind === "searching"}>
+      <div
+        ref={listEdges}
+        id={listId}
+        className="ui-scroll-edge-fade"
+        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+        role="listbox"
+        aria-label={t("files.search")}
+        aria-busy={state.kind === "searching"}
+      >
         {state.kind === "searching" && results.length === 0 && <FileSearchLoading />}
         {results.map((match, index) => {
           const { dir, name } = matchRuns(match.path, match.matches);

@@ -44,6 +44,7 @@ import {
   type AccountsState,
   type AgentsRun,
   type AgentsState,
+  type AppUpdateAction,
   type ChannelsState,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
@@ -565,6 +566,13 @@ export class SettingsStore {
   async allowPhonesAgain(): Promise<void> {
     await this.request("cmux.settings.mobile.allow_again", {});
     await this.refreshHost();
+  }
+
+  /** Updates > App Update: one of its buttons, then re-read the host lists; false when the host refused. */
+  async runAppUpdate(action: AppUpdateAction): Promise<boolean> {
+    const reply = await this.request("cmux.settings.app_update.run", { action });
+    await this.refreshHost();
+    return reply.ok;
   }
 
   /** Updates > Web UI: Check Now or Roll Back, then re-read the host lists; false when the host refused. */

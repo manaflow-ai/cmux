@@ -372,6 +372,26 @@ extension NSWindow {
         }
         throw CocoaError(.fileWriteUnknown)
     }
+
+    /// AppKit drawing of the window (``renderSnapshot()``) with `views` hidden for the draw and
+    /// shown again after, so images painted over their areas later fill each area exactly once
+    /// (`debug.window_snapshot` hides the live web views, whose remote content AppKit leaves out).
+    public func renderSnapshot(hiding views: [NSView]) throws -> (image: CGImage, method: WindowSnapshotMethod) {
+        let states = views.map { ($0, $0.isHidden, $0.layer?.isHidden ?? false) }
+        for (view, _, _) in states {
+            view.isHidden = true
+            view.layer?.isHidden = true
+        }
+        defer {
+            for (view, isHidden, layerHidden) in states {
+                view.isHidden = isHidden
+                view.layer?.isHidden = layerHidden
+            }
+        }
+        if !views.isEmpty { contentView?.displayIfNeeded() }
+        guard let image = renderSnapshot()?.cgImage else { throw CocoaError(.fileWriteUnknown) }
+        return (image, .appkit)
+    }
 }
 
 /// A window as the window server lists it (`CGWindowListCopyWindowInfo`): menus included,

@@ -306,7 +306,7 @@ export default agentPaneEntry({
       play: openFirst,
     },
     three: {
-      note: 'Three threads: one line, "4 messages from 3 sessions" and the senders.',
+      note: 'Three threads: one line, "Received N messages", N the messages; the senders are its hover.',
       snapshot: snapshot(THREE),
     },
     "three-open": {
@@ -315,7 +315,7 @@ export default agentPaneEntry({
       play: openFirst,
     },
     six: {
-      note: "Three notices in a row (six threads) fold into one line.",
+      note: 'Three notices in a row (six threads) fold into one line, "Received N messages".',
       snapshot: snapshot(SIX),
     },
     "six-open": {

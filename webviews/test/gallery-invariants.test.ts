@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { COLUMN_REACH, leadEdge, offColumn, offTokenGaps, sharedEdge } from "../src/gallery/invariants";
+import { COLUMN_REACH, leadEdge, offColumn, offTokenGaps, sharedEdge, startEdge } from "../src/gallery/invariants";
 
 test("the column is the edge most rows share", () => {
   expect(sharedEdge([24, 24, 24.2, 26])).toBe(24);
@@ -33,4 +33,18 @@ test("a glyph up to 16 px leads at its 16 px box; a wider glyph (a reply footer'
   expect(leadEdge({ left: 22, width: 12 })).toBe(20);
   expect(leadEdge({ left: 20, width: 16 })).toBe(20);
   expect(leadEdge({ left: 20, width: 20 })).toBe(20);
+});
+
+test("a menu label's edge is its start edge: right in an RTL row, left in an LTR row", () => {
+  // Three RTL labels end on one right edge (200); one is 1.1 px wider, so its left edge is off.
+  const labels = [
+    { key: "menu a", left: 150, right: 200 },
+    { key: "menu b", left: 148.9, right: 200 },
+    { key: "menu c", left: 150, right: 200 },
+  ];
+  const edges = (rtl: boolean) => labels.map((label) => ({ key: label.key, edge: startEdge(label, rtl) }));
+  expect(offColumn(edges(true), "menu-label", "the label")).toEqual([]);
+  expect(offColumn(edges(false), "menu-label", "the label").map(({ key }) => key)).toEqual(["menu-label:menu b"]);
+  expect(startEdge({ left: 10, right: 40 }, false)).toBe(10);
+  expect(startEdge({ left: 10, right: 40 }, true)).toBe(40);
 });

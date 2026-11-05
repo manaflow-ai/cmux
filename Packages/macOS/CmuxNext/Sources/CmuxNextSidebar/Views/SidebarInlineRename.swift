@@ -11,6 +11,8 @@ final class SidebarInlineRename: NSObject, NSTextFieldDelegate {
         var field: NSTextField
         var original: String
         var cancelled = false
+        /// The pinned workspace's band row being renamed (no list row draws it); nil for a list row.
+        weak var pinnedRow: SidebarItemRowView?
     }
 
     weak var list: SidebarListView?
@@ -58,7 +60,7 @@ final class SidebarInlineRename: NSObject, NSTextFieldDelegate {
         guard let list, list.model.presentation == .shown, list.drag == nil else { return }
         if case let .group(id) = key, !inPlace || SidebarGroup.hostMachine(id) != nil { return list.groupEditing.open(id) }
         if session != nil { end(commit: true) }
-        let original: String
+        var original: String
         switch key {
         case let .workspace(id): original = list.workspaces[id]?.title ?? ""
         case let .group(id): original = list.groups[id]?.name ?? ""
@@ -66,14 +68,28 @@ final class SidebarInlineRename: NSObject, NSTextFieldDelegate {
         }
         if let row = list.displayed.row(for: key) { list.scrollToVisible(list.frame(for: row)) }
         list.realizeVisibleRows()
-        guard let view = list.rowViews[key] else { return }
+        // A list row, else a pinned workspace's band row in a block (Lawrence msg 19583): no list row draws a pin.
+        let view: any SidebarRenameTitle
+        let toList: (NSPoint) -> NSPoint
+        var pinnedRow: SidebarItemRowView?
+        if let row = list.rowViews[key] {
+            // The row's settled frame, not the view's: a row that just appeared (a group made by a drop) is still animating in.
+            let rowFrame = list.displayed.row(for: key).map(list.frame(for:)) ?? row.frame
+            (view, toList) = (row, { NSPoint(x: $0.x + rowFrame.minX, y: $0.y + rowFrame.minY) })
+        } else if case let .workspace(id) = key, let item = pinnedItem(id) {
+            list.scrollToVisible(list.convert(item.bounds, from: item))
+            if original.isEmpty { original = item.info.title }
+            (view, pinnedRow) = (item, item)
+            toList = { [weak list, weak item] point in list.flatMap { list in item.map { list.convert(point, from: $0) } } ?? point }
+        } else {
+            return
+        }
         if list.groupEditor.isVisible { list.groupEditor.hide() }
-        // The row's settled frame, not the view's: a row that just appeared (a group made by a drop) is still animating in.
-        let rowFrame = list.displayed.row(for: key).map(list.frame(for:)) ?? view.frame
         view.layoutSubtreeIfNeeded()
-        let titleFrame = view.titleFrame.offsetBy(dx: rowFrame.minX, dy: rowFrame.minY)
-        let pen = view.titlePenOrigin.map { $0.pointValue }.map { NSPoint(x: $0.x + rowFrame.minX, y: $0.y + rowFrame.minY) }
-        let maxX = rowFrame.minX + view.titleEditMaxX
+        let titleOrigin = toList(view.titleFrame.origin)
+        let titleFrame = NSRect(origin: titleOrigin, size: view.titleFrame.size)
+        let pen = view.titlePenOrigin.map { toList($0.pointValue) }
+        let maxX = toList(NSPoint(x: view.titleEditMaxX, y: 0)).x
         // A group's name sits on its bar: the editor draws no fill over it.
         let onBar: Bool = if case .group = key { true } else { false }
         // Follows theme changes while open (ThemedTextField).
@@ -95,7 +111,7 @@ final class SidebarInlineRename: NSObject, NSTextFieldDelegate {
         let x = titleFrame.minX - Metrics.space1
         field.frame = NSRect(x: x, y: titleFrame.midY - height / 2, width: max(0, maxX - x), height: height)
         list.addSubview(field)
-        session = Session(key: key, field: field, original: original)
+        session = Session(key: key, field: field, original: original, pinnedRow: pinnedRow)
         list.window?.makeFirstResponder(field)
         if let pen { align(field, pen: pen, maxX: maxX) }
         view.setTitleHidden(true)
@@ -155,6 +171,13 @@ final class SidebarInlineRename: NSObject, NSTextFieldDelegate {
         return field.convert(NSPoint(x: inset.x + line.minX + glyph.x, y: inset.y + line.minY + glyph.y), from: editor)
     }
 
+    /// The band row that draws pinned workspace `id` in one of the list's blocks; nil when none draws it.
+    private func pinnedItem(_ id: WorkspaceID) -> SidebarItemRowView? {
+        list?.blockRegions.lazy.flatMap(\.itemViews.values).first { view in
+            view.info.workspace == id && view.titlePenOrigin != nil && !view.isHiddenOrHasHiddenAncestor && view.alphaValue > 0.01
+        }
+    }
+
     /// `byKeyboard`: Return, Escape or Tab ended it (not a click elsewhere).
     func end(commit: Bool, byKeyboard: Bool = false) {
         groupMember = nil
@@ -163,6 +186,7 @@ final class SidebarInlineRename: NSObject, NSTextFieldDelegate {
         session.field.delegate = nil
         session.field.removeFromSuperview()
         list?.rowViews[session.key]?.setTitleHidden(false)
+        session.pinnedRow?.setTitleHidden(false)
         let text = session.field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         if let list, commit, !session.cancelled, !text.isEmpty, text != session.original {
             switch session.key {

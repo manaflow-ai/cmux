@@ -29,9 +29,12 @@ public struct AwaitedContent: Equatable, Sendable {
         public var shownKind: Kind?
         /// The selected tab is a terminal that will draw (not a dead one).
         public var selectedIsLiveTerminal: Bool
+        /// The shown browser content's page is ready for keys (``BrowserTab/pageReady``): only then does a key reach it.
+        public var shownPageReady: Bool
 
-        public init(selectedTab: String?, shownTab: String?, shownKind: Kind?, selectedIsLiveTerminal: Bool) {
+        public init(selectedTab: String?, shownTab: String?, shownKind: Kind?, selectedIsLiveTerminal: Bool, shownPageReady: Bool = true) {
             (self.selectedTab, self.shownTab, self.shownKind, self.selectedIsLiveTerminal) = (selectedTab, shownTab, shownKind, selectedIsLiveTerminal)
+            self.shownPageReady = shownPageReady
         }
     }
 
@@ -40,7 +43,7 @@ public struct AwaitedContent: Equatable, Sendable {
     public static func awaited(_ kind: Kind, tab: String, pane: Pane?, paneInTopology: Bool) -> AwaitedContent? {
         if let pane {
             // The common case first (every key-down asks): the content shows.
-            if pane.shownTab == tab, pane.shownKind == kind { return nil }
+            if pane.shownTab == tab, pane.shownKind == kind, kind != .browser || pane.shownPageReady { return nil }
             guard pane.selectedTab == tab, kind == .browser || pane.selectedIsLiveTerminal else { return nil }
         } else if !paneInTopology {
             return nil
@@ -54,7 +57,8 @@ public struct AwaitedContent: Equatable, Sendable {
     /// Whether a page hold keeps a key: every key once one is held (the order stays), a plain key and a chord no app
     /// binding takes (the page's own keys), and a page action (``pageActions``). An app shortcut that does not need the
     /// page (Ctrl-Tab, Cmd-T, Cmd-1) acts at once while the hold is empty: a cold tab passed on the way never delays it.
-    public static func pageHoldKeeps(isChord: Bool, holdIsEmpty: Bool, command: String?) -> Bool {
-        !holdIsEmpty || !isChord || command.map(pageActions.contains) ?? true
+    /// `pageCreated`: Chromium created the page, so a page action (its address bar) needs no document: with nothing held, it goes on.
+    public static func pageHoldKeeps(isChord: Bool, holdIsEmpty: Bool, command: String?, pageCreated: Bool = false) -> Bool {
+        !holdIsEmpty || !isChord || command.map { pageActions.contains($0) && !pageCreated } ?? true
     }
 }

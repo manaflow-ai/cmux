@@ -1,58 +1,100 @@
 import AppKit
 
-/// cmux: a Chief's avatar in the list and the pinned grid moves (Leo 2026-11-01: "i also want them
-/// animated like how chatgpt animates their dots"): a slow idle loop, livelier while the Chief works.
+/// cmux: a Chief's avatar in the list and the pinned grid shows what its Chief is doing, one distinct
+/// animation per state, like the Codex app's pet (Leo 2026-11-03: "don't bounce the circle. i mean
+/// like if you ask codex, ... their dot thing has a few different animations for different
+/// scenarios"; first asked 2026-11-01: "i also want them animated like how chatgpt animates their
+/// dots"; 2026-11-03, relayed by Chief: "per-state animations like the Codex status dot: thinking, tool
+/// running, waiting on you, done"). The avatar itself never moves off its place: no bob, bounce or slide.
 ///
-/// One Core Animation keyframe loop per avatar layer, run by the render server: no timer, display
-/// link or main-thread work per frame. It is added once when a row or tile starts showing a moving
-/// avatar and stays until something changes, so a reload that keeps the avatar keeps its loop.
+/// The states (``Mode``) and what the default look (``CmuxSidebarAvatarMotionStyle/ring``) draws:
+/// - idle: at rest, nothing runs (the idle budget: no CPU or wakeups while nothing changes);
+/// - thinking: its turn runs in the model: a short arc runs around the avatar's edge;
+/// - tool: its turn runs a tool: a ring of dots turns slowly around the edge;
+/// - waiting: it asked the person something (a question or an approval) and waits on them: a still
+///   orange ring;
+/// - done: its turn ended and the reply is unread: a small green check badge on the lower trailing edge;
+/// - failed: a send failed: a thin red ring, still.
+/// A change of state plays one short cue (at most 240 ms, `design/motion-and-polish.md`): a turn
+/// ending pops the avatar 4 %, a failure gives it a quick shake of a few degrees about its centre, a
+/// done badge with no turn seen grows in, and Ring glints once across the face on every change into a
+/// rest state.
 ///
-/// Stop conditions (each removes the loop and leaves the avatar at rest):
-/// - the row or tile goes back to the pool (scrolled away, the conversation gone): ``stop(_:)``;
+/// Everything runs on the render server: Core Animation loops and cues on the avatar layer and two
+/// named sublayers of it (``SidebarAvatarLooks``), no timer, display link or main-thread work per frame.
+/// A reload that keeps the state keeps its loop, so a list update adds no animation work.
+///
+/// Stop conditions (each removes every loop and cue; a still ring of waiting or failed stays, as a
+/// static indicator):
+/// - the row or tile goes back to the pool (scrolled away, the conversation gone): ``stop(_:)``
+///   removes everything, rings included;
 /// - Reduce Motion, calm mode, `ui.animationSpeed` off or Home's motion switch off
 ///   (``CmuxSidebarView/avatarLoopGate``, the host's `Motion.home.animatesLoops`);
 /// - the list's window is not key (the app went inactive, or another window took the keyboard), or
 ///   it is hidden or minimized: the list's own key tracking (`setWindowActive`) re-applies every
-///   avatar, so no observer of its own is added.
-///
-/// The list's controller holds one (its host's gate and style); each row layer holds what its avatar
-/// was asked to show (``Shown``), so a gate, app or window change re-applies it.
+///   avatar, so no observer of its own is added;
+/// - style Still: no loop, cue or ring.
 struct SidebarAvatarMotion {
-    /// What a conversation's avatar does: nil stands still.
-    enum Mode: String, Codable, Hashable, Sendable {
+    /// What a conversation's Chief is doing, as its avatar shows it: nil shows nothing.
+    enum Mode: String, Codable, Hashable, Sendable, CaseIterable {
         case idle
-        case working
+        /// Its turn runs in the model (thinking, writing the reply).
+        case thinking
+        /// Its turn runs a tool.
+        case tool
+        /// It asked the person something (a question or an approval) and waits on them.
+        case waiting
+        /// Its turn ended and the reply is unread.
+        case done
+        /// A message to the Chief failed to send.
+        case failed
+
+        /// Its turn is running (thinking or a tool): the only states that loop.
+        var isRunning: Bool { self == .thinking || self == .tool }
     }
 
-    /// What one avatar was asked to show, and the loop running on it (nil: at rest).
+    /// What one avatar was asked to show, and the look on it (nil: nothing).
     struct Shown: Equatable {
         var mode: Mode
         var seed: String
-        var loop: Loop?
+        var look: Look?
     }
 
-    /// A running loop's style and mode: a reload asking for the same keeps it.
-    struct Loop: Equatable {
+    /// The look on an avatar: a reload asking for the same keeps it, loops included.
+    struct Look: Equatable {
         var style: CmuxSidebarAvatarMotionStyle
         var mode: Mode
+        /// Loops run (else only the state's still ring shows).
+        var moving: Bool
     }
 
-    /// The layer key the loop is added under.
+    /// The key every loop is added under (on the avatar or one of its named sublayers).
     static let animationKey = "cmux.avatarMotion"
+    /// The key a state change's one-shot cue is added under, on the avatar.
+    static let cueKey = "cmux.avatarMotion.cue"
 
     /// The host's gate for loops (cmux-next: `Motion.home.animatesLoops`); nil: only Reduce Motion decides.
     var gate: (@MainActor () -> Bool)?
-    /// How avatars move (the host's Debug setting).
-    var style = CmuxSidebarAvatarMotionStyle.float
+    /// The list's motion is on (`SidebarController.animates`); off (the default), only the state's still ring shows.
+    var animates = false
+    /// How avatars show their state (the host's Debug setting).
+    var style = CmuxSidebarAvatarMotionStyle.ring
     /// The list's window is key (the vendored list's key tracking sets it).
     var windowKey = true
     /// Tests' pin for "the window is on screen" (an offscreen test window never is).
     var onScreenPin: Bool?
+    /// The state each conversation's avatar last showed, by conversation id: a cue plays on a change
+    /// even when the list draws the changed row on another layer. One entry per conversation shown.
+    let lastModes = LastModes()
+
+    final class LastModes {
+        var byConversation: [String: Mode] = [:]
+    }
 
     /// Whether loops may run in `window` now: the host's gate (Reduce Motion included), the window
     /// is key (so the app is active), shown and not minimized.
     @MainActor func mayRun(in window: NSWindow?) -> Bool {
-        guard !CmuxSidebarView.reducesMotion, gate?() ?? true, windowKey else { return false }
+        guard animates, !CmuxSidebarView.reducesMotion, gate?() ?? true, windowKey else { return false }
         if let onScreenPin { return onScreenPin }
         // Not the occlusion state: the window server reports it after the window becomes key (a launch
         // or an un-minimize would leave the avatar still), and a key window is the frontmost one.
@@ -61,18 +103,27 @@ struct SidebarAvatarMotion {
     }
 
     /// Shows `mode` on `row`'s avatar for conversation `seed` (its id: each avatar's loop starts at
-    /// its own phase, so a list of Chiefs doesn't move in lockstep). Keeps a running loop of the same
-    /// mode and style; replaces one that differs; removes it when `mode` is nil or loops may not run.
+    /// its own phase, so a list of Chiefs doesn't move in lockstep). Keeps a look of the same mode and
+    /// style; replaces one that differs; removes it when `mode` is nil. A changed mode of the same
+    /// conversation plays its cue while loops may run.
     @MainActor func apply(_ row: SidebarRowLayer, mode: Mode?, seed: String, window: NSWindow?) {
         guard let mode else { return Self.stop(row) }
-        let wanted = mayRun(in: window) && style != .still ? Loop(style: style, mode: mode) : nil
-        // The loop on screen, if it is still this conversation's (a layer reused for another restarts).
-        let shown = row.avatarMotion
-        let running = row.avatar.animation(forKey: Self.animationKey) == nil || shown?.seed != seed ? nil : shown?.loop
-        row.avatarMotion = Shown(mode: mode, seed: seed, loop: wanted)
-        guard running != wanted || (wanted == nil && row.avatar.animation(forKey: Self.animationKey) != nil) else { return }
-        row.avatar.removeAnimation(forKey: Self.animationKey)
-        if let wanted { row.avatar.add(Self.animation(wanted.style, mode: mode, seed: seed), forKey: Self.animationKey) }
+        let moving = mayRun(in: window)
+        let wanted = style == .still ? nil : Look(style: style, mode: mode, moving: moving)
+        // What the layer showed, if it is still this conversation's (a layer reused for another starts over).
+        let before = row.avatarMotion?.seed == seed ? row.avatarMotion : nil
+        row.avatarMotion = Shown(mode: mode, seed: seed, look: wanted)
+        if before?.look != wanted || (wanted.map { SidebarAvatarLooks.isMissing($0, on: row.avatar) } ?? false) {
+            // A cue already playing ends too when motion stops (Reduce Motion, the window, Still).
+            SidebarAvatarLooks.clear(row.avatar, keepCue: wanted?.moving == true)
+            if let wanted { SidebarAvatarLooks.show(wanted, on: row.avatar, seed: seed) }
+        } else {
+            SidebarAvatarLooks.fit(row.avatar)
+        }
+        let from = lastModes.byConversation.updateValue(mode, forKey: seed)
+        if moving, let wanted, let from, from != mode {
+            SidebarAvatarLooks.cue(row.avatar, style: wanted.style, from: from, to: mode)
+        }
     }
 
     /// Re-applies what `row`'s avatar last showed (after a gate, app or window change).
@@ -80,74 +131,44 @@ struct SidebarAvatarMotion {
         apply(row, mode: row.avatarMotion?.mode, seed: row.avatarMotion?.seed ?? "", window: window)
     }
 
-    /// Stops the loop (the layer goes back to the pool, or its conversation stands still).
-    static func stop(_ row: SidebarRowLayer) {
-        row.avatar.removeAnimation(forKey: animationKey)
+    /// Removes every loop, cue and ring (the layer goes back to the pool, or its conversation shows nothing).
+    @MainActor static func stop(_ row: SidebarRowLayer) {
+        SidebarAvatarLooks.clear(row.avatar, keepCue: false)
         row.avatarMotion = nil
     }
 
-    /// One loop: `style`'s keyframes at the mode's period and depth, starting at the seed's phase.
-    static func animation(_ style: CmuxSidebarAvatarMotionStyle, mode: Mode, seed: String) -> CAKeyframeAnimation {
-        let shape = style.shape(mode)
-        let steps = 48
-        // motion: allow the loop runs only while `mayRun` (Reduce Motion, calm mode, speed off and Home's
-        // switch through the host's gate, the app active and the window visible) and is removed otherwise.
-        let loop = CAKeyframeAnimation(keyPath: shape.keyPath)
-        loop.values = (0...steps).map { NSNumber(value: shape.rest + shape.depth * shape.wave(Double($0) / Double(steps))) }
-        loop.duration = shape.period
-        loop.repeatCount = .infinity
-        loop.calculationMode = .linear
-        loop.isRemovedOnCompletion = false
-        // A stable phase per conversation, so a reload or a scroll back never jumps the avatar.
-        let phase = Double(seed.unicodeScalars.reduce(UInt32(7)) { ($0 &* 31) &+ $1.value } % 1000) / 1000
-        loop.timeOffset = phase * shape.period
-        return loop
+    /// Whether anything on `avatar` loops now (the avatar's own loop, the ring's or the glint's).
+    static func isLooping(_ avatar: CALayer) -> Bool {
+        ([avatar] + (avatar.sublayers ?? []).flatMap { [$0] + ($0.sublayers ?? []) })
+            .contains { $0.animation(forKey: animationKey) != nil }
+    }
+
+    /// A stable phase in 0..<1 per conversation, so a reload or a scroll back never jumps a loop.
+    static func phase(_ seed: String) -> Double {
+        Double(seed.unicodeScalars.reduce(UInt32(7)) { ($0 &* 31) &+ $1.value } % 1000) / 1000
     }
 }
 
-/// How a Chief's avatar moves (Debug Settings > Home > Avatar motion; the gallery's variants).
+/// How a Chief's avatar shows its state (Debug Settings > Home > Chief avatar motion; the gallery's
+/// variants). None moves the avatar off its place.
 public enum CmuxSidebarAvatarMotionStyle: String, Sendable, CaseIterable {
-    /// Bobs up and down by a point, like a held breath (the default).
-    case float
-    /// Grows and shrinks a few percent, ChatGPT's breathing dot.
-    case breathe
-    /// Tilts a few degrees side to side.
-    case sway
-    /// No motion.
+    /// The default. Idle rests, thinking runs an arc around the edge, a tool turns a ring of dots,
+    /// waiting and failed draw a still ring (orange, red), done a green check badge; a turn ending pops,
+    /// a failure shakes, each change into a rest state glints once.
+    case ring
+    /// A soft glow behind the avatar: none at idle, a glint sweeping across while thinking, Ring's
+    /// dots with the glow while a tool runs, a still glow while waiting (orange) or failed (red), Ring's
+    /// badge when done; the same cues as Ring.
+    case glow
+    /// The avatar turns its head: at rest at idle, a slow rock while thinking; Ring's dots, rings,
+    /// badge and cues otherwise.
+    case tilt
+    /// No motion and no ring.
     case still
-
-    /// One loop's key path, rest value, depth, period and wave (0...1 to -1...1).
-    struct Shape {
-        var keyPath: String
-        var rest: Double
-        var depth: Double
-        var period: CFTimeInterval
-        var wave: (Double) -> Double
-    }
-
-    func shape(_ mode: SidebarAvatarMotion.Mode) -> Shape {
-        let working = mode == .working
-        let sine: (Double) -> Double = { sin($0 * 2 * .pi) }
-        // Working: a quick double beat in each period, like ChatGPT's dot while it answers.
-        let beat: (Double) -> Double = { t in max(0, sin(t * 4 * .pi)) * (t < 0.5 ? 1 : 0.6) }
-        switch self {
-        case .float:
-            return Shape(keyPath: "transform.translation.y", rest: 0, depth: working ? 1.6 : 1.0,
-                         period: working ? 0.9 : 3.2, wave: sine)
-        case .breathe:
-            return working ? Shape(keyPath: "transform.scale", rest: 1, depth: 0.07, period: 1.1, wave: beat)
-                : Shape(keyPath: "transform.scale", rest: 1.0175, depth: 0.0175, period: 3.6, wave: sine)
-        case .sway:
-            return Shape(keyPath: "transform.rotation.z", rest: 0, depth: (working ? 5 : 2.5) * .pi / 180,
-                         period: working ? 1.0 : 4.0, wave: sine)
-        case .still:
-            return Shape(keyPath: "transform.scale", rest: 1, depth: 0, period: 1, wave: { _ in 0 })
-        }
-    }
 }
 
 extension SidebarController {
-    /// cmux: re-applies every row's and tile's avatar motion (the window's key state changed).
+    /// cmux: re-applies every row's and tile's avatar look (the window's key state changed).
     func refreshAvatarMotion() {
         for l in rowLayers.values + tileLayers { avatarMotion.refresh(l, window: document.window) }
     }

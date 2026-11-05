@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ALL_SCOPES, bearer } from "../support/endpoints.ts";
 import { makeHarness } from "../support/harness.ts";
+import { parseReceiverPolicyLease } from "../../src/mesh/config.ts";
 import { addressBody, enrollBody, makeInstallKey, rotateBody } from "../support/mesh-signing.ts";
 
 const TEAM = "team_alpha";
@@ -50,10 +51,27 @@ describe("VM receiver policy", () => {
     const response = await policy();
     expect(response.status).toBe(200);
     const body = await json(response);
-    expect(body).toMatchObject({ schemaVersion: 1, tenantId: TEAM, vmId: vm, meshId: mesh, aclVersion: 0, peers: [], policyDigest: expect.stringMatching(/^[0-9a-f]{64}$/u) });
+    expect(body).toMatchObject({ schemaVersion: 1, tenantId: TEAM, vmId: vm, meshId: mesh, aclVersion: 0, peers: [], ownerExpiresAt: null, policyDigest: expect.stringMatching(/^[0-9a-f]{64}$/u) });
     expect(Number(body["checkedAt"])).toBeGreaterThanOrEqual(started);
     expect(Number(body["expiresAt"]) - Number(body["checkedAt"])).toBe(30_000);
     expect(h.upstreamRequests.slice(before).every((r) => r.method === "GET")).toBe(true);
+  });
+
+  it("leases as long as the configured receiving-policy lease", async () => {
+    await h.dispose();
+    h = await makeHarness({ mesh: { budgets: { receiverPolicyLeaseMs: 120_000 } } });
+    admin = await h.addKey(TEAM, ALL_SCOPES);
+    mesh = String((await json(await call("/v1/meshes", admin, "POST", {})))["id"]);
+    vm = h.addVm(TEAM).vmId;
+    expect((await call(`/v1/meshes/${mesh}/vms/${vm}`, admin, "PUT")).status).toBe(200);
+    const body = await json(await policy());
+    expect(Number(body["expiresAt"]) - Number(body["checkedAt"])).toBe(120_000);
+  });
+
+  it("reads the lease from its variable and keeps 30 s for anything out of range", () => {
+    expect(parseReceiverPolicyLease("120000")).toBe(120_000);
+    expect(parseReceiverPolicyLease(" 45000 ")).toBe(45_000);
+    for (const v of [undefined, "", "0", "999", "120001", "1e5", "-30000", "30s", "60000.5"]) expect(parseReceiverPolicyLease(v)).toBe(30_000);
   });
 
   it("returns only the exact VM's incoming service permissions and current public identities", async () => {
@@ -104,6 +122,8 @@ describe("VM receiver policy", () => {
     const body = await json(response);
     expect(body["peers"]).toHaveLength(1);
     expect(body["expiresAt"]).toBe(expiresAt.getTime());
+    // Named separately, so the Cloud owner bounds its longer local admission horizon by it.
+    expect(body["ownerExpiresAt"]).toBe(expiresAt.getTime());
   });
 
   it("does not infer permission from a detached or different VM", async () => {
@@ -165,5 +185,19 @@ describe("VM receiver policy", () => {
       if (++reads === 2) Object.assign(h.mesh.store.devices.find((d) => d.deviceId === client.id)!, { wgPublicKey: btoa("n".repeat(32)) });
     });
     expect((await policy()).status).toBe(503);
+  });
+
+  it("reads in a bounded number of serial database round trips", async () => {
+    // Each round trip is a Worker-to-database hop (about 0.1 s on staging), so the read issues its
+    // independent queries together: before, its fifteen mesh store calls ran one after another.
+    const delayMs = 50;
+    h.mesh.delayStoreCalls(delayMs);
+    const started = Date.now();
+    const response = await policy();
+    const elapsed = Date.now() - started;
+    h.mesh.delayStoreCalls(0);
+    expect(response.status).toBe(200);
+    // Four serial waves today (member reads with the ACL, the address refresh, the inventory, the fence); allow eight.
+    expect(elapsed).toBeLessThan(8 * delayMs);
   });
 });

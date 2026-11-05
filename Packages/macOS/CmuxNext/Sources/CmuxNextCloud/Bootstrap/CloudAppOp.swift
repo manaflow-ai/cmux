@@ -31,3 +31,24 @@ public nonisolated struct CloudAppOpFailure: Error, Equatable, Sendable, CustomS
 /// One Cloud app op: `op`, JSON `args`, an idempotency key for a mutation
 /// (nil for a read), and the wire origin.
 public typealias CloudAppOp = @Sendable (_ op: String, _ args: JSONValue, _ key: String?, _ origin: AppsRunRequest.Origin) async throws -> JSONValue
+
+/// A machine's pause or start on the app-server link (`cloud.machine.pause`, `cloud.machine.start`; cmux#32708), never
+/// the classic `/api/vm`, which cannot reach a CloudDO machine. CloudDO answers once the provider call landed, so a
+/// pause's answer means its active slot is free; a call longer than CloudDO's wait answers `mutation.indeterminate`,
+/// asked again with the same key (it joins the call in flight), at most `attempts` times in all.
+public nonisolated struct CloudMachinePower {
+    public nonisolated init() {}
+    public static let indeterminate = "cmux.cloud.indeterminate"
+
+    public static func run(_ op: String, machine: String, attempts: Int = 3,
+                           origin: AppsRunRequest.Origin = .user, ops: CloudAppOp) async throws {
+        let key = UUID().uuidString
+        let tries = max(attempts, 1)
+        for attempt in 1...tries {
+            do {
+                _ = try await ops(op, .object(["machine": .string(machine)]), key, origin)
+                return
+            } catch let failure as CloudAppOpFailure where failure.code == indeterminate && attempt < tries {}
+        }
+    }
+}

@@ -409,6 +409,9 @@ def main():
     ap.add_argument("--sidebar-size", type=int, default=400)
     ap.add_argument("--sidebar-tickers", type=int, default=15, help="ticking (agent-like) workspaces in the sidebar bench")
     ap.add_argument("--sidebar-scenarios", default="ticks,scroll,scroll_ticking,switch,switch_matrix,drag")
+    ap.add_argument("--acp-rows", type=int, default=5000, help="seeded rows for native transcript scroll measurements")
+    ap.add_argument("--acp-fling-seconds", type=float, default=3, help="duration of the native transcript traversal")
+    ap.add_argument("--scroll-target-hz", type=float, help="target refresh rate for transcript and sidebar dropped slots")
     ap.add_argument("--gate", action="store_true")
     ap.add_argument("--baseline", help="baseline JSON (default: perf-budgets-baseline/<host class>.json)")
     ap.add_argument("--write-baseline")
@@ -445,10 +448,13 @@ def main():
                      "--out", o("palette"), "--json", o("palette.json")], "palette.json", rows_palette),
         "sidebar": ([py, S("sidebar-stress-bench.py"), *common, "--sizes", str(opts.sidebar_size), "--stop",
                      "--tickers", str(opts.sidebar_tickers), "--scenarios", opts.sidebar_scenarios,
+                     *(["--target-hz", str(opts.scroll_target_hz)] if opts.scroll_target_hz is not None else []),
                      *([] if opts.profile else ["--no-trace"]), "--out", o("sidebar")], os.path.join("sidebar", "results.json"),
                     lambda r: rows_sidebar(r, opts.sidebar_size)),
         "home": ([py, S("home-perf.py"), "--tag", opts.tag, "--out", o("home.json")], "home.json", rows_home),
         "acp": ([py, S("agent-engine-bench.py"), *common, "--modes", "own,chromium", "--chats", "2", "--flings", "1",
+                 "--rows", str(opts.acp_rows), "--fling-seconds", str(opts.acp_fling_seconds),
+                 *(["--target-hz", str(opts.scroll_target_hz)] if opts.scroll_target_hz is not None else []),
                  "--out", o("acp"), "--json", o("acp.json")], "acp.json", rows_acp),
         "anim": ([py, S("anim-perf-terminal.py"), *common, "--rounds", "2", "--out", o("anim"), "--json", o("anim.json")],
                  "anim.json", rows_anim),

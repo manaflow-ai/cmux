@@ -4,10 +4,12 @@
     scripts/journeys/run.py --build JOB [--priority P0 | --journey ID ... | --all] [--out DIR]
     scripts/journeys/run.py --commit SHA [...]      # builds SHA on the fleet first (or reuses its receipt)
     scripts/journeys/run.py --list | --check
+    scripts/journeys/run.py --prestage --build JOB --hosts "cmux17 cmux18 ..."   # fill each free mini's build cache now
 
 The route is the one cmux-ci capture and restore-journey-slot.sh use (no new harness, no CI job):
 capture-host leases one slot on a GUI capture mini (released in every case; a lease lasts at most
-10 minutes), the slot downloads the build's artifact (`cmux-ci artifact JOB`), capture-host launches
+10 minutes), the build comes from the mini's build cache (build_cache.py fills it once per mini and job, under
+a lock: the store's signed URL, else `cmux-ci artifact JOB`), capture-host launches
 it in the slot (own HOME, bundle id, socket, settings), and driver.py plays the journeys there over
 the control socket, the bundled CLI on the app's daemon, the process table and the app's own
 window snapshots. Journeys that do not fit one lease run in further leases.
@@ -34,10 +36,18 @@ Exit 0 when every selected journey passed, 1 when one failed, 75 when none faile
 
 Capture hosts: capture-host reads the fleet registry (~/.ssh/config.d/fleet-registry.json), or
 CAPTURE_HOST_SLOT_HOSTS (--hosts sets it). JOURNEYS_EXCLUDE_HOSTS (default cmux16) are never leased.
+
+The display (REWRITE R-HARNESS rule R11): the minis' own displays run at 60 Hz. --vdisplay HZxSCALE (whole host only)
+makes the lease's own virtual display (vdisplay120.m) the main display before the app launches, at HZ and 1x or 2x
+pixels, and a fresh process measures it: OUT/display.json. A display that is not the main one, or whose measured rate
+or pixel density is not the asked one, makes the lease's journeys "not run". A journey that needs a rate
+(`require_hz`, on the journey or anywhere in its steps, a step group's steps included) and does not get it from --vdisplay is "not run" before any
+lease, with what to pass.
 """
 from __future__ import annotations
 
 import argparse
+import base64
 import calendar
 import hashlib
 import io
@@ -81,6 +91,15 @@ EARLIER_RUN_FILES = ("run.json", "results.jsonl", "host.json", "summary.json", "
 # A journey that started this long before the run is logged (the mini's clock is late); the run id decides.
 CLOCK_SKEW_SECONDS = 300
 STAMP = "%Y-%m-%dT%H:%M:%SZ"
+# --vdisplay HZxSCALE: the asked rate (whole Hz) and pixel density, and how far the measured link interval may be from
+# 1000/HZ (the kits' video_start tolerance, which judges the same display from inside the app).
+VDISPLAY = re.compile(r"([1-9][0-9]{0,2})x([12])")
+VDISPLAY_MIN_HZ = 24   # the measurement counts link ticks in 1 s; no journey asks for less than film rate
+VDISPLAY_MAX_HZ = 240
+VDISPLAY_TOLERANCE_MS = 0.35
+# vdisplay120.m's two lines, read whole: a line of another form is no measurement.
+VD_READY = re.compile(r"ready (\d+) (\d+\.\d+)")
+VD_MAIN = re.compile(r"main (\d+) mode (\d+)x(\d+) pixels (\d+)x(\d+) refresh (\d+\.\d+) interval (\d+\.\d+) displays (\d+)")
 # What kit_tar packs to the mini and what judges a round: a result counts only when these are committed and unchanged.
 HARNESS_PATHS = ("scripts/journeys", "scripts/cmux-next/build_names.py", "scripts/ci/pr_media_ocr.swift")
 
@@ -137,6 +156,16 @@ def validate(spec):
     if not isinstance(spec.get("budget_seconds"), (int, float)) or not 0 < spec["budget_seconds"] <= JOURNEY_SECONDS:
         problems.append(f"budget_seconds must be in (0, {JOURNEY_SECONDS}] (one lease)")
     kinds = set()
+    rates = set()
+    for where, hz in require_hz_values(spec):
+        if type(hz) is int and VDISPLAY_MIN_HZ <= hz <= VDISPLAY_MAX_HZ:
+            rates.add(hz)
+        else:
+            problems.append(f"{where}: require_hz must be a whole number of Hz in [{VDISPLAY_MIN_HZ}, {VDISPLAY_MAX_HZ}], "
+                            f"not {hz!r}")
+    if len(rates) > 1:
+        problems.append(f"require_hz: the journey needs {len(rates)} rates ({', '.join(map(str, sorted(rates)))}); one "
+                        "journey runs on one display")
     for index, step in enumerate(spec.get("steps") or [], 1):
         if step.get("do") not in STEP_NAMES:
             problems.append(f"step {index}: unknown do {step.get('do')!r} (one of {', '.join(sorted(STEP_NAMES))})")
@@ -161,6 +190,48 @@ def select(specs, opts):
     if opts.all:
         return specs
     return [s for s in specs if s["priority"] == opts.priority]
+
+
+def require_hz_values(item, where="the journey"):
+    """(place, value) of every `require_hz` in a journey spec, at any depth: on the journey, a step, or a step inside
+    a step group (the kits' px_film plays its own `steps`), as a step's option."""
+    if isinstance(item, dict):
+        for key, value in item.items():
+            if key == "require_hz":
+                yield where, value
+            else:
+                yield from require_hz_values(value, f"{where}.{key}")
+    elif isinstance(item, list):
+        for index, value in enumerate(item):
+            yield from require_hz_values(value, f"{where}[{index}]")
+
+
+def required_hz(spec):
+    """The display rate a journey needs (its one `require_hz`, at any depth; --check refuses two), or None."""
+    rates = [hz for _, hz in require_hz_values(spec) if type(hz) is int]
+    return max(rates) if rates else None
+
+
+def parse_vdisplay(text):
+    """--vdisplay HZxSCALE as (hz, scale), or None when it is not one (HZ a whole number in [24, 240], SCALE 1 or 2)."""
+    m = VDISPLAY.fullmatch(text or "")
+    if not m or not VDISPLAY_MIN_HZ <= int(m.group(1)) <= VDISPLAY_MAX_HZ:
+        return None
+    return int(m.group(1)), int(m.group(2))
+
+
+def display_refusal(spec, vdisplay):
+    """Why `spec` cannot run with this run's display (None when it can): the preflight, before any build or lease.
+    The lease measures the display it made; this only refuses what the run's arguments already rule out."""
+    hz = required_hz(spec)
+    if hz is None:
+        return None
+    if vdisplay is None:
+        return (f"needs --vdisplay {hz}x1 or {hz}x2 (the journey needs a measured {hz} Hz display, which only the lease's "
+                "own virtual display gives, with --whole-host)")
+    if vdisplay[0] != hz:
+        return f"needs a {hz} Hz display, but --vdisplay gives {vdisplay[0]} Hz: pass --vdisplay {hz}x{vdisplay[1]}"
+    return None
 
 
 def batches(specs):
@@ -346,6 +417,7 @@ def kit_tar(specs):
             tar.add(ext, arcname=ext.name)
         tar.add(BUILD_NAMES, arcname="build_names.py")
         tar.add(HERE / "smoke_hog.py", arcname="smoke_hog.py")  # run only with --hog-swap-gb
+        tar.add(HERE / "vdisplay120.m", arcname="vdisplay120.m")  # built only with --vdisplay
         tar.add(OCR_SOURCE, arcname="ocr.swift")
         data = json.dumps([{k: v for k, v in s.items() if not k.startswith("_")} for s in specs]).encode()
         info = tarfile.TarInfo("journeys.json")
@@ -439,17 +511,153 @@ def acquire_lease(ch, exclusive, log_path=None, whole_host=False):
 HOG_WARMUP_SECONDS = 45  # at least this long from the hog's start (before the download) to the first journey
 # Builds kept in each mini's journeys build cache (about 1 GB each).
 BUILD_CACHE_KEEP = 3
+BUILD_CACHE = HERE / "build_cache.py"
+CONTROLLER = "http://100.89.225.106:18765"
+CLIENT_CONFIG = Path.home() / ".local/share/cmux-fleet-client/client.json"
+
+
+def signed_url(digest, timeout=20):
+    """The store's short-lived signed URL of DIGEST, from the controller (as `cmux-ci artifact` asks it), or "" when
+    the controller does not answer: then the mini's cmux-ci reads the artifact. Never logged."""
+    base = os.environ.get("CMUX_CI_CONTROLLER", "")
+    if not base:
+        try:
+            base = json.loads(CLIENT_CONFIG.read_text()).get("controller") or ""
+        except (OSError, ValueError, AttributeError):
+            base = ""
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", str(digest or "")):
+        return ""
+    import http.client
+    import urllib.request
+    try:
+        with urllib.request.urlopen(f"{(base or CONTROLLER).rstrip('/')}/v1/artifacts/{digest}/url", timeout=timeout) as res:
+            url = json.load(res).get("url") or ""
+    except (OSError, ValueError, AttributeError, http.client.HTTPException):
+        return ""
+    return url if re.fullmatch(r"https://[^\s\"']+", url) else ""
+
+
+def fill_command(build):
+    """The mini's command that puts BUILD in its cache (build_cache.py, sent inline: no kit needed, so --prestage
+    sends the same) and prints the .app path. Its first input line is fill_input(build)."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", str(build["id"])):
+        raise RuntimeError(f"build id {build['id']!r} is not a plain job id")
+    digest = str(build.get("artifact") or "")
+    commit = str(build.get("commit") or "")
+    program = base64.b64encode(BUILD_CACHE.read_bytes()).decode()
+    return (f"JOURNEYS_CACHE_ROOT=\"$HOME/.cache/cmux-journeys\" /usr/bin/python3 -I -c "
+            f"'import base64,sys;exec(compile(base64.b64decode(sys.argv.pop(1)),\"build_cache.py\",\"exec\"))' "
+            f"{program} {q(build['id'])} "
+            f"{q(digest.removeprefix('sha256:') if re.fullmatch(r'sha256:[0-9a-f]{64}', digest) else '-')} {BUILD_CACHE_KEEP} "
+            f"{q(commit if re.fullmatch(r'[0-9a-f]{40}', commit) else '-')}")
+
+
+def fill_input(build):
+    return (signed_url(build.get("artifact")) + "\n").encode()
+
+
+def prestage(build, hosts):
+    """`run.py --prestage`: put BUILD in each capture mini's cache before any round, outside any lease, one mini at a
+    time. A mini that a lease or a fleet step holds (capture-host status is not "free") is skipped: a download there
+    would load a round or a bench; the caller runs --prestage again later. {host: "staged"|"skipped: why"|"failed: why"}"""
+    ch, done = capture_host(), {}
+    for host in hosts:
+        env = dict(os.environ, CAPTURE_HOST_HOSTS=host, CAPTURE_HOST_SLOT_HOSTS=host)
+        try:
+            status = subprocess.run([ch, "status"], capture_output=True, env=env, timeout=120).stdout.decode()
+        except subprocess.TimeoutExpired:
+            status = ""
+        line = next((l for l in status.splitlines() if l.startswith(host + " ")), "")
+        if not line.startswith(host + " free"):
+            done[host] = f"skipped: {line[len(host) + 1:][:160] or 'no capture-host status'}"
+            log(f"prestage {build['id']} on {host}: {done[host]}")
+            continue
+        try:
+            fill = remote(host, f"mkdir -p $HOME/.cache/cmux-journeys; {fill_command(build)}", input=fill_input(build),
+                          timeout=1800, check=False)
+        except subprocess.TimeoutExpired:
+            done[host] = "failed: the fill took more than 1800 s"
+            log(f"prestage {build['id']} on {host}: {done[host]}")
+            continue
+        app = fill.stdout.decode(errors="replace").strip()
+        why = fill.stderr.decode(errors="replace").strip().splitlines()
+        done[host] = "staged" if fill.returncode == 0 and app.endswith(".app") else f"failed: {(why or ['?'])[-1][:200]}"
+        log(f"prestage {build['id']} on {host}: {done[host]}" + (f" ({why[-1]})" if why and done[host] == "staged" else ""))
+    return done
 # The signals that stop a round (fuzz.py's TERM, the gate's, ^C). They are blocked from the acquire until the lease is
 # inside run_lease's try, and again for the whole release, so neither a second signal nor one at the wrong moment can
 # leave a lease held until it expires (review of 22115f33db6).
 STOP_SIGNALS = {signal.SIGINT, signal.SIGTERM}
 
 
-def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.0, whole_host=False, run_ident=None):
+VDISPLAY_PLIST = ('<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>CFBundleExecutable</key>'
+                  '<string>VD</string><key>CFBundleIdentifier</key><string>ai.manaflow.resize-videos.vdisplay</string>'
+                  '<key>CFBundlePackageType</key><string>APPL</string><key>LSUIElement</key><true/></dict></plist>')
+
+
+def start_vdisplay(host, work, mode, hold, out, timeout):
+    """--vdisplay HZxSCALE (whole-host only): the lease's own virtual display at HZ, 1x or 2x, made the main display
+    before the app launches (handoff resize-videos/KIT.md, recording precondition). Writes OUT/display.json with what
+    a fresh process measures (CVDisplayLink median interval, mode, pixels); raises when it is not the main display, or
+    its measured rate or pixel density is not the asked one."""
+    hz, scale = parse_vdisplay(mode)
+    text = remote(host, f"set -e; cd {q(work)}; mkdir -p VD.app/Contents/MacOS; "
+                        f"xcrun clang -fobjc-arc -O2 -Wno-deprecated-declarations -framework AppKit -framework CoreVideo "
+                        f"kit/vdisplay120.m -o VD.app/Contents/MacOS/VD; printf '%s' {q(VDISPLAY_PLIST)} > VD.app/Contents/Info.plist; "
+                        f"codesign -s - --force VD.app 2>/dev/null; rm -f vd.out vd.err; "
+                        f"open --stdout \"$PWD/vd.out\" --stderr \"$PWD/vd.err\" VD.app --args {hz} {scale} 0 0 {int(hold)}; "
+                        f"for i in $(seq 25); do grep -q '^ready\\|^error' vd.out 2>/dev/null && break; sleep 1; done; "
+                        f"cat vd.out; sleep 1; VD.app/Contents/MacOS/VD check", timeout=timeout).stdout.decode()
+    lines = [l.strip() for l in text.splitlines()]
+    error = next((l for l in lines if l.startswith("error")), None)
+    ready = next((m for m in map(VD_READY.fullmatch, lines) if m), None)
+    main = next((m for m in map(VD_MAIN.fullmatch, lines) if m), None)
+    facts = {"asked": {"hz": hz, "scale": scale}, "host": host, "at": time.strftime(STAMP, time.gmtime()),
+             "raw": text.strip()[-600:]}
+    if ready:
+        facts.update({"display_id": int(ready.group(1)), "made_interval_ms": float(ready.group(2))})
+    if main:
+        facts.update({"main_id": int(main.group(1)), "mode": f"{main.group(2)}x{main.group(3)}",
+                      "pixels": f"{main.group(4)}x{main.group(5)}", "refresh": float(main.group(6)),
+                      "main_interval_ms": float(main.group(7)), "displays": int(main.group(8))})
+    # display.json: this lease's measurement (the name the films' readers use); displays.jsonl: every lease's.
+    (out / "display.json").write_text(json.dumps(facts, indent=1) + "\n")
+    with open(out / "displays.jsonl", "a") as f:
+        f.write(json.dumps(facts) + "\n")
+    raw = text.strip()[-300:]
+    # Each check in its passing form: anything it cannot read is a failure, never a pass.
+    if error:
+        raise RuntimeError(f"--vdisplay {mode}: the display helper failed: {error[:200]} ({raw})")
+    if not ready:
+        raise RuntimeError(f"--vdisplay {mode}: the display helper printed no ready line ({raw})")
+    if not main:
+        raise RuntimeError(f"--vdisplay {mode}: the display check printed no main line of the expected form ({raw})")
+    if facts["main_id"] != facts["display_id"]:
+        raise RuntimeError(f"--vdisplay {mode}: the virtual display ({facts['display_id']}) is not the main display "
+                           f"({facts['main_id']}) ({raw})")
+    points = [int(main.group(2)), int(main.group(3))]
+    pixels = [int(main.group(4)), int(main.group(5))]
+    if not all(v > 0 for v in points):
+        raise RuntimeError(f"--vdisplay {mode}: the main display reports {facts['mode']} points (no mode)")
+    # What the app will run at: the main display's link, measured by a fresh process (not the mode's nominal rate).
+    if not abs(facts["main_interval_ms"] - 1000.0 / hz) <= VDISPLAY_TOLERANCE_MS:
+        raise RuntimeError(f"--vdisplay {mode}: the main display's link runs at {facts['main_interval_ms']} ms a frame, "
+                           f"not {1000.0 / hz:.3f} ms ({hz} Hz)")
+    if not pixels == [scale * v for v in points]:
+        raise RuntimeError(f"--vdisplay {mode}: the main display is {facts['mode']} points at {facts['pixels']} pixels, "
+                           f"not {scale}x")
+    return facts
+
+
+def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.0, whole_host=False, run_ident=None,
+              vdisplay=None):
     """Plays `specs` in one slot (or, whole_host, on the whole mini with the app active); {id: result} (driver results, or not run with the reason). `exclusive`: the
     lease owns the whole mini (`capture-host acquire --slot --exclusive`: no fleet step runs there meanwhile;
     the fleet rule for any result that is evidence, such as the dogfood smoke gate). `run_ident` ({"run_id",
-    "run_started_at"}, new_run()): the driver stamps it into each result.json and only results with it count."""
+    "run_started_at"}, new_run()): the driver stamps it into each result.json and only results with it count.
+    `vdisplay` (HZxSCALE, whole_host only): start_vdisplay() before the launch. The display runs from the lease's root,
+    and the release of the lease stops it with every process under that root (capture-host's cap_stop), in every case;
+    it also ends by itself 30 s before the lease would."""
     ch = capture_host()
     ids = [s["id"] for s in specs]
     ident = run_ident or new_run()
@@ -484,6 +692,13 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
         # A slot root the mini reuses (a whole-host lease) may still hold an earlier run's out/: never fetch it.
         remote(host, f"rm -rf {q(work + '/out')} && mkdir -p {q(work + '/kit')} && tar x -C {q(work + '/kit')}",
                input=kit, timeout=left(120))
+        if vdisplay:
+            if not whole_host:
+                raise RuntimeError("--vdisplay needs --whole-host (a slot shares the mini's screen)")
+            # It ends by itself 30 s before the lease (the hog's margin): a stop that fails cannot outlive the lease.
+            shown = start_vdisplay(host, work, vdisplay, int(left(LEASE_SECONDS) - 30), out, left(90))
+            log(f"virtual display on {host}: {shown.get('mode')} pixels {shown.get('pixels')} refresh "
+                f"{shown.get('refresh')} Hz, measured {shown.get('main_interval_ms')} ms, main {shown.get('main_id')}")
         if hog_swap_gb > 0:
             # Memory pressure (the Austin's-day hog), from before the download and launch to the end of the
             # journeys: it holds incompressible memory until swap used is hog_swap_gb above the start, gives
@@ -506,23 +721,12 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
         # the slot, so the slot never changes it.
         if not re.fullmatch(r"[A-Za-z0-9_-]+", str(build["id"])):
             raise RuntimeError(f"build id {build['id']!r} is not a plain job id")
-        cache = f"$HOME/.cache/cmux-journeys/builds/{build['id']}"
-        log(f"build {build['id']} on {host}: cached there, else downloaded once (and the text reader, once per mini)")
-        app = remote(host, f"set -e; cd {q(work)}; mkdir -p $HOME/.cache/cmux-journeys/builds; "
+        log(f"build {build['id']} on {host}: cached there, else downloaded once under the mini's lock (and the text reader, once per mini)")
+        app = remote(host, f"set -e; cd {q(work)}; mkdir -p $HOME/.cache/cmux-journeys; "
                            f"( [ -x {ocr} ] || {{ swiftc -O kit/ocr.swift -o {ocr}.$$ && mv -f {ocr}.$$ {ocr}; }} ) >ocr.log 2>&1 & "
-                           f"c={cache}; find $HOME/.cache/cmux-journeys/builds -maxdepth 1 -name '*.tmp.*' -mmin +60 -exec rm -rf {{}} + 2>/dev/null || true; "
-                           f"if [ -f \"$c/ok\" ]; then echo 'journeys: build cache hit' >&2; touch \"$c\"; else "
-                           f"t=\"$c.tmp.$$\"; rm -rf \"$t\"; mkdir -p \"$t\"; cmux-ci artifact {q(build['id'])} \"$t/app.zip\" >&2; "
-                           f"ditto -x -k \"$t/app.zip\" \"$t/build\"; rm -f \"$t/app.zip\"; rm -rf \"$c\"; mv \"$t\" \"$c\"; touch \"$c/ok\" \"$c\"; "
-                           f"ls -1t $HOME/.cache/cmux-journeys/builds | grep -v '\\.tmp\\.' | tail -n +{BUILD_CACHE_KEEP + 1} | "
-                           f"while read -r old; do rm -rf \"$HOME/.cache/cmux-journeys/builds/$old\"; done; fi; wait || true; "
-                           f"[ -x {ocr} ] || {{ cat ocr.log >&2; exit 3; }}; "
-                           f"a=$(find \"$c/build\" -maxdepth 2 -name '*.app' -type d | head -1); "
-                           # The commit the build job names, beside the bundle unpacked from that job's artifact:
-                           # capture-host launch --commit checks it (and the bundle's own CMUXCommit, if any, must agree).
-                           f"[ -z \"$a\" ] || {{ [ {len(str(build.get('commit') or ''))} -ne 40 ] || "
-                           f"printf '%s\\n' {q(build.get('commit') or '')} > \"$(dirname \"$a\")/capture-commit\"; }}; echo \"$a\"",
-                     timeout=left(420)).stdout.decode().strip()
+                           f"a=$({fill_command(build)}); wait || true; "
+                           f"[ -x {ocr} ] || {{ cat ocr.log >&2; exit 3; }}; echo \"$a\"",
+                     input=fill_input(build), timeout=left(420)).stdout.decode().strip()
         if not app.endswith(".app"):
             raise RuntimeError(f"build {build['id']} has no app bundle")
         # capture-host (hq main since 2026-10-30) launches only the build of --commit, checked against the bundle.
@@ -768,6 +972,10 @@ def main(argv=None):
     ap.add_argument("--whole-host", action="store_true",
                     help="lease the whole mini (capture-host acquire without --slot) and launch the app active "
                          "(--activate): it gets a key window. Needs CuaDriver's grants on the mini")
+    ap.add_argument("--vdisplay", metavar="HZxSCALE",
+                    help="whole-host only: make the lease's own virtual display at HZ, 1x or 2x (e.g. 120x1, 120x2) the "
+                         "main display before the app launches, and measure it; OUT/display.json has what was measured. "
+                         "A journey that needs a rate (require_hz) runs only with the --vdisplay of that rate")
     ap.add_argument("--exclusive", action="store_true",
                     help="take each lease exclusive (the whole mini; capture-host acquire --slot --exclusive): for evidence")
     ap.add_argument("--journey-option", action="append", default=[], metavar="KEY=VALUE",
@@ -775,6 +983,9 @@ def main(argv=None):
                          "smoke_mode=diagnostic); repeatable")
     ap.add_argument("--frame-interval", type=float, default=1.0, help="seconds between clip frames (>= 0.25)")
     ap.add_argument("--build-wait-minutes", type=float, default=90, help="how long to wait for a running build")
+    ap.add_argument("--prestage", action="store_true",
+                    help="with --build and --hosts: put the build in each named mini's build cache now, outside any lease "
+                         "(skips a mini a lease or a fleet step holds), and exit: 0 all staged, 75 one skipped, 1 one failed")
     ap.add_argument("--list", action="store_true", help="print the journeys and exit")
     ap.add_argument("--check", action="store_true", help="validate the journey files and exit")
     opts = ap.parse_args(argv)
@@ -792,6 +1003,29 @@ def main(argv=None):
         return 0
     if not (opts.build or opts.commit):
         ap.error("name the build under test: --build JOB or --commit SHA")
+    vdisplay = parse_vdisplay(opts.vdisplay) if opts.vdisplay is not None else None
+    if opts.vdisplay is not None and vdisplay is None:
+        ap.error(f"--vdisplay takes HZxSCALE: HZ a whole number in [{VDISPLAY_MIN_HZ}, {VDISPLAY_MAX_HZ}], SCALE 1 or 2 (e.g. 120x1, "
+                 f"120x2), not {opts.vdisplay!r}")
+    if vdisplay and not opts.whole_host:
+        ap.error("--vdisplay needs --whole-host (a slot shares the mini's screen)")
+    if opts.prestage:
+        if not (opts.build and opts.hosts):
+            ap.error("--prestage takes --build JOB and --hosts")
+        status = wait_build(opts.build, opts.build_wait_minutes * 60)
+        if status.get("state") != "done":
+            log(f"prestage: build {opts.build} is {status.get('state')}")
+            return 1 if status.get("state") in ("failed", "cancelled") else 75
+        build = {"id": status.get("id", opts.build), "commit": status.get("ref") or status.get("commit"),
+                 "artifact": status.get("artifact")}
+        excluded = set(os.environ.get("JOURNEYS_EXCLUDE_HOSTS", "cmux16").split())
+        hosts = [h for h in opts.hosts.split() if h not in excluded]
+        if not hosts:
+            ap.error(f"--prestage: every host in --hosts is excluded ({' '.join(sorted(excluded))})")
+        done = prestage(build, hosts)
+        print(json.dumps(done))
+        states = {v.split(":")[0] for v in done.values()}
+        return 1 if "failed" in states else 75 if "skipped" in states else 0
     chosen = select(specs, opts)
     if not chosen:
         ap.error("no journey selected")
@@ -803,6 +1037,12 @@ def main(argv=None):
         options[key] = value
     if options:
         chosen = [dict(s, options=dict(s.get("options") or {}, **options)) for s in chosen]
+    # The preflight (R-HARNESS rule R11): a journey this run's display cannot serve is not run, before any build or
+    # lease is spent on it (STATUS 9145/9156: resize-keyboard spent leases on 60 Hz minis).
+    refused = {s["id"]: why for s in chosen for why in [display_refusal(s, vdisplay)] if why}
+    for jid, why in refused.items():
+        log(f"{jid}: not run, before any lease: {why}")
+    runnable = [s for s in chosen if s["id"] not in refused]
     if opts.hosts:
         os.environ["CAPTURE_HOST_SLOT_HOSTS"] = os.environ["CAPTURE_HOST_HOSTS"] = opts.hosts
     exclude = os.environ.get("JOURNEYS_EXCLUDE_HOSTS", "cmux16")
@@ -814,11 +1054,14 @@ def main(argv=None):
         log(f"harness: unpinned at the start ({len(this_run['harness']['dirty'])} uncommitted harness files): its results will "
             "be not run. Run fleet rounds from a pinned, reviewed checkout (git worktree add --detach DIR SHA)")
     out_root = ROOT / "artifacts" / "journeys"
-    job = opts.build or build_for_commit(opts.commit, out_root)
-    status = wait_build(job, opts.build_wait_minutes * 60)
-    build = {"id": status.get("id", job), "commit": status.get("ref") or status.get("commit"), "tag": status.get("tag"),
-             "state": status.get("state")}
-    out = Path(opts.out) if opts.out else out_root / f"{build['id'][:12]}-{this_run['run_id']}"
+    if runnable:
+        job = opts.build or build_for_commit(opts.commit, out_root)
+        status = wait_build(job, opts.build_wait_minutes * 60)
+        build = {"id": status.get("id", job), "commit": status.get("ref") or status.get("commit"), "tag": status.get("tag"),
+                 "state": status.get("state"), "artifact": status.get("artifact")}
+    else:  # no journey can run with this display: no build is submitted or waited for
+        build = {"id": opts.build, "commit": opts.commit, "tag": None, "state": "not checked", "artifact": None}
+    out = Path(opts.out) if opts.out else out_root / f"{str(build['id'] or build['commit'])[:12]}-{this_run['run_id']}"
     earlier = earlier_run(out)
     out.mkdir(parents=True, exist_ok=True)
     if earlier:
@@ -837,13 +1080,18 @@ def main(argv=None):
         why = f"--out {out} holds an earlier run's results ({earlier}): each run needs a new folder"
         log(why)
         results = {s["id"]: {"status": "not run", "reason": why} for s in chosen}
+    elif not runnable:
+        pass
     elif build["state"] != "done":
         why = f"build {build['id']} is {build['state']}" + ("" if build["state"] in ("failed", "cancelled") else " (still building)")
-        results = {s["id"]: {"status": "not run", "reason": why} for s in chosen}
+        results = {s["id"]: {"status": "not run", "reason": why} for s in runnable}
     else:
-        for group in batches(chosen):
+        for group in batches(runnable):
             results.update(run_lease(group, build, out, opts.frame_interval, exclusive=opts.exclusive,
-                                     hog_swap_gb=opts.hog_swap_gb, whole_host=opts.whole_host, run_ident=this_run))
+                                     hog_swap_gb=opts.hog_swap_gb, whole_host=opts.whole_host, run_ident=this_run,
+                                     vdisplay=opts.vdisplay))
+    for jid, why in refused.items():
+        results.setdefault(jid, {"status": "not run", "reason": why})
 
     lines = []
     for spec in chosen:

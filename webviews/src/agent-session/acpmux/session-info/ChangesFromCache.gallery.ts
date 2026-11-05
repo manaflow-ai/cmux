@@ -73,6 +73,10 @@ const chipHost: ChipHostFixture = {
 const native = { "pane.tabState": { inspector: true } };
 
 const settled: Play = async (ctx) => {
+  // Changes waits behind Session Info's Show more in the default view (#32939); the pane's saved
+  // choice opens it, as a person who opened Show more once has it.
+  const { setSessionInfoMore } = await import("./sessionInfoState");
+  setSessionInfoMore(true);
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-session-info[data-presence=shown]"), { capMs: 3000 });
   // The read-only `gh pr view` is a Source; only the created and merged PRs belong in Changes.
   await ctx.waitFor(() => ctx.document.querySelectorAll("li.acpmux-session-info-pr").length >= 2, { capMs: 3000 });

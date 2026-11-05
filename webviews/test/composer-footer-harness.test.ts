@@ -107,11 +107,12 @@ await requireBrowserLane("composer-footer-harness.test.ts", async () => {
   test("a new chat opens the harness-only rail from the model picker", async () => {
     const page = await open("footer-harness-new-chat", 760);
     await page.keyboard.press("Escape");
-    await page.waitForSelector(".acpmux-quick-menu", { state: "detached", timeout: 5_000 });
+    await page.waitForSelector(".acpmux-cols", { state: "detached", timeout: 5_000 });
     expect(await page.locator(".acpmux-composer-foot .acpmux-foot-harness").count()).toBe(0);
     await page.click(".acpmux-composer-foot .acpmux-model .acpmux-picker-button");
-    await page.waitForSelector(".acpmux-quick-menu", { timeout: 5_000 });
-    const rail = await page.$$eval(".acpmux-quick-menu .acpmux-quick-rail-tab[aria-label]", (tabs) =>
+    // A new chat's menu has a rail, so the button opens the columns.
+    await page.waitForSelector(".acpmux-cols", { timeout: 5_000 });
+    const rail = await page.$$eval(".acpmux-cols .acpmux-cols-tab[aria-label]", (tabs) =>
       tabs.map((tab) => tab.getAttribute("aria-label")),
     );
     expect(rail).toContain("Claude Code");

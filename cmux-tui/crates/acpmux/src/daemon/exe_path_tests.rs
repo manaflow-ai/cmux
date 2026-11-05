@@ -49,13 +49,9 @@ fn temp_folders_are_refused_in_the_default_home() {
 
 #[test]
 fn build_trees_only_warn_even_in_the_default_home() {
-    for exe in [
-        "/Users/leo/cmux/cmux-tui/target/release/acpmux",
-        "/Users/cmux/Library/Developer/Xcode/DerivedData/cmux-x/Build/Products/Debug/cmux DEV x.app/Contents/Resources/bin/acpmux",
-    ] {
-        assert_eq!(classify(Path::new(exe), Path::new(TMP)), Some(Unstable::BuildTree), "{exe}");
-        assert!(matches!(v(exe, "/Users/cmux/.acpmux", false), Verdict::Warn(_)), "{exe}");
-    }
+    let exe = "/Users/leo/cmux/cmux-tui/target/release/acpmux";
+    assert_eq!(classify(Path::new(exe), Path::new(TMP)), Some(Unstable::BuildTree), "{exe}");
+    assert!(matches!(v(exe, "/Users/cmux/.acpmux", false), Verdict::Warn(_)), "{exe}");
 }
 
 #[test]
@@ -63,8 +59,8 @@ fn an_app_bundle_is_never_refused_even_translocated() {
     // A quarantined cmux.app opened from ~/Downloads: its first launch must start the daemon.
     let translocated = "/private/var/folders/xc/abc/T/AppTranslocation/0F1E2D3C/d/cmux.app/Contents/Resources/bin/acpmux";
     assert!(matches!(v(translocated, "/Users/cmux/.acpmux", false), Verdict::Warn(_)));
-    let dev_app_in_tmp = "/tmp/abr-1/app/cmux DEV x.app/Contents/Resources/bin/acpmux";
-    assert!(matches!(v(dev_app_in_tmp, "/Users/cmux/.acpmux", false), Verdict::Warn(_)));
+    let nightly_in_tmp = "/tmp/abr-1/app/cmux NIGHTLY.app/Contents/Resources/bin/acpmux";
+    assert!(matches!(v(nightly_in_tmp, "/Users/cmux/.acpmux", false), Verdict::Warn(_)));
     // Not a bundle: a folder that only ends in .app, with no Contents under it.
     assert!(matches!(v("/tmp/x.app/acpmux", "/Users/cmux/.acpmux", false), Verdict::Refuse(_)));
 }
@@ -203,4 +199,89 @@ fn sign_clone_start_and_handoff_require_signature_proof() {
     );
     assert!(matches!(verdict(runner, home, home, Path::new(TMP), false, true), Verdict::Refuse(_)));
     assert!(shutdown_refusal(runner, home, home, Path::new(TMP), false, true).is_some());
+}
+
+/// Every place a tagged DEV app was installed from when it took NIGHTLY's daemon (cmux#29050).
+const DEV_APPS: &[&str] = &[
+    "/Users/cmux/Library/Developer/Xcode/DerivedData/cmux-x/Build/Products/Debug/cmux DEV x.app/Contents/Resources/bin/acpmux",
+    "/private/tmp/32789-fix/cmux DEV x.app/Contents/Resources/bin/cmux",
+    "/Users/cmux/Library/Developer/Xcode/DerivedData/cmux/Build/Products/Debug/cmux DEV.app/Contents/MacOS/cmux DEV",
+    "/Users/cmux/Applications/cmux-dev-builds/1/cmux DEV x.app/Contents/Resources/bin/acpmux",
+    "/Users/cmux/Library/Application Support/cmux/tag-app-cache/cmux-x/cmux DEV x.app/Contents/MacOS/cmux DEV",
+    "/var/folders/a/b/T/com.cmuxterm.app.debug.x.code_sign_clone/c/cmux DEV x.app.bundle/Contents/MacOS/cmux DEV",
+];
+const NIGHTLY_HOMES: &[&str] = &["/Users/cmux/.acpmux", "/Users/cmux/.cmux/chief/default/acpmux"];
+
+#[test]
+fn a_dev_app_never_starts_or_stops_a_daemon_of_nightlys_homes() {
+    for exe in DEV_APPS {
+        for home in NIGHTLY_HOMES {
+            assert!(matches!(v(exe, home, false), Verdict::Refuse(_)), "start {exe} {home}");
+            let why = stop(exe, home, false).unwrap_or_else(|| panic!("stop {exe} {home}"));
+            assert!(why.contains("refused to stop the daemon"), "{why}");
+        }
+    }
+}
+
+#[test]
+fn a_dev_app_keeps_its_own_homes_and_only_the_override_lets_it_past() {
+    for exe in DEV_APPS {
+        for home in [
+            "/Users/cmux/.acpmux/builds/com.cmuxterm.app.debug.x",
+            "/Users/cmux/.cmux/chief/com.cmuxterm.app.debug.x/acpmux",
+            // A test's HOME is not the person's.
+            "/tmp/test-home/.acpmux",
+        ] {
+            assert_eq!(v(exe, home, false), Verdict::Stable, "start {exe} {home}");
+            assert_eq!(stop(exe, home, false), None, "stop {exe} {home}");
+        }
+        for home in NIGHTLY_HOMES {
+            assert!(
+                !matches!(v(exe, home, true), Verdict::Refuse(_)),
+                "start allowed {exe} {home}"
+            );
+            assert_eq!(stop(exe, home, true), None, "stop allowed {exe} {home}");
+        }
+    }
+}
+
+#[test]
+fn nightly_and_a_folder_only_named_like_a_dev_app_are_not_dev_apps() {
+    for peer in [
+        "/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux",
+        "/Users/cmux/.local/bin/acpmux",
+        "/Users/cmux/cmux DEV notes/acpmux",
+    ] {
+        for home in NIGHTLY_HOMES {
+            assert_eq!(stop(peer, home, false), None, "{peer} {home}");
+        }
+    }
+}
+
+#[test]
+fn nightly_takes_its_home_back_from_a_dev_build_and_nothing_else_is_taken() {
+    let reclaims = |holder: &str, own: &str, home: &str| {
+        reclaims_home(
+            Path::new(holder),
+            Path::new(own),
+            Path::new(home),
+            Path::new("/Users/cmux/.acpmux"),
+            Path::new(TMP),
+        )
+    };
+    let dev = "/private/tmp/31514/app/cmux DEV 31514-closed.app/Contents/Resources/bin/acpmux";
+    let other_dev = "/Users/cmux/Applications/cmux DEV 28734.app/Contents/Resources/bin/acpmux";
+    let nightly = "/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux";
+    let chief = "/Users/cmux/.cmux/chief/default/acpmux";
+    assert!(reclaims(dev, nightly, "/Users/cmux/.acpmux"));
+    assert!(reclaims(dev, nightly, chief));
+    // NIGHTLY's own daemon, an update's older one: an ordinary restart, not a reclaim.
+    assert!(!reclaims(nightly, nightly, "/Users/cmux/.acpmux"));
+    // A DEV build never takes the home, whoever holds it.
+    assert!(!reclaims(nightly, dev, "/Users/cmux/.acpmux"));
+    assert!(!reclaims(other_dev, dev, "/Users/cmux/.acpmux"));
+    // A DEV build's own home stays its own.
+    assert!(!reclaims(dev, nightly, "/Users/cmux/.acpmux/builds/com.cmuxterm.app.debug.31514"));
+    // A test's home in a temporary folder is nobody's.
+    assert!(!reclaims(dev, nightly, "/var/folders/xc/abc/T/a/.acpmux"));
 }

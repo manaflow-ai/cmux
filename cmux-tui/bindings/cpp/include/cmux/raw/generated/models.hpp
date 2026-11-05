@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "cc21760f2943f674c9ddfc3acf0b238c0388afbe9a4e3245bc24d9aa17a2208c";
+inline constexpr std::string_view kProtocolIrSha256 = "4633d08bededb0f16f8bbc5de5cbbeb5f06e9d44a544162fa5efc76c6e47e3f7";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -42,6 +42,8 @@ struct BrowserProviderUnregisterResult;
 struct CellPixelFailure;
 struct CellPixelResize;
 struct CellPixelSurface;
+struct ChiefWorkAgent;
+struct ChiefWorkTask;
 struct ClientInfo;
 struct ClientSize;
 enum class ClientTransport;
@@ -105,6 +107,9 @@ struct JsonValue;
 struct KittyGraphicsState;
 struct KittyImageAlias;
 struct Layout;
+struct LayoutSizePaneWidth;
+struct LayoutSizeSplitRatio;
+struct LayoutSizeValue;
 struct LayoutUndoConfirmationRequired;
 struct LayoutUndoResult;
 struct LayoutUndoUndone;
@@ -137,6 +142,7 @@ struct ProviderWorkspaceMutationResult;
 struct ReadScreenResult;
 struct ReadScrollbackResult;
 struct ReattachViewResult;
+struct RemoteHostAppResult;
 struct RenderCursor;
 enum class RenderGraphicFormat;
 struct RenderGraphicImage;
@@ -156,6 +162,8 @@ struct RunResult;
 struct SavedTabGroupMember;
 struct SavedTabGroupRecord;
 struct Screen;
+struct SelectionPane;
+struct SelectionScreen;
 struct SendExpectAgent;
 struct ServerStatsConnections;
 struct ServerStatsHistogram;
@@ -264,6 +272,8 @@ struct BrowserWheelRequest;
 struct BrowserWheelGuardedRequest;
 struct ChiefInspectRequest;
 struct ChiefInspectResult;
+struct ChiefWorkRequest;
+struct ChiefWorkResult;
 struct ClearHistoryRequest;
 struct ClearWindowTitleRequest;
 struct ClientFocusRequest;
@@ -478,6 +488,10 @@ struct ReleaseAttachedViewSizeRequest;
 struct ReleaseSurfaceSizeRequest;
 struct ReloadConfigRequest;
 struct ReloadConfigResult;
+struct RemoteHostAppRequest;
+struct RemoteHostCallRequest;
+struct RemoteHostConfigRequest;
+struct RemoteHostStatusRequest;
 struct RemoteTerminalSnapshotRequest;
 struct RemoveScreensFromScreenGroupRequest;
 struct RemoveTabsFromTabGroupRequest;
@@ -516,6 +530,7 @@ struct SetColumnDockRequest;
 struct SetDefaultColorsRequest;
 struct SetFrontendBrowserHistoryRequest;
 struct SetHostSizePolicyRequest;
+struct SetLayoutSizesRequest;
 struct SetPersonalTerminalRequest;
 struct SetPersonalWorkspaceRequest;
 struct SetProfileFollowsRequest;
@@ -637,6 +652,7 @@ struct ScreenChangedEvent;
 struct ScreenClosedEvent;
 struct ScreenRenamedEvent;
 struct ScrollChangedEvent;
+struct SelectionChangedEvent;
 struct SettingsChangedEvent;
 struct SizeStateEvent;
 struct StatusEvent;
@@ -662,7 +678,10 @@ struct WorkspaceAddedEvent;
 struct WorkspaceChangedEvent;
 struct WorkspaceClosedEvent;
 struct WorkspaceMovedEvent;
+struct WorkspacePresentationChangedEvent;
 struct WorkspaceRenamedEvent;
+enum class ChiefWorkAgentState;
+enum class ChiefWorkTaskStatus;
 enum class CopyResultMode;
 struct DeclarativeLayoutLeaf;
 struct DeclarativeLayoutSplit;
@@ -1241,6 +1260,56 @@ struct ChiefInspectResult {
     Field<std::string> error{};
     std::uint64_t status{};
     friend bool operator==(const ChiefInspectResult&, const ChiefInspectResult&) = default;
+};
+
+enum class ChiefWorkAgentState {
+    working,
+    waiting,
+    idle,
+    failed,
+};
+
+struct ChiefWorkAgent {
+    std::string id{};
+    std::string name{};
+    std::optional<std::uint64_t> started_at{};
+    ChiefWorkAgentState state{};
+    std::optional<std::string> task{};
+    std::optional<std::uint64_t> updated_at{};
+    friend bool operator==(const ChiefWorkAgent&, const ChiefWorkAgent&) = default;
+};
+
+struct ChiefWorkRequest {
+    std::string chief{};
+    friend bool operator==(const ChiefWorkRequest&, const ChiefWorkRequest&) = default;
+};
+
+enum class ChiefWorkTaskStatus {
+    running,
+    done,
+    failed,
+    cancelled,
+    unknown,
+};
+
+struct ChiefWorkTask {
+    std::string command{};
+    std::optional<std::string> detail{};
+    std::optional<std::uint64_t> ended_at{};
+    std::string id{};
+    std::string session_id{};
+    std::optional<std::uint64_t> started_at{};
+    ChiefWorkTaskStatus status{};
+    std::string title{};
+    friend bool operator==(const ChiefWorkTask&, const ChiefWorkTask&) = default;
+};
+
+struct ChiefWorkResult {
+    std::vector<ChiefWorkAgent> agents{};
+    std::vector<std::string> task_sources{};
+    std::vector<ChiefWorkTask> tasks{};
+    bool truncated{};
+    friend bool operator==(const ChiefWorkResult&, const ChiefWorkResult&) = default;
 };
 
 enum class TerminalKey {
@@ -3380,6 +3449,24 @@ struct LayoutChangedEvent {
     friend bool operator==(const LayoutChangedEvent&, const LayoutChangedEvent&) = default;
 };
 
+struct LayoutSizePaneWidth {
+    Id pane{};
+    float width{};
+    friend bool operator==(const LayoutSizePaneWidth&, const LayoutSizePaneWidth&) = default;
+};
+
+struct LayoutSizeSplitRatio {
+    float ratio{};
+    Id split{};
+    friend bool operator==(const LayoutSizeSplitRatio&, const LayoutSizeSplitRatio&) = default;
+};
+
+struct LayoutSizeValue {
+    using Variant = std::variant<LayoutSizeSplitRatio, LayoutSizePaneWidth>;
+    Variant value{};
+    friend bool operator==(const LayoutSizeValue&, const LayoutSizeValue&) = default;
+};
+
 struct LayoutUndoConfirmationRequired {
     std::vector<Id> closes_panes{};
     std::uint64_t revision{};
@@ -3832,6 +3919,7 @@ struct MoveTabToColumnRequest {
     Field<ColumnPin> dock{};
     std::optional<bool> keep_focus{};
     Field<Id> pane{};
+    Field<std::string> pane_id{};
     Field<SplitRespawn> respawn{};
     Field<Id> screen{};
     Id surface{};
@@ -3975,6 +4063,7 @@ struct NewFrontendBrowserTabRequest {
     Field<Id> pane{};
     Field<std::string> profile_id{};
     Field<std::uint16_t> rows{};
+    Field<ConversationTabSplit> split{};
     Field<std::string> title{};
     std::string url{};
     friend bool operator==(const NewFrontendBrowserTabRequest&, const NewFrontendBrowserTabRequest&) = default;
@@ -4427,6 +4516,34 @@ struct ReloadConfigResult {
     friend bool operator==(const ReloadConfigResult&, const ReloadConfigResult&) = default;
 };
 
+struct RemoteHostAppRequest {
+    friend bool operator==(const RemoteHostAppRequest&, const RemoteHostAppRequest&) = default;
+};
+
+struct RemoteHostAppResult {
+    std::uint32_t host_pid{};
+    std::string secret{};
+    std::string socket{};
+    friend bool operator==(const RemoteHostAppResult&, const RemoteHostAppResult&) = default;
+};
+
+struct RemoteHostCallRequest {
+    std::string method{};
+    Field<JsonValue> params{};
+    friend bool operator==(const RemoteHostCallRequest&, const RemoteHostCallRequest&) = default;
+};
+
+struct RemoteHostConfigRequest {
+    Field<bool> computer_use{};
+    Field<bool> headless{};
+    Field<bool> screen_sharing{};
+    friend bool operator==(const RemoteHostConfigRequest&, const RemoteHostConfigRequest&) = default;
+};
+
+struct RemoteHostStatusRequest {
+    friend bool operator==(const RemoteHostStatusRequest&, const RemoteHostStatusRequest&) = default;
+};
+
 struct RemoteTerminalSnapshotRequest {
     Id surface{};
     friend bool operator==(const RemoteTerminalSnapshotRequest&, const RemoteTerminalSnapshotRequest&) = default;
@@ -4818,6 +4935,29 @@ struct SelectWorkspaceRequest {
     friend bool operator==(const SelectWorkspaceRequest&, const SelectWorkspaceRequest&) = default;
 };
 
+struct SelectionPane {
+    std::uint64_t active_tab{};
+    std::uint64_t focused_at{};
+    Id id{};
+    friend bool operator==(const SelectionPane&, const SelectionPane&) = default;
+};
+
+struct SelectionScreen {
+    bool active{};
+    Id active_pane{};
+    Id id{};
+    std::vector<SelectionPane> panes{};
+    friend bool operator==(const SelectionScreen&, const SelectionScreen&) = default;
+};
+
+struct SelectionChangedEvent {
+    bool active{};
+    std::optional<Id> active_workspace{};
+    std::vector<SelectionScreen> screens{};
+    Id workspace{};
+    friend bool operator==(const SelectionChangedEvent&, const SelectionChangedEvent&) = default;
+};
+
 struct SendExpectAgent {
     Field<std::string> session{};
     friend bool operator==(const SendExpectAgent&, const SendExpectAgent&) = default;
@@ -4989,7 +5129,10 @@ struct ServerStatsWritePath {
     std::uint64_t effect_intent_batches{};
     std::uint64_t effect_intent_failures{};
     std::uint64_t effect_intents{};
+    std::optional<std::uint64_t> registry_wal_frame_bytes{};
     std::uint64_t request_effect_commits{};
+    std::optional<std::uint64_t> wal_commits{};
+    std::optional<std::uint64_t> wal_synced_commits{};
     std::uint64_t writer_registry_locks{};
     friend bool operator==(const ServerStatsWritePath&, const ServerStatsWritePath&) = default;
 };
@@ -5093,6 +5236,12 @@ struct SetHostSizePolicyRequest {
 struct SetHostSizePolicyResult {
     HostSizePolicy policy{};
     friend bool operator==(const SetHostSizePolicyResult&, const SetHostSizePolicyResult&) = default;
+};
+
+struct SetLayoutSizesRequest {
+    std::uint64_t transaction{};
+    std::vector<LayoutSizeValue> values{};
+    friend bool operator==(const SetLayoutSizesRequest&, const SetLayoutSizesRequest&) = default;
 };
 
 struct SetPersonalTerminalRequest {
@@ -6046,6 +6195,12 @@ struct WorkspaceMutationResult {
     friend bool operator==(const WorkspaceMutationResult&, const WorkspaceMutationResult&) = default;
 };
 
+struct WorkspacePresentationChangedEvent {
+    Workspace entity{};
+    Id workspace{};
+    friend bool operator==(const WorkspacePresentationChangedEvent&, const WorkspacePresentationChangedEvent&) = default;
+};
+
 struct WorkspaceRenamedEvent {
     Workspace entity{};
     std::string generation{};
@@ -6236,6 +6391,18 @@ template <>
 struct Codec<CellPixelSurface> {
     static Result<Json> encode(const CellPixelSurface& value);
     static Result<CellPixelSurface> decode(const Json& value);
+};
+
+template <>
+struct Codec<ChiefWorkAgent> {
+    static Result<Json> encode(const ChiefWorkAgent& value);
+    static Result<ChiefWorkAgent> decode(const Json& value);
+};
+
+template <>
+struct Codec<ChiefWorkTask> {
+    static Result<Json> encode(const ChiefWorkTask& value);
+    static Result<ChiefWorkTask> decode(const Json& value);
 };
 
 template <>
@@ -6617,6 +6784,24 @@ struct Codec<Layout> {
 };
 
 template <>
+struct Codec<LayoutSizePaneWidth> {
+    static Result<Json> encode(const LayoutSizePaneWidth& value);
+    static Result<LayoutSizePaneWidth> decode(const Json& value);
+};
+
+template <>
+struct Codec<LayoutSizeSplitRatio> {
+    static Result<Json> encode(const LayoutSizeSplitRatio& value);
+    static Result<LayoutSizeSplitRatio> decode(const Json& value);
+};
+
+template <>
+struct Codec<LayoutSizeValue> {
+    static Result<Json> encode(const LayoutSizeValue& value);
+    static Result<LayoutSizeValue> decode(const Json& value);
+};
+
+template <>
 struct Codec<LayoutUndoConfirmationRequired> {
     static Result<Json> encode(const LayoutUndoConfirmationRequired& value);
     static Result<LayoutUndoConfirmationRequired> decode(const Json& value);
@@ -6809,6 +6994,12 @@ struct Codec<ReattachViewResult> {
 };
 
 template <>
+struct Codec<RemoteHostAppResult> {
+    static Result<Json> encode(const RemoteHostAppResult& value);
+    static Result<RemoteHostAppResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<RenderCursor> {
     static Result<Json> encode(const RenderCursor& value);
     static Result<RenderCursor> decode(const Json& value);
@@ -6920,6 +7111,18 @@ template <>
 struct Codec<Screen> {
     static Result<Json> encode(const Screen& value);
     static Result<Screen> decode(const Json& value);
+};
+
+template <>
+struct Codec<SelectionPane> {
+    static Result<Json> encode(const SelectionPane& value);
+    static Result<SelectionPane> decode(const Json& value);
+};
+
+template <>
+struct Codec<SelectionScreen> {
+    static Result<Json> encode(const SelectionScreen& value);
+    static Result<SelectionScreen> decode(const Json& value);
 };
 
 template <>
@@ -7568,6 +7771,18 @@ template <>
 struct Codec<ChiefInspectResult> {
     static Result<Json> encode(const ChiefInspectResult& value);
     static Result<ChiefInspectResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<ChiefWorkRequest> {
+    static Result<Json> encode(const ChiefWorkRequest& value);
+    static Result<ChiefWorkRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ChiefWorkResult> {
+    static Result<Json> encode(const ChiefWorkResult& value);
+    static Result<ChiefWorkResult> decode(const Json& value);
 };
 
 template <>
@@ -8855,6 +9070,30 @@ struct Codec<ReloadConfigResult> {
 };
 
 template <>
+struct Codec<RemoteHostAppRequest> {
+    static Result<Json> encode(const RemoteHostAppRequest& value);
+    static Result<RemoteHostAppRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<RemoteHostCallRequest> {
+    static Result<Json> encode(const RemoteHostCallRequest& value);
+    static Result<RemoteHostCallRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<RemoteHostConfigRequest> {
+    static Result<Json> encode(const RemoteHostConfigRequest& value);
+    static Result<RemoteHostConfigRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<RemoteHostStatusRequest> {
+    static Result<Json> encode(const RemoteHostStatusRequest& value);
+    static Result<RemoteHostStatusRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<RemoteTerminalSnapshotRequest> {
     static Result<Json> encode(const RemoteTerminalSnapshotRequest& value);
     static Result<RemoteTerminalSnapshotRequest> decode(const Json& value);
@@ -9080,6 +9319,12 @@ template <>
 struct Codec<SetHostSizePolicyRequest> {
     static Result<Json> encode(const SetHostSizePolicyRequest& value);
     static Result<SetHostSizePolicyRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetLayoutSizesRequest> {
+    static Result<Json> encode(const SetLayoutSizesRequest& value);
+    static Result<SetLayoutSizesRequest> decode(const Json& value);
 };
 
 template <>
@@ -9809,6 +10054,12 @@ struct Codec<ScrollChangedEvent> {
 };
 
 template <>
+struct Codec<SelectionChangedEvent> {
+    static Result<Json> encode(const SelectionChangedEvent& value);
+    static Result<SelectionChangedEvent> decode(const Json& value);
+};
+
+template <>
 struct Codec<SettingsChangedEvent> {
     static Result<Json> encode(const SettingsChangedEvent& value);
     static Result<SettingsChangedEvent> decode(const Json& value);
@@ -9959,9 +10210,27 @@ struct Codec<WorkspaceMovedEvent> {
 };
 
 template <>
+struct Codec<WorkspacePresentationChangedEvent> {
+    static Result<Json> encode(const WorkspacePresentationChangedEvent& value);
+    static Result<WorkspacePresentationChangedEvent> decode(const Json& value);
+};
+
+template <>
 struct Codec<WorkspaceRenamedEvent> {
     static Result<Json> encode(const WorkspaceRenamedEvent& value);
     static Result<WorkspaceRenamedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<ChiefWorkAgentState> {
+    static Result<Json> encode(const ChiefWorkAgentState& value);
+    static Result<ChiefWorkAgentState> decode(const Json& value);
+};
+
+template <>
+struct Codec<ChiefWorkTaskStatus> {
+    static Result<Json> encode(const ChiefWorkTaskStatus& value);
+    static Result<ChiefWorkTaskStatus> decode(const Json& value);
 };
 
 template <>

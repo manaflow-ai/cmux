@@ -7,8 +7,10 @@ import { createContext, useContext } from "react";
 import { markSeq, useBookmarks } from "./bookmarks";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
 
-/// A prompt as a mark names it: its row id.
-export type MarkedPrompt = { id: string };
+/// A prompt as a mark names it: its row id. A rail tick that folds a run of other chats' messages
+/// (model.ts `foldIncoming`) also names every message's row: it shows as marked when any of them is,
+/// a toggle on it takes off every mark among them, or else marks its own (the run's first) message.
+export type MarkedPrompt = { id: string; members?: readonly string[] };
 
 /// The transcript's session, for prompt rows that mark themselves (VirtualTranscript provides it).
 export const PromptMarksSession = createContext<string | undefined>(undefined);
@@ -29,16 +31,19 @@ export function usePromptMarks(sessionId: string | undefined): {
   const session = markedSession(sessionId);
   const { marks, toggle } = useBookmarks(session, readOnly);
   const can = (prompt: MarkedPrompt) => !readOnly && session !== undefined && markSeq(prompt.id) !== undefined;
+  const marked = (prompt: MarkedPrompt) =>
+    (prompt.members ?? [prompt.id]).map(markSeq).filter((seq): seq is number => seq !== undefined && marks.has(seq));
   return {
-    has: (prompt) => {
-      const seq = markSeq(prompt.id);
-      return seq !== undefined && marks.has(seq);
-    },
+    has: (prompt) => marked(prompt).length > 0,
     can,
     toggle: (prompt) => {
       if (readOnly) return;
-      const seq = markSeq(prompt.id);
-      if (seq !== undefined) toggle(seq);
+      const on = marked(prompt);
+      if (on.length) for (const seq of on) toggle(seq);
+      else {
+        const seq = markSeq(prompt.id);
+        if (seq !== undefined) toggle(seq);
+      }
     },
   };
 }

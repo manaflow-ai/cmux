@@ -227,6 +227,12 @@ async fn a_stalled_peer_is_kept_as_stale_refused_clearly_and_picked_up_again() {
     let prompt = json!({"sessionId": "b/lane", "prompt": [{"type": "text", "text": "hi"}]});
     let refused = ca.call(method::SESSION_PROMPT, prompt).await.unwrap_err();
     assert!(refused.starts_with("peer_unreachable: b (reconnecting, last seen "), "{refused}");
+    // The app's prompt too: a down link lists no features, so the trust gate would call it
+    // unsupported (final for the outbox) and the peer would never be asked to wake.
+    let from_app = json!({"sessionId": "b/lane", "prompt": [{"type": "text", "text": "hi"}],
+                          "_meta": {"acpmux": {"via": "app"}}});
+    let refused = ca.call(method::SESSION_PROMPT, from_app).await.unwrap_err();
+    assert!(refused.starts_with("peer_unreachable: b (reconnecting, last seen "), "{refused}");
 
     // B answers again: the next attempt picks it up and the rows are fresh.
     stall.send_replace(false);

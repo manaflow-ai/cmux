@@ -12,10 +12,15 @@ import Testing
                           accessibilityLabel: "Effort", style: style)
     }
 
+    /// A key for the slider. Its arrow keys move it through `NSControl.sendAction(_:to:)`, which
+    /// AppKit routes through `NSApp`: in a test process that made no NSApplication (the lane runs
+    /// each suite in its own process) the action goes nowhere and the slider never publishes, so
+    /// the application exists before any key, as in the app.
     private func key(_ code: UInt16) -> NSEvent {
-        NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
-                        windowNumber: 0, context: nil, characters: "", charactersIgnoringModifiers: "",
-                        isARepeat: false, keyCode: code)!
+        _ = NSApplication.shared
+        return NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                               windowNumber: 0, context: nil, characters: "", charactersIgnoringModifiers: "",
+                               isARepeat: false, keyCode: code)!
     }
 
     @Test func namedStopsRestWithoutCommittingAndEnterCommitsOnce() throws {

@@ -11,11 +11,28 @@ export type NativePopupRowKind =
   | "submenu"
   | "textField";
 
-export type NativePopupEventType = "pick" | "change" | "search" | "highlight" | "complete" | "submit" | "dismiss";
+/** `navigate`: Left or Right asked for the previous or next rail tab (`value`); the page picks it. */
+export type NativePopupEventType =
+  | "pick"
+  | "change"
+  | "search"
+  | "highlight"
+  | "complete"
+  | "submit"
+  | "dismiss"
+  | "navigate";
 
 export type NativePopupSide = "top" | "bottom";
 
 export type NativePopupAlign = "start" | "end";
+
+/**
+ * Where the rail's tabs sit, as the web picker's harness placements draw them: `symbols` a wrapping
+ * row of marks across the top (names only as tooltips), `top` a wrapping strip of marks with names,
+ * `left` a column of marks with names, `compact` a narrow column with each name under its mark.
+ * Absent: the original column beside the title and search.
+ */
+export type NativePopupRailPlacement = "symbols" | "left" | "top" | "compact";
 
 export interface NativePopupAnchor {
   left: number;
@@ -94,6 +111,15 @@ export interface NativePopupRow {
   slider?: NativePopupSlider;
   completion?: string;
   editSequence?: number;
+  /**
+   * The trailing item of a row whose `children` open beside it (a model's effort column: its
+   * level, then a chevron), or a submenu's current value before its chevron.
+   */
+  sideLabel?: string;
+  /** A rail tab's agent mark (a brand, agent or provider id the native brand catalog knows). */
+  mark?: string;
+  /** A rail tab's text mark when it has no `mark` (its name's initial, or an emoji icon). */
+  monogram?: string;
 }
 
 export interface NativePopupModel {
@@ -111,6 +137,7 @@ export interface NativePopupModel {
   highlighted?: string;
   rail?: NativePopupRow[];
   railWidth?: number;
+  railPlacement?: NativePopupRailPlacement;
   footer?: NativePopupRow[];
 }
 

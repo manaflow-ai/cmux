@@ -72,7 +72,9 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
     const panel = page.locator("aside.acpmux-session-info");
     const toggle = page.locator("button.acpmux-session-info-toggle");
     await toggle.waitFor({ timeout: 10_000 });
-    if ((await panel.count()) === 0) await toggle.click({ force: true });
+    // Pressed while it shows: a pane that waits for the person (SessionInfo.tsx sessionInfoFits, a short
+    // pane's popover) leaves it closed, its card possibly still leaving.
+    if ((await toggle.getAttribute("aria-pressed")) !== "true") await toggle.click({ force: true });
     await page.locator('aside.acpmux-session-info[data-presence="shown"]').waitFor({ timeout: 10_000 });
     // The chat's shift beside it settles.
     await page.evaluate(() =>
@@ -100,10 +102,9 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
         );
         const toggle = page.locator("button.acpmux-session-info-toggle");
         await toggle.waitFor({ timeout: 10_000 });
-        if ((await page.locator("aside.acpmux-session-info").count()) > 0) {
-          await toggle.click();
-          await page.locator("aside.acpmux-session-info").waitFor({ state: "detached", timeout: 5_000 });
-        }
+        // Pressed while it shows; a pane that waits for the person (SessionInfo.tsx sessionInfoFits) has it closed already.
+        if ((await toggle.getAttribute("aria-pressed")) === "true") await toggle.click();
+        await page.locator("aside.acpmux-session-info").waitFor({ state: "detached", timeout: 5_000 });
         const before = await transcript(page);
         const { panel } = await openSessionInfo(page);
         const box = await rect(page);
@@ -122,10 +123,12 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
     });
 
     // Leo, 2026-11-01: "why does the session info not push the layout left ever anymore". Where the
-    // right gutter cannot hold it (a 1200px pane, a pane of a split at 560 and 700, a narrow window at
-    // 900) it takes its column under the header: the chat moves left and narrows, and the panel covers
-    // no row and not the composer. On base it floated over the chat's right end.
-    for (const width of [560, 700, 900, 1200]) {
+    // right gutter cannot hold it and pushing keeps the transcript's column at its width (1100px and
+    // 1420px panes) it pushes into the chat under the header, by only what the gutter lacks
+    // (SessionInfo.tsx pushedRoom): the chat narrows, and the panel covers no row and not the composer.
+    // Where a push would narrow the column it lies over the chat instead (the 370/528/740px cases below;
+    // Leo, 2026-11-03: "if it would need to be then session info should be an overlay").
+    for (const width of [1100, 1420]) {
       test(`${name}: in a ${width}px pane it pushes the chat left and covers no row`, async () => {
         current = browsers.get(name)!;
         const page = await pane!.open({ width, height: 700 });
@@ -138,10 +141,9 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
             ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 }),
           );
           await toggle.waitFor({ timeout: 10_000 });
-          if ((await page.locator("aside.acpmux-session-info").count()) > 0) {
-            await toggle.click();
-            await page.locator("aside.acpmux-session-info").waitFor({ state: "detached", timeout: 5_000 });
-          }
+          // Pressed while it shows; a pane that waits for the person (SessionInfo.tsx sessionInfoFits) has it closed already.
+          if ((await toggle.getAttribute("aria-pressed")) === "true") await toggle.click();
+          await page.locator("aside.acpmux-session-info").waitFor({ state: "detached", timeout: 5_000 });
           const before = await chat();
           const { panel } = await openSessionInfo(page);
           const box = await rect(page);
@@ -160,10 +162,83 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
       });
     }
 
+    // cmuxterm-hq#6137: a new chat in a 370px agent pane opened with the panel over its "Not sent" line,
+    // Retry and composer. Leo, 2026-11-03: "but you should still be able to have it be an overlay... we
+    // previously had all that behaviour logic going from not affecting layout at all -> gradually pushing
+    // into the chat layout -> overlay", and "the agent chat's horizontal width shouldn't be shifted its
+    // position sure but it itself and its text shouldn't be affected by the session info if it would need
+    // to be then session info should be an overlay". In these panes a push would narrow the column: it
+    // lies over the chat, its foot above the composer's top, so the composer shows whole and the chat
+    // keeps the pane's width. Under 648px a saved open state leaves the chat alone until the toggle.
+    for (const width of [370, 528, 740]) {
+      const over = true;
+      test(`${name}: in a ${width}px pane it lies over the chat above the composer, and the composer shows whole`, async () => {
+        current = browsers.get(name)!;
+        const page = await pane!.open({ width, height: 900 });
+        try {
+          await page.evaluate(() =>
+            (
+              window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } }
+            ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 }),
+          );
+          const toggle = page.locator("button.acpmux-session-info-toggle");
+          await toggle.waitFor({ timeout: 10_000 });
+          // Session Info's saved state is open (the default): only a pane with room shows it unasked.
+          const unasked = (await toggle.getAttribute("aria-pressed")) === "true";
+          const { panel } = await openSessionInfo(page);
+          // The card's foot settles on the composer's top (sessionInfo.css data-foot-moves).
+          await page.evaluate(() =>
+            Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => undefined))),
+          );
+          const box = await rect(page);
+          const main = await page.evaluate(() => {
+            const { left, right, top, bottom } = document.querySelector(".acpmux-main")!.getBoundingClientRect();
+            return { left, right, top, bottom };
+          });
+          const rows = await transcript(page);
+          const composer = await page.evaluate(() => {
+            const { left, right, top, bottom } = document
+              .querySelector(".acpmux-composer-box")!
+              .getBoundingClientRect();
+            return { left, right, top, bottom };
+          });
+          const last = rows.reduce((a, b) => (b.bottom > a.bottom ? b : a), rows[0]!);
+          expect(rows.length).toBeGreaterThan(0);
+          expect({
+            unasked,
+            placement: await panel.getAttribute("data-placement"),
+            overChat: (await panel.getAttribute("data-over-chat")) !== null,
+            popover: (await panel.getAttribute("data-popover")) !== null,
+            chatKeepsPane: Math.abs(main.right - main.left - width) < 0.5,
+            besideChat: box.left >= main.right - 0.5,
+            aboveComposer: box.bottom <= composer.top + 0.5,
+            insidePane: box.right <= width,
+            covers: over ? [] : rows.filter((row) => meets(row, box)),
+            composerWhole: composer.left >= main.left - 0.5 && composer.right <= main.right + 0.5,
+            lastRowWhole: last.left >= main.left - 0.5 && last.right <= main.right + 0.5,
+          }).toEqual({
+            unasked: width >= 648,
+            placement: over ? "overlay" : "push",
+            overChat: over,
+            popover: false,
+            chatKeepsPane: over,
+            besideChat: !over,
+            aboveComposer: true,
+            insidePane: true,
+            covers: [],
+            composerWhole: true,
+            lastRowWhole: true,
+          });
+        } finally {
+          await page.close();
+        }
+      });
+    }
+
     // Settings > Agent Chat > Session Info: Push always takes a column and never covers a row or the composer.
-    test(`${name}: with Push always in a 700px pane it pushes the chat, and never covers a row or the composer`, async () => {
+    test(`${name}: with Push always in a 1800px pane it pushes the chat, and never covers a row or the composer`, async () => {
       current = browsers.get(name)!;
-      const page = await pane!.open({ width: 700, height: 700 });
+      const page = await pane!.open({ width: 1800, height: 700 });
       try {
         const { panel } = await openSessionInfo(page, true);
         const box = await rect(page);
@@ -182,7 +257,7 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
     // "this BECAME A FUCKING SIDEBAR FOR NO FUCKING REASON ALL THIS FUCKING DEAD SPACE"): floating or
     // pushing, the panel is under half the pane's height with this chat's few short sections, and
     // the foot of the column it takes is the chat's page, not the panel.
-    for (const width of [700, 1600]) {
+    for (const width of [1100, 1600]) {
       test(`${name}: in a ${width}px pane the panel hugs its sections and leaves the column's foot empty`, async () => {
         current = browsers.get(name)!;
         const page = await pane!.open({ width, height: 700 });
@@ -198,7 +273,7 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
             placement: await panel.getAttribute("data-placement"),
             short: box.bottom - box.top < 700 * 0.5,
             foot,
-          }).toEqual({ placement: width === 700 ? "push" : "overlay", short: true, foot: "the page" });
+          }).toEqual({ placement: width === 1100 ? "push" : "overlay", short: true, foot: "the page" });
         } finally {
           await page.close();
         }
@@ -208,11 +283,11 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
     // A pane that narrows or widens past the gutter's room (a split opening beside it, a window drag)
     // draws the panel in its new place in the frame that draws the new width (Leo 2026-10-21: "WHY
     // DOES IT FLICKER"). The pane's width was read in a ResizeObserver and set as state that React
-    // drew a frame or more later. Where the new gutter cannot hold it (1200px) it pushes the chat in
+    // drew a frame or more later. Where the new gutter cannot hold it (1100px) it pushes the chat in
     // that same frame.
     for (const [from, to] of [
-      [1600, 1200],
-      [1200, 1600],
+      [1600, 1100],
+      [1100, 1600],
     ] as const)
       test(`${name}: from ${from}px to ${to}px the first frame at the new width has the panel in its new place`, async () => {
         current = browsers.get(name)!;
@@ -239,7 +314,7 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
           await page.setViewportSize({ width: to, height: 700 });
           await page.waitForFunction(() => (window as unknown as { __placed?: unknown }).__placed !== undefined);
           const placed = await page.evaluate(() => (window as unknown as { __placed: unknown }).__placed);
-          expect(placed).toEqual({ width: to, placement: to === 1200 ? "push" : "overlay", inset: 8, overChat: false });
+          expect(placed).toEqual({ width: to, placement: to === 1100 ? "push" : "overlay", inset: 8, overChat: false });
         } finally {
           await page.close();
         }

@@ -44,6 +44,8 @@ export type LaneNoticePayload = {
   readonly report?: boolean;
   /** A person's own words (`IncomingMessage.fromPerson`): never a notice. */
   readonly fromPerson?: boolean;
+  /** A tool's notice (agentNotice.ts): its own row, never a report or an inbox notice. */
+  readonly notice?: unknown;
   /** Structured inbox threads from acpmux's inbox_notice payload. */
   readonly noticeThreads?: readonly { readonly id: string; readonly sender: string }[];
 };
@@ -209,6 +211,8 @@ export function laneNotice(message: LaneNoticePayload): LaneNotice | undefined {
   // A person's own words are never a notice, whatever they look like: a notice shows only part of
   // its text, and a guest's prompt runs whole (incomingMessage.ts `fromPerson`).
   if (message.fromPerson) return undefined;
+  // A tool's notice draws its own title and body (IncomingMessageCard.tsx), whatever its text says.
+  if (message.notice) return undefined;
   const cached = parsed.get(message as object);
   if (cached !== undefined || parsed.has(message as object)) return cached;
   const text = message.text.trim();

@@ -74,7 +74,10 @@ struct RowMotion {
             leavingLines.forEach { $0.removeFromSuperview() }
             guard let list else { return }
             // A row reopened since keeps clipping until its own open ends.
-            for ((view, _), open) in zip(appearing, opens) where view.opens == open { view.clipsToBounds = false }
+            for ((view, _), open) in zip(appearing, opens) where view.opens == open {
+                view.clipsToBounds = false
+                view.clearFoldClip()
+            }
             for ((view, _), generation) in zip(leaving, generations) {
                 list.finishLeaving(view, generation: generation)
             }

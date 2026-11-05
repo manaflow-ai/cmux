@@ -1,10 +1,7 @@
-// Both composer looks lay the buttons out as Claude's (Leo 2026-11-01: "the placement of the buttons
-// are just really bad compared to our claude code version", then "we already have a good version";
-// leo-workspace design/composer.md, Codex's look): + left of the prompt and the mic (and the send
-// slot) right of it inside the box, the mode, model and context ring in the quiet row under it.
-// Codex's look draws every control where Claude's does, in the chat and on New Tab. Replaced: Codex's
-// own row in the box under the prompt (cmux #28901). Captures are gallery fixtures, never private
-// reference images.
+// Leo 2026-11-04: "we still don't have the proper spacing". Codex's look follows the ChatGPT
+// composer reference: a full-width prompt above one lower row with + left, mic/Send right, and
+// every existing mode/model/context control between them. Claude and New Tab keep their compact
+// split. Captures contain gallery fixtures, never private reference images.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -48,6 +45,7 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
         const composer = document.querySelector(composerSelector)!;
         const box = composer.querySelector(boxSelector)!;
         const b = box.getBoundingClientRect();
+        const prompt = box.querySelector(".ProseMirror > p")?.getBoundingClientRect();
         const controls = Object.fromEntries(
           [
             ".acpmux-composer-plus .acpmux-picker-button",
@@ -86,6 +84,9 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
         });
         return {
           box: { width: b.width, height: b.height },
+          prompt: prompt
+            ? { top: prompt.top - b.top, bottom: prompt.bottom - b.top, left: prompt.left - b.left }
+            : null,
           controls,
           unreachable,
           foot: !!composer.querySelector(".acpmux-composer-foot"),
@@ -97,7 +98,7 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
 
   for (const theme of ["light", "dark"])
     for (const width of [720, 420, 280])
-      test(`${theme} ${width}: Codex's look draws every control where Claude's does`, async () => {
+      test(`${theme} ${width}: Codex's prompt stands above one reachable lower controls row`, async () => {
         const page = await browser.newPage({ viewport: { width, height: 560 }, deviceScaleFactor: 2 });
         try {
           const port = (vite.httpServer!.address() as { port: number }).port;
@@ -123,14 +124,17 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
           };
           const claude = await shot("claude");
           const codex = await shot("codex");
-          for (const geometry of [claude, codex]) {
+          for (const [look, geometry] of [
+            ["claude", claude],
+            ["codex", codex],
+          ] as const) {
             expect(geometry.grid).toBe(true);
             expect(geometry.foot).toBe(true);
             expect(geometry.unreachable).toEqual([]);
             const { controls } = geometry;
             expect(Object.keys(controls)).toContain(".acpmux-model .acpmux-picker-button");
             expect(Object.keys(controls)).toContain(".acpmux-access-trigger");
-            // + and the mic in the box, on its 8 px inset; the mode, model and ring under it.
+            // + and the mic keep equal side insets, and the same row and control size.
             const plus = controls[".acpmux-composer-plus .acpmux-picker-button"]!;
             expect(plus.inside).toBe(true);
             expect(plus.width).toBe(28);
@@ -148,16 +152,38 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
               ".acpmux-context-ring",
             ])
               if (controls[selector]) {
-                expect(controls[selector]!.inside).toBe(false);
-                expect(controls[selector]!.top).toBeGreaterThanOrEqual(geometry.box.height);
+                const control = controls[selector]!;
+                if (look === "claude") {
+                  expect(control.inside).toBe(false);
+                  expect(control.top).toBeGreaterThanOrEqual(geometry.box.height);
+                } else {
+                  expect(control.inside).toBe(true);
+                  expect(
+                    Math.abs((control.top + control.bottom) / 2 - (plus.top + plus.bottom) / 2),
+                  ).toBeLessThanOrEqual(0.5);
+                  expect(control.bottom).toBeLessThanOrEqual(geometry.box.height);
+                  expect(control.left).toBeGreaterThanOrEqual(0);
+                  expect(control.right).toBeLessThanOrEqual(geometry.box.width);
+                }
               }
           }
-          // The same box and the same place for every control in both looks.
-          expect(Math.abs(codex.box.height - claude.box.height)).toBeLessThanOrEqual(0.5);
+          // The placeholder owns its line, above +, with the reference's clear separation. The
+          // lower controls have equal 8px edge insets, while the text starts 16px into the box.
+          const plus = codex.controls[".acpmux-composer-plus .acpmux-picker-button"]!;
+          expect(codex.prompt).not.toBeNull();
+          expect(Math.abs(codex.prompt!.top - 16)).toBeLessThanOrEqual(0.5);
+          expect(Math.abs(codex.prompt!.left - 16)).toBeLessThanOrEqual(0.5);
+          expect(Math.abs(plus.top - codex.prompt!.bottom - 24)).toBeLessThanOrEqual(0.5);
+          expect(Math.abs(codex.box.height - plus.bottom - 8)).toBeLessThanOrEqual(0.5);
+          console.log(`COMPOSER_PROMPT_CONTROL_GAP ${theme}-${width} ${plus.top - codex.prompt!.bottom}`);
+          // The switch keeps every control and both horizontal edge insets.
+          expect(codex.box.height).toBeGreaterThan(claude.box.height + 20);
           expect(Object.keys(codex.controls).sort()).toEqual(Object.keys(claude.controls).sort());
-          for (const [selector, c] of Object.entries(claude.controls)) {
-            const x = codex.controls[selector]!;
-            for (const edge of ["left", "right", "top", "bottom"] as const)
+          for (const selector of [".acpmux-composer-plus .acpmux-picker-button", ".acpmux-mic", ".acpmux-send"]) {
+            const c = claude.controls[selector];
+            const x = codex.controls[selector];
+            if (!c || !x) continue;
+            for (const edge of ["left", "right"] as const)
               expect(Math.abs(x[edge] - c[edge]), `${selector} ${edge}`).toBeLessThanOrEqual(0.5);
           }
         } finally {

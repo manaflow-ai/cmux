@@ -215,6 +215,13 @@ pub fn move_call(home: &Path, args: &Value) -> Result<String, String> {
         "rollback" => argv.push("rollback".into()),
         "move" => {
             let to = args["to"].as_str().ok_or("move needs `to`")?;
+            // A Chief that moved in from another machine asks that machine to move it:
+            // it holds the frozen copy, the keys and the app's sign-in (migrate_return.rs).
+            if args["dry_run"] != true
+                && let Some(origin) = crate::migrate_return::origin(home)
+            {
+                return crate::migrate_return::ask_origin(home, &origin, to);
+            }
             argv.extend(["--to".into(), to.into()]);
             argv.push(
                 if args["dry_run"] == true {
@@ -224,6 +231,10 @@ pub fn move_call(home: &Path, args: &Value) -> Result<String, String> {
                 }
                 .into(),
             );
+            if args["dry_run"] != true {
+                // This Mac keeps the frozen copy and carries out the moved Chief's next teleport.
+                argv.push("--watch".into());
+            }
             if args["without_transcripts"] == true {
                 argv.push("--without-transcripts".into());
             }

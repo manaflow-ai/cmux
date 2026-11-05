@@ -8,6 +8,7 @@ extension SidebarListViewComponents {
     func dequeue(_ key: SidebarRowKey, rebinding: Bool = false) -> SidebarRowView {
         let view = rowPool.take(for: key, rebinding: rebinding)
         view.isHidden = false
+        view.clearFoldClip() // a fold's mask belongs to the row it clipped
         wire(view, key: key)
         scheduleSpareRow() // the next one, once this turn's frame committed
         return view
@@ -21,6 +22,7 @@ extension SidebarListViewComponents {
         view.reuseGeneration &+= 1
         view.closingEnd = nil
         fadingRows[ObjectIdentifier(view)] = nil
+        view.clearFoldClip()
         // A parked view must not retain a render-server move from the list it just left. In
         // particular, a non-animated reload removes a row by recycling it directly, without
         // passing it through RowMotion.run's stop set; leaving its additive spring active would
@@ -67,6 +69,14 @@ extension SidebarListViewComponents {
             view.onEdit = { [weak self] in self?.groupEditing.open(id, from: .moreButton) }
             // The header's + runs the editor's New Workspace in Group (one action path).
             view.onAdd = onGroupEditorItem == nil ? nil : { [weak self] in self?.onGroupEditorItem?(id, "workspaceGroup.newWorkspace") }
+            // A pinned header's Unpin runs the editor's Unpin Group (one action path, #27700).
+            // The button takes its click before the list's mouseDown, so it closes an open editor itself: the editor's
+            // Pin row was titled when it opened and would read Unpin Group still.
+            view.onUnpin = onGroupEditorItem == nil ? nil : { [weak self] in
+                guard let self else { return }
+                if groupEditor.isVisible { groupEditor.hide() }
+                onGroupEditorItem?(id, "workspaceGroup.togglePin")
+            }
             view.isEditing = groupEditor.shownGroup == id
             view.isKeyboardFocused = showsFocusRing && focusedGroup == id
         case let (.emptyGroup(id), view as EmptyGroupRowView):

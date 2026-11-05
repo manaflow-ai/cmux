@@ -5,6 +5,105 @@
 use super::*;
 
 wire_enum! {
+    TeamRole {
+        Owner = "owner",
+        Admin = "admin",
+        Member = "member",
+        Billing = "billing",
+        Guest = "guest",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmAccountUser {
+    pub user: String,
+    pub uid: i64,
+    pub class: SshCertClass,
+    pub principals: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmError {
+    pub code: String,
+    pub message: String,
+    pub at: i64,
+}
+
+pub type TeamVmLeaseId = String;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmRetired {
+    pub vm: String,
+    pub epoch: i64,
+    pub state: TeamVmRetiredState,
+    pub at: i64,
+    pub by: String,
+    pub tainted_by: Vec<String>,
+}
+
+wire_enum! {
+    TeamVmRetiredState {
+        Pausing = "pausing",
+        Paused = "paused",
+    }
+}
+
+wire_enum! {
+    /// Last observed state of the team VM. `none`: never created. `failed`: the last provider call failed for good; the next ensure_awake retries.
+    TeamVmStatus {
+        None = "none",
+        Provisioning = "provisioning",
+        Starting = "starting",
+        Running = "running",
+        Paused = "paused",
+        Failed = "failed",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmTaint {
+    pub epoch: i64,
+    pub at: i64,
+    pub users: Vec<String>,
+    pub accepted_by: Option<String>,
+    pub accepted_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmView {
+    pub team: TeamId,
+    pub status: TeamVmStatus,
+    pub vm: Option<String>,
+    pub epoch: i64,
+    pub leases: Vec<TeamVmViewLeasesItem>,
+    pub last_error: Option<TeamVmError>,
+    pub updated_at: i64,
+    pub taint: Option<TeamVmTaint>,
+    pub retired: Vec<TeamVmRetired>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub no_owner: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmViewLeasesItem {
+    pub lease: TeamVmLeaseId,
+    pub holder: String,
+    pub reason: String,
+    pub expires_at: i64,
+}
+
+/// RFC 3339 UTC with milliseconds.
+pub type Timestamp = String;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Trigger {
+    pub id: TriggerId,
+    pub status: TriggerStatus,
+    pub spec: TriggerInput,
+    pub next_at: Option<i64>,
+}
+
+wire_enum! {
     TriggerStatus {
         Active = "active",
         NotYetSupported = "not_yet_supported",

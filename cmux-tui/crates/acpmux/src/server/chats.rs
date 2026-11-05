@@ -89,8 +89,15 @@ pub(super) async fn route(
     if let Some(reply) = super::pairing::dispatch(hub, conn, m, &params).await {
         return reply;
     }
+    if let Some(reply) = super::vault::dispatch(conn, m).await {
+        return reply;
+    }
     // The secret methods check their own callers and never reach a peer (`secrets.rs`).
     if let Some(reply) = heap(|| super::secrets::dispatch(hub, conn, m, &params)).await {
+        return reply;
+    }
+    // So do the MCP connect methods: the person answers the card (`mcp_connect.rs`).
+    if let Some(reply) = heap(|| super::mcp_connect::dispatch(hub, conn, m, &params)).await {
         return reply;
     }
     // A one-shot completion runs a harness CLI with the user's own login:
@@ -122,6 +129,12 @@ pub(super) async fn route(
         return reply;
     }
     if let Some(reply) = heap(|| super::bg_tasks::dispatch(hub, conn, m, &params)).await {
+        return reply;
+    }
+    if let Some(reply) = heap(|| super::workflow_runs::dispatch(hub, conn, m, &params)).await {
+        return reply;
+    }
+    if let Some(reply) = heap(|| super::workflow_activity::dispatch(hub, conn, m, &params)).await {
         return reply;
     }
     // Moving a chat to another daemon (`hub/transfer_out.rs`): a bundle holds the whole chat and
@@ -345,6 +358,7 @@ pub(super) async fn route(
             let forced = full_access_managed
                 .then(|| params.get("allowFullAccess") == Some(&Value::Bool(true)));
             hub.apply_full_access_push(forced).await;
+            hub.set_session_recap(settings.session_recap);
             let hub = hub.clone();
             blocking(move || {
                 let running = hub.apply_chat_settings(settings).map_err(RpcError::internal)?;

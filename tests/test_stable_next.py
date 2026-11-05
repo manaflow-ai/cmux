@@ -86,39 +86,25 @@ class Pick(unittest.TestCase):
             stable_next.pick(feed(item(200)), None, set(), lambda b: None, 150)
 
 
+class Soak(unittest.TestCase):
+    def test_a_build_off_the_feed_passes_the_soak(self):
+        """The feed keeps 2 builds; the picked one is gone by the time the gates end (run 41419773317)."""
+        stable_next.soak(200, set(), lambda b: "pass")
+        stable_next.soak(200, set(), lambda b: None)
+
+    def test_a_pulled_or_failed_build_is_refused(self):
+        with self.assertRaises(stable_next.Refused):
+            stable_next.soak(200, {200}, lambda b: "pass")
+        with self.assertRaises(stable_next.Refused):
+            stable_next.soak(200, set(), lambda b: "fail")
+
+
 class PublishedTonight(unittest.TestCase):
     def test_compares_the_newest_items_pub_date(self):
         start = dt.datetime(2026, 10, 30, 4, tzinfo=dt.timezone.utc)
         self.assertTrue(stable_next.published_tonight(feed(item(2, date="Fri, 30 Oct 2026 05:00:00 +0000")), start))
         self.assertFalse(stable_next.published_tonight(feed(item(2, date="Thu, 29 Oct 2026 05:00:00 +0000")), start))
         self.assertFalse(stable_next.published_tonight(None, start))
-
-
-class Shards(unittest.TestCase):
-    def test_deals_every_test_target_once(self):
-        package = '.testTarget(\n name: "BTests", deps: []),\n.testTarget(name: "ATests"),\n.target(name: "Lib"),\n.testTarget(name: "CTests")'
-        matrix = stable_next.test_shards(package, 2)
-        filters = ",".join(entry["filters"] for entry in matrix["include"]).split(",")
-        self.assertEqual(sorted(filters), ["ATests", "BTests", "CTests"])
-        self.assertEqual(len(matrix["include"]), 2)
-
-    def test_the_real_package_has_its_test_targets(self):
-        package = (ROOT / "Packages/macOS/CmuxNext/Package.swift").read_text()
-        matrix = stable_next.test_shards(package, 4)
-        filters = ",".join(entry["filters"] for entry in matrix["include"]).split(",")
-        self.assertIn("CmuxNextAppTests", filters)
-        self.assertNotIn("CmuxNextTestSupport", filters)
-        self.assertEqual(len(filters), len(set(filters)))
-
-    def test_every_filter_passes_the_suite_lanes_own_check(self):
-        """package-test-lane.sh suite refuses a filter outside its regex or ending in '.' or '/' (exit 2)."""
-        lane = (ROOT / "scripts/ci/package-test-lane.sh").read_text()
-        pattern = re.search(r'\[\[ "\$suite_filter" =~ (\S+) \]\]', lane).group(1)
-        package = (ROOT / "Packages/macOS/CmuxNext/Package.swift").read_text()
-        for entry in stable_next.test_shards(package, 4)["include"]:
-            for f in entry["filters"].split(","):
-                self.assertRegex(f, pattern)
-                self.assertFalse(f.endswith((".", "/")), f)
 
 
 class MergeAndRollback(unittest.TestCase):

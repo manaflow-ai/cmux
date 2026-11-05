@@ -73,6 +73,8 @@
 # on its own copy of its config's warm cache. A warming file that fails leaves no trustworthy
 # cache, so the config's next file warms a fresh one, up to CMUX_WEB_TEST_WARM_ATTEMPTS files
 # (default 3); a config none of them warms keeps its other files one at a time on a cold cache each.
+# Every file of the run shares one cache of the React Compiler's output (CMUX_VITE_TRANSFORM_CACHE,
+# a folder of the run's own unless set; webviews/reactCompiler.mjs), keyed by each module's exact code.
 #
 # Run from webviews/ (CI, local dev) it tests what is there. Run from anywhere else in the
 # checkout (a cmux-ci step starts at the checkout root) it first makes the web bundles
@@ -233,14 +235,34 @@ case "$(git rev-parse --show-prefix)" in
     bun install --frozen-lockfile
     ;;
 esac
-# A fleet cmux-ci step that runs the browser lane (CMUX_BROWSER_TESTS=1, requireBrowserLane.ts) needs
-# the engines PR CI installs; without them the lane only ever ran in PR CI. They live in the step
+# No Playwright on Macs (Lawrence, 2026-11-02): no Playwright, Puppeteer or downloaded Chromium on his
+# Mac or on a fleet Mac. The engines Playwright downloads are an old Chromium (the headless shell) and
+# Playwright turns the Chromium sandbox off, and this install had left about 4.6 GB of them on 10 fleet
+# Macs. So a Mac outside GitHub Actions never installs an engine: it runs the lane without the browser
+# files, which then skip as they do without CMUX_BROWSER_TESTS (requireBrowserLane.ts). Playwright
+# looks for engines in a folder that cannot hold one, so an engine an earlier run left on the Mac never
+# launches either (a file that probes its engine skips when the launch fails). The browser lane runs
+# in CI or on a Linux cloud VM.
+# Elsewhere (Linux), a cmux-ci step that runs the browser lane (CMUX_BROWSER_TESTS=1) needs the
+# engines PR CI installs; without them the lane only ever ran in PR CI. They live in the step
 # cache, one directory per Playwright version, so a host downloads each once. GitHub Actions
 # installs its own (cmux-next-web-bundles.yml).
-if [ "${CMUX_BROWSER_TESTS:-}" = 1 ] && [ "${GITHUB_ACTIONS:-}" != true ]; then
+if [ "${GITHUB_ACTIONS:-}" != true ] && [ "$(uname -s)" = Darwin ]; then
+  if [ "${CMUX_BROWSER_TESTS:-}" = 1 ]; then
+    echo "browser lane: not on a Mac (Lawrence's rule: no Playwright on Macs); run it in CI or on a cloud VM"
+  fi
+  unset CMUX_BROWSER_TESTS
+  export PLAYWRIGHT_BROWSERS_PATH=/var/empty/cmux-no-playwright-on-macs
+elif [ "${CMUX_BROWSER_TESTS:-}" = 1 ] && [ "${GITHUB_ACTIONS:-}" != true ]; then
   playwright_version="$(python3 -c 'import json; print(json.load(open("package.json"))["devDependencies"]["playwright"])' 2> /dev/null || echo unknown)"
   export PLAYWRIGHT_BROWSERS_PATH="${CMUX_CI_CACHE_DIR:-$HOME/Library/Caches/cmux-ci}/playwright-$playwright_version"
-  ./node_modules/.bin/playwright install --only-shell chromium webkit
+  ./node_modules/.bin/playwright install webkit
+  # Chromium is the system Google Chrome (test/preload.ts), never Playwright's bundled build, which
+  # lacks recent security fixes and runs unsandboxed. A host without a current Chrome skips Chromium.
+  chrome_out="$("$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ensure-system-chrome.sh" --optional)"
+  printf '%s\n' "$chrome_out"
+  shell_line="$(printf '%s\n' "$chrome_out" | grep '^CMUX_CHROME_HEADLESS_SHELL=' | tail -1 || true)"
+  [ -n "$shell_line" ] && export CMUX_CHROME_HEADLESS_SHELL="${shell_line#CMUX_CHROME_HEADLESS_SHELL=}"
 fi
 
 timeout_seconds="${CMUX_WEB_TEST_FILE_TIMEOUT:-120}"
@@ -251,6 +273,10 @@ fi
 jobs="${CMUX_WEB_TEST_JOBS:-$default_jobs}"
 results="$(mktemp -d)"
 trap 'rm -rf "$results"' EXIT
+# One React Compiler output cache for every file of this run (webviews/reactCompiler.mjs): without it
+# each dev server file compiled the agent pane again in its own Vite (App.tsx alone took 33 s), and
+# that start put dev server files past their limits on a busy shard.
+export CMUX_VITE_TRANSFORM_CACHE="${CMUX_VITE_TRANSFORM_CACHE:-$results/vite-transforms}"
 
 # bun test's default file names, from the git index so the list is the same everywhere. Outside
 # GitHub Actions (`bun run test` on a checkout, a fleet step) untracked files that git does not
@@ -295,40 +321,6 @@ keep = [name for name in listed if name in selected]
 path.write_bytes(b"".join(name.encode() + b"\0" for name in keep))
 PY
 fi
-shard="${CMUX_WEB_TEST_SHARD:-}"
-shard_count="${CMUX_WEB_TEST_SHARD_COUNT:-}"
-durations="${CMUX_WEB_TEST_DURATIONS:-/dev/null}"
-# Two dev servers at once (composer-mention, composer-send-stop) optimize dependencies into the
-# same node_modules/.vite, and each loses files the other wrote. `"dev",` is the argument a file
-# passes when it spawns `vp dev` itself, `configFile: …` one that calls createServer. `--null`, not `-Z`: BSD grep reads -Z as decompress.
-dev_servers='vite\.config\.(acpmux-pane\.mjs|gallery-dev\.ts)|"dev",|configFile: path\.join\(webviews, "vite\.config'
-if [ -n "$shard" ] || [ -n "$shard_count" ]; then
-  if [[ ! "$shard" =~ ^[1-9][0-9]*$ || ! "$shard_count" =~ ^[1-9][0-9]*$ || "$shard" -gt "$shard_count" ]]; then
-    echo "error: CMUX_WEB_TEST_SHARD and CMUX_WEB_TEST_SHARD_COUNT must be a valid one-based shard" >&2
-    exit 2
-  fi
-  # The split weighs dev-server files by how few run at once, so it needs them before it splits.
-  xargs -0 grep -lE --null -- "$dev_servers" < "$results/files" > "$results/all-serial" || true
-  python3 "$shards_py" assign "$results/files" "$results/all-serial" "$durations" "$shard" "$shard_count" \
-    > "$results/shard-files"
-  mv "$results/shard-files" "$results/files"
-fi
-count="$(tr -cd '\0' < "$results/files" | wc -c | tr -d ' ')"
-if [ "$count" -eq 0 ]; then
-  echo "error: no webviews test files found under $PWD${shard:+ for shard $shard/$shard_count}" >&2
-  exit 1
-fi
-xargs -0 grep -lE --null -- "$dev_servers" < "$results/files" > "$results/serial" || true
-serial="$(tr -cd '\0' < "$results/serial" | wc -c | tr -d ' ')"
-xargs -0 grep -LE --null -- "$dev_servers" < "$results/files" > "$results/parallel" || true
-# With recorded durations: plain files start longest first, and each Vite config warms on its
-# shortest file (accent-glass-invariants warmed alone for 549 s of an 18.6 min shard, run 40815704587).
-if [ "$durations" != /dev/null ]; then
-  for list in parallel:desc serial:asc; do
-    python3 "$shards_py" order "$results/${list%%:*}" "$durations" "${list#*:}" > "$results/ordered"
-    mv "$results/ordered" "$results/${list%%:*}"
-  done
-fi
 # A quarter of the jobs: each dev server file runs a Vite server and a browser, and at jobs / 2 the
 # 8-core runner was CPU bound (no faster per file) and frame-budget plays (instructions-notice)
 # and attach timing (agent-pane-seen) failed.
@@ -348,6 +340,47 @@ browser_jobs="${CMUX_WEB_TEST_BROWSER_JOBS:-$((jobs > 3 ? jobs / 4 : 1))}"
 [[ "$browser_jobs" =~ ^[1-9][0-9]*$ ]] || browser_jobs=1
 if [ "$browser_jobs" -gt "$jobs" ]; then browser_jobs="$jobs"; fi
 plain_jobs=$((jobs - browser_jobs))
+# The split weighs each file by the pool it runs in, so it gets these widths, but only widths the
+# workflow set (CMUX_WEB_TEST_JOBS): widths from this runner's cores could differ between shards,
+# and shards that split differently skip or repeat files. Unset, the split keeps its own widths.
+# At one job there is no plain lane beside the browser one (the pools run in turn); the split then
+# counts one plain lane, which only an unsharded run (the base replay) ever has.
+split_widths=""
+if [[ "${CMUX_WEB_TEST_JOBS:-}" =~ ^[1-9][0-9]*$ && "$browser_jobs$dev_jobs" =~ ^[0-9]+$ ]]; then split_widths="$((plain_jobs > 0 ? plain_jobs : 1)),$browser_jobs,$dev_jobs"; fi
+shard="${CMUX_WEB_TEST_SHARD:-}"
+shard_count="${CMUX_WEB_TEST_SHARD_COUNT:-}"
+durations="${CMUX_WEB_TEST_DURATIONS:-/dev/null}"
+# Two dev servers at once (composer-mention, composer-send-stop) optimize dependencies into the
+# same node_modules/.vite, and each loses files the other wrote. `"dev",` is the argument a file
+# passes when it spawns `vp dev` itself, `configFile: …` one that calls createServer. `--null`, not `-Z`: BSD grep reads -Z as decompress.
+dev_servers='vite\.config\.(acpmux-pane\.mjs|gallery-dev\.ts)|"dev",|configFile: path\.join\(webviews, "vite\.config'
+if [ -n "$shard" ] || [ -n "$shard_count" ]; then
+  if [[ ! "$shard" =~ ^[1-9][0-9]*$ || ! "$shard_count" =~ ^[1-9][0-9]*$ || "$shard" -gt "$shard_count" ]]; then
+    echo "error: CMUX_WEB_TEST_SHARD and CMUX_WEB_TEST_SHARD_COUNT must be a valid one-based shard" >&2
+    exit 2
+  fi
+  # The split weighs dev-server files by how few run at once, so it needs them before it splits.
+  xargs -0 grep -lE --null -- "$dev_servers" < "$results/files" > "$results/all-serial" || true
+  python3 "$shards_py" assign "$results/files" "$results/all-serial" "$durations" "$shard" "$shard_count" \
+    ${split_widths:+"$split_widths"} > "$results/shard-files"
+  mv "$results/shard-files" "$results/files"
+fi
+count="$(tr -cd '\0' < "$results/files" | wc -c | tr -d ' ')"
+if [ "$count" -eq 0 ]; then
+  echo "error: no webviews test files found under $PWD${shard:+ for shard $shard/$shard_count}" >&2
+  exit 1
+fi
+xargs -0 grep -lE --null -- "$dev_servers" < "$results/files" > "$results/serial" || true
+serial="$(tr -cd '\0' < "$results/serial" | wc -c | tr -d ' ')"
+xargs -0 grep -LE --null -- "$dev_servers" < "$results/files" > "$results/parallel" || true
+# With recorded durations: plain files start longest first, and each Vite config warms on its
+# shortest file (accent-glass-invariants warmed alone for 549 s of an 18.6 min shard, run 40815704587).
+if [ "$durations" != /dev/null ]; then
+  for list in parallel:desc serial:asc; do
+    python3 "$shards_py" order "$results/${list%%:*}" "$durations" "${list#*:}" > "$results/ordered"
+    mv "$results/ordered" "$results/${list%%:*}"
+  done
+fi
 # Both lists keep the parallel list's order (longest first with durations): grep prints in input order.
 : > "$results/browser"
 : > "$results/plain"
@@ -362,8 +395,25 @@ if [ "$plain_jobs" -ge 1 ]; then pool_note="$plain_jobs at a time, beside $brows
 else pool_note="$jobs at a time, then $browser browser files $browser_jobs at a time"; fi
 echo "running $count webviews test files${shard_note}, $pool_note ($serial dev server files after, $dev_jobs at a time), ${timeout_seconds}s each"
 : > "$results/summary"
+# warm_transforms: once per run, before the first browser or dev server file, compile the agent pane's
+# modules into the run's React Compiler cache (webviews/scripts/warm-react-compiler-cache.mjs, about
+# 35 s), so the files that start together read it instead of each compiling App.tsx at once. A base
+# without the script, or a warm that fails, leaves each file to compile what it needs, as before.
+warm_transforms() {
+  [ -e "$results/transforms-warmed" ] && return 0
+  : > "$results/transforms-warmed"
+  [ -f scripts/warm-react-compiler-cache.mjs ] || return 0
+  { [ -s "$results/browser" ] || [ -s "$results/serial" ]; } || return 0
+  if run_with_timeout 300 bun scripts/warm-react-compiler-cache.mjs > "$results/warm-transforms.log" 2>&1 < /dev/null; then
+    grep '^warm-react-compiler-cache:' "$results/warm-transforms.log" || true
+  else
+    echo "warm-react-compiler-cache failed (exit $?); each file compiles its own modules"
+    tail -n 20 "$results/warm-transforms.log" || true
+  fi
+}
 if [ "$plain_jobs" -ge 1 ] && [ -s "$results/browser" ] && [ -s "$results/plain" ]; then
-  xargs -0 -P "$browser_jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/browser" &
+  # The plain jsdom files start at once; the browser files wait for the warm, beside them.
+  { warm_transforms; xargs -0 -P "$browser_jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/browser"; } &
   browser_pool=$!
   # A failed plain pool still waits for the browser pool, so no worker outlives the results directory.
   plain_status=0
@@ -375,9 +425,11 @@ else
     xargs -0 -P "$jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/plain"
   fi
   if [ -s "$results/browser" ]; then
+    warm_transforms
     xargs -0 -P "$browser_jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/browser"
   fi
 fi
+[ ! -s "$results/serial" ] || warm_transforms
 
 # vite_config FILE: the Vite config whose dependency cache FILE's dev server fills.
 vite_config() {
@@ -587,6 +639,11 @@ fi
 # Per-test results for webviews-tests-new-reds.sh, which compares them with the base's.
 if [ -n "${CMUX_WEB_TEST_RESULTS:-}" ]; then
   python3 "$(dirname "$self")/webviews_test_results.py" "$results/summary" "$CMUX_WEB_TEST_RESULTS"
+fi
+# Explicit final per-test outcomes keep successful names available to the base flake scorer without
+# dumping green raw logs. Only whole final attempts contribute; TAP_CI_ENABLED=0 disables the export.
+if [ "${TAP_CI_ENABLED:-1}" != 0 ]; then
+  python3 "$(dirname "$self")/webviews_test_results.py" --tap-markers "$results/summary"
 fi
 
 echo "### webviews tests: $count files, $failed failed or timed out ($((retried + timeout_retried)) retried alone, $(wc -l < "$results/retry-passed" | tr -d ' ') passed alone)"

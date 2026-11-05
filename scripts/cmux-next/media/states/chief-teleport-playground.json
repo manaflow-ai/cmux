@@ -1,0 +1,46 @@
+{
+ "title": "Chief Teleport Playground: location chip variants in every state, light and dark",
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Playground, menu of the In cmux Cloud state",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "home.chiefTeleportPlayground",
+     "args": {
+      "state": 1
+     },
+     "origin": "script"
+    }
+   },
+   "wait": 4,
+   "shot": true
+  },
+  {
+   "title": "Playground, menu of the Moving state",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "home.chiefTeleportPlayground",
+     "args": {
+      "state": 4
+     },
+     "origin": "script"
+    }
+   },
+   "wait": 2,
+   "shot": true
+  }
+ ],
+ "windows": [
+  {
+   "name": "playground",
+   "title": "Chief Teleport Playground"
+  }
+ ]
+}

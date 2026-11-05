@@ -570,7 +570,7 @@ impl Hub {
         };
         child.all_tools.store(all, std::sync::atomic::Ordering::Relaxed);
         // What the daemon that started it kept of its MCP servers (`hub/idle_census.rs`).
-        self.restore_launch(session, &child, &incarnation);
+        self.restore_launch(session, &child, &incarnation, kind).await;
         *session.child.lock().await = Some(child.clone());
         self.wake_idle_reaper();
         if let Some(rx) = session.inbound_rx.lock().await.take() {
@@ -1241,6 +1241,7 @@ impl Hub {
                         .turn_line
                         .clone()
                         .unwrap_or_else(|| super::prompt_line::prompt_line(&prompt, &client, None));
+                    self.resume_before_turn();
                     *session.turn.lock().unwrap() = Some(TurnInfo {
                         trigger: work.turn_trigger,
                         started_at,
@@ -1791,7 +1792,7 @@ impl Hub {
     /// an in-process hub (tests, embedding) keeps direct children. Memory
     /// stores keep no log to resume from, so they never use hosts.
     pub(crate) fn agent_hosts_enabled(&self) -> bool {
-        self.store.session_dir("probe").is_some() && self.agent_hosts.load(Ordering::SeqCst)
+        self.store.session_path("probe").is_some() && self.agent_hosts.load(Ordering::SeqCst)
     }
 
     /// Run new agents under agent hosts (see `agent_hosts_enabled`).

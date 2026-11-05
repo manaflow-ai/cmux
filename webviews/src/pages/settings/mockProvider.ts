@@ -485,6 +485,7 @@ export class MockSettingsProvider {
       "cmux.settings.backdrop.workspace.preview": () => ({}),
       "cmux.settings.art.search": () => ({ results: this.museumArt }),
       "cmux.settings.art.use": () => ({ id: "" }),
+      "cmux.settings.app_update.run": () => ({}),
       "cmux.settings.web_updates.check": () => ({}),
       "cmux.settings.web_updates.rollback": () => ({}),
       "cmux.settings.folders.add": (params) => {
@@ -505,6 +506,9 @@ export class MockSettingsProvider {
       "cmux.settings.harnesses.state": () => this.harnesses,
       "cmux.settings.harnesses.run": (params) => {
         const run = params as HarnessesRun;
+        if (run.action === "accountEnable" || run.action === "accountAdd" || run.action === "accountSignIn") {
+          return this.runAccount(run);
+        }
         if (
           (run.action === "signIn" || run.action === "check" || run.action === "autoUpdate") &&
           !this.harnesses.harnesses.some((h) => h.id === run.id)
@@ -613,6 +617,7 @@ export class MockSettingsProvider {
       "cmux.settings.backdrop.workspace.preview",
       "cmux.settings.art.search",
       "cmux.settings.art.use",
+      "cmux.settings.app_update.run",
       "cmux.settings.web_updates.check",
       "cmux.settings.web_updates.rollback",
       "cmux.settings.server.restart",
@@ -939,6 +944,52 @@ export class MockSettingsProvider {
   /** Harnesses gestures the page sent. */
   readonly harnessRuns: HarnessesRun[] = [];
   private readonly harnessesChanged = new Set<EventSourceContext>();
+
+  /** Like the host's account gestures: a listed account only, and Add account for Codex only (a
+   * shadow home under ~/.cmux/accounts, signed out until its sign-in runs). */
+  private runAccount(run: HarnessesRun): Record<string, never> {
+    const accounts = this.harnesses.accounts;
+    if (!accounts) throw new ProtocolError("cmux.settings.invalid", "this daemon lists no accounts");
+    if (run.action === "accountAdd") {
+      if (run.family !== "codex") throw new ProtocolError("cmux.settings.invalid", "accountAdd needs codex");
+      let number = Math.max(2, accounts.filter((account) => account.family === "codex").length + 1);
+      while (accounts.some((account) => account.id === `codex-${number}`)) number += 1;
+      this.harnessRuns.push(run);
+      this.setHarnesses({
+        ...this.harnesses,
+        accounts: [
+          ...accounts,
+          {
+            id: `codex-${number}`,
+            family: "codex",
+            name: `ChatGPT ${number}`,
+            home: `~/.cmux/accounts/codex-${number}`,
+            defaultHome: "~/.codex",
+            shadowOf: "~/.codex",
+            signedIn: false,
+            plan: null,
+            email: null,
+            enabled: true,
+            builtin: false,
+          },
+        ],
+      });
+      return {};
+    }
+    if (!accounts.some((account) => account.id === run.account)) {
+      throw new ProtocolError("cmux.settings.invalid", "account must be a listed account");
+    }
+    this.harnessRuns.push(run);
+    if (run.action === "accountEnable") {
+      this.setHarnesses({
+        ...this.harnesses,
+        accounts: accounts.map((account) =>
+          account.id === run.account ? { ...account, enabled: run.on === true } : account,
+        ),
+      });
+    }
+    return {};
+  }
 
   /** Replaces the Harnesses part and tells the page, like the app's observation push. */
   setHarnesses(harnesses: HarnessesState): void {

@@ -11,6 +11,21 @@ import Testing
 /// the first Send must not receive that seed's model when the person keeps its default.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
 struct AgentTabRemoteStartTests {
+    @Test func aBoundChatFinishesItsCopyWhenThePageReconnects() async throws {
+        let (tabs, key) = try makeTabs(seedCwd: "/home/dev/project")
+        let ledger = CloudMovedChats()
+        ledger.copied(.init(machineID: "vm", host: "registry:cloud-fixture", session: "", harness: "claude",
+                            localRoot: "/local/project", localChat: "/local/project",
+                            remoteFolder: "/home/dev/project", remoteChat: "/home/dev/project"))
+        tabs.onRemoteChatStarted = { host, session, cwd, harness in
+            ledger.started(host: host, session: session, remoteChat: cwd, harness: harness)
+        }
+        tabs.sessions[key] = "remote-session"
+        let existing = try await tabs.existingRemoteChat(key)
+        #expect(existing?.session == "remote-session")
+        #expect(ledger.entry(host: "registry:cloud-fixture", session: "remote-session")?.localRoot == "/local/project")
+    }
+
     @Test func changingHarnessBeforeSendUsesItsDefaultModel() async throws {
         let request = try await start(harness: "codex", model: nil)
         #expect(request["harness"] as? String == "codex")
@@ -102,12 +117,19 @@ struct AgentTabRemoteStartTests {
                        remoteFolder: String? = nil) async throws -> [String: Any] {
         let (tabs, key) = try makeTabs(seedCwd: seedCwd)
         tabs.remoteFolder = { _ in remoteFolder }
+        var recorded: [(String, String, String?, String?)] = []
+        tabs.onRemoteChatStarted = { recorded.append(($0, $1, $2, $3)) }
         let daemon = try RemoteStartDaemon(supportsNoCwd: supportsNoCwd)
         async let received = daemon.firstStart()
         let started = try await tabs.startRemoteChat(key, machine: "Cloud fixture", harness: harness, model: model,
                                                     ownerLink: { 1 }, endpoint: { DaemonEndpoint(socketPath: daemon.path) })
         #expect(started == AgentTabRemoteStart.Started(surface: 7, session: "remote-session"))
         #expect(tabs.sessions[key] == "remote-session")
+        #expect(recorded.count == 1)
+        #expect(recorded.first?.0 == "registry:cloud-fixture")
+        #expect(recorded.first?.1 == "remote-session")
+        #expect(recorded.first?.2 == expectedCwd)
+        #expect(recorded.first?.3 == (harness ?? "claude"))
         let data = try await received
         let request = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
         #expect(request["surface"] as? Int == 7)

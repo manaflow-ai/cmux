@@ -49,10 +49,15 @@ public struct LayoutTabDrag {
 final class LayoutViewContext {
     let model: LayoutModel
     weak var provider: (any LayoutPaneContentProvider)?
+    /// The provider's next pane content in a host made ahead, parked hidden in a screen view (``parkSpare(_:in:)``).
+    private(set) var spareHost: PaneHostView?
     private(set) var hosts: [PaneID: PaneHostView] = [:]
     /// Panes present in any screen of the current snapshot.
     var livePanes: Set<PaneID> = []
     var requestFrames: () -> Void = {}
+    /// The window's frame tick applies its input now (`LayoutFrameInput`): a screen's presentation and the overlay
+    /// sync wait for the frame's one pass, after its springs step.
+    var holdsPresentations = false
     /// Pane hosts or dividers moved: the overlay plane follows them.
     var overlayNeedsSync: () -> Void = {}
     /// A user gesture moves the layout (a strip, row or scroll-area pan with the finger down): the root reads
@@ -136,6 +141,7 @@ final class LayoutViewContext {
             // Before it shows again, in this turn: a release held for it ran after its new content, and took it (base order).
             runClosingWork(of: pane, now: true)
             entry.host.isHidden = false
+            entry.host.endClosingGround()
             entry.host.chrome.isHidden = false
             // Its ring is placed again by the next overlay sync, whatever it last showed.
             entry.host.overlaySyncKey = nil
@@ -144,6 +150,14 @@ final class LayoutViewContext {
             return entry.host
         }
         let content = provider?.makeContentView(for: pane) ?? NSView()
+        // The provider handed the content made ahead: its host, parked in the window, takes the pane (no window walk now).
+        if let spare = spareHost, spare.content === content {
+            spareHost = nil
+            spare.adopt(pane) { [weak self] in self?.provider?.holdsContentInMotion(for: pane) ?? false }
+            spare.isHidden = false
+            hosts[pane] = spare
+            return spare
+        }
         let host = PaneHostView(pane: pane, content: content) { [weak self] in
             self?.provider?.holdsContentInMotion(for: pane) ?? false
         }
@@ -187,9 +201,11 @@ final class LayoutViewContext {
 
     /// Takes `pane`'s host out of the layout without tearing it down: hidden now (no hit, no focus, no AX, its ring
     /// with it; a hidden terminal stops drawing), released at `until`. A pane with no host does nothing.
-    func retire(_ pane: PaneID, from screen: ScreenID, until: Retirement = .landing) {
+    /// `showsGround` (FRAME OWNER S3c, a springing close off a canvas): the host stays shown with only
+    /// its own ground, its content hidden now as above, on the frame its screen collapses (`ClosingPanes`).
+    func retire(_ pane: PaneID, from screen: ScreenID, until: Retirement = .landing, showsGround: Bool = false) {
         guard let host = hosts.removeValue(forKey: pane) else { return }
-        host.isHidden = true
+        if showsGround { host.showClosingGround() } else { host.isHidden = true }
         host.chrome.isHidden = true
         retired[pane] = (host, screen, until)
         // A close took it out of the layout now: the provider's shown panes lose it in this update, only its teardown
@@ -214,6 +230,12 @@ final class LayoutViewContext {
         return false
     }
 
+    /// The host of `pane` while a close on `screen` still springs it out (FRAME OWNER S3c); nil otherwise.
+    func closingHost(_ pane: PaneID, of screen: ScreenID) -> PaneHostView? {
+        guard let entry = retired[pane], entry.screen == screen, case .landing = entry.until else { return nil }
+        return entry.host
+    }
+
     /// Holds `work` until closing `pane` goes (its motion lands, its screen goes) or comes back, then runs it after
     /// that frame's commit; false (nothing held) when `pane` is not closing. A second `id` replaces the first.
     /// The teardown of what a closing pane showed is work no frame shows (RESIZE VIDEOS F1): in the motion's frames
@@ -232,4 +254,22 @@ final class LayoutViewContext {
 
     /// Whether `chrome` is the ring of a retired host: the overlay sync leaves it for the teardown.
     func isRetiredChrome(_ chrome: NSView) -> Bool { retired.values.contains { $0.host.chrome === chrome } }
+}
+
+extension LayoutViewContext {
+    /// Puts `content` (the provider's next pane content) in a host made now and parks it hidden in `screen`, the screen
+    /// view a new pane most likely shows in: a later ``host(for:)`` whose content is `content` adopts that host, and the
+    /// screen's reconcile only unhides it (no move between superviews, no window walk). Nil drops the one parked.
+    /// A hidden host in a screen's subviews is a state the screen already has (a closing pane's retired host).
+    /// TERMINAL CREATE COST item 4: a New Column's new host and pane entering the window cost 2 ms of the key's turn.
+    func parkSpare(_ content: NSView?, in screen: NSView?) {
+        spareHost?.removeFromSuperview()
+        spareHost = content.flatMap { content in
+            guard let screen else { return nil }
+            let host = PaneHostView(pane: PaneID(rawValue: "spare-pane-host"), content: content)
+            host.isHidden = true
+            screen.addSubview(host, positioned: .below, relativeTo: nil)
+            return host
+        }
+    }
 }

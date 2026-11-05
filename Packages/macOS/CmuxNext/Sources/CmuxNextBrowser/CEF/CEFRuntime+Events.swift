@@ -103,8 +103,8 @@ extension CEFRuntime {
         case .beforeUnloadDialog(let browser, let token, let isReload):
             // A page with no tab to ask in never keeps its unload waiting: it leaves.
             if let tab = tabsByBrowser[browser] { tab.beforeUnloadAsked(token: token, isReload: isReload) } else { _ = shim?.beforeUnloadReply(token, 1) }
-        case .pageResource(let browser, let token, let url):
-            answerPageResource(token: token, url: url, tab: tabsByBrowser[browser])
+        case .pageResource(let browser, let token, let url, let range):
+            answerPageResource(token: token, url: url, range: range.isEmpty ? nil : range, tab: tabsByBrowser[browser])
         case .pageMessage(let browser, let mainFrame, let channel, let payload):
             // Untrusted: a compromised renderer can post anything (`CEFPageMessage`).
             if let tab = tabsByBrowser[browser], let message = CEFPageMessage(channel: channel, payload: payload, mainFrame: mainFrame) {
@@ -161,6 +161,10 @@ extension CEFRuntime {
                 CEFEventTrace.record(browser, event)
                 #endif
                 tab.handle(event)
+            } else if let browser = event.browserID, event.isLoadEvent {
+                // A load event of a browser no tab owns is dropped: the trace says so (lead on STATUS 8457).
+                BrowserLifecycleTrace.shared.record(BrowserTabID(rawValue: "browser-\(browser)"), "cef-load-event-without-tab")
+                spareWindow.unownedLoadEvent(event) // an extension navigated the waiting spare page
             }
         }
     }
@@ -222,9 +226,16 @@ extension CEFRuntime {
         if let tab = tabBeingAdded {
             // cmux_tab_add runs OnAfterCreated before it returns.
             tabBeingAdded = nil
+            #if DEBUG || CMUX_BENCH_HOOKS
+            // cmux's own attach work inside `cef.tab_add` (its span includes this one): what is Chromium's and what is cmux's.
+            benchMarks.span("cef.tab_add.attach") { register(tab, browser: browser) }
+            #else
             register(tab, browser: browser)
+            #endif
             return
         }
+        // Inside the spare page's tab_add: held until it returns, to tell the page from Chromium's own tabs.
+        if spareWindow.holdIfMakingPage(browser, window: window, created: created) { return }
         // Chromium created the tab itself (target=_blank, chrome.tabs.create).
         orphans.adopt(browser: browser, window: window, created: created)
     }
@@ -248,8 +259,9 @@ extension CEFRuntime {
         if let tab = tabsByBrowser.removeValue(forKey: browser) {
             tab.browserDidClose(closesTab: shutdownSequence == nil)
         } else {
-            // Never registered: drop a pending adoption of it.
+            // Never registered: drop a pending adoption of it, or the spare page.
             orphans.closedUnregistered(browser)
+            spareWindow.browserClosed(browser)
         }
         devToolsCalls.failAll(where: { $0.browser == browser }, with: BrowserTabError.closed)
         unawaitedDevTools = unawaitedDevTools.filter { $0.key.browser != browser }
@@ -266,9 +278,8 @@ extension CEFRuntime {
         switch kind {
         case .extensionActionsChanged, .inserted, .removed:
             if kind == .inserted { orphans.placeUnplaced(browser: browser, window: window) }
-            for host in hosts.values where host.owns(window: window) {
-                host.refreshExtensionActions()
-            }
+            // Only a tab whose actions may have changed reads them, the shown one at once (#32912).
+            extensionActionReads.tabEvent(kind, tab: tabsByBrowser[browser]) { hosts.values.filter { $0.owns(window: window) } }
             if kind == .extensionActionsChanged { extensionStores.refresh(window: window, browser: browser) }
         case .extensionsChanged:
             extensionStores.refresh(window: window, browser: browser)
@@ -329,11 +340,22 @@ extension CEFRuntime {
         state != .shutDown && !stopping
     }
 
+    /// How long quit waits for Chromium to commit every cookie store before CefShutdown
+    /// (`flushCookieStores`). A flush takes milliseconds on an idle disk.
+    static let cookieFlushLimit: Duration = .milliseconds(500)
+
     /// Closes every browser, waits (without blocking the main thread) until
-    /// the Chromium windows are destroyed or `timeout` passes, then calls
-    /// CefShutdown. The App awaits this from `applicationShouldTerminate`
-    /// (terminate-later), so the run loop keeps pumping CEF meanwhile.
-    func shutdown(timeout: Duration) async {
+    /// the Chromium windows are destroyed or `timeout` passes, commits every
+    /// cookie store (main thread free, at most `cookieFlushLimit`), then runs
+    /// `beforeEngineStop` (the App hides its windows) and calls CefShutdown.
+    /// The App awaits this from `applicationShouldTerminate` (terminate-later),
+    /// so the run loop keeps pumping CEF meanwhile.
+    ///
+    /// CefShutdown blocks the main thread for 2 to 3.4 s at quit (cmuxterm-hq#6338: its
+    /// thread pool's shutdown tasks and child processes, under load), and in most of those
+    /// quits the quit deadline ended the process inside it, before Chromium's own cookie
+    /// flush finished. The flush here runs first, while the main thread is free.
+    func shutdown(timeout: Duration, beforeEngineStop: @MainActor () -> Void = {}) async {
         if state == .loading {
             // The library is still mapping: never initialize after quit began.
             state = .shutDown
@@ -366,6 +388,8 @@ extension CEFRuntime {
         shutdownTimeout?.cancel()
         shutdownTimeout = nil
         devToolsCalls.failAll(where: { _ in true }, with: BrowserTabError.closed)
+        // Also when the close timed out and CefShutdown is skipped: the cookies still reach disk.
+        await flushCookieStores(shim, limit: Self.cookieFlushLimit)
         siteReplies.failAll(where: { _ in true }, with: BrowserTabError.closed)
         pump?.stop()
         guard shutdownSequence?.phase == .readyToShutdown else {
@@ -373,9 +397,22 @@ extension CEFRuntime {
             state = .shutDown
             return
         }
+        beforeEngineStop()
         shim.shutdown()
         state = .shutDown
         logger.notice("CEF shutdown complete")
+    }
+
+    /// Commits every profile's cookie store (`cmux_shim_flush_cookie_stores`) and waits, with the
+    /// main thread free and CEF pumped, for Chromium's answer or `limit`.
+    private func flushCookieStores(_ shim: CEFShimLibrary, limit: Duration) async {
+        let started = ContinuousClock.now
+        do {
+            let reply = try await engineReply(label: "cookie flush", timeout: limit) { shim.flushCookieStores($0) }
+            logger.notice("CEF cookie stores flushed: \(reply.value, privacy: .public) in \(ContinuousClock.now - started, privacy: .public)")
+        } catch {
+            logger.error("CEF cookie flush before shutdown: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     /// Called after every close/destroy event during shutdown. A pane's browser still being made
@@ -409,9 +446,9 @@ extension CEFShimEvent {
              .renderTerminated(let b, _, _, _), .renderUnresponsive(let b), .renderResponsive(let b),
              .navigationReroute(let b, _, _), .localFileHandoff(let b, _), .externalURL(let b, _, _), .keyUnhandled(let b, _, _), .installPrompt(let b, _, _), .takeFocus(let b, _),
              .devToolsMessage(let b, _), .authCallback(let b, _), .permissionPrompt(let b, _, _, _), .permissionDismissed(let b, _), .passwordPrompt(let b, _, _),
-             .beforeUnloadDialog(let b, _, _), .beforeUnloadDismissed(let b), .pageResource(let b, _, _), .pageDragEnter(let b, _),
+             .beforeUnloadDialog(let b, _, _), .beforeUnloadDismissed(let b), .pageResource(let b, _, _, _), .pageDragEnter(let b, _),
              .fileDialog(let b, _, _, _, _),
-             .pageMessage(let b, _, _, _):
+             .pageMessage(let b, _, _, _), .statusMessage(let b, _):
             b
         case .contextInitialized, .omniboxSuggestions, .preferenceChanged, .bookmarks, .download, .evaluateResult, .unknown:
             nil

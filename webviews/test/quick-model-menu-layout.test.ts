@@ -203,12 +203,12 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
       await page.locator(".acpmux-quick-body").evaluate((node) => {
         node.scrollTop = node.scrollHeight;
       });
-      await page.waitForFunction(() => document.querySelector(".acpmux-quick-body")?.hasAttribute("data-scrolled"));
+      await page.waitForFunction(() => document.querySelector(".acpmux-quick-body")?.hasAttribute("data-fade-top"));
       await page.keyboard.press("Escape");
       await page.locator(".acpmux-quick-menu").waitFor({ state: "hidden" });
       await page.locator("button[data-menu=model]").click();
       await page.locator(".acpmux-quick-menu").waitFor();
-      expect(await page.locator(".acpmux-quick-body").getAttribute("data-scrolled")).toBeNull();
+      expect(await page.locator(".acpmux-quick-body").getAttribute("data-fade-top")).toBeNull();
       expect(await page.locator(".acpmux-quick-body").evaluate((node) => node.scrollTop)).toBe(0);
     } finally {
       await page.close();
@@ -584,14 +584,14 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
       expect(menu.x + menu.width).toBeLessThanOrEqual(320);
       expect(menu.y + menu.height).toBeLessThanOrEqual(290);
       const body = page.locator(".acpmux-quick-body");
-      expect(await body.getAttribute("data-scrolled")).toBeNull();
+      expect(await body.getAttribute("data-fade-top")).toBeNull();
       const first = (await page.locator(".acpmux-quick-list [role=menuitemradio]").first().boundingBox())!;
       const inset = await bounds(page, ".acpmux-quick-body");
       expect(first.y - inset.y).toBe(0);
       await body.evaluate((node) => {
         node.scrollTop = node.scrollHeight;
       });
-      await page.waitForFunction(() => document.querySelector(".acpmux-quick-body")?.hasAttribute("data-scrolled"));
+      await page.waitForFunction(() => document.querySelector(".acpmux-quick-body")?.hasAttribute("data-fade-top"));
       const fast = page.getByRole("menuitemcheckbox", { name: "Fast mode", exact: true });
       await fast.focus();
       await page.keyboard.press("Space");

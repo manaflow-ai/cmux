@@ -306,3 +306,47 @@ test("an ask whose allows the daemon refuses offers only Deny and says where to 
   expect(responses).toEqual(["deny"]);
   await act(async () => root.unmount());
 });
+
+for (const envelope of ["toolCall", "subjectTool", "subjectCommand"] as const) {
+  test(`a grouped argv ${envelope} opens as a shell command with argument boundaries intact`, async () => {
+    const { PermissionPanel } = await import("../src/agent-session/acpmux/permissions/Panel");
+    const state = permissions("pending");
+    const rawInput = {
+      command: ["printf", "%s", "two words", "it's literal", "", "$HOME"],
+      cwd: "/workspace/project",
+    };
+    const toolCall = { title: "Print arguments", kind: "execute", rawInput };
+    state.groups[0]!.items[0]!.request =
+      envelope === "toolCall"
+        ? { toolCall }
+        : envelope === "subjectTool"
+          ? { subject: { type: "tool_call", toolCall } }
+          : { subject: { type: "command", ...rawInput } };
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    try {
+      await act(async () =>
+        root.render(
+          <PermissionPanel
+            state={state}
+            working
+            onRespond={() => {}}
+            onRetry={() => {}}
+            onRevoke={() => {}}
+            onRefresh={() => {}}
+          />,
+        ),
+      );
+      const panel = document.querySelector<HTMLElement>(".acpmux-permission-panel")!;
+      const toggle = panel.querySelector<HTMLButtonElement>(".acpmux-ask-toggle")!;
+      await act(async () => toggle.click());
+      const command = panel.querySelector(".cv-shell__command");
+      expect(command).not.toBeNull();
+      const expected = String.raw`printf %s 'two words' 'it'\''s literal' '' '$HOME'`;
+      expect(command?.textContent).toBe(`$ ${expected}`);
+      expect(panel.querySelector(".acpmux-ask-subject")?.textContent).toBe(expected);
+      expect(panel.querySelector(".acpmux-ask-input")).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+}

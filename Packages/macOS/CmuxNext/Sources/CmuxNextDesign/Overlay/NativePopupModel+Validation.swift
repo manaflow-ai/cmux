@@ -31,6 +31,9 @@ extension NativePopupModel {
         for row in rows {
             guard !row.id.isEmpty, row.id.count <= 128, identifiers.insert(row.id).inserted,
                   row.label.count <= 10_000 else { return false }
+            guard row.mark.map({ !$0.isEmpty && $0.count <= 128 }) ?? true,
+                  row.monogram.map({ !$0.isEmpty && $0.count <= 8 }) ?? true,
+                  row.sideLabel.map({ $0.count <= 200 && row.opensChildren }) ?? true else { return false }
             guard row.editSequence.map({ $0 >= 0 && $0 < 9_007_199_254_740_991 && row.kind == .textField }) ?? true else { return false }
             if let completion = row.completion {
                 guard row.kind == .action, completion.count <= 100_000 else { return false }

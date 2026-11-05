@@ -29,7 +29,7 @@ public struct NativeDeviceHTTPTransport: NativeDeviceTransport {
         let (bytes, response) = try await session.bytes(for: request)
         var result = Data()
         for try await byte in bytes {
-            guard result.count < 1_048_576 else { throw NativeDeviceEnrollmentError.invalidIdentity }
+            guard result.count < 1_048_576 else { throw NativeDeviceEnrollmentError.identity() }
             result.append(byte)
         }
         return ((response as? HTTPURLResponse)?.statusCode ?? 0, result)

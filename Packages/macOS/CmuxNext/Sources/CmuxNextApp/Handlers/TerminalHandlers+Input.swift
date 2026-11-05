@@ -75,7 +75,7 @@ extension TerminalHandlers {
         case .page, .conversation:
             return ctx.refuse(RefusalStrings.notATerminal)
         case .browser(let entry):
-            entry.chrome.perform(forward ? .findNext : .findPrevious)
+            entry.chrome?.perform(forward ? .findNext : .findPrevious)
         case .terminal(let entry):
             // Opens the bar with the last query when it is closed.
             let direction: TerminalFindDirection = forward ? .next : .previous

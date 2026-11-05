@@ -45,9 +45,9 @@ afterEach(() => {
   saved.clear();
 });
 
-test("a short Chief prompt shows whole, marked as from the Chief", () => {
+test("a short Chief prompt shows whole, marked as sent from the Chief", () => {
   const host = render("Fix the prompt bubble");
-  expect(host.querySelector(".cv-user__from")?.textContent).toBe("From the Chief");
+  expect(host.querySelector(".cv-user__from")?.textContent).toBe("Sent from Chief");
   expect(host.querySelector(".cv-user__bubble")?.textContent).toBe("Fix the prompt bubble");
   expect(host.querySelector(".cv-user__bubble--collapsed")).toBeNull();
   expect(host.querySelector(".cv-user__expand")).toBeNull();

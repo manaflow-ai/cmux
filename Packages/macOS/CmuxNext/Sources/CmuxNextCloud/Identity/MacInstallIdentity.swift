@@ -85,7 +85,8 @@ public actor MacInstallIdentity {
             transport: transport, signer: store.signer(for: stackUser), sessionToken: nil, stackUser: stackUser,
             deviceName: deviceName, clientVersion: clientVersion, record: record,
             profile: .mac, team: team, expectedEnvironment: environment)
-        let token = try await scoped.installToken()
+        // In this task, so a caller that is cancelled (a superseded lend) stops the mint too.
+        let token = try await scoped.installTokenInCallerTask()
         guard bound == generation, user == stackUser, await client.currentRecord == record else { throw Failure.signedOut }
         return token
     }
@@ -118,6 +119,14 @@ public actor MacInstallIdentity {
     func nativeOwnerPost(_ body: Data, context: NativeInstallContext) async throws -> (status: Int, body: Data) {
         try await nativeCheck(context)
         let reply = try await transport.post("/v1/ops", json: body, bearer: context.token, headers: requestHeaders)
+        try await nativeCheck(context)
+        return reply
+    }
+
+    /// A GET on the API Worker under the install's token (`path` includes its query).
+    func nativeOwnerGet(_ path: String, context: NativeInstallContext) async throws -> (status: Int, body: Data) {
+        try await nativeCheck(context)
+        let reply = try await transport.get(path, bearer: context.token, headers: requestHeaders)
         try await nativeCheck(context)
         return reply
     }

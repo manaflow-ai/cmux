@@ -41,4 +41,30 @@ struct AgentSessionShareRequestTests {
         #expect(list.shares.first?.createId == "req-1")
         #expect(list.shares.first?.guests == [AgentSessionShareGuest(guestId: "g2", name: "Theo", joinedAt: 5, state: "active")])
     }
+
+    @Test func inviteAndUninviteNameTheShareAndTheAccount() throws {
+        #expect(try fields(AgentSessionShareInviteRequest(shareId: "s1", account: "leo@cmux.com", role: "view")) == .object([
+            "id": .number(1), "cmd": .string("agent-session-share-invite"), "share_id": .string("s1"),
+            "account": .string("leo@cmux.com"), "role": .string("view"),
+        ]))
+        #expect(try fields(AgentSessionShareInviteRequest(shareId: "s1", account: "@theo")) == .object([
+            "id": .number(1), "cmd": .string("agent-session-share-invite"), "share_id": .string("s1"), "account": .string("@theo"),
+        ]))
+        #expect(try fields(AgentSessionShareUninviteRequest(shareId: "s1", account: "@theo")) == .object([
+            "id": .number(1), "cmd": .string("agent-session-share-uninvite"), "share_id": .string("s1"), "account": .string("@theo"),
+        ]))
+    }
+
+    /// List names each share's invitees and the account an invited guest joined as; a daemon from
+    /// before invites lists none.
+    @Test func listAnswersCarryInvitees() throws {
+        let listed = #"{"ok":true,"data":{"shares":[{"share_id":"s1","session":"acp-1","surface":3,"created_at":1,"expires_at":2,"expires_in_secs":9,"uses_left":1,"state":"active","url":null,"create_id":null,"room":null,"guests":[{"guest_id":"g2","name":"Theo","joined_at":5,"state":"active","account":"@theo","role":"view"}],"invitees":[{"account":"@theo","role":"view","invited_at":4,"state":"invited"},{"account":"a@cmux.com","role":"talk","invited_at":3,"state":"removed"}]}]}}"#
+        let share = try #require(try WireCoding.decodeResponse(AgentSessionShareList.self, from: Data(listed.utf8)).shares.first)
+        #expect(share.invitees == [AgentSessionShareInvitee(account: "@theo", role: "view", invitedAt: 4, state: "invited"),
+                                   AgentSessionShareInvitee(account: "a@cmux.com", role: "talk", invitedAt: 3, state: "removed")])
+        #expect(share.invitees.map(\.isInvited) == [true, false])
+        #expect(share.guests.first?.account == "@theo" && share.guests.first?.role == "view")
+        let old = #"{"ok":true,"data":{"shares":[{"share_id":"s1","session":"acp-1","surface":3,"created_at":1,"expires_at":2,"expires_in_secs":9,"uses_left":1,"state":"active","room":null,"guests":[]}]}}"#
+        #expect(try WireCoding.decodeResponse(AgentSessionShareList.self, from: Data(old.utf8)).shares.first?.invitees == [])
+    }
 }

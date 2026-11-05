@@ -67,6 +67,11 @@ pub struct SubagentTree {
     /// depth, oldest first, each with the label a list names it by (its name, else its task):
     /// the summary's `subagentsRunning` and `subagentNames` (`hub/views.rs`).
     running: Vec<(String, Option<String>)>,
+    /// Each subagent's name, from the newest event that named it (its spawn, a workflow's launch). An
+    /// event that names it not (a progress or state update) is given it, so a client that read the chat's log from a
+    /// page after the spawn still names the subagent and not its raw id (Leo, 2026-11-02, on
+    /// Session Info rows named "01a18fcd-c1c7-7c…": "but what's going on with these?").
+    names: HashMap<String, String>,
     /// Codex's native ids for this session. Legacy activity can echo a root id
     /// while a child is running; it is the root, never a subagent. The tree
     /// lives as long as the hub session, and a harness restart or a new Codex
@@ -81,6 +86,15 @@ struct ChildPreview {
     message_id: Option<String>,
     streaming: bool,
     tokens: Option<u64>,
+    /// The `task` its spawn (or a later progress) gave it (Claude's Agent `description`). A state
+    /// or progress update that says none carries it, as `names` carries its name, so a reader
+    /// whose page starts after the spawn still names it by its description (Leo, 2026-11-03: a
+    /// background agent's end read "Subagent finished: Subagent").
+    task: Option<String>,
+    /// The `agentId` an event of it gave (a Claude agent's task id, the id SendMessage names it
+    /// by), carried onto a later event that says none: its completed or cancelled end, so a page
+    /// holding only that end still says which agent it was (cmux#33292, cmux#33336).
+    agent_id: Option<String>,
 }
 
 impl SubagentTree {
@@ -162,6 +176,8 @@ impl SubagentTree {
             params.get("update").map(|u| self.events(u, owner.as_deref())).unwrap_or_default();
         for event in &mut events {
             let Some(id) = event.get("id").and_then(Value::as_str) else { continue };
+            self.name_event(id.to_owned(), event);
+            let Some(id) = event.get("id").and_then(Value::as_str) else { continue };
             let preview = self.previews.entry(id.to_owned()).or_default();
             // A progress/state event is authoritative over an earlier usage_update;
             // retain its total for a later lifecycle event that omits tokens.
@@ -215,7 +231,23 @@ impl SubagentTree {
             self.pending.entry(sender).or_default().extend(children);
         }
         for (id, preview) in log.previews {
-            self.previews.entry(id).or_insert(preview);
+            match self.previews.entry(id) {
+                std::collections::hash_map::Entry::Occupied(mut known) => {
+                    let known = known.get_mut();
+                    if known.task.is_none() {
+                        known.task = preview.task;
+                    }
+                    if known.agent_id.is_none() {
+                        known.agent_id = preview.agent_id;
+                    }
+                }
+                std::collections::hash_map::Entry::Vacant(slot) => {
+                    slot.insert(preview);
+                }
+            }
+        }
+        for (id, name) in log.names {
+            self.names.entry(id).or_insert(name);
         }
         self.background.extend(log.background.into_iter().filter(|id| !known.contains(id)));
         for (id, label) in log.running {
@@ -224,6 +256,37 @@ impl SubagentTree {
             }
         }
         self.root_threads.extend(log.root_threads);
+    }
+
+    /// Learns `id`'s name from `event` when it names it, or gives `event` the name learned before
+    /// when it carries neither a name nor a task.
+    fn name_event(&mut self, id: String, event: &mut Value) {
+        let text =
+            |key: &str| event.get(key).and_then(Value::as_str).filter(|v| !v.trim().is_empty());
+        // Secrets are masked before the cut, as `note_running`'s labels are: a token across the cut
+        // would no longer match the scanner.
+        let label = |t: &str| {
+            truncate_label(
+                &crate::secret_scan::mask(t).split_whitespace().collect::<Vec<_>>().join(" "),
+            )
+        };
+        if let Some(name) = text("name") {
+            // The newest name wins: a workflow's launch renames the run it started as "Workflow".
+            self.names.insert(id, label(name));
+            return;
+        }
+        // A task names one that has no name (a Codex legacy spawn says only its prompt). An event
+        // with a task but no name, for one already named, still gets that name (a progress whose
+        // task the tree repeated, ``label``).
+        if let Some(task) = text("task")
+            && !self.names.contains_key(&id)
+        {
+            self.names.insert(id, label(task));
+            return;
+        }
+        if let (Some(name), Some(object)) = (self.names.get(&id), event.as_object_mut()) {
+            object.insert("name".into(), json!(name));
+        }
     }
 
     /// How many background subagents still run.
@@ -354,6 +417,7 @@ impl SubagentTree {
                     event.insert("background".into(), json!(true));
                 }
                 event.insert("state".into(), json!("running"));
+                self.remember_label(&id, &event);
                 vec![Value::Object(event)]
             }
             Some("subagent_state_update") => {
@@ -378,6 +442,8 @@ impl SubagentTree {
                 if let Some(tokens) = update.get("tokens").and_then(Value::as_u64) {
                     event.insert("tokens".into(), json!(tokens));
                 }
+                self.remember_label(&id, &event);
+                self.label(&id, &mut event);
                 vec![Value::Object(event)]
             }
             // A running subagent's or workflow's live numbers (claude_stdio/workflows.rs).
@@ -405,6 +471,7 @@ impl SubagentTree {
                     "reasoningEffort",
                     "lastMessage",
                     "last_message",
+                    "agentId",
                 ] {
                     if let Some(v) = update.get(key).filter(|v| !v.is_null()) {
                         let key = if key == "reasoningEffort" {
@@ -425,6 +492,8 @@ impl SubagentTree {
                         event.insert(key.into(), value);
                     }
                 }
+                self.remember_label(&id, &event);
+                self.label(&id, &mut event);
                 vec![Value::Object(event)]
             }
             Some("tool_call" | "tool_call_update") => self.codex_legacy(update, owner),
@@ -579,6 +648,31 @@ impl SubagentTree {
         event.insert("state".into(), json!(state));
         event.insert("background".into(), json!(true));
         vec![Value::Object(event)]
+    }
+
+    /// Keeps the task an event of `id` gives (at most a last message's length, so a task that is
+    /// a whole prompt is never repeated on every later event), and its agentId.
+    fn remember_label(&mut self, id: &str, event: &Map<String, Value>) {
+        let text = |key: &str| event.get(key).and_then(Value::as_str).filter(|v| !v.is_empty());
+        if let Some(v) = text("task") {
+            let preview = self.previews.entry(id.to_owned()).or_default();
+            preview.task = (v.chars().count() <= LAST_MESSAGE_CHARS).then(|| v.to_owned());
+        }
+        if let Some(v) = text("agentId") {
+            self.previews.entry(id.to_owned()).or_default().agent_id = Some(v.to_owned());
+        }
+    }
+
+    /// Writes the task and agentId `id` was given into an event that says none.
+    fn label(&self, id: &str, event: &mut Map<String, Value>) {
+        let Some(preview) = self.previews.get(id) else { return };
+        for (key, value) in [("task", &preview.task), ("agentId", &preview.agent_id)] {
+            if let Some(value) = value
+                && !event.contains_key(key)
+            {
+                event.insert(key.into(), json!(value));
+            }
+        }
     }
 
     /// Records `id` under `owner` the first time it appears and starts its
@@ -840,9 +934,80 @@ mod codex_tests {
         assert_eq!(
             end,
             [
-                json!({"id": "s1/t1", "parent": null, "state": "failed", "agentId": "a8e1", "error": "API Error: 503"})
+                json!({"id": "s1/t1", "parent": null, "state": "failed", "agentId": "a8e1", "error": "API Error: 503",
+                    "name": "Push relay"})
             ]
         );
+    }
+
+    /// A subagent's later progress and end repeat the name and task its spawn gave, so a reader
+    /// whose page starts after the spawn names it by its description, never "Subagent" (Leo,
+    /// 2026-11-03, on "Subagent finished: Subagent" for a background agent an hour old).
+    #[test]
+    fn later_events_repeat_the_spawns_name_and_task() {
+        let mut tree = SubagentTree::default();
+        subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "s1/t1",
+                   "name": "Watch CI", "task": "Watch CI", "prompt": "Wait for the run"}),
+        );
+        let progress = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "s1/t1", "agentId": "a6ab"}),
+        );
+        assert_eq!(progress[0]["name"], "Watch CI");
+        assert_eq!(progress[0]["task"], "Watch CI");
+        assert_eq!(progress[0]["agentId"], "a6ab");
+        assert!(progress[0].get("prompt").is_none());
+        let end = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_state_update", "subagentSessionId": "s1/t1", "state": "completed"}),
+        );
+        assert_eq!(end[0]["name"], "Watch CI");
+        assert_eq!(end[0]["task"], "Watch CI");
+    }
+
+    /// A subagent's completed or cancelled end, which its harness sends with no agent id, still
+    /// says the agentId an earlier event gave it, beside its name and task: a page holding only
+    /// that end names the agent (cmux#33292, cmux#33336).
+    #[test]
+    fn an_end_repeats_the_agent_id_an_earlier_event_gave() {
+        for state in ["completed", "cancelled"] {
+            let mut tree = SubagentTree::default();
+            subagents(
+                &mut tree,
+                json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "s1/t1",
+                       "name": "Watch CI", "task": "Watch CI"}),
+            );
+            subagents(
+                &mut tree,
+                json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "s1/t1", "agentId": "a6ab"}),
+            );
+            let end = subagents(
+                &mut tree,
+                json!({"sessionUpdate": "subagent_state_update", "subagentSessionId": "s1/t1", "state": state}),
+            );
+            assert_eq!(end[0]["state"], state);
+            assert_eq!(end[0]["name"], "Watch CI");
+            assert_eq!(end[0]["task"], "Watch CI");
+            assert_eq!(end[0]["agentId"], "a6ab", "{state}: {end:?}");
+        }
+        // One whose resume named it (a SendMessage) keeps that id for its later end too.
+        let mut tree = SubagentTree::default();
+        subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "s1/t2", "task": "Fix it"}),
+        );
+        subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_state_update", "subagentSessionId": "s1/t2", "state": "running", "agentId": "a8e1"}),
+        );
+        let end = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_state_update", "subagentSessionId": "s1/t2", "state": "completed"}),
+        );
+        assert_eq!(end[0]["agentId"], "a8e1", "{end:?}");
+        assert_eq!(end[0]["task"], "Fix it");
     }
 
     /// Codex runs a `spawnAgent` child in its own thread: it outlives the turn
@@ -1328,6 +1493,69 @@ mod codex_tests {
         assert_eq!(second[0]["id"], prior_art);
         assert_eq!(second[0]["parent"], Value::Null);
         assert!(!tree.owns(root), "the new root is not a subagent");
+    }
+
+    /// Leo's Session Info (2026-11-02) named most running subagents by their raw ids: a client
+    /// that read the chat from a page after a spawn met them through progress, which names none.
+    /// Every event carries the name the spawn gave, and a later name replaces it.
+    #[test]
+    fn a_progress_update_carries_the_name_its_spawn_gave() {
+        let mut tree = SubagentTree::default();
+        subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "s1/toolu_a",
+                   "name": "Drop server login", "task": "Drop server login"}),
+        );
+        let progress = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "s1/toolu_a", "tokens": 10}),
+        );
+        assert_eq!(progress[0]["name"], json!("Drop server login"));
+        let ended = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_state_update", "subagentSessionId": "s1/toolu_a", "state": "completed"}),
+        );
+        assert_eq!(ended[0]["name"], json!("Drop server login"));
+        subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "s1/toolu_a", "name": "Renamed"}),
+        );
+        let next = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "s1/toolu_a", "tokens": 11}),
+        );
+        assert_eq!(next[0]["name"], json!("Renamed"));
+        // A task-only spawn names it too.
+        subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "s1/toolu_t", "task": "Check the rail"}),
+        );
+        let later = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "s1/toolu_t", "tokens": 1}),
+        );
+        assert_eq!(later[0]["name"], json!("Check the rail"));
+    }
+
+    /// A name holding a secret across the label's cut is masked before the cut, so the cached name a
+    /// later nameless event carries holds none of it.
+    #[test]
+    fn a_cached_name_is_masked_before_its_cut() {
+        let body: String = "aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jS".chars().cycle().take(36).collect();
+        let token = format!("gh{}_{body}", "p");
+        assert_eq!(crate::secret_scan::mask(&token), "[GitHub Personal Access Token]");
+        let name = format!("{} {token}", "x".repeat(50));
+        let mut tree = SubagentTree::default();
+        subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "s1/toolu_s", "name": name}),
+        );
+        let later = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "s1/toolu_s", "tokens": 1}),
+        );
+        let cached = later[0]["name"].as_str().unwrap();
+        assert!(!cached.contains("aZ3kQ9"), "{cached}");
     }
 }
 

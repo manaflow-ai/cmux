@@ -55,8 +55,6 @@ use super::place::{self, Dir, Entry, Expected, Transaction};
 use super::remote::Remote;
 use super::{names, pull};
 
-/// Most bytes of the machine's bundle (big untracked files travel in it).
-const MAX_BUNDLE_BYTES: u64 = 64 << 30;
 /// How long the export may run.
 const EXPORT_DEADLINE: Duration = Duration::from_secs(30 * 60);
 const EXPORT_POLL: Duration = Duration::from_millis(200);
@@ -428,9 +426,7 @@ fn download(remote: &mut Remote, from: &str, to: &Path) -> anyhow::Result<()> {
         .mode(0o600)
         .custom_flags(libc::O_NOFOLLOW)
         .open(to)?;
-    remote
-        .read_into(from, &mut out, MAX_BUNDLE_BYTES)?
-        .context("the machine's bundle went away")?;
+    remote.read_into(from, &mut out)?.context("the machine's bundle went away")?;
     out.sync_all()?;
     Ok(())
 }

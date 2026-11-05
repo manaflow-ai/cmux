@@ -13,8 +13,8 @@
 // 3. Centered controls: +, the mic and Send are one size (`--acpmux-composer-control`), each glyph
 //    sits at its button's center, and every button stands the same inset off the box's edges on
 //    every side it meets (left, top and bottom for +; right, top and bottom for the last trailing
-//    control). The three centers are the prompt's first line's center (a one-line prompt), in both
-//    looks: Codex's lays the buttons out as Claude's (cmux #28901's row under the prompt, replaced).
+//    control). Claude's three centers are the prompt's first line's center; Codex's chat look puts
+//    them together on a lower row, below a full-width prompt (Leo 2026-11-04's ChatGPT reference).
 // 4. Room around the text (Claude's look; Leo, 2026-11-01: "this is all still not aligned there's not
 //    enough of a space at the bottom"): the caret's center is +'s center, the first line has as much
 //    room under it as over it, and at least MIN_ROOM under its text, so it never sits on the edge.
@@ -138,7 +138,6 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
       width: 760,
       look: "codex",
       type: "helo",
-      expect: ["foot"],
       trailing: ["mic", "send"],
     },
     {
@@ -293,7 +292,10 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
         };
       };
       const card = document.querySelector(".nt-box") ?? document.querySelector(".acpmux-composer-box");
-      const box = shown(card);
+      // Codex's look has one lower controls row inside the box, under the full-width prompt.
+      const innerFoot = shown(card?.querySelector(":scope > .acpmux-chrome-area > .acpmux-composer-foot"));
+      const cardRect = shown(card);
+      const box = cardRect;
       const control = (selector: string): Control | null => {
         const buttons = [...(card?.querySelectorAll(selector) ?? [])].filter((element) => shown(element));
         const button = buttons[0];
@@ -310,7 +312,7 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
       const barElement = card
         ?.querySelector(".acpmux-composer-plus")
         ?.closest(".acpmux-composer-bar:not(.acpmux-composer-inner), .nt-box > .acpmux-chrome-area > .nt-pickers");
-      const bar = barElement ? shown(barElement) : null;
+      const bar = innerFoot ?? (barElement ? shown(barElement) : null);
       const plus = control(".acpmux-composer-plus .acpmux-picker-button");
       const mic = control(".acpmux-mic");
       const send = control(".acpmux-send");
@@ -498,10 +500,16 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
     if (!m.plus) return ["the + button is not drawn in the box"];
     const plus = m.plus.button;
     const inset = plus.left - m.box.left;
-    // Both looks put + beside the text (composerLook.ts; Leo 2026-11-01: "we already have a good
-    // version"): no layout draws + in a row of its own under the prompt (cmux #28901's, replaced).
-    if (m.bar) out.push("+ sits in a controls row under the prompt, not beside the text");
-    if (!m.bar) {
+    if (m.bar) {
+      // ChatGPT's two-row spacing in Codex's look (Leo 2026-11-04): the prompt starts over the
+      // lower row, with one 24px gap before the controls. It never reserves +'s blank column.
+      if (m.text === null || Math.abs(m.text - m.box.left - 16) > TOLERANCE)
+        out.push(
+          `the full-width prompt starts ${m.text === null ? "nowhere" : f(m.text - m.box.left)} px into the box, not 16`,
+        );
+      if (!m.line || plus.top - m.line.bottom < 24 - TOLERANCE)
+        out.push("the lower controls crowd the prompt's first line");
+    } else {
       if (m.text === null) return ["the text's start is not drawn"];
       const gap = m.text - plus.right;
       if (Math.abs(gap - GAP) > TOLERANCE)
@@ -522,6 +530,8 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
       }
     }
     for (const row of layout.expect ?? []) {
+      // Codex's quiet controls now share +'s lower row, so its first glyph follows + horizontally.
+      if (row === "foot" && m.bar) continue;
       const at = m.rows[row];
       if (at === null || at === undefined) {
         out.push(`the ${row} row is not drawn`);
@@ -579,7 +589,7 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
     // look's dots sit under it in the box), and the last control as far off its right. In Claude's,
     // + stands as far under the box's top as over its bottom (one line), and as far off its left as
     // the last control off its right.
-    const floor = m.bar ? m.bar.bottom : m.box.bottom;
+    const floor = m.box.bottom;
     const oneLine = !m.bar && !m.rows.chips && !m.inline;
     // The last control is the rightmost one shown (the mic stands after Send in some layouts).
     const last = [m.send, m.mic]

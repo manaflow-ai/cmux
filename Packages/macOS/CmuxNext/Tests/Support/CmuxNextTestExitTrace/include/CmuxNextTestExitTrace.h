@@ -9,13 +9,19 @@ int cmux_next_test_exit_trace_installed(void);
 /// this process keeps its backtracer and its children (exit tests, privileged tools) do not get one.
 int cmux_next_test_backtrace_kept_from_children(void);
 
-/// 1 once the main run loop survives being stopped at its outermost run (installed with the trace).
+/// 1 once the main run loop survives being stopped at its outermost run (installed when the bundle
+/// loads, in swiftpm-testing-helper only).
 int cmux_next_test_runloop_guard_installed(void);
+
+/// 1 when the guard holds the main run loop in a process of this name: only `swift test`'s Swift
+/// Testing helper (`swiftpm-testing-helper`), never `xctest` or another test host.
+int cmux_next_test_runloop_guard_holds_in(const char *process_name);
 
 /// How many times the guard has entered the main run loop again after it was stopped.
 int cmux_next_test_runloop_guard_reentries(void);
 
 /// Runs of the main run loop in the common modes, outermost included: 1 when no nested pass is open.
+/// Counted in swiftpm-testing-helper only; 0 in any other process.
 int cmux_next_test_runloop_guard_depth(void);
 
 /// Stops the run a stray stop would be fatal to, `times` times, each on a turn when that run is

@@ -75,15 +75,24 @@ async fn the_unix_socket_reads_the_table_the_lists_and_a_session() {
     }
     assert_eq!(
         v["freeConfigIds"],
-        json!(["model", "effort", "reasoning_effort", "thought_level", "thinking"]),
+        json!([
+            "model",
+            "effort",
+            "reasoning_effort",
+            "thought_level",
+            "thinking",
+            "session-recap"
+        ]),
         "{r}"
     );
-    // A known session: its family and mode.
+    assert_eq!(v["cloudMobileStrictFloor"], json!(1), "{r}");
+    // A known session: its family and mode, and whether Cloud mobile must
+    // ask for it (#30294): a Codex session in "normal" mode does not.
     let s = session(&hub, "fcodex").await;
     let r = call(&hub, Origin::Local, "_acpmux/web_modes", json!({"sessionId": s})).await;
     assert_eq!(
         r["result"]["session"],
-        json!({"sessionId": s, "family": "codex", "mode": "normal"}),
+        json!({"sessionId": s, "family": "codex", "mode": "normal", "cloudMobileAsks": false}),
         "{r}"
     );
     // No mode yet: null.

@@ -8,9 +8,6 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
         case arc
         /// Faint full track plus an arc of `progress`.
         case ring(progress: Double)
-        /// Faint full track plus a short bright sweep (`sweepLength` of the circle, round caps) that
-        /// `spin` turns: the agent working-state mark, as Claude and ChatGPT draw theirs.
-        case sweep
         /// The AppKit spinner's spokes. Determinate progress in the native
         /// style draws `ring`, which is what the AppKit determinate circular
         /// indicator is (a track and an arc).
@@ -83,15 +80,12 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
 
     public static let hidden = StatusIndicatorPlan(glyph: .none, animation: nil, tint: .loading)
 
-    /// The agent working-state mark's glyph: a faint full ring with a short bright sweep turning
-    /// smoothly on the shared clock, as in Claude and ChatGPT. Neither the 3/4 arc (Leo 2026-10-31:
-    /// "who even decided to put that 3/4 circle") nor the macOS activity indicator's segmented spokes
-    /// (#29903; Leo 2026-11-01: "why the f*** did you make the spinner into this????"). The spokes
-    /// stay only as the explicit "macOS Spinner" loading style and the arc as loading's "Thin Arc".
-    public static let workingGlyph: Glyph = .sweep
-
-    /// The share of the circle the working sweep covers (about 80°).
-    public static let sweepLength: Double = 0.22
+    /// The agent working-state mark's glyph: the original thin 3/4 arc (`StatusIndicatorConfig.arcLength`
+    /// of the circle at the indicator's thickness, no track), turning smoothly once per spinner period
+    /// on the shared clock, as at e2e596e4b69a~1 (Lawrence msg 19638: "we need it to be reverted back
+    /// to original state"). #29903's spokes, #31455's sweep and #32730's heavier ring are taken back;
+    /// changing it needs Lawrence's ask. The spokes stay only as the explicit "macOS Spinner" style.
+    public static let workingGlyph: Glyph = .arc
 
     /// Agent work's spinner (the agent working-state mark), turning on the shared clock so every
     /// working row moves in phase (#29903).
@@ -158,7 +152,8 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
             }
             switch style {
             case .none: return .hidden
-            case .arc: return StatusIndicatorPlan(glyph: .arc, animation: .spin, tint: .loading)
+            // The working mark's arc, so a check or a page loading turns the one spinner (webviews/test/one-spinner.test.ts).
+            case .arc: return StatusIndicatorPlan(glyph: workingGlyph, animation: .spin, tint: .loading)
             case .native: return StatusIndicatorPlan(glyph: .native, animation: .step, tint: .loading)
             case .dot: return StatusIndicatorPlan(glyph: .dot, animation: .pulse, tint: .loading)
             case .braille: return StatusIndicatorPlan(glyph: .braille, animation: .frames, tint: .loading)

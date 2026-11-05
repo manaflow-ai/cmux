@@ -115,7 +115,49 @@ stop the target host, write `moved.json` on the target pointing back, delete `mo
 answered after the move are lost by a plain rollback; `move --to <source>` instead brings them
 back (a move in reverse). The source copy is kept until `move --forget-source`.
 
+## 4b. Teleport: moving on from wherever the Chief is (2026-11-03, a963)
+
+The person says "teleport to the cloud", "teleport to cmux-mini-7" or "come back to my laptop" in
+chat; the Chief does the rest (skill `chief-teleport`, the `move` tool, evals `teleport-a963-*`).
+
+**One writer, one keeper.** The Mac the Chief first left keeps the frozen copy and carries out
+every later move (it has the copy, the SSH keys and the app's sign-in). Its `state/moved.json`
+always names where the Chief is now: `cloud:<api>/<agent>` or `ssh:<host>:<dir>`. A home with
+`moved.json` never starts a host; a Cloud Chief answers only while its brain is on; a home on a
+mini that was moved away is retired (`moved.json` there). So exactly one place answers.
+
+**Handoff, every direction.** Freeze the current place (cloud: brain off, then wait until no
+Cloud turn runs; SSH: `move freeze` stops its host and holds its start), copy out (cloud:
+`GET /v1/chiefs/<id>/memory?export=1` pages and `conversation.history`; SSH: `move checkpoint`
+tarred back), merge into a checkpoint of the frozen copy (cloud: the memory messages and nodes it
+added, the conversation messages it got with ids mapped back, `host/logged_seq` past them, so
+nothing is logged or answered twice), check every hash and count, deliver (restore into an empty
+home, or write over the frozen copy when the Chief comes home), then flip `moved.json`. Any
+failure before the flip thaws the old place (brain on again, `move thaw`), so it keeps answering.
+
+**Who asks.** On this Mac the Chief's `move` tool runs the move itself (`--detach`, after the
+turn). In the cloud the Chief's `teleport` tool writes the request into its brain settings
+(`config.teleport {to, id, at}`); on a mini the `move` tool writes `state/teleport-request.json`
+(a Chief whose `moved-in.json` names another machine). `optchat-chief move watch` on the keeper
+Mac reads the request (every 15 s), clears it and runs the move; `--watch` on a move starts it,
+and the app starts it at launch while `moved.json` exists. "home" means the keeper's home.
+
+**Token.** `CMUX_CLOUD_SESSION_TOKEN`, a 0600 file, else `cmux auth token --json` from the
+signed-in app, used only when its API origin is the target's.
+
 ## 5. Targets
+
+**Subagents (2026-11-03, a963).** A move to an SSH host hands the Chief's working subagents
+(chats of its own daemon run on this Mac, `local/…`, with a turn running or prompts queued) to
+that host with acpmux's `session move ID… --machine PEER --interrupt` (a964's
+agent-session-teleport) after the drain and before the checkpoint, so each takes its agent's
+store, its folder and one writer, and a stopped turn's continuation runs there. Idle and closed
+chats stay: their history is in the checkpoint. The handed chats are recorded in the keeper's
+machine-local `state/subagents-moved.json`; a failed move, `move rollback` and a pull back bring
+them here with `--from PEER --machine local`. A host the Chief's daemon does not know is a
+blocker the dry run names (`acpmux machine add HOST` with the Chief's `ACPMUX_HOME`). A move to
+the cloud leaves working subagents on this Mac (a Cloud Chief does not run this Mac's agents)
+and the report says how many. Code: `migrate_subagents.rs`.
 
 | Target | `--to` | Conversation lives | How |
 | --- | --- | --- | --- |
@@ -186,9 +228,9 @@ and ran `hostname; uname -sm` on its own machine.
 | --- | --- | --- |
 | Mac to Mac mini (`ssh:cmux-lawrence`) | moved 17 memory and 11 conversation messages in 33 s (the mover installed itself on the mini); the turn answered `cmux-lawrences-Mac-mini.local` | the mini's own model route (its subrouter, 127.0.0.1:31415) answered 502 for every request; the turn ran with the Mac's route (sr2 gateway) in the environment. The move does not carry the model route as a Chief setting. From the mini, 2 of 131 SSH hosts answer (keys are never copied) |
 | Mac mini to Linux VM (`chief-subagents-1`) | moved 27 memory and 15 conversation messages in 10 s; the turn answered `freestyle-vm Linux x86_64` | the tailnet ACL blocks minis from `tag:agent-cloud`: relayed through the Mac (reverse tunnel). The Chief's own Claude config ignores the VM's `~/.claude/settings.json` env: the route goes in the environment. The VM reaches only the fleet controller and sr2 |
-| Linux VM to the Cloud Chief (`cloud:staging`) | 17 history and 31 memory messages copied, brain on, in 10 s; the turn answered all earlier hosts and ran the shell in a cloud sandbox | staging test account only: production needs a production session token, and production hands are off. No export back from DO memory. Reactions, attachments and subagent transcripts do not move into the DO |
+| Linux VM to the Cloud Chief (`cloud:staging`) | 17 history and 31 memory messages copied, brain on, in 10 s; the turn answered all earlier hosts and ran the shell in a cloud sandbox | staging test account only: production needs a production session token, and production hands are off. Export back from DO memory: 4b. Reactions, attachments and subagent transcripts do not move into the DO |
 | The Chief moving itself (MCP `move`) | covered by tests (`--detach` waits for the turn's end) | a turn from the CLI counts as a paired device, so the `move` call waits for approval in the Mac app (allow from the CLI is refused by design); the chain ran the same moves through the CLI |
-| Any target | | a running subagent is not handed over; Home does not switch to the moved Chief; the Swift "Move Chief to..." sheet and Cmd+Shift+P action are not built |
+| Any target | | a running subagent is handed over to an SSH host (4b, Subagents), not to the cloud; Home does not switch to the moved Chief; the Swift "Move Chief to..." sheet and Cmd+Shift+P action are not built |
 
 ## 7. Home after a move
 

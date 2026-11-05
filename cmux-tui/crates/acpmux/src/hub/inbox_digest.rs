@@ -36,7 +36,7 @@
 //! would hear the digest's answer for it).
 //!
 //! The digest's provenance (hub-set, never a client's): `{kind: "inbox_digest", digestId,
-//! parts: [{promptId, from, fromName, class, receivedAt, bytes, duplicateOf?}], counts: {block,
+//! parts: [{promptId, from, fromName, class, receivedAt, bytes, duplicateOf?, notice?}], counts: {block,
 //! question, result, fyi}}`. A message's class is the one its queue entry holds
 //! (`prompt_class.rs`), a result when it has none.
 //!
@@ -102,6 +102,8 @@ pub(crate) struct Part {
     pub class: Class,
     pub received_at: u64,
     pub text: String,
+    /// The tool's notice it is (`prompt_provenance::notice`), which its digest part keeps.
+    pub notice: Option<Value>,
 }
 
 /// A digest: the prompt's text and its provenance.
@@ -196,6 +198,9 @@ pub(crate) fn render(digest_id: &str, parts: &[Part]) -> Rendered {
             let mut v = json!({"promptId": part.prompt_id, "from": part.from, "fromName": part.from_name, "class": part.class.as_str(), "receivedAt": part.received_at, "bytes": part.text.len()});
             if let Some(kept) = folded_into(part) {
                 crate::no_panic::JsonExt::set(&mut v, "duplicateOf", json!(kept.prompt_id));
+            }
+            if let Some(notice) = &part.notice {
+                crate::no_panic::JsonExt::set(&mut v, "notice", notice.clone());
             }
             v
         })
@@ -297,6 +302,13 @@ fn part_of(q: &QueuedPrompt) -> Part {
             q.run.provenance.as_ref(),
         )
         .to_owned(),
+        notice: q
+            .run
+            .provenance
+            .as_ref()
+            .filter(|p| crate::prompt_provenance::is_notice(Some(p)))
+            .and_then(|p| p.get("notice"))
+            .cloned(),
     }
 }
 

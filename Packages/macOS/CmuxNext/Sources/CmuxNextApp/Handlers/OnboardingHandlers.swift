@@ -31,7 +31,7 @@ enum OnboardingHandlers {
         registry.bind("browser.importFromFiles", run: { invocation in
             BrowserFileImport(services: services).run(profile: BookmarkResolver(services: services).profile(invocation))
         })
-        // Cookies of one browser profile, for the CLI and agents: an agent's run asks the person first.
+        // Cookies of one browser profile, for the CLI and agents: an agent's run asks the person, whose own click alone allows.
         let cef = services.cache.cef
         let cookieImports = CookieImportService(host: CookieImportHost(
             requester: { invocation in
@@ -40,13 +40,12 @@ enum OnboardingHandlers {
                     workspace.screens.flatMap(\.panes).flatMap(\.tabs).map { tab in
                         CookieImportCandidate(tabID: tab.id, title: tab.displayTitle, workspace: workspace.displayName,
                                               agentSession: agentTabs.sessions[agentTabs.resolve(tab.id)] ?? tab.agentSession?.session,
-                                              terminalIDs: [tab.terminalID?.rawValue, tab.terminalResourceID?.rawValue].compactMap(\.self))
+                                              terminalIDs: [tab.terminalID?.rawValue, tab.terminalResourceID?.rawValue].compactMap(\.self),
+                                              isHomeChat: tab.isHomeDockPage && workspace.kind == "home")
                     }
                 }
                 // The caller's acpmux session, by id (O(1)): its title and latest reply.
-                return CookieImportRequester(invocation, among: tabs) { session in
-                    services.agentLanes.lane(session).map { ($0.title, $0.preview) }
-                }
+                return CookieImportRequester(invocation, among: tabs) { services.agentLanes.lane($0).map { ($0.title, $0.preview) } }
             },
             target: { invocation in
                 let id = BookmarkResolver(services: services).profile(invocation)
@@ -55,7 +54,7 @@ enum OnboardingHandlers {
             window: { services.windows.active?.window ?? NSApp.mainWindow ?? NSApp.windows.first(where: \.isVisible) },
             reveal: { tab in _ = registry.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab), origin: .user)) },
             track: { registry.track($0) },
-            destination: ChromiumCookieDestination { writes, profile in try await cef.importCookies(writes, into: profile) }))
+            destination: ChromiumCookieDestination { writes, profile in try await cef.importCookies(writes, into: profile) }, isPersonEvent: services.personInput.isPerson, dispatchingEvent: { [inputDispatch = services.inputDispatch] in inputDispatch.event }))
         registry.bind("browser.importCookies", run: { invocation in try cookieImports.run(invocation) })
         // Brings the Import Cookies banner back (Don't Show Again undone) and shows it; it imports nothing.
         registry.bindEffect("browser.showCookieImportBanner", effect: { _ in services.onboarding.browserImportOffer.showNow(); return .done })

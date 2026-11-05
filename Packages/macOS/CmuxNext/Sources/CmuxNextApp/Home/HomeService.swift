@@ -33,8 +33,8 @@ final class HomeService {
     /// While a Chief turn waits for the compactor (ChiefSettleWatch).
     var settleNotice: String?
     @ObservationIgnored var settleWatch: ChiefSettleWatch?
-    /// While the person's last message to this Mac's Chief has had no reply for two minutes
-    /// (ChiefReplyWatchdog).
+    /// While the person's last message to this Mac's Chief has waited two minutes with the
+    /// Chief's brain not running (ChiefReplyWatchdog).
     var replyNotice: String?
     @ObservationIgnored private var replyWatch: Task<Void, Never>?
     @ObservationIgnored private let replyTimer = DemandTimer(owner: "HomeService.replyWatchdog")
@@ -98,8 +98,13 @@ final class HomeService {
     @ObservationIgnored let debugHostViews = NSHashTable<HomeHostView>.weakObjects()
     #endif
     /// The cloud Chief whose main conversation is the Chief tab, or nil (the local Chief, also
-    /// whenever it is the default Chief: ``prefersLocalChief``).
-    var cloudChief: CloudChief? { prefersLocalChief ? nil : tabChiefs.shown(choice: hostedChief.choice) }
+    /// whenever it is the default Chief: ``prefersLocalChief``). After a teleport to cmux Cloud, the
+    /// Chief it moved into when the tab's two cloud Chiefs include it (HomeService+ChiefRoster).
+    var cloudChief: CloudChief? {
+        guard !prefersLocalChief else { return nil }
+        if let followed = chiefFollow.conversation, let chief = tabChiefs.chief(for: followed) { return chief }
+        return tabChiefs.shown(choice: hostedChief.choice)
+    }
     /// This Mac's optchat-chief held the Chief home's lock at the last Chief tab check (HomeService+ChiefDefault).
     var localChiefRunning = false
     /// How many reads of that lock have started, and the newest one that published its answer, so
@@ -112,6 +117,11 @@ final class HomeService {
     /// The one-time copy of this Mac's Chief into the Hosted Chief and its brain check (HomeService+HostedChief).
     @ObservationIgnored let hostedChief = HostedChiefMigration()
     @ObservationIgnored private var homeObservation: Task<Void, Never>?
+    /// Re-runs the Chief tab check when this Mac's Chief teleports or comes back (HomeService+ChiefRoster).
+    @ObservationIgnored var chiefTeleportObservation: Task<Void, Never>?
+    /// The Chief conversations Home followed a teleported Chief to this launch, whose tabs give way
+    /// to the Chief's next place (HomeService+ChiefRoster).
+    @ObservationIgnored var followedChiefConversations: Set<String> = []
     /// Re-runs the Chief tab check when Settings > Chief's Engine changes (HomeService+ChiefDefault).
     @ObservationIgnored var chiefEngineObservation: Task<Void, Never>?
     /// Shows the Feed's notices in the default Chief's transcript (HomeService+ChiefRoster).
@@ -243,6 +253,7 @@ final class HomeService {
             }
         }
         observeChiefEngine()
+        observeChiefTeleport()
         observeFeedRows()
         // The active team behind the list's teammate rows and New Message's To:, read again once
         // the launch restore signs in, on another account, on another active team, and when the
@@ -258,7 +269,7 @@ final class HomeService {
         availability = Task { [weak self] in
             for await connection in ObservationStream({ chief.supports(DaemonCapability.localConversations.rawValue) ? chief.connection : nil }) {
                 guard let self else { continue }
-                homeSource.connectionChanged(connection)
+                homeSource.connectionChanged(connection, chiefHome: chief.home)
                 homeInbox.connectionChanged(connection)
                 guard let connection else { continue }
                 reloadList(connection)
@@ -457,8 +468,8 @@ final class HomeService {
 
 extension HomeService {
     /// Follows the local Chief conversation's head: when the person's last message has had no
-    /// reply for `ChiefReplyWatchdog.limit`, the notice row says so, and it counts the minutes
-    /// until a reply lands. One timer at a time, armed for the next change; no polling.
+    /// reply for `ChiefReplyWatchdog.limit` and the Chief's brain is not running, the notice row
+    /// says so until a reply lands. One timer at a time, armed for the next change; no polling.
     fileprivate func watchReplies() {
         // task-owner: lives as long as the service; event-driven (Observation)
         replyWatch = Task { [weak self] in
@@ -472,7 +483,7 @@ extension HomeService {
     private func armReplyTimer(_ head: CmuxNextDaemon.ConversationSummary?) {
         replyTimer.cancel()
         let now = Date()
-        let notice = head.flatMap { ChiefReplyWatchdog.notice($0, now: now) }
+        let notice = head.flatMap { ChiefReplyWatchdog.notice($0, now: now, brainRunning: brain.isRunning) }
         if replyNotice != notice { replyNotice = notice }
         guard let head, let next = ChiefReplyWatchdog.nextCheck(head, now: now) else { return }
         // One deadline: when the notice appears or its minute count changes; the next head resets it.

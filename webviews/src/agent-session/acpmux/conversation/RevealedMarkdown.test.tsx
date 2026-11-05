@@ -125,6 +125,38 @@ test("the newest words fade in, each word whole", () => {
   expect(container.querySelector(".cv-md")?.textContent?.startsWith("Hello there")).toBe(true);
 });
 
+test("words after a code span, a parenthesis or a line break still fade in", () => {
+  // Leo, 2026-11-03: "hey even u have that text fading in! i want that..." Any Markdown character in
+  // the newest text used to skip its fade.
+  for (const [before, after, fades] of [
+    ["Run `bun test` and", "Run `bun test` and then check the output", "and then check the output"],
+    ["It works (mostly", "It works (mostly and quickly now", "mostly and quickly now"],
+    ["First line.\nSecond", "First line.\nSecond line goes here", "Second line goes here"],
+  ] as const) {
+    root = createRoot(container);
+    render("", true);
+    render(before, true);
+    frames(0, 30);
+    render(after, true);
+    frames(30 * 16, 8);
+    const fresh = [...container.querySelectorAll(".cv-fresh")].map((span) => span.textContent ?? "").join("");
+    expect(fresh.length).toBeGreaterThan(0);
+    // The word held back while the first text waited (StreamReveal.stallMs) fades in first.
+    expect(fades.startsWith(fresh.trim())).toBe(true);
+    act(() => root?.unmount());
+  }
+});
+
+test("text inside an unclosed emphasis draws without a fade (the open run is closed for now, safeTail.ts)", () => {
+  root = createRoot(container);
+  render("", true);
+  render("This is **very", true);
+  frames(0, 30);
+  render("This is **very important stuff here", true);
+  frames(30 * 16, 8);
+  expect(container.querySelectorAll(".cv-fresh").length).toBe(0);
+});
+
 test("fresh text expires with the host fade-in token", () => {
   dom!.window.document.documentElement.style.setProperty("--agent-motion-in", "1000ms");
   root = createRoot(container);

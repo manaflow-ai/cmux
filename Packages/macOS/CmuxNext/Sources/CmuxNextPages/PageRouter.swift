@@ -327,6 +327,12 @@ public final class PageRouter {
     public func close() {
         closed = true
         didClose?()
+        var notified = Set<ObjectIdentifier>()
+        for route in routes {
+            let provider = route.provider
+            let identity = ObjectIdentifier(provider)
+            if notified.insert(identity).inserted { provider.pageDidClose() }
+        }
         for subscription in subscriptions.values { subscription.cancel() }
         subscriptions.removeAll()
         activeStreams.removeAll()

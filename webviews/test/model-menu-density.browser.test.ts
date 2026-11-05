@@ -1,13 +1,13 @@
 // cmux-web-test-timeout: 240
 // Leo 2026-10-28, on the compact model menu: "AND I THINK IT'S ALL SO STUPIDLY SPACED AND STYLED
 // IT'S FUCKING TONKA TOYS". Real Chromium lays the menu out with the pane's styles and holds it to a
-// native macOS menu's density: 28px rows, 24px submenu rows, 13px chrome type, 16px marks, a small
+// native macOS menu's density: 28px rows, 24px submenu rows, 13px chrome type, a small
 // switch, the check centred on its label's line, and no fade-in when it opens.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("model-menu-density.browser.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -25,14 +25,13 @@ await requireBrowserLane("model-menu-density.browser.test.ts", async () => {
 
   beforeAll(async () => {
     vite = await createServer({
-      root: webviews,
-      configFile: path.join(webviews, "vite.config.ts"),
+      configFile: path.join(webviews, "vite.config.gallery-dev.ts"),
       server: { port: 0, host: "127.0.0.1", strictPort: false },
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/test/browser/model-menu-density.html");
     browser = await chromium.launch({ headless: true });
+    await warmGalleryFrame(vite, "agent-pane.model-menu-density", { browser, params: { variant: "native" } });
   });
   afterAll(async () => {
     await browser?.close();
@@ -42,8 +41,15 @@ await requireBrowserLane("model-menu-density.browser.test.ts", async () => {
   async function opened(): Promise<Page> {
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const page = await browser!.newPage({ viewport: { width: 640, height: 900 } });
-    await page.goto(`http://127.0.0.1:${port}/test/browser/model-menu-density.html`);
-    await page.click(".acpmux-picker-button");
+    // This gallery deliberately fixes the harness, retaining QuickModelMenu. The standalone
+    // density harness has a rail and now opens QuickModelColumns instead.
+    await page.goto(
+      `http://127.0.0.1:${port}${galleryFrame("agent-pane.model-menu-density", { variant: "native", width: 560 })}`,
+    );
+    await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
+      timeout: 120_000,
+    });
+    expect(await page.evaluate(() => window.cmuxGalleryPlayReport?.error)).toBeUndefined();
     await page.waitForSelector(".acpmux-quick-menu .acpmux-quick-item");
     return page;
   }
@@ -51,23 +57,17 @@ await requireBrowserLane("model-menu-density.browser.test.ts", async () => {
   const heights = (page: Page, selector: string) =>
     page.$$eval(selector, (nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().height)));
 
-  test("rows, rail tabs and the search field are a native menu's 28px, in 13px type", async () => {
+  test("list rows and the search field are a native menu's 28px, in 13px type", async () => {
     const page = await opened();
     const rows = await heights(page, ".acpmux-quick-menu:not(.acpmux-quick-submenu) .ui-menu-item.acpmux-quick-item");
     expect(rows.length).toBeGreaterThan(3);
     expect(rows.every((height) => height === 28)).toBe(true);
-    expect((await heights(page, ".acpmux-quick-rail-tab")).every((height) => height === 28)).toBe(true);
     expect(await heights(page, ".acpmux-quick-search")).toEqual([28]);
     const type = await page.$$eval(
-      ".acpmux-quick-menu .acpmux-quick-item .acpmux-menu-label, .acpmux-quick-rail-tab, .acpmux-quick-search input",
+      ".acpmux-quick-menu .acpmux-quick-item .acpmux-menu-label, .acpmux-quick-search input",
       (nodes) => [...new Set(nodes.map((node) => getComputedStyle(node).fontSize))],
     );
     expect(type).toEqual(["13px"]);
-    const marks = await page.$$eval(".acpmux-quick-rail-tab svg", (nodes) =>
-      nodes.map((node) => Math.round(node.getBoundingClientRect().height)),
-    );
-    expect(marks.length).toBeGreaterThan(0);
-    expect(marks.every((height) => height <= 16)).toBe(true);
     await page.close();
   });
 
@@ -104,10 +104,10 @@ await requireBrowserLane("model-menu-density.browser.test.ts", async () => {
   });
 
   test("the menu opens on the click, with no fade-in", async () => {
-    const port = (vite!.httpServer!.address() as { port: number }).port;
-    const page = await browser!.newPage({ viewport: { width: 640, height: 900 } });
-    await page.goto(`http://127.0.0.1:${port}/test/browser/model-menu-density.html`);
-    await page.click(".acpmux-picker-button");
+    const page = await opened();
+    await page.keyboard.press("Escape");
+    await page.locator(".acpmux-quick-menu").waitFor({ state: "detached" });
+    await page.click(".acpmux-model .acpmux-picker-button");
     const shown = await page.$eval(".acpmux-quick-menu", (menu) => ({
       opacity: getComputedStyle(menu).opacity,
       animations: menu.getAnimations({ subtree: false }).length,

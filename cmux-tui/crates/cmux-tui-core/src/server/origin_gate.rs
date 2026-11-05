@@ -220,6 +220,16 @@ fn check_pairing_accept(
 /// The actor of a durable mutation that `client` asks for on the legacy
 /// control protocol. A client with no record is never the local user.
 pub(super) fn connection_actor(mux: &Mux, client: u64) -> Actor {
+    if mux.control_clients.input_lane.on() {
+        // The published facts, never the registry lock (R-DAEMON-STATE S1).
+        let facts = mux.control_clients.state.load().recover_poison();
+        let Some(connection) = facts.clients.get(&client) else {
+            return Actor::Peer { id: "unregistered".to_string() };
+        };
+        let (transport, local) = (connection.transport, connection.actor.clone());
+        drop(facts);
+        return peer_or_local(mux, client, transport, local);
+    }
     let state = mux.control_clients.state.lock().recover_poison();
     let Some(record) = state.clients.get(&client) else {
         return Actor::Peer { id: "unregistered".to_string() };

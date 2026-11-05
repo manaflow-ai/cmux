@@ -27,9 +27,10 @@ import Observation
 /// Launch Claude/Codex Teams run `AgentTeamsLaunch`. Computer Use
 /// focus/stop are typed-unavailable.
 enum AgentHandlers {
-    /// Inspect Element (#24707): every right-click menu that places it (the tab bar's + among
-    /// them) leaves it out while Debug Settings' UI pointer inspector
-    /// (`AgentPaneTunables.pointerInspector`, on by default) is turned off.
+    /// Inspect Element (#24707): the web-content menus that place it (the agent chat page's)
+    /// leave it out while Debug Settings' UI pointer inspector
+    /// (`AgentPaneTunables.pointerInspector`, on by default) is turned off. Native menus never
+    /// place it (InspectElementScopeTests).
     static func gatePointerInspectorMenuRows(in registry: ActionRegistry) {
         ActionTargetVisibility.hide("agentPane.togglePointerInspector", in: registry) { _ in
             !AgentPaneTunables.pointerInspector.value
@@ -78,6 +79,7 @@ enum AgentHandlers {
                       run: { _ in _ = context.services.macScreenPages.hubHost.stopSession() })
         registry.bind("macScreen.revokeViewer", unavailable: { context.services.macScreenPages.hubHost.noSessionReason },
                       run: { _ in _ = context.services.macScreenPages.hubHost.revokeViewer() })
+        context.services.cmuxRemoteActions.bind(into: registry)
         AgentSessionWorkspace.bind(into: registry, context: context)
         AgentSessionTab.bind(into: registry, context: context)
         ChiefInspectorHandlers.bind(into: registry, context: context)
@@ -126,14 +128,9 @@ enum AgentHandlers {
         registry.bindAgentPaneSessionInfo { invocation in
             focusedAgentView(context, invocation)?.toggleSessionInfo()
         }
-        registry.bindAgentPageCommands(available: { invocation in
-            // Read only: no refusal while the palette asks whether a row is enabled.
-            let scope = context.scope(invocation)
-            guard let key = scope.tab?.id.rawValue ?? scope.pane?.currentTabKey,
-                  let model = context.services.agentTabs.existingView(key)?.model else { return nil }
-            // The New Tab page runs none of the chat's controls.
-            return model.newTab == nil ? model.pageCommands : []
-        }, run: { command, invocation in
+        // Read only: no refusal while the palette asks whether a row is enabled, or on. The New Tab page runs none of the chat's controls.
+        registry.bindAgentPageCommands(available: { invocation in chatView(context, invocation).map { $0.model.newTab == nil ? $0.model.pageCommands : [] } },
+                                       state: { chatView(context).flatMap { $0.model.newTab == nil ? $0.model.header?.shown?() : nil } }, run: { command, invocation in
             focusedAgentView(context, invocation)?.run(command)
         })
         registry.bindAgentPaneInspector { invocation in
@@ -180,13 +177,15 @@ enum AgentHandlers {
                 return
             }
             if terminalDictation.stopIfActive() { return }
-            guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey,
-                  let view = context.services.agentTabs.existingView(key) else {
+            guard let view = selectedChat(context, invocation) else {
                 if AgentPaneView.stopDictation() { return }
                 return context.refuse(MiscHandlerStrings.noAgentChat)
             }
             view.toggleDictation()
         })
+        // Its palette row says whether the dictation a run would end listens (read only, no refusal).
+        registry.setDictationPaletteState(focusedTerminal: { if case .terminal = context.scope().pane?.currentContent { true } else { false } },
+                                          terminalListening: { terminalDictation.isActive }, focusedChat: { selectedChat(context) })
         // Stop Reading Aloud: the app's one voice (AgentPaneReadAloud), from any window, chat or none.
         registry.bindEffect("agentPane.stopReadingAloud", requires: nil, effect: { _ in
             context.services.agentTabs.readAloud.stop() ? .done : .refused(MiscHandlerStrings.nothingReadAloud)
@@ -210,20 +209,14 @@ enum AgentHandlers {
         ]
         for (id, command) in permissionCommands {
             registry.bind(id, run: { invocation in
-                guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey,
-                      let view = context.services.agentTabs.existingView(key) else {
-                    return context.refuse(MiscHandlerStrings.noAgentChat)
-                }
+                guard let view = selectedChat(context, invocation) else { return context.refuse(MiscHandlerStrings.noAgentChat) }
                 view.runPermissionAction(command, byPerson: invocation.origin == .user)
             })
         }
         // Previous and Next Turn and Bookmarked Prompt step the agent chat's transcript (cx-f7c).
         for step in AgentTranscriptStep.allCases {
             registry.bind(ActionID(rawValue: step.actionID), run: { invocation in
-                guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey,
-                      let view = context.services.agentTabs.existingView(key) else {
-                    return context.refuse(MiscHandlerStrings.noAgentChat)
-                }
+                guard let view = selectedChat(context, invocation) else { return context.refuse(MiscHandlerStrings.noAgentChat) }
                 view.step(step)
             })
         }
@@ -234,10 +227,7 @@ enum AgentHandlers {
             guard invocation.allowsViewChange else {
                 return context.refuse(MiscHandlerStrings.continueInNeedsFocus)
             }
-            guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey,
-                  let view = context.services.agentTabs.existingView(key) else {
-                return context.refuse(MiscHandlerStrings.noAgentChat)
-            }
+            guard let view = selectedChat(context, invocation) else { return context.refuse(MiscHandlerStrings.noAgentChat) }
             view.showContinueIn()
         })
         // The focused chat's page takes the keyboard, then opens the model picker, file search,
@@ -250,8 +240,7 @@ enum AgentHandlers {
         for (id, needsFocus, needsChat, run) in keyboardCommands {
             registry.bind(id, run: { invocation in
                 guard invocation.allowsViewChange else { return context.refuse(needsFocus()) }
-                guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey,
-                      let view = context.services.agentTabs.existingView(key) else { return context.refuse(needsChat()) }
+                guard let view = selectedChat(context, invocation) else { return context.refuse(needsChat()) }
                 run(view)
             })
         }
@@ -260,8 +249,7 @@ enum AgentHandlers {
             guard invocation.allowsViewChange else {
                 return context.refuse(MiscHandlerStrings.checkpointNeedsFocus)
             }
-            guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey,
-                  let view = context.services.agentTabs.existingView(key), view.model.checkpointAvailable else {
+            guard let view = selectedChat(context, invocation), view.model.checkpointAvailable else {
                 return context.refuse(MiscHandlerStrings.noAgentChat)
             }
             view.showCreateCheckpoint()
@@ -273,10 +261,7 @@ enum AgentHandlers {
                 guard invocation.allowsViewChange else {
                     return context.refuse(MiscHandlerStrings.gitWriteNeedsFocus)
                 }
-                guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey,
-                      let view = context.services.agentTabs.existingView(key) else {
-                    return context.refuse(MiscHandlerStrings.gitNeedsAgentChat)
-                }
+                guard let view = selectedChat(context, invocation) else { return context.refuse(MiscHandlerStrings.gitNeedsAgentChat) }
                 view.runGitAction(action)
             })
         }
@@ -296,14 +281,19 @@ enum AgentHandlers {
     private static let agentPaneZoomPath = AgentPaneZoomSetting.configPath
 
     private static func focusedAgentView(_ context: AppActionContext, _ invocation: ActionInvocation = ActionInvocation()) -> AgentPaneView? {
-        let scope = context.scope(invocation)
-        guard let pane = scope.pane,
-              let key = scope.tab?.id.rawValue ?? pane.currentTabKey,
-              let view = context.services.agentTabs.existingView(key) else {
-            context.refuse(MiscHandlerStrings.noAgentChat)
-            return nil
-        }
+        guard let view = chatView(context, invocation) else { return context.refuse(MiscHandlerStrings.noAgentChat) }
         return view
+    }
+
+    /// The agent chat of the invocation's tab, else its pane's selected tab; nil (no refusal) when it is none.
+    private static func chatView(_ context: AppActionContext, _ invocation: ActionInvocation = ActionInvocation()) -> AgentPaneView? {
+        let scope = context.scope(invocation)
+        return scope.pane.flatMap { scope.tab?.id.rawValue ?? $0.currentTabKey }.flatMap { context.services.agentTabs.existingView($0) }
+    }
+
+    /// The agent chat its pane's selected tab shows; nil (no refusal) when it is none.
+    private static func selectedChat(_ context: AppActionContext, _ invocation: ActionInvocation = ActionInvocation()) -> AgentPaneView? {
+        context.scope(invocation).pane?.currentTabKey.flatMap { context.services.agentTabs.existingView($0) }
     }
 
     private static func setAgentPaneZoom(by delta: Double, context: AppActionContext, invocation: ActionInvocation) throws {
@@ -499,7 +489,7 @@ enum AgentHandlers {
             guard path.hasPrefix("/"), !path.contains("\u{0}") else { throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path)) }
             let url = URL(fileURLWithPath: path)
             guard target == .tab else { throw ActionFailure(message: RemoteFilePageFiles.remotePreview(url.lastPathComponent)) }
-            if let reason = context.services.viewers.openFile(url, on: pane.daemon, in: pane, userChose: invocation.origin == .user, asText: asText) {
+            if let reason = context.services.viewers.openFile(url, on: pane.daemon, from: pane, userChose: invocation.origin == .user, asText: asText) {
                 throw ActionFailure(message: reason)
             }
             return
@@ -513,7 +503,7 @@ enum AgentHandlers {
             if let session = invocation.callerAgentSession, let chat = context.services.agentTabs.tab(showing: session) {
                 context.services.chatQuoteOpeners.noteOpened(url, byAgentTab: chat)
             }
-            if let reason = context.services.viewers.openFile(url, in: pane, userChose: invocation.origin == .user, asText: asText) { throw ActionFailure(message: reason) }
+            if let reason = context.services.viewers.openFile(url, on: nil, from: pane, userChose: invocation.origin == .user, asText: asText) { throw ActionFailure(message: reason) }
             return
         }
         let opening: AgentPaneFileOpening

@@ -54,6 +54,14 @@ impl Hub {
                 .retain(|name, _| current.harnesses.get(name) == next.harnesses.get(name));
             current.harnesses = next.harnesses;
             current.default_harness = next.default_harness;
+            // A harness's own start mode (`permissionMode`) changing is a start-mode change too.
+            let modes_of =
+                |d: &std::collections::BTreeMap<String, crate::config::SessionDefaults>| {
+                    d.iter()
+                        .filter_map(|(k, v)| Some((k.clone(), v.permission_mode.clone()?)))
+                        .collect::<Vec<_>>()
+                };
+            let harness_modes_changed = modes_of(&current.defaults) != modes_of(&next.defaults);
             current.defaults = next.defaults;
             current.session = next.session;
             current.presets = next.presets;
@@ -88,7 +96,7 @@ impl Hub {
             current.usage_warnings = next.usage_warnings;
             let start_changed = current.default_permission_mode != next.default_permission_mode;
             current.default_permission_mode = next.default_permission_mode;
-            if start_changed {
+            if start_changed || harness_modes_changed {
                 self.start_mode_changed();
             }
             self.refresh_web_modes(&current);
@@ -98,6 +106,8 @@ impl Hub {
                 retained,
             )
         };
+        // Every row, closed ones too, reads the new usage warning thresholds.
+        self.events.changed();
         // A new `stalledTurnEndMs` moves the stalled turns' deadlines (`stalled_turn.rs`).
         self.idle_wake.notify_one();
         // Pooled sessions started under the old catalog are never served.

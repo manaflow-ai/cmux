@@ -16,6 +16,17 @@
 .cv-message-group__head > .cv-tool__icon {
   color: var(--cv-text-muted);
 }
+/* The sender's mark (SenderMark) nests its glyph in inline spans (AgentIdentity, its tone wrapper),
+   and an inline svg sits on a text baseline 2px above the line's centre. Each wrapper centres its
+   glyph instead, so the mark centres on the row's first line (design/chat-transcript.md "glyph
+   centered"; gallery invariants.ts center-line). The Chief's text avatar keeps its own box. */
+.cv-message-group__head > .cv-tool__icon span:not(.cv-chief-text-avatar) {
+  display: inline-flex;
+  align-items: center;
+}
+.cv-message-group__head > .cv-tool__icon :is(svg, img) {
+  display: block;
+}
 .cv-message-group__head > .cv-tool__text {
   display: flex;
   align-items: baseline;
@@ -32,15 +43,19 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--cv-text-dim);
+  /* Session names, not a count: set as the row's words, never in tabular figures. */
+  font-variant-numeric: normal;
 }
 .cv-message-group__head > .cv-tool__chevron {
   opacity: 0;
   transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
 }
-.cv-message-group__head:hover,
+/* Its words rest in the activity tone and light on hover or focus (AgentMessageRow.css; Leo,
+   2026-11-03: "they should only be this bright when u hover over it"); hover also reveals the
+   chevron. Open, or with its menu open, its words, mark and chevron stay lit. */
 .cv-message-group__head:has([data-popup-open]),
 .cv-message-group__head:is(:focus-visible, [aria-expanded="true"]),
-.cv-message-group__head:hover > :is(.cv-tool__icon, .cv-tool__chevron),
+.cv-message-group__head:hover > .cv-tool__chevron,
 .cv-message-group__head:has([data-popup-open]) > :is(.cv-tool__icon, .cv-tool__chevron),
 .cv-message-group__head:is(:focus-visible, [aria-expanded="true"]) > :is(.cv-tool__icon, .cv-tool__chevron) {
   color: var(--cv-text);
@@ -78,4 +93,14 @@
   .cv-message-group__senders {
     display: none;
   }
+}
+/* Stacked (messageLineLook.ts): the senders on their own line under the count, at the text column
+   (`.cv-msgline__preview`, AgentMessageRow.css), a whole line of the head's box even where the head
+   sits in a flex line (PendingMessagesCard.css `.cv-pending__line`). */
+.cv-message-group__below {
+  flex: 0 0 100%;
+  width: 100%;
+}
+.cv-pending__line:has(> .cv-message-group__below) {
+  flex-wrap: wrap;
 }

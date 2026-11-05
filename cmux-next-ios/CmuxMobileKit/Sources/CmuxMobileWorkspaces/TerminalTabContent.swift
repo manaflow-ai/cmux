@@ -63,6 +63,9 @@ public protocol TerminalTabContent: AnyObject {
     func overviewScrollingChanged(_ scrolling: Bool)
     /// A new terminal tab or workspace: put the keyboard up on its composer.
     func focusInput(for tab: WorkspaceTab, in workspace: Workspace)
+    /// New Tab from Text's `!command`: the command waits in the terminal's composer, typed and
+    /// not run (the Mac's `newTab.submit` types it into the new terminal), with the keyboard up.
+    func draft(_ text: String, for tab: WorkspaceTab, in workspace: Workspace)
     /// Replaces the title pill's subtitle (the working directory) while the
     /// tab's state matters more, e.g. "Reattaching…" after a slow reattach
     /// (design/terminal P5). Nil keeps the directory. Read during view
@@ -80,6 +83,7 @@ extension TerminalTabContent {
     public func overviewVisibilityChanged(_ visible: Bool, tabs: @escaping @MainActor () -> [WorkspaceTab]) {}
     public func overviewScrollingChanged(_ scrolling: Bool) {}
     public func focusInput(for tab: WorkspaceTab, in workspace: Workspace) {}
+    public func draft(_ text: String, for tab: WorkspaceTab, in workspace: Workspace) {}
     public func statusSubtitle(for tab: WorkspaceTab) -> String? { nil }
 }
 

@@ -67,6 +67,12 @@ if [ "${#extras[@]}" -gt 0 ]; then
   fi
 fi
 
+# Scopes service-key-grants.json grants by key id (acl:read and acl:write for cmux-platform's Cloud keys), merged
+# into the entries without touching their write-only secrets.
+if [ -n "$service_keys" ]; then
+  service_keys="$(printf '%s' "$service_keys" | bash scripts/apply-key-grants.sh)"
+fi
+
 umask 077
 secrets="$(mktemp)"
 trap 'rm -f "$secrets"' EXIT

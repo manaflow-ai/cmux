@@ -21,6 +21,7 @@ import type { AcpmuxSnapshot } from "./model";
 import type { SessionPullRequest } from "./sessionList";
 import { composerStatePlays } from "./composerStatePlays";
 import { SCREEN_RECORDING_POSTER_JPEG } from "../../gallery/fixtures/videoPoster";
+import { LOGIN_TESTS_MP4 } from "../../gallery/fixtures/toolImages";
 import { parseProbes, pickFrameTimes } from "./composer/videoFramePick";
 
 /// A screen recording on the Desktop, as the host's `video.info` reads it (AgentPaneVideoInfo.swift).
@@ -64,6 +65,34 @@ function dropScreenshotAndVideo(ctx: PlayContext) {
   const drop = new view.Event("drop", { bubbles: true, cancelable: true });
   Object.defineProperty(drop, "dataTransfer", { value: { files, types: ["Files"] } });
   ctx.find({ selector: ".acpmux-md" }).dispatchEvent(drop);
+}
+
+/// The `attachment-inline-reorder` scenes: two screenshots, 1 (blue) and 2 (amber), pasted side by
+/// side at the end of the prompt's text.
+async function pasteTwoScreenshots(ctx: PlayContext) {
+  const view = ctx.document.defaultView!;
+  view.cmuxAcpmuxComposer?.({ attachmentView: "inline" });
+  const files = await Promise.all(
+    ["#5b8def", "#e0a84f"].map(async (color, index) => {
+      const canvas = ctx.document.createElement("canvas");
+      canvas.width = 480;
+      canvas.height = 300;
+      const drawing = canvas.getContext("2d")!;
+      drawing.fillStyle = color;
+      drawing.fillRect(0, 0, 480, 300);
+      drawing.fillStyle = "white";
+      drawing.font = "160px system-ui";
+      drawing.fillText(String(index + 1), 200, 210);
+      const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
+      return new view.File([blob], `Screenshot ${index + 1}.png`, { type: "image/png" });
+    }),
+  );
+  const field = ctx.find({ selector: ".acpmux-md-field" }) as MarkdownFieldElement;
+  field.acpmuxMarkdownField!.setCaret("Which layout reads better?".length);
+  const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, "clipboardData", { value: { files, types: ["Files"], getData: () => "" } });
+  ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
+  await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-md [data-inline-attachment] img").length === 2);
 }
 
 /// The `attachment-inline-caret` scene: a screenshot pasted between "Compare this" and "with".
@@ -219,6 +248,48 @@ const pictured = {
   ],
 };
 
+// Leo's message (2026-11-05): three screen recordings (8, 7 and 8 frames), queued behind a
+// running turn. acpmux lists each video's frames as images; the card draws
+// one tile per attachment, a video at its first frame with its length, in one row ("uh this was a
+// weird preview idk i guess i accidentally queued?").
+const recording = (name: string, seconds: number, count: number) => ({
+  frames: Array.from({ length: count }, (_, at) => ({
+    id: `${name}-${at}`.padEnd(64, "0"),
+    mimeType: "image/jpeg",
+    name: `${name} frame at 0:0${at}.0`,
+    src: `data:image/jpeg;base64,${SCREEN_RECORDING_POSTER_JPEG}`,
+  })),
+  part: {
+    kind: "file" as const,
+    name,
+    mimeType: "video/quicktime",
+    video: {
+      durationMs: seconds * 1000,
+      width: 320,
+      height: 180,
+      poster: `data:image/jpeg;base64,${SCREEN_RECORDING_POSTER_JPEG}`,
+      frames: Array.from({ length: count }, (_, at) => ({ atMs: at * 1000, data: SCREEN_RECORDING_POSTER_JPEG })),
+    },
+  },
+});
+const recordings = [
+  recording("Screen Recording 2026-11-04 at 16.01.10.mov", 16, 8),
+  recording("Screen Recording 2026-11-04 at 16.02.41.mov", 23, 7),
+  recording("Screen Recording 2026-11-04 at 16.03.55.mov", 9, 8),
+];
+const withVideos = {
+  id: "q1",
+  prompt: "When I click and drag a workspace on the sidebar, it, like, briefly flickers for a bit.",
+  images: recordings.flatMap((video) => video.frames),
+  inlineParts: [
+    {
+      kind: "text" as const,
+      text: "When I click and drag a workspace on the sidebar, it, like, briefly flickers for a bit.",
+    },
+    ...recordings.map((video) => video.part),
+  ],
+};
+
 // A turn that took two steers, one the agent read and one it has not yet, and a prompt sent now
 // to an agent that cannot steer (it goes on with the turn).
 const steerMarks = () =>
@@ -275,6 +346,38 @@ const waitingSteerSr2 = () => {
 const steering = (steers: boolean) => {
   const running = chat(working, { isWorking: true });
   return { ...running, summary: { ...running.summary!, steering: steers } };
+};
+
+// Leo, 2026-11-03: "this looks kinda weird when i send now and there was a previously steered
+// message". An earlier steer Claude has not read, and a prompt queued after it; Send now on the
+// queued prompt makes it a steer under the same promptId, and the agent reads both at its next step.
+const steerThenQueued = (sentNow: boolean) => {
+  const rows = [
+    user("Add retries", 6),
+    assistant("Adding retries to the fetch loop…", 3, { streaming: true }),
+    user("Use the cache dir, not tmp", 1, {
+      id: "user-steer-earlier",
+      steer: "waiting",
+      steerPromptId: "p-steer-earlier",
+    }),
+  ];
+  const queued = "Then add a test for the 429 path";
+  const running = sentNow
+    ? chat([...rows, user(queued, 0.2, { id: "user-steer-now", steer: "waiting", steerPromptId: "p-queued-now" })], {
+        isWorking: true,
+        newestOwnSteer: "user-steer-now",
+      })
+    : chat(rows, { isWorking: true, queue: [{ id: "p-queued-now", prompt: queued }] });
+  return {
+    ...running,
+    summary: {
+      ...running.summary!,
+      harness: "claude-sr2",
+      family: "claude-sr2",
+      steering: true,
+      backgroundsWork: true,
+    },
+  };
 };
 
 // A new chat in CWD beside a recent chat there with a PR (the suggested prompt's source).
@@ -752,7 +855,7 @@ export default agentPaneEntry({
         const item = { selector: ".acpmux-composer-foot .acpmux-model .acpmux-picker-button" };
         await ctx.waitFor(() => ctx.document.querySelector(item.selector));
         await ctx.click(item);
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-menu"));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cols [role=tablist] [role=tab]"));
       },
     },
     "footer-harness-unpicked": {
@@ -1183,7 +1286,7 @@ export default agentPaneEntry({
       },
     },
     "video-dropped": {
-      note: 'Leo, 2026-10-25: "also why dont we have previews of videos we should". A screen recording dropped from the Desktop beside a screenshot, in a chat on this Mac: the host knows its path (chat.attach.dropped) and reads its poster and length off its main thread (video.info), so its chip is the poster in the image\'s tile with a play glyph and "0:42"; a click plays it in Quick Look. Before, it was a bare file name.',
+      note: 'Leo, 2026-10-25: "also why dont we have previews of videos we should". A screen recording dropped from the Desktop beside a screenshot, in a chat on this Mac: the host knows its path (chat.attach.dropped) and reads its poster and length off its main thread (video.info), so its chip is the poster in the image\'s tile with a play glyph and "0:42"; a click plays it in the pane (video-playing). Before, it was a bare file name.',
       snapshot: chat(finished),
       native: {
         "chat.attach.dropped": {
@@ -1198,6 +1301,31 @@ export default agentPaneEntry({
       play: async (ctx) => {
         dropScreenshotAndVideo(ctx);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-video img"));
+      },
+    },
+    "video-playing": {
+      note: "Leo, 2026-11-02: \"this i can't play a video preview inside cmux next? i feel like i should be able to\". A click on the dropped recording's ▶ plays it in the pane: the composer's tile is too small for a player's controls, so the player opens large over the pane, playing with sound and its scrub, mute and pause, on the URL the host streams the file by in byte ranges (`media.load`). Held still at 1 s for the capture. Before, a click handed it to Quick Look.",
+      snapshot: chat(finished),
+      native: {
+        "chat.attach.dropped": {
+          items: [
+            { path: "/Users/dev/Desktop/Screenshot.png", folder: false },
+            { path: VIDEO_PATH, folder: false },
+          ],
+        },
+        "video.info": VIDEO_INFO,
+        "video.frames": VIDEO_FRAMES,
+        "media.load": { src: `data:video/mp4;base64,${LOGIN_TESTS_MP4}` },
+      },
+      play: async (ctx) => {
+        dropScreenshotAndVideo(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-video img"));
+        await ctx.click({ selector: ".acpmux-attachment-video-open" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-image-viewer .cv-media__frame.is-playing"));
+        const video = ctx.document.querySelector<HTMLVideoElement>(".acpmux-image-viewer video")!;
+        video.pause();
+        video.currentTime = 1;
+        await ctx.waitFor(() => !video.seeking && video.readyState >= 2);
       },
     },
     "video-reading": {
@@ -1252,6 +1380,21 @@ export default agentPaneEntry({
       snapshot: chat(finished),
       ready: { draft: "Compare this with the previous result." },
       play: pasteComparison,
+    },
+    "attachment-inline-reorder": {
+      note: 'Leo, 2026-11-02: "I can\'t drag to reorder these inline attachments very easily anymore". Two screenshots in the text, the pointer away: no × shows. A press anywhere on a thumbnail and a drag moves it in the text (composer-inline-reorder.browser.test.ts).',
+      snapshot: chat(finished),
+      ready: { draft: "Which layout reads better?" },
+      play: pasteTwoScreenshots,
+    },
+    "attachment-inline-reorder-hover": {
+      note: "The pointer on the first screenshot: its small × shows in the top-right corner, and only there; the rest of the thumbnail is where a drag starts.",
+      snapshot: chat(finished),
+      ready: { draft: "Which layout reads better?" },
+      play: async (ctx) => {
+        await pasteTwoScreenshots(ctx);
+        await ctx.hover({ selector: ".acpmux-md [data-inline-attachment] .acpmux-attachment-image" });
+      },
     },
     "attachment-inline-arrow": {
       note: 'Leo: "i dont want left arrow to be selecting them??? just jump over them treat them like it\'s one character". The screenshot pasted after "Compare this", then Left: the caret jumps to before the chip, which stays unselected. Right jumps back after it; Shift+arrow takes it as one unit.',
@@ -1495,9 +1638,9 @@ export default agentPaneEntry({
       note: "A turn running: Send becomes Stop.",
       snapshot: chat(working, { isWorking: true }),
     },
-    // Leo 2026-10-20: the empty prompt mid-turn teaches its keys, as Claude's composer does.
+    // Leo 2026-11-03: mid-turn the empty prompt keeps Claude desktop's placeholder; Send names the keys.
     "working-hint-steer": {
-      note: "A turn running for an agent that steers: the empty prompt says ↵ steers and ⌘↵ queues.",
+      note: "A turn running for an agent that steers: the empty prompt says Type / for commands; Send's tooltip names ↵ steer and ⌘↵ queue.",
       snapshot: steering(true),
     },
     "working-hint-queue": {
@@ -1534,7 +1677,7 @@ export default agentPaneEntry({
       snapshot: chat(working, { isWorking: true, stopping: true }),
     },
     "working-steer": {
-      note: "A prompt typed while the turn runs: Stop's slot before the mic turns into the one Send (↵ in Claude's look), which puts the prompt into the turn as Return does (read when the agent's current step ends); ⌘Return queues it for after the turn. No second ↵ control (Leo 2026-10-31).",
+      note: "A prompt typed while the turn runs: Stop's slot before the mic turns into the one Send (↵ in Claude's look), which puts the prompt into the turn as Return does (read when the agent's current step ends); ⌘Return queues it for after the turn; its tooltip names both keys. No second ↵ control (Leo 2026-10-31).",
       snapshot: steering(true),
       ready: { draft: "Use the new tokenizer instead" },
       play: async (ctx) => {
@@ -1542,7 +1685,7 @@ export default agentPaneEntry({
           const sends = ctx.document.querySelectorAll(".acpmux-composer-actions :is(.acpmux-send, .acpmux-cancel)");
           return (
             sends.length === 1 &&
-            sends[0]!.getAttribute("title") === "Send now; the agent reads it mid-turn (Return)" &&
+            sends[0]!.getAttribute("title") === "↵ steer · ⌘↵ queue" &&
             ctx.document.querySelector(".acpmux-composer-actions > .acpmux-send + .acpmux-fit-mic")
           );
         });
@@ -1591,8 +1734,8 @@ export default agentPaneEntry({
         ],
       }),
       play: async (ctx) => {
-        // It waits in the one collapsed group of waiting messages (PendingMessagesCard.tsx).
-        await ctx.click({ selector: ".cv-pending__toggle" });
+        // It waits as its own line; with others it waits in their one collapsed group (PendingMessagesCard.tsx).
+        if (ctx.document.querySelector(".cv-pending__toggle")) await ctx.click({ selector: ".cv-pending__toggle" });
         await ctx.waitFor(() => ctx.document.querySelector('[data-queued-message="q1"] .cv-disclosure__toggle'));
         await ctx.click({ selector: '[data-queued-message="q1"] .cv-disclosure__toggle' });
         await ctx.waitFor(() =>
@@ -1659,6 +1802,10 @@ export default agentPaneEntry({
     "queued-images": {
       note: "A prompt queued with two screenshots: small thumbnails under its text, each opening the image viewer.",
       snapshot: chat(working, { isWorking: true, queue: [pictured, { id: "q2", prompt: "And update the README" }] }),
+    },
+    "queued-videos": {
+      note: 'Leo\'s message with three screen recordings (23 frames), queued behind a running turn: three tiles in one row, each video one tile at its first frame with its length (Leo, 2026-11-05: "uh this was a weird preview idk i guess i accidentally queued?").',
+      snapshot: chat(working, { isWorking: true, queue: [withVideos, { id: "q2", prompt: "And update the README" }] }),
     },
     "queued-images-edit": {
       note: "Play: Edit message (the ⋯ menu) on a queued prompt with images: each thumbnail shows its remove control; removing one and saving keeps the other.",
@@ -1731,6 +1878,12 @@ export default agentPaneEntry({
       },
     },
     "history-recall-older-page": {
+      checks: {
+        layoutShiftMax: {
+          value: 0.12,
+          reason: "The delayed older page intentionally inserts transcript rows above the composer.",
+        },
+      },
       note: "Play: recall C, then an older page arrives while the field still shows it; ↑ continues with B instead of jumping to A.",
       snapshot: chat(historyPageRows),
       play: async (ctx) => {
@@ -1749,6 +1902,9 @@ export default agentPaneEntry({
         ).cmuxAcpmuxBridge;
         if (!bridge) throw new Error("gallery pane bridge is unavailable");
         bridge.receive(chat(historyPageOlderRows));
+        // Prove the prepend arrived before exercising recall. Without this wait, a dropped bridge
+        // update would leave the original B,C snapshot in place and still make the next ↑ return B.
+        await ctx.waitFor(() => ctx.document.querySelector(`[data-row-id="${historyPageOlderRows[0]!.id}"]`));
         await ctx.press("ArrowUp");
         await ctx.waitFor(() => prompt() === "B: update the retry helper");
       },
@@ -1805,6 +1961,20 @@ export default agentPaneEntry({
         const after = actions?.getBoundingClientRect();
         if (!before || !after || before.top !== after.top || before.height !== after.height)
           throw new Error("the steer's action row moved when Send now left");
+      },
+    },
+    "steer-send-now-queued-after-steer": {
+      note: "Play: an earlier steer Claude has not read, and a prompt queued after it. Send now on the queued prompt makes it a steer the agent reads with the earlier one at its next step: neither offers Send now or the X again, and both show their normal hover actions.",
+      snapshot: steerThenQueued(false),
+      native: { "chat.queue.edit": { ok: true } },
+      afterCall: { "chat.queue.edit": steerThenQueued(true) },
+      play: async (ctx) => {
+        await ctx.hover({ text: "Then add a test for the 429 path" });
+        await ctx.click({ selector: ".acpmux-queued-steer" });
+        // The queued prompt is now a steer in the transcript, under the earlier one.
+        await ctx.waitFor(() =>
+          [...ctx.document.querySelectorAll(".cv-user")].some((n) => n.textContent?.includes("Then add a test")),
+        );
       },
     },
     "steer-marks": {
@@ -2694,13 +2864,16 @@ export default agentPaneEntry({
         summary: { sessionId: "", cwd: CWD, harness: "claude", model: "claude-opus-5-5", effort: "high" },
       }),
       play: async (ctx) => {
-        await openModelMenu(ctx);
+        // A new chat's menu has a rail, so the button opens the columns.
+        await ctx.click(MODEL_BUTTON);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cols [role=listbox] [role=option]"));
         // The rail's tabs draw a mark alone; each names its harness.
-        await ctx.click({ selector: '.acpmux-quick-rail-tab[aria-label="Codex"]' });
+        const codex = '.acpmux-cols-tab[aria-label="Codex"]';
+        await ctx.click({ selector: codex });
         await ctx.waitFor(
           () =>
-            ctx.find({ selector: '.acpmux-quick-rail-tab[aria-label="Codex"]' }).getAttribute("aria-pressed") ===
-              "true" && ctx.document.querySelector('.acpmux-quick-body [role="menuitemradio"]') !== null,
+            ctx.find({ selector: codex }).getAttribute("aria-selected") === "true" &&
+            ctx.document.querySelector(".acpmux-cols [role=listbox] [role=option]") !== null,
         );
       },
     },
@@ -2714,7 +2887,7 @@ export default agentPaneEntry({
       }),
     },
     "access-menu": {
-      note: "A Claude chat's mode menu is Claude Code's own: Mode, then Auto (Recommended), Manual, Accept edits, Plan and Bypass permissions with their descriptions and keys 1 to 5, tight rows, the accent check on the chosen one. The button is the mode's symbol and its name, no pill at rest.",
+      note: "A Claude chat's mode menu is Claude Code's own: Mode, then Auto (Recommended), Manual, Accept edits, Plan and Bypass permissions with their descriptions and keys 1 to 5, tight rows, the accent check on the chosen one. The button is the mode's symbol and its name, no pill at rest. Manual is hovered with a neutral wash; Bypass keeps only its check.",
       snapshot: chat(finished, {
         summary: {
           sessionId: "gallery-access",
@@ -2745,6 +2918,7 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.click({ selector: '[aria-label="Mode"]' });
         await ctx.waitFor(() => ctx.document.querySelector('[role="menu"] [role="menuitemradio"]'));
+        await ctx.hover({ role: "menuitemradio", name: /Manual/ });
       },
     },
     "access-menu-codex": {

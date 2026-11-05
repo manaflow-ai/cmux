@@ -123,7 +123,7 @@ extension DiffPageProvider {
 
     /// `config` listing `cmux.diff.openFile`, when this tab has a host that opens files.
     func withOpenFile(_ config: JSONValue) -> JSONValue {
-        guard !remote || machine != nil, host != nil, case .object(var members) = config, members["pick"] == nil else { return config }
+        guard !chatPatch, !remote || machine != nil, host != nil, case .object(var members) = config, members["pick"] == nil else { return config }
         members["ops"] = .array((members["ops"]?.arrayValue ?? []) + [.string(Self.openFileOp)])
         return .object(members)
     }

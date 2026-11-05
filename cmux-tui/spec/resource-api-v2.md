@@ -1279,8 +1279,8 @@ same owner and the same rules, with nothing added on the v2 path:
 - `typing` and `draft` publish ephemeral items for the caller itself; the
   conversation rev does not change. Only an agent participant publishes a
   draft (`not_agent` otherwise), at most 10 per second per turn (burst 10,
-  `rate_limited`), a delta of at most 16 KiB and a whole segment of at most
-  64 KiB (`text_too_large`); a seq at or below the turn's last published seq
+  `rate_limited`). Delta and whole-segment text have no field-level size cap;
+  a seq at or below the turn's last published seq
   is a replay. Drafts appear only on `conversation.events`, never on the raw
   `subscribe` stream.
 - `events` streams one conversation: a `snapshot` item (summary, the last

@@ -69,9 +69,4 @@ extension WorkspaceRowView {
         guard workspace.kind == .harness, registeredAgentMark(workspace, side: side) == nil else { return nil }
         return SidebarItemInfo.stableAgentColor(for: workspace.id.rawValue)
     }
-
-    static func machineMarkImage(_ mark: SidebarMachineMark, side: CGFloat) -> NSImage {
-        if let emoji = mark.emoji { return SidebarItemRowView.emojiImage(emoji, side: side) }
-        return mark.symbol.map { NSImage.icon(symbol: $0, size: side) } ?? NSImage.icon(mark.kindIcon, size: side)
-    }
 }

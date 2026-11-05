@@ -19,8 +19,6 @@ import { execRoot } from "./vm.ts"
  */
 type Access = { downloadAccess(entity: string, actor: string, by: { hash: string }): Promise<DownloadAccess | "forbidden"> }
 
-/** At most this many files a turn (the newest named). */
-export const MAX_FILES = 12
 /** One exec's stdin (Freestyle allows 1 MiB decoded). */
 const CHUNK = 768 * 1024
 
@@ -30,7 +28,7 @@ export interface Wanted {
   readonly path: string
 }
 
-/** The attachment files `text` names, the newest (last named) first, each once, at most MAX_FILES. */
+/** Every attachment file `text` names, the newest (last named) first, each once. */
 export const wantedFiles = (text: string): Array<Wanted> => {
   const seen = new Map<string, Wanted>()
   for (const m of text.matchAll(ATTACHMENT_PATH)) {
@@ -38,7 +36,7 @@ export const wantedFiles = (text: string): Array<Wanted> => {
     seen.delete(path)
     seen.set(path, { hash: m[1]!, ...(m[2] ? { variant: m[2] as "preview" | "poster" } : {}), path })
   }
-  return [...seen.values()].reverse().slice(0, MAX_FILES)
+  return [...seen.values()].reverse()
 }
 
 export interface Staged {

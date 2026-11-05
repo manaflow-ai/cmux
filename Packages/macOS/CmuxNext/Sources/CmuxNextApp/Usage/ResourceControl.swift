@@ -1,3 +1,4 @@
+import CmuxNextBrowser
 import CmuxNextControl
 import CmuxNextSettings
 import CmuxNextResources
@@ -123,5 +124,33 @@ enum ResourceControl {
     /// Percent of one core, rounded to 0.1 like Activity Monitor.
     private static func percent(_ share: Double) -> Double {
         (share * 1000).rounded() / 10
+    }
+}
+
+/// `renderers.list` (`cmux app renderers`, Release too): ``CEFEngine/rendererReport(owners:intervalMs:)``
+/// plus each page's owning tab. `interval_ms`: CPU interval, default 500, 0 for none, at most 1500.
+extension ResourceControl {
+    static let renderersDeadline: Duration = .seconds(4)
+
+    @MainActor
+    static func renderers(_ params: [String: JSONValue], services: AppServices?) async throws -> JSONValue {
+        guard let services else { return .null }
+        let (milliseconds, owners) = (min(max(params["interval_ms"]?.intValue ?? 500, 0), 1500), rendererOwners(services))
+        return try await JSONValue.parse(CEFRendererReport.encoded(services.cache.cef.rendererReport(owners: owners, intervalMs: milliseconds)))
+    }
+
+    @MainActor // browser tabs by browser id, agent tabs by the browser showing their page
+    private static func rendererOwners(_ services: AppServices) -> [Int32: CEFRendererOwner] {
+        let browsers = services.cache.browsers.compactMap { key, entry in (entry.tab as? CEFTab)?.browserID.map { ($0, key, "browser") } }
+        let agents = (services.madeAgentTabs?.views ?? [:]).compactMap { key, view in services.cache.cef.browserID(showing: view.focusTarget).map { ($0, key, "agent") } }
+        return Dictionary((browsers + agents).map { browser, key, kind in
+            var owner = CEFRendererOwner(kind: kind, tab: key)
+            if let (tab, pane) = services.locateTab(key) {
+                let found = services.machines.daemons.lazy.compactMap { daemon in daemon.store.workspace(holdingTab: tab.id).map { (daemon.machineID, $0) } }.first
+                (owner.tab, owner.tabTitle, owner.pane, owner.session) = (tab.id, tab.displayTitle, pane.id, tab.agentSession?.session)
+                (owner.workspace, owner.workspaceTitle, owner.machine) = (found?.1.id, found?.1.displayName, found?.0)
+            }
+            return (browser, owner)
+        }, uniquingKeysWith: { $1 })
     }
 }

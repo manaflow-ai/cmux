@@ -13,6 +13,27 @@ fn cli_session_resource_settings_are_config_values() {
 }
 
 #[test]
+fn cli_permission_settings_are_config_values() {
+    let mut config = Config::default();
+    config.set("permissions.default", "yolo").unwrap();
+    assert_eq!(config.default_permission_mode.as_deref(), Some("fullAccess"));
+    config.set("defaultPermissionMode", "ask").unwrap();
+    assert_eq!(config.default_permission_mode.as_deref(), Some("ask"));
+    config.set("permissions.codex", "standard").unwrap();
+    assert_eq!(config.defaults["codex"].permission_mode.as_deref(), Some("standard"));
+    config.set("defaults.claude.permissionMode", "full-access").unwrap();
+    assert_eq!(config.defaults["claude"].permission_mode.as_deref(), Some("fullAccess"));
+    assert!(config.set("permissions.default", "sometimes").is_err());
+    config.set("permissions.codex", "default").unwrap();
+    assert!(!config.defaults.contains_key("codex"), "an emptied entry is dropped");
+    config.set("permissions.default", "default").unwrap();
+    assert_eq!(config.default_permission_mode, None);
+    // The resource keys still go through the same verb.
+    config.set("session.memory_mb", "6144").unwrap();
+    assert_eq!(config.session.memory_mb, Some(6144));
+}
+
+#[test]
 fn session_task_caps_are_typed_config_values() {
     let mut config = Config::default();
     config.set_session_resource("session.tasks_max", "8192").unwrap();

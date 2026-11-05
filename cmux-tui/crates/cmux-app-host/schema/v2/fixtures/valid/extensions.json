@@ -14,6 +14,7 @@
       "options": { "capabilities": ["readOnly"], "paneCommands": ["save"] }
     },
     "cmux.section/1": { "export": "renderSection", "options": { "defaultRegion": "top", "maxRows": 8 } },
+    "cmux.session.info.section/1": { "export": "renderSessionInfo", "title": "Session info", "options": { "maxRows": 8 } },
     "cmux.status/1": { "export": "renderStatus", "options": { "placement": "statusStrip" } }
   },
   "consumes": {

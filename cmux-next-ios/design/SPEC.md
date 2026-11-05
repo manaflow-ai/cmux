@@ -45,7 +45,7 @@ and are cited by file name only. Do not copy them into the repo.
 | Dark background | #151515 warm gray | #000000 | #000000 | #000000: 2 of 3, OLED, and the brief asks for true black. |
 | Assistant font | Serif (Tiempos-like) | SF Pro | SF Pro | SF Pro `body`. A serif is Claude's brand, not shared language. |
 | User bubble | #2C2C2A gray | #020661 blue tint | #333333 gray | Gray (`bubble` token). No blue. |
-| Primary circle when empty | Voice waveform (white) | Voice waveform (blue) | "Speak" capsule (white) | We have no voice mode: a send arrow, disabled at 30% when empty (ChatGPT's own Scheduled composer, `chatgpt-30-scheduled`). There is no mic button: iOS has no API to start dictation, so the keyboard's own mic dictates into the field. |
+| Primary circle when empty | Voice waveform (white) | Voice waveform (blue) | "Speak" capsule (white) | Voice mode waveform (Aziz 2026-11-03): a GPT Realtime line to the agent that reads its replies aloud, without code. There is no dictation mic: the keyboard's own mic dictates into the field. |
 | `+` | Sheet with photo strip | Menu | Menu | Menu (2 of 3). Photos opens `PhotosPicker` inline. |
 | Sidebar | Push-aside card | Push-aside card | Full-screen page | Push-aside card (2 of 3), section 3.3. |
 | Settings presentation | Sheet, swipe to dismiss | Full-screen, X only | Sheet | It is a tab in cmux-next-ios (the brief), so no presentation question. Sub-pages push. |
@@ -531,10 +531,11 @@ Layout (expanded or focused), inside a `GlassEffectContainer`:
   "Effort" (Low / Medium / High / Max, Picker). Values come from ACP session config; hide the
   pill when the agent exposes none. (ChatGPT's effort slider, `chatgpt-33`, is a custom
   surface; a menu is native and fits ACP's discrete options.)
-- Mic (36 pt, `fill`): starts system dictation into the field
-  (`UITextInputMode` dictation via the keyboard is the fallback; prefer on-device
-  `SpeechAnalyzer` streaming into the field, live text in `label2` until final).
-- Primary (36 pt): `idle-empty` = `arrow.up` on `fill`, glyph `label3` (disabled);
+- Voice mode (36 pt, `waveform`; Aziz 2026-11-03, replaces the dictation mic): starts a GPT
+  Realtime line to the agent. Its new replies are read aloud without code, diffs or tool calls,
+  what the person says is sent as the next prompt; on while it runs (`onAccent` on `accent`).
+  The keyboard's own mic still dictates into the field.
+- Primary (36 pt): `idle-empty` = voice mode `waveform` (agent chat), else `arrow.up` on `fill`, glyph `label3` (disabled);
   `idle-text` = `arrow.up` on `accent`, glyph `onAccent`; `running` = `stop.fill` on `accent`;
   `queued` (text while running) = `arrow.up` on `accent` with a 2 pt `label2` ring; long-press
   → menu "Queue (send after this turn)" / "Steer now (interrupt)" (Codex "Follow-up behavior:
@@ -970,6 +971,12 @@ permission requests, errors, PR events.
   Errors (4.1 `Chip`). Chips mirror the filter menu.
 - `List(.plain)` with 0.5 pt separators from the text column (4.2.1), `bg`. New events above the
   viewport: glass capsule "↑ 3 new" centered under the toolbar; tap scrolls to top with `smooth`.
+- Needs you pinned: open questions and permission requests (and terminal agents waiting for input)
+  lead the list, newest first among them, then every other event newest first, as the Mac's Feed
+  pins its open requests. An ask that closes drops to its place in time, and its push leaves
+  Notification Center (`NeedsYouNotices`). The open count is the Feed tab's badge; no app icon
+  badge (HIG Notifications: a badge counts unread notifications, and a badge set to zero clears
+  the app's notifications from Notification Center).
 - Tab bar stays fully visible while the list scrolls (3.2).
 
 ### 8.2 Cell

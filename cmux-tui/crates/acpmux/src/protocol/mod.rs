@@ -178,6 +178,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_TAILNET_STATE, Request),
         // Sessions.
         untyped(method::MUX_STATUS, Request),
+        untyped(method::MUX_CONTEXT, Request),
+        untyped(method::MUX_CONTEXT_OVERRIDE, Request),
         // Cloud whole-machine turn fencing. These methods are served by the
         // daemon's request dispatcher and intentionally use untyped envelopes
         // while the owner capability payload remains private to Cloud clients.
@@ -211,6 +213,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_FORUM_ANNOUNCE, Request),
         untyped(method::MUX_FORUM_RULES, Request),
         untyped(method::MUX_SET_TOOLS, Request),
+        untyped(method::MUX_SET_DIRECTORIES, Request),
         untyped(method::MUX_MCP_RECONNECT, Request),
         untyped(method::MUX_SUBAGENT_STOP, Request),
         untyped(method::MUX_SUBAGENT_TRANSCRIPT, Request),
@@ -232,6 +235,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_STEP_NOW, Request),
         untyped(method::MUX_STEER_WITHDRAW, Request),
         untyped(method::MUX_AGENT_PAIR_RESUME, Request),
+        untyped(method::MUX_AGENT_HOLD, Request),
         request::<RetryParams, RetryResult>(method::MUX_RETRY),
         request::<auth::SessionAuthParams, auth::SessionAuthResult>(method::MUX_SESSION_AUTH),
         untyped(method::MUX_PROCESS_LIST, Request),
@@ -268,6 +272,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_TEAM_READ, Request),
         untyped(method::MUX_TEAM_ACK, Request),
         untyped(method::MUX_HISTORY, Request),
+        untyped(method::MUX_SESSION_SEARCH, Request),
         untyped(method::MUX_COMPLETE, Request),
         untyped(method::MUX_WAIT, Request),
         untyped(method::MUX_WATCH_ADD, Request),
@@ -336,6 +341,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_SECRET_REQUEST, Request),
         untyped(method::MUX_SECRET_SUBMIT, Request),
         untyped(method::MUX_SECRET_RUN, Request),
+        untyped(method::MUX_MCP_CONNECT_REQUEST, Request),
+        untyped(method::MUX_MCP_CONNECT_ANSWER, Request),
         // Chats (`server/chats.rs`).
         untyped("_acpmux/chats", Request),
         untyped("_acpmux/chats_watch", Request),
@@ -403,6 +410,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_ROUTE_TEST, Request),
         untyped(method::MUX_ROUTE_DEFAULT_SET, Request),
         untyped(method::MUX_CHAT_ROUTE_SET, Request),
+        untyped(method::MUX_ACCOUNTS, Request),
+        untyped(method::MUX_ACCOUNT_SET, Request),
         // Daemon.
         untyped(method::MUX_WEB_MODES, Request),
         untyped(method::MUX_WEB_TOKEN_ROTATE, Request),
@@ -423,6 +432,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/peer_reconnect", Request),
         untyped("_acpmux/peer_remove", Request),
         untyped("_acpmux/peer_snapshot", Request),
+        untyped("_acpmux/peer_snapshots_clear", Request),
         untyped(method::MUX_PAIR_TICKET_NEW, Request),
         untyped(method::MUX_PAIR_LIST, Request),
         untyped(method::MUX_PAIR_REVOKE, Request),
@@ -432,6 +442,9 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_MACHINE_CONSENT_GET, Request),
         untyped(method::MUX_MACHINE_CONSENT_REFUSED, Request),
         untyped(method::MUX_PAIR_REDEEM, Request),
+        untyped(method::MUX_VAULT_PULL, Request),
+        untyped(method::MUX_VAULT_FORGET, Request),
+        untyped(method::MUX_VAULT_STATUS, Request),
         untyped(method::MUX_TURN_ATTESTATION, Request),
         // Notifications.
         notification::<events::SessionEvent>(method::MUX_EVENT),

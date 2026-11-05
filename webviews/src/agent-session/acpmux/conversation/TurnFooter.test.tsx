@@ -8,8 +8,15 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxRow } from "../model";
 import { layoutConversation } from "../model";
 import { translate, type Translate } from "../i18n";
-import { footerLabel, isEmptyFooter } from "./turns";
-import { TRANSCRIPT_FOOTER_CONTROL } from "../transcriptGrid";
+import { footerLabel, isEmptyFooter, turnView } from "./turns";
+import {
+  MARK_FOOTER_ROW,
+  MARK_STEP,
+  TRANSCRIPT_FOOTER_CONTROL,
+  TRANSCRIPT_FOOTER_GAP,
+  rowMark,
+  transcriptGap,
+} from "../transcriptGrid";
 import { TurnFooter } from "./TurnRows";
 
 const t: Translate = (key, values) => translate(key, values, "en");
@@ -87,4 +94,137 @@ test("an empty footer adds no line; a footer with an answer is its 32 line of bu
   expect(layoutConversation([prompt("p"), footer({ durationMs: 0, text: "Done." }), prompt("q")], 720).heights[1]).toBe(
     TRANSCRIPT_FOOTER_CONTROL,
   );
+});
+
+// Leo, 2026-11-02: "this spacing would be good + the latest copy buttons auto showing when the turn
+// is done like chatgpt". The chat's last turn that spoke and then ended on a run of commands drew an
+// empty footer: no buttons, a blank band where they go. Its row is a real 32 line now, 8 under the
+// run, whose Copy copies the turn; an earlier such turn keeps its hover-only footer.
+test("the chat's last turn that ended on work has a row of its own, 8 under the run", () => {
+  const rows = [
+    { id: "p", version: 1, at: 0, kind: "user", text: "Check what's installed" },
+    { id: "a", version: 1, at: 1, kind: "assistant", text: "I'll check the installed apps." },
+    {
+      id: "w",
+      version: 1,
+      at: 2,
+      kind: "activity",
+      items: [
+        { kind: "tool", text: "", tool: { toolCallId: "t1", title: "ls", kind: "execute", status: "completed" } },
+      ],
+    },
+    { id: "s", version: 1, at: 3, kind: "turnSummary", status: "completed", durationMs: 5_000, toolCount: 1 },
+  ] as AcpmuxRow[];
+  const drawn = turnView(rows, new Set(), { agentFamily: "claude", now: 10_000 });
+  const at = drawn.findIndex((row) => row.kind === "turnSummary");
+  const last = drawn[at]!;
+  expect(last.text).toBeUndefined();
+  expect(last.turnCopy?.length).toBeGreaterThan(0);
+  expect(isEmptyFooter(last)).toBe(false);
+  expect(rowMark(last)).toBe(MARK_FOOTER_ROW);
+  expect(renderToStaticMarkup(<TurnFooter row={last} />)).not.toContain("cv-turn-actions--empty");
+  const layout = layoutConversation(drawn, 720);
+  expect(layout.heights[at]).toBe(TRANSCRIPT_FOOTER_CONTROL);
+  const above = at - 1;
+  expect(layout.tops[at]! - (layout.tops[above]! + layout.heights[above]!)).toBe(TRANSCRIPT_FOOTER_GAP);
+  expect(transcriptGap(MARK_STEP, MARK_FOOTER_ROW)).toBe(TRANSCRIPT_FOOTER_GAP);
+  // Once a prompt follows, that turn is no longer the last: its footer is hover-only again.
+  const later = turnView(
+    [...rows, { id: "q", version: 1, at: 4, kind: "user", text: "Next" } as AcpmuxRow],
+    new Set(),
+    {
+      agentFamily: "claude",
+      now: 10_000,
+    },
+  );
+  expect(isEmptyFooter(later.find((row) => row.kind === "turnSummary")!)).toBe(true);
+});
+
+test("the retry hint only marks a completed edit with a known non-empty patch", () => {
+  const prompt = { id: "p", version: 1, at: 0, kind: "user", text: "Update the file" } as AcpmuxRow;
+  const summary = { id: "s", version: 1, at: 3, kind: "turnSummary", status: "completed" } as AcpmuxRow;
+  const edit = (
+    status: string,
+    oldText?: string,
+    newText = "after",
+    fragment?: true,
+    canonical?: string,
+    path = "/repo/file.ts",
+  ): AcpmuxRow => ({
+    id: `edit-${status}-${oldText ?? "unknown"}`,
+    version: 1,
+    at: 2,
+    kind: "activity",
+    items: [
+      {
+        kind: "tool",
+        text: "",
+        tool: {
+          id: "tool",
+          title: "Edit file.ts",
+          kind: "edit",
+          status,
+          diffs: [
+            {
+              path,
+              ...(oldText === undefined ? {} : { oldText }),
+              newText,
+              ...(fragment && { fragment }),
+              ...(canonical && { canonical }),
+            },
+          ],
+        },
+      },
+    ],
+  });
+  const changed = turnView([prompt, edit("completed", "before"), summary], new Set(), { now: 10_000 }).find(
+    (row) => row.kind === "turnSummary",
+  );
+  expect(changed?.changedFiles).toBe(true);
+
+  for (const row of [
+    turnView([prompt, edit("completed", "same", "same"), summary], new Set()).find(
+      (item) => item.kind === "turnSummary",
+    ),
+    turnView([prompt, edit("failed", "before"), summary], new Set()).find((item) => item.kind === "turnSummary"),
+    turnView([prompt, edit("pending", "before"), summary], new Set()).find((item) => item.kind === "turnSummary"),
+    turnView([prompt, edit("completed", undefined, "new file"), summary], new Set()).find(
+      (item) => item.kind === "turnSummary",
+    ),
+    turnView(
+      [prompt, edit("completed", "before", "after"), edit("completed", "after", "before"), summary],
+      new Set(),
+    ).find((item) => item.kind === "turnSummary"),
+    turnView(
+      [prompt, edit("completed", "before", "after"), edit("completed", undefined, "before"), summary],
+      new Set(),
+    ).find((item) => item.kind === "turnSummary"),
+    turnView(
+      [prompt, edit("completed", undefined, "after"), edit("completed", "after", "before"), summary],
+      new Set(),
+    ).find((item) => item.kind === "turnSummary"),
+    turnView(
+      [prompt, edit("completed", "before", "after"), edit("completed", "after", "before", true), summary],
+      new Set(),
+    ).find((item) => item.kind === "turnSummary"),
+    turnView(
+      [
+        prompt,
+        edit("completed", "before", "after", undefined, undefined, "file.ts"),
+        edit("completed", "after", "before", undefined, "/repo/file.ts", "file.ts"),
+        summary,
+      ],
+      new Set(),
+    ).find((item) => item.kind === "turnSummary"),
+    turnView([prompt, edit("completed", undefined, "partial", true), summary], new Set()).find(
+      (item) => item.kind === "turnSummary",
+    ),
+  ])
+    expect(row?.changedFiles).toBeUndefined();
+});
+
+test("a work-only last turn that said nothing has nothing to copy and stays empty", () => {
+  expect(isEmptyFooter(footer({ retryable: true }))).toBe(true);
+  expect(isEmptyFooter(footer({ retryable: true, turnCopy: [{ text: "I'll check." }] }))).toBe(false);
+  expect(isEmptyFooter(footer({ turnCopy: [{ text: "I'll check." }] }))).toBe(true);
 });

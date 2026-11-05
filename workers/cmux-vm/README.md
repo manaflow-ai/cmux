@@ -418,6 +418,15 @@ rows, or returned in errors and VM responses. A retry with changed network
 intent or credentials under the same Idempotency-Key is 409. Forks do not
 inherit network intent.
 
+`GET /v1/vms/{vmId}/public-egress` reads, and `PUT` turns on, an existing
+VM's public egress: `{ "id": "vm_...", "publicEgress": true }`. Both require
+`vm:network` and ownership of the VM. It counts only a rule that allows the
+public Internet on every port and whose source is exactly this VM (a create's
+`initialNetwork.publicEgress` rule is one). `PUT` adds that rule, deleted with
+the VM, only when none is there; it never turns egress off or touches other
+rules. A VM created private can join the Internet later this way (cmux Cloud
+keeps a copy that resumes another VM's memory private until it cold boots).
+
 `PUT /v1/vms/{vmId}/https-proxies/{hostname}` replaces an existing HTTP
 proxy with `{ "destination": "https://api.example.com", "headers": { ... } }`.
 It requires `vm:network` and ownership of that VM, including any key resource
@@ -527,8 +536,11 @@ Entitlement until billing exists (`src/proofs/tenant-may-create.ts`): outside
 production every tenant may create; in production a tenant may create when it is
 listed in `DEV_TEST_TENANT_IDS` (dev/test: idle timeout at most 300 s) or in
 `MANAFLOW_TEAM_TENANT_IDS` (the manaflow-team flag, cx-b4h.16: product tenant,
-no idle cap). Every other team gets 402. Both lists are Worker vars in
-`wrangler.jsonc`; change them in a reviewed commit.
+no idle cap), or when the request comes with a service key listed in
+`CMUX_VM_ENTITLED_SERVICE_IDS` (cmux-platform production: the platform has
+already decided the team's plan, so the team it acts for needs no list entry;
+the key's teams, scopes and labels still apply). Every other caller gets 402.
+These lists are Worker vars in `wrangler.jsonc`; change them in a reviewed commit.
 
 API key management (`/v1/api-keys`) writes `cmux_vm.api_keys`. Besides
 SELECT, the Worker's database role needs, applied by an operator:

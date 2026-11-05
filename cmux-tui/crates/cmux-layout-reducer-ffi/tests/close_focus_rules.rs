@@ -129,14 +129,19 @@ mod ported {
             vec![
                 Pane {
                     id: "left".into(),
-                    tabs: vec![Tab { id: "t1".into(), surface: None, kind: Kind::Terminal }],
+                    tabs: vec![Tab {
+                        id: "t1".into(),
+                        surface: None,
+                        kind: Kind::Terminal,
+                        terminal: None,
+                    }],
                     selected: Some("t1".into()),
                 },
                 Pane {
                     id: "right".into(),
                     tabs: vec![
-                        Tab { id: "a".into(), surface: None, kind: Kind::Browser },
-                        Tab { id: "b".into(), surface: None, kind: Kind::Browser },
+                        Tab { id: "a".into(), surface: None, kind: Kind::Browser, terminal: None },
+                        Tab { id: "b".into(), surface: None, kind: Kind::Browser, terminal: None },
                     ],
                     selected: Some("a".into()),
                 },

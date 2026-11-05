@@ -72,6 +72,18 @@
   justify-content: center;
   color: var(--cv-text-muted);
 }
+/* A stacked message's line has no label (its first line is under it): no empty slot, so its
+   chevron sits right after the sender, as after any label's words. */
+.cv-disclosure__label:empty {
+  display: none;
+}
+/* Only after a leading part (a received line's sender): a line that starts with its toggle keeps
+   that toggle's inset rule above. */
+.cv-disclosure__line
+  > * + .cv-disclosure__toggle:not(.is-chevron):not(:has(> .cv-disclosure__label:not(:empty), > .cv-disclosure__icon)) {
+  padding-inline-start: 0;
+  margin-inline-start: calc(-1 * var(--ds-space-1));
+}
 .cv-disclosure__label {
   min-width: 0;
   overflow: hidden;

@@ -11,9 +11,24 @@
 //!   code. One sign-in per agent: a new start stops the previous one. A
 //!   sign-in is stopped after [`EXPIRY`], on `cancel`, and with this daemon
 //!   (its own process group, killed on drop).
+//!   Claude also gets a `BROWSER` of its own: a shim in the sign-in's private
+//!   folder that saves the page Claude asks to open (its automatic link, whose
+//!   approve redirects to Claude's own listener at
+//!   `http://localhost:<port>/callback` on this machine) to a 0600 file and
+//!   opens nothing. `start` waits up to [`AUTO_URL_WAIT`] after the printed
+//!   link for it and answers it (`autoUrl`, `callbackPort`) only when it is
+//!   an allowed link with exactly that redirect (`parse::auto_url`). The
+//!   person's Mac opens it in a browser tab whose localhost is this machine
+//!   (cmux's remote localhost carries the bytes), so the approve signs Claude
+//!   in with no code pasted (Leo 2026-11-02: one click plus the provider's
+//!   approve page, with nothing else).
 //! - `finish {loginId, code?}`: Claude gets the code the callback page shows
-//!   on stdin and has [`CLAUDE_FINISH_WAIT`] to exit; Codex finishes its
-//!   device flow by itself, waited for until the sign-in expires. Signed in
+//!   on stdin and has [`CLAUDE_FINISH_WAIT`] to exit. With no code, after a
+//!   start that answered `autoUrl`, it waits for Claude to exit on its own
+//!   (the approve reached its listener) until the sign-in expires; a code
+//!   pasted meanwhile still goes to Claude's stdin, as the fallback. Codex
+//!   finishes its device flow by itself, waited for until the sign-in
+//!   expires. Signed in
 //!   means exit 0 and the sign-in now in the agent's own store (Claude's
 //!   `.credentials.json` `claudeAiOauth`; Codex's `auth.json` tokens or key),
 //!   read as `/etc/cmux/agent-auth.sh` reads them, never their values.
@@ -60,6 +75,21 @@ mod tests;
 pub const FEATURE: &str = "agent_login";
 /// How long `start` reads the CLI's output for its link.
 pub const URL_WAIT: Duration = Duration::from_secs(20);
+/// How long `start` waits, after Claude printed its link, for the page Claude
+/// asked its `BROWSER` to open (it asks right after printing).
+pub const AUTO_URL_WAIT: Duration = Duration::from_secs(2);
+/// The file, in a sign-in's private folder, the `BROWSER` shim saves to.
+const AUTO_URL_FILE: &str = "auto-url";
+/// The most of that file read.
+const AUTO_URL_CAP: u64 = 16 * 1024;
+/// Claude's `BROWSER` (module docs): saves its arguments, one per line, and
+/// opens nothing. Its folder is the sign-in's own (0700); the file is 0600.
+const BROWSER_SHIM: &str = r#"#!/bin/sh
+# cmux: keeps the sign-in page this CLI asks to open for the chat's sign-in card; opens nothing here.
+umask 077
+dir=$(dirname "$0")
+printf '%s\n' "$@" > "$dir/.auto-url.$$" && mv -f "$dir/.auto-url.$$" "$dir/auto-url"
+"#;
 /// How much of the CLI's output is kept.
 pub const OUTPUT_CAP: usize = 64 * 1024;
 /// How long a sign-in lives (Codex's device code expires in 15 minutes).
@@ -378,6 +408,10 @@ pub fn one_line(secret: &str, max: usize) -> bool {
 pub struct Started {
     pub login_id: String,
     pub url: String,
+    /// Claude's automatic link and the port of its listener's
+    /// `http://localhost:<port>/callback` (module docs).
+    pub auto_url: Option<String>,
+    pub callback_port: Option<u16>,
     pub user_code: Option<String>,
     pub needs_code: bool,
     pub expires_at_ms: u64,
@@ -391,6 +425,9 @@ pub struct Finished {
     pub signed_in: bool,
     /// The account whose login actually finished, retained from start rather than the caller.
     pub store: PathBuf,
+    /// The first finish to see the CLI end (a paste that raced a wait for
+    /// the approve sees the same end): only it takes the after-sign-in steps.
+    pub fresh: bool,
 }
 
 /// A private temp folder the CLI runs in, removed with the sign-in.
@@ -416,6 +453,36 @@ impl Folder {
         }
         Ok(Folder(path))
     }
+
+    /// Writes the `BROWSER` shim (module docs) into the folder, owner-only.
+    fn browser_shim(&self) -> std::io::Result<PathBuf> {
+        let path = self.0.join("open-sign-in");
+        let mut open = std::fs::OpenOptions::new();
+        open.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            open.mode(0o700);
+        }
+        use std::io::Write;
+        let mut file = open.open(&path)?;
+        file.write_all(BROWSER_SHIM.as_bytes())?;
+        file.sync_all()?;
+        Ok(path)
+    }
+
+    /// The automatic link the shim saved, once it is a whole allowed one.
+    fn auto_url(&self) -> Option<(String, u16)> {
+        use std::io::Read;
+        let path = self.0.join(AUTO_URL_FILE);
+        // Only a plain file the shim made (never a link out of the folder).
+        if !std::fs::symlink_metadata(&path).ok()?.is_file() {
+            return None;
+        }
+        let mut text = String::new();
+        std::fs::File::open(&path).ok()?.take(AUTO_URL_CAP).read_to_string(&mut text).ok()?;
+        parse::auto_url(&text)
+    }
 }
 
 impl Drop for Folder {
@@ -427,7 +494,8 @@ impl Drop for Folder {
 /// The running CLI of one sign-in.
 struct Running {
     child: Child,
-    stdin: Option<ChildStdin>,
+    /// A finish saw the CLI end (`Finished::fresh`).
+    settled: bool,
     _folder: Folder,
 }
 
@@ -439,6 +507,14 @@ struct Entry {
     group: Option<u32>,
     expires: Instant,
     store: PathBuf,
+    /// `start` answered an automatic link: a finish with no code waits for
+    /// the CLI to end on its own.
+    auto: bool,
+    /// The CLI's stdin, apart from `running`, so a pasted code still reaches
+    /// it while a finish with no code waits on the CLI.
+    stdin: Arc<tokio::sync::Mutex<Option<ChildStdin>>>,
+    /// A code was written to the CLI: it may be writing the sign-in now.
+    code_sent: Arc<std::sync::atomic::AtomicBool>,
     /// Held by `finish` while it waits on the CLI.
     running: Arc<tokio::sync::Mutex<Running>>,
 }
@@ -514,17 +590,26 @@ pub async fn start(machine: &Machine, cli: &Cli, agent: Agent) -> Result<Started
     // running (it may be writing the sign-in now).
     let previous = {
         let table = lock_table();
-        table.get(&agent).map(|e| (e.id.clone(), e.running.clone()))
+        table.get(&agent).map(|e| (e.id.clone(), e.running.clone(), e.code_sent.clone()))
     };
-    if let Some((id, running)) = previous {
-        // Held across the stop, so no finish takes it in between.
-        let Ok(_held) = running.try_lock() else {
-            return Err(LoginError::new(
-                reason::BUSY,
-                format!("a {} sign-in is finishing on this machine", agent.name()),
-            ));
-        };
-        end(&id);
+    if let Some((id, running, code_sent)) = previous {
+        // Held across the stop, so no finish takes it in between. A finish
+        // that only waits for an approve (no code given) is no reason to keep
+        // it: the person started again.
+        match running.try_lock() {
+            Ok(_held) => {
+                end(&id);
+            }
+            Err(_) if !code_sent.load(Ordering::SeqCst) => {
+                end(&id);
+            }
+            Err(_) => {
+                return Err(LoginError::new(
+                    reason::BUSY,
+                    format!("a {} sign-in is finishing on this machine", agent.name()),
+                ));
+            }
+        }
     }
     let store = cli.store(agent);
     if agent == Agent::Codex {
@@ -540,6 +625,12 @@ pub async fn start(machine: &Machine, cli: &Cli, agent: Agent) -> Result<Started
         Agent::Codex => &["login", "--device-auth"],
     };
     let mut cmd = cli.command(args, &folder.0);
+    if agent == Agent::Claude {
+        let shim = folder.browser_shim().map_err(|e| {
+            LoginError::new(reason::FAILED, format!("make the sign-in's browser: {e}"))
+        })?;
+        cmd.env("BROWSER", shim);
+    }
     cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
     #[cfg(unix)]
     cmd.process_group(0);
@@ -583,6 +674,23 @@ pub async fn start(machine: &Machine, cli: &Cli, agent: Agent) -> Result<Started
             format!("{} did not show a sign-in link", agent.name()),
         ));
     };
+    // Claude asks its BROWSER to open the automatic link right after it
+    // printed the other one.
+    let auto = match agent {
+        Agent::Claude => {
+            let deadline = Instant::now() + AUTO_URL_WAIT;
+            loop {
+                if let Some(found) = folder.auto_url() {
+                    break Some(found);
+                }
+                if Instant::now() >= deadline || ended.load(Ordering::SeqCst) >= 2 {
+                    break None;
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        }
+        Agent::Codex => None,
+    };
     let id = uuid::Uuid::now_v7().to_string();
     let expires_at_ms = now_ms() + EXPIRY.as_millis() as u64;
     let stdin = child.stdin.take();
@@ -592,7 +700,14 @@ pub async fn start(machine: &Machine, cli: &Cli, agent: Agent) -> Result<Started
         group,
         expires: Instant::now() + EXPIRY,
         store,
-        running: Arc::new(tokio::sync::Mutex::new(Running { child, stdin, _folder: folder })),
+        auto: auto.is_some(),
+        stdin: Arc::new(tokio::sync::Mutex::new(stdin)),
+        code_sent: Default::default(),
+        running: Arc::new(tokio::sync::Mutex::new(Running {
+            child,
+            settled: false,
+            _folder: folder,
+        })),
     };
     if let Some(old) = lock_table().insert(agent, entry) {
         // A start that raced this one: the later one wins.
@@ -603,9 +718,12 @@ pub async fn start(machine: &Machine, cli: &Cli, agent: Agent) -> Result<Started
         tokio::time::sleep(EXPIRY).await;
         end(&expiring);
     });
+    let (auto_url, callback_port) = auto.map_or((None, None), |(u, p)| (Some(u), Some(p)));
     Ok(Started {
         login_id: id,
         url: offer.url,
+        auto_url,
+        callback_port,
         needs_code: agent == Agent::Claude,
         user_code: offer.user_code,
         expires_at_ms,
@@ -616,16 +734,24 @@ fn boxed<R: AsyncRead + Unpin + Send + 'static>(r: R) -> Box<dyn AsyncRead + Unp
     Box::new(r)
 }
 
-/// Finishes sign-in `login_id` (module docs). Claude needs `code`.
+/// Finishes sign-in `login_id` (module docs). Claude needs `code`, unless
+/// its start answered an automatic link.
 pub async fn finish(login_id: &str, code: Option<&str>) -> Result<Finished, LoginError> {
     let found = {
         let table = lock_table();
-        table
-            .values()
-            .find(|e| e.id == login_id)
-            .map(|e| (e.agent, e.expires, e.store.clone(), e.running.clone()))
+        table.values().find(|e| e.id == login_id).map(|e| {
+            (
+                e.agent,
+                e.expires,
+                e.store.clone(),
+                e.auto,
+                e.stdin.clone(),
+                e.code_sent.clone(),
+                e.running.clone(),
+            )
+        })
     };
-    let Some((agent, expires, store, running)) = found else {
+    let Some((agent, expires, store, auto, stdin, code_sent, running)) = found else {
         return Err(LoginError::new(
             reason::UNKNOWN_LOGIN,
             "no sign-in with that id is running here: start again",
@@ -636,41 +762,67 @@ pub async fn finish(login_id: &str, code: Option<&str>) -> Result<Finished, Logi
         return Err(LoginError::new(reason::EXPIRED, "the sign-in expired: start again"));
     }
     let code = match agent {
-        Agent::Claude => {
-            let code = code.map(str::trim).filter(|c| one_line(c, 4096)).ok_or_else(|| {
-                LoginError::new(reason::BAD_CODE, "paste the code the sign-in page shows")
-            })?;
-            Some(Zeroizing::new(format!("{code}\n")))
-        }
+        Agent::Claude => match code.map(str::trim) {
+            Some(c) if one_line(c, 4096) => Some(Zeroizing::new(format!("{c}\n"))),
+            // No code after an automatic link: wait for the approve.
+            None if auto => None,
+            _ => {
+                return Err(LoginError::new(
+                    reason::BAD_CODE,
+                    "paste the code the sign-in page shows",
+                ));
+            }
+        },
         Agent::Codex => None,
     };
-    let Ok(mut run) = running.try_lock() else {
-        return Err(LoginError::new(reason::BUSY, "this sign-in is already finishing"));
-    };
     if let Some(line) = &code {
-        let Some(mut stdin) = run.stdin.take() else {
-            end(login_id);
-            return Err(LoginError::new(
-                reason::FAILED,
-                "the sign-in already took a code: start again",
-            ));
+        let Ok(mut slot) = stdin.try_lock() else {
+            return Err(LoginError::new(reason::BUSY, "this sign-in is already finishing"));
         };
-        let wrote = stdin.write_all(line.as_bytes()).await.and(stdin.flush().await);
-        drop(stdin);
+        let Some(mut pipe) = slot.take() else {
+            return Err(LoginError::new(reason::BUSY, "this sign-in is already finishing"));
+        };
+        code_sent.store(true, Ordering::SeqCst);
+        let wrote = pipe.write_all(line.as_bytes()).await.and(pipe.flush().await);
+        drop(pipe);
+        drop(slot);
         if wrote.is_err() {
             end(login_id);
             return Err(LoginError::new(reason::FAILED, "the sign-in stopped: start again"));
         }
     }
-    let wait = match agent {
-        Agent::Claude => Instant::now() + CLAUDE_FINISH_WAIT,
-        Agent::Codex => expires,
+    let wait = match code {
+        Some(_) => Instant::now() + CLAUDE_FINISH_WAIT,
+        None => expires,
+    };
+    // A code pasted while a finish waits for the approve: that finish holds
+    // the CLI; this one waits its turn and reads the same end.
+    let mut run = if code.is_some() {
+        match tokio::time::timeout_at(wait, running.lock()).await {
+            Ok(run) => run,
+            Err(_) => {
+                end(login_id);
+                return Err(LoginError::new(
+                    reason::FAILED,
+                    "claude did not finish signing in: start again",
+                ));
+            }
+        }
+    } else {
+        let Ok(run) = running.try_lock() else {
+            return Err(LoginError::new(reason::BUSY, "this sign-in is already finishing"));
+        };
+        run
     };
     let status = tokio::time::timeout_at(wait, run.child.wait()).await;
+    let fresh = !run.settled;
+    if matches!(status, Ok(Ok(_))) {
+        run.settled = true;
+    }
     drop(run);
     end(login_id);
     let status = match status {
-        Err(_) if agent == Agent::Codex => {
+        Err(_) if code.is_none() => {
             return Err(LoginError::new(reason::EXPIRED, "the sign-in expired: start again"));
         }
         Err(_) => {
@@ -687,19 +839,22 @@ pub async fn finish(login_id: &str, code: Option<&str>) -> Result<Finished, Logi
         if Instant::now() >= expires {
             return Err(LoginError::new(reason::EXPIRED, "the sign-in expired: start again"));
         }
-        return Err(match agent {
-            Agent::Claude => LoginError::new(
+        return Err(match (agent, code_sent.load(Ordering::SeqCst)) {
+            (Agent::Claude, true) => LoginError::new(
                 reason::BAD_CODE,
                 "claude did not accept the code: start again and paste the new code",
             ),
-            Agent::Codex => LoginError::new(reason::FAILED, "codex did not finish signing in"),
+            (Agent::Claude, false) => {
+                LoginError::new(reason::FAILED, "claude did not finish signing in: start again")
+            }
+            (Agent::Codex, _) => LoginError::new(reason::FAILED, "codex did not finish signing in"),
         });
     }
     // macOS: Claude Code keeps its sign-in in the login keychain, which acpmux
     // never reads (`claude_auth.rs`); its exit says it.
     let signed_in =
         signed_in_at(agent, &store) || (cfg!(target_os = "macos") && agent == Agent::Claude);
-    Ok(Finished { agent, signed_in, store })
+    Ok(Finished { agent, signed_in, store, fresh })
 }
 
 /// Stops sign-in `login_id`; nothing when none runs.

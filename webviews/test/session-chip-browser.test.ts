@@ -2,8 +2,8 @@
 // not aligned with the icon vertically and too small and also not prominent enough because the
 // whole line gets highlighted and it's not obvious that clicking on this will be a new thing"), in
 // a real layout (test/browser/session-chip.harness.tsx): on a received message's line and on a
-// sent message's row, the chip's centre is the row icon's centre, it has real padding around its
-// name, it reads as a way to another chat (its own tint, no arrow glyph), and pointing at it lights the chip alone:
+// sent message's row, the chip's centre is the row icon's centre, it is its name at the row's size
+// with 4px at the sides, it reads as a way to another chat (its own tint, no arrow glyph), and pointing at it lights the chip alone:
 // the line's background and text keep their tone. design/chat-transcript.md "Session link chip".
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -130,8 +130,10 @@ await requireBrowserLane("session-chip-browser.test.ts", async () => {
 
           // Centred on the icon's centre line, to half a device pixel.
           expect(Math.abs(rest.chipCentre - rest.iconCentre)).toBeLessThanOrEqual(0.5);
-          // Sized to its name with real padding, not a tight strip.
-          expect(rest.chipHeight).toBeGreaterThanOrEqual(22);
+          // The row's words in a box no taller than they are (Leo, 2026-11-03: "i thought we made
+          // this stuff smaller"): 1em + 4px, 18 at 14px, inside the 22 row; 4px at the sides.
+          expect(rest.chipHeight).toBeGreaterThanOrEqual(16);
+          expect(rest.chipHeight).toBeLessThanOrEqual(19);
           expect(rest.insetStart).toBeGreaterThanOrEqual(4);
           expect(rest.insetEnd).toBeGreaterThanOrEqual(4);
           expect(rest.chipWidth).toBeLessThan(rest.lineWidth * 0.6);

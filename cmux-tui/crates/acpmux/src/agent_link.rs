@@ -92,6 +92,12 @@ pub fn find(text: &str) -> Option<Result<AgentLink, String>> {
     Some(build(required, query))
 }
 
+/// The query of the web link in `text` (empty when it has none), whatever it names: an opaque
+/// `id=` link (`opaque_agent_id.rs`) is read from it. None when `text` holds no web agent link.
+pub fn web_query(text: &str) -> Option<&str> {
+    Some(WEB.as_ref()?.captures(text)?.get(1).map_or("", |m| m.as_str()))
+}
+
 fn build(required: [(&str, Option<Option<String>>); 2], query: &str) -> Result<AgentLink, String> {
     let mut link = AgentLink::default();
     for (key, value) in required {

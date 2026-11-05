@@ -10,13 +10,29 @@
 //! socket, and `--result` is an outcome file next to it. Then it hard-links
 //! the running binary as `cmux-tui.prev`, renames itself over the binary
 //! (one atomic rename in the same folder, of the very file it hashed) and sends
-//! the daemon SIGTERM, which ends only the daemon: every terminal host and
+//! the daemon SIGTERM (SIGKILL once [`STOP_TIMEOUT`] passes: a daemon resumes
+//! what it interrupted), which ends only the daemon: every terminal host and
 //! chat keeps running, and the daemon the supervisor starts from the new
 //! binary adopts them (docs/cloud-guest-upgrades.md). A new daemon that does
 //! not serve within ten minutes is replaced by the previous binary, which is
 //! trusted only once it serves again. The outcome goes to `--result` as one
-//! JSON object: `{"state":"updated"|"rolled_back"|"pending"|"failed",
+//! JSON object: `{"state":"updated"|"rolled_back"|"pending"|"busy"|"foreign"|"failed",
 //! "detail":...}`.
+//!
+//! A daemon still running an earlier copy of this same install (a binary an
+//! earlier update or upgrade replaced while that daemon kept running, which
+//! the kernel names `<install> (deleted)`, or `cmux-tui.prev`) is updated
+//! like any other: stopping it is what that earlier update could not finish
+//! ([`runs_this_install`]). A daemon on any other binary (someone's
+//! own build run from another path) is `foreign`: left as it is, and no
+//! failure, since nothing went wrong with the update. A daemon that restarted
+//! since the Mac read its pid is `busy`: the next update reads it again.
+//!
+//! The step learns which binary the daemon runs only from the daemon socket
+//! itself: the kernel's peer of a connection to `CMUX_TUI_SOCKET` must be
+//! `--daemon-pid`, and its executable is read through that one connection's
+//! peer authentication ([`daemon_binary`]), never by a pid alone
+//! (plans/cmux-next/pty-holder.md, section 4).
 //!
 //! The lock orders this mode's own runs only; the image's root fleet
 //! upgrade script keeps its own lock.
@@ -33,8 +49,10 @@ use sha2::{Digest as _, Sha256};
 
 /// The private argv mode (crate::private_mode).
 pub(crate) const MODE: &str = "__machine-update-apply";
-/// How long the old daemon may take to stop after SIGTERM.
+/// How long the old daemon may take to stop after SIGTERM, before SIGKILL.
 const STOP_TIMEOUT: Duration = Duration::from_secs(60);
+/// How long the kernel may take to end it after SIGKILL.
+const KILL_TIMEOUT: Duration = Duration::from_secs(10);
 /// How long a daemon may take to serve: it replays its journal and adopts
 /// every terminal host before it listens.
 const SERVE_TIMEOUT: Duration = Duration::from_secs(10 * 60);
@@ -87,6 +105,19 @@ pub(crate) fn run(args: &[String]) -> i32 {
             "usage: cmux-tui {MODE} --sha256 HEX --install PATH --daemon-pid PID --result PATH"
         );
         return 64;
+    };
+    // A second run of this same update (its start sent again after a lost
+    // answer) leaves everything, its outcome file included, to the first:
+    // the first holds the outcome's own lock until it has written it.
+    let _claim = match own_install(&args.install) {
+        Ok(()) => match claim(&args.result) {
+            Some(claim) => Some(claim),
+            None => {
+                eprintln!("cmux machine update: this update already runs");
+                return 1;
+            }
+        },
+        Err(_) => None,
     };
     let (state, detail) = apply(&args);
     let outcome = json!({"state": state, "detail": detail});
@@ -144,14 +175,16 @@ fn apply(args: &Args) -> (&'static str, String) {
     let Some(_lock) = lock(&args.install) else {
         return ("busy", "another update of this machine is running".into());
     };
+    // The Mac sees this step began even when its start's answer was lost,
+    // and so does not start it again (machine_update.rs `start`); a run it
+    // starts anyway finds the outcome claimed ([`claim`]) and writes nothing.
+    let _ = write_atomically(&args.result, RUNNING.as_bytes());
     let own = match check(args) {
         Ok(own) => own,
-        Err(why) => return ("failed", why),
+        Err((state, why)) => return (state, why),
     };
-    // A hard link: no copy, no space, and a planted file there goes first.
     let previous = args.install.with_file_name("cmux-tui.prev");
-    let _ = std::fs::remove_file(&previous);
-    if let Err(error) = std::fs::hard_link(&args.install, &previous) {
+    if let Err(error) = keep_previous(&args.install, &previous, &own.daemon.file, own.daemon.id) {
         return ("failed", format!("cannot keep the running binary: {error}"));
     }
     // The file at our own path is still the one hashed: same inode, one link.
@@ -180,10 +213,11 @@ fn apply(args: &Args) -> (&'static str, String) {
             ),
         };
     }
-    if !wait(STOP_TIMEOUT, || !alive(args.daemon_pid)) {
+    if !stop(args.daemon_pid, STOP_TIMEOUT, KILL_TIMEOUT) {
         return (
             "pending",
-            "the daemon did not stop; the new build runs after its next restart".into(),
+            "the daemon did not stop, even after SIGKILL; the new build runs after its next restart"
+                .into(),
         );
     }
     let own_build = cmux_build_identity::BUILD_IDENTITY;
@@ -193,11 +227,58 @@ fn apply(args: &Args) -> (&'static str, String) {
     restore(args, &previous, "the new daemon did not serve")
 }
 
-/// The staged build that passed [`check`]: its path and the inode hashed.
+/// The staged build that passed [`check`]: its path and the inode hashed,
+/// with the binary the daemon runs.
 struct Staged {
     path: PathBuf,
     dev: u64,
     ino: u64,
+    daemon: DaemonBinary,
+}
+
+/// The binary the daemon on this terminal's socket runs: its path as the
+/// kernel reads it (` (deleted)` once no path names it), the file itself,
+/// open (it still reads after its path is gone), and its device and inode.
+struct DaemonBinary {
+    path: PathBuf,
+    file: std::fs::File,
+    id: (u64, u64),
+}
+
+/// The outcome file's content while the step runs.
+const RUNNING: &str = r#"{"state":"running"}"#;
+
+/// Keeps the build the daemon runs as `previous`, the rollback target: a
+/// hard link of `install` when the daemon runs it (no copy, no space), the
+/// file already there when it runs that one, else a copy of `running`, the
+/// running file itself, open ([`DaemonBinary`]), with its mode. A daemon left
+/// on a replaced build must roll back to that build, not to the installed one
+/// that never served. `running_id` is that file's device and inode.
+fn keep_previous(
+    install: &Path,
+    previous: &Path,
+    running: &std::fs::File,
+    running_id: (u64, u64),
+) -> std::io::Result<()> {
+    let is_running = |path: &Path| {
+        std::fs::symlink_metadata(path).ok().map(|file| (file.dev(), file.ino()))
+            == Some(running_id)
+    };
+    if is_running(previous) {
+        return Ok(());
+    }
+    // A planted file at either name goes first.
+    if is_running(install) {
+        let _ = std::fs::remove_file(previous);
+        return std::fs::hard_link(install, previous);
+    }
+    let part = install.with_file_name(".cmux-tui.prev.part");
+    let _ = std::fs::remove_file(&part);
+    let mut copy = std::fs::OpenOptions::new().write(true).create_new(true).open(&part)?;
+    std::io::copy(&mut &*running, &mut copy)?;
+    copy.set_permissions(running.metadata()?.permissions())?;
+    drop(copy);
+    std::fs::rename(&part, previous)
 }
 
 /// Whether `install` is this user's `~/.cmux/bin/cmux-tui`.
@@ -212,48 +293,154 @@ fn own_install(install: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Every check before anything changes.
-fn check(args: &Args) -> Result<Staged, String> {
-    own_install(&args.install)?;
-    let canonical =
-        |path: &Path| std::fs::canonicalize(path).map_err(|e| format!("{}: {e}", path.display()));
-    let own = std::env::current_exe().map_err(|e| e.to_string())?;
+/// Every check before anything changes; a refusal is its outcome state
+/// (`failed`, or the quiet `foreign` and `busy`) and a detail line.
+fn check(args: &Args) -> Result<Staged, (&'static str, String)> {
+    let failed = |why: String| ("failed", why);
+    own_install(&args.install).map_err(failed)?;
+    let canonical = |path: &Path| {
+        std::fs::canonicalize(path).map_err(|e| failed(format!("{}: {e}", path.display())))
+    };
+    let own = std::env::current_exe().map_err(|e| failed(e.to_string()))?;
     if own.parent() != canonical(&args.install)?.parent() {
-        return Err("the new build is not staged beside the binary".into());
+        return Err(failed("the new build is not staged beside the binary".into()));
     }
     // Hash the file through one descriptor, and remember which file it was.
-    let mut file = std::fs::File::open(&own).map_err(|e| e.to_string())?;
-    let opened = file.metadata().map_err(|e| e.to_string())?;
+    let mut file = std::fs::File::open(&own).map_err(|e| failed(e.to_string()))?;
+    let opened = file.metadata().map_err(|e| failed(e.to_string()))?;
     let mut digest = Sha256::new();
-    std::io::copy(&mut file, &mut digest).map_err(|e| e.to_string())?;
+    std::io::copy(&mut file, &mut digest).map_err(|e| failed(e.to_string()))?;
     let sha256: String = digest.finalize().iter().map(|byte| format!("{byte:02x}")).collect();
     if sha256 != args.sha256 {
-        return Err("the staged build does not match the pinned checksum".into());
+        return Err(failed("the staged build does not match the pinned checksum".into()));
     }
-    let running = std::fs::read_link(format!("/proc/{}/exe", args.daemon_pid))
-        .map_err(|e| format!("cannot read the daemon's binary: {e}"))?;
-    if running != canonical(&args.install)? {
-        return Err("the daemon does not run the installed binary".into());
+    let socket = socket().ok_or_else(|| failed("no daemon socket in this terminal".into()))?;
+    // The file the daemon runs, even when no path names it any more.
+    let daemon = daemon_binary(&socket, args.daemon_pid)?;
+    let install = canonical(&args.install)?;
+    if !runs_this_install(&daemon.path, &install, Some(daemon.id)) {
+        // Someone's own build, run from another path: not this update's to
+        // replace, and nothing failed (the Mac shows nothing for it).
+        return Err(("foreign", foreign(args.daemon_pid, &daemon.path, &install)));
     }
     // The pid is the daemon serving this terminal's socket now, not a pid
-    // reused since the Mac read it.
-    let socket = socket().ok_or("no daemon socket in this terminal")?;
-    let identity =
-        super::super::machine_gate::identify(&socket).ok_or("the daemon socket did not answer")?;
+    // reused since the Mac read it. A daemon that restarted since is `busy`:
+    // nothing changed, and the next update reads its pid again.
+    let identity = super::super::machine_gate::identify(&socket)
+        .ok_or_else(|| failed("the daemon socket did not answer".into()))?;
     if identity["pid"].as_i64() != Some(i64::from(args.daemon_pid)) {
-        return Err("the daemon pid is not the one serving this machine".into());
+        return Err(("busy", RESTARTED.into()));
     }
-    Ok(Staged { path: own, dev: opened.dev(), ino: opened.ino() })
+    Ok(Staged { path: own, dev: opened.dev(), ino: opened.ino(), daemon })
+}
+
+/// What a daemon restarted since the Mac read its pid gives (see [`check`]).
+const RESTARTED: &str = "the daemon restarted since the update read its pid";
+
+/// The binary of the daemon listening on `socket`, which must be `pid`: the
+/// kernel's peer of one connection to it (`SO_PEERCRED`, with the peer's
+/// start time), read through that connection's peer authentication
+/// (`platform::peer_executable_file`), so a pid reused by another process
+/// never answers. No process is enumerated or found by its pid alone. A peer
+/// of another pid is a daemon that restarted: `busy`.
+fn daemon_binary(socket: &Path, pid: i32) -> Result<DaemonBinary, (&'static str, String)> {
+    use cmux_tui_core::platform::transport::Stream as _;
+    let stream = std::os::unix::net::UnixStream::connect(socket)
+        .map_err(|e| ("failed", format!("cannot reach the daemon socket: {e}")))?;
+    let key =
+        stream.peer_process_key().ok_or(("failed", "the daemon socket names no peer".into()))?;
+    let peer = key
+        .strip_prefix("token:")
+        .and_then(|rest| rest.split_once('.'))
+        .and_then(|(peer, _)| peer.parse::<i32>().ok());
+    if peer != Some(pid) {
+        return Err(("busy", RESTARTED.into()));
+    }
+    let unreadable = |why: String| ("failed", format!("cannot read the daemon's binary: {why}"));
+    let (path, file) =
+        peer_binary(&key).ok_or_else(|| unreadable("its peer key is stale".into()))?;
+    let ran = file.metadata().map_err(|e| unreadable(e.to_string()))?;
+    drop(stream);
+    Ok(DaemonBinary { path, file, id: (ran.dev(), ran.ino()) })
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn peer_binary(key: &str) -> Option<(PathBuf, std::fs::File)> {
+    cmux_tui_core::platform::peer_executable_file(key)
+}
+
+/// A Cloud machine is a Linux machine; elsewhere the step refuses.
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+fn peer_binary(_key: &str) -> Option<(PathBuf, std::fs::File)> {
+    None
+}
+
+/// The detail of a daemon on another binary than this install.
+fn foreign(pid: i32, running: &Path, install: &Path) -> String {
+    format!(
+        "the daemon (pid {pid}) runs {}, not this machine's {}; left as it is",
+        running.display(),
+        install.display(),
+    )
+}
+
+/// What the kernel's link to a running binary reads for a deleted file.
+const DELETED: &str = " (deleted)";
+
+/// Whether a daemon whose binary's link reads `running` (and whose
+/// file is `ran`, its device and inode) runs `install` (canonical) or an
+/// earlier copy of it: the same path with the kernel's ` (deleted)` mark (a
+/// binary replaced under a running daemon, by an earlier update whose stop
+/// did not finish or by another upgrade), `cmux-tui.prev` or the rollback
+/// link in the same folder (or either deleted), or the very file now at
+/// `cmux-tui.prev`. Anything else, another folder or another name, is not
+/// this install's daemon.
+fn runs_this_install(running: &Path, install: &Path, ran: Option<(u64, u64)>) -> bool {
+    if running == install {
+        return true;
+    }
+    let Some(text) = running.to_str() else { return false };
+    let path = Path::new(text.strip_suffix(DELETED).unwrap_or(text));
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else { return false };
+    let same_folder = path.parent().is_some() && path.parent() == install.parent();
+    if same_folder && matches!(name, "cmux-tui" | "cmux-tui.prev" | ".cmux-tui.rollback") {
+        return true;
+    }
+    let previous = install.with_file_name("cmux-tui.prev");
+    ran.zip(std::fs::metadata(previous).ok())
+        .is_some_and(|((dev, ino), previous)| previous.dev() == dev && previous.ino() == ino)
+}
+
+/// Ends the daemon that was sent SIGTERM: waits `term` for it to exit, then
+/// sends SIGKILL and waits `kill` more. True once it is gone.
+fn stop(pid: i32, term: Duration, kill: Duration) -> bool {
+    if wait(term, || !alive(pid)) {
+        return true;
+    }
+    // SAFETY: as in apply; the pid was checked to serve this machine.
+    unsafe { libc::kill(pid, libc::SIGKILL) };
+    wait(kill, || !alive(pid))
 }
 
 /// The folder's update lock, held while this process lives.
 fn lock(install: &Path) -> Option<std::fs::File> {
-    let file = std::fs::OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .open(install.with_file_name(LOCK_NAME))
-        .ok()?;
+    lock_at(&install.with_file_name(LOCK_NAME))
+}
+
+/// The lock of one update's outcome file `result`, held by the one run of
+/// that update while it lives; None while another run of it holds it.
+fn claim(result: &Path) -> Option<std::fs::File> {
+    lock_at(&claim_path(result))
+}
+
+/// `.cmux-tui.update-<nonce>.lock` beside `.cmux-tui.update-<nonce>.json`.
+pub(crate) fn claim_path(result: &Path) -> PathBuf {
+    result.with_extension("lock")
+}
+
+fn lock_at(path: &Path) -> Option<std::fs::File> {
+    let file =
+        std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(path).ok()?;
     // SAFETY: flock on a descriptor this function owns.
     let locked = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0;
     locked.then_some(file)
@@ -353,3 +540,7 @@ fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     std::fs::write(&temporary, bytes)?;
     std::fs::rename(&temporary, path)
 }
+
+#[cfg(test)]
+#[path = "apply_tests.rs"]
+mod tests;

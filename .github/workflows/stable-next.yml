@@ -13,10 +13,11 @@ name: cmux NEXT Stable
 #
 # Gates, all on the candidate's exact nightly-next commit or on the signed stable DMG itself:
 #   crash-class   the cmux-next-crash-class.yml rules on the whole tree (Linux)
-#   swift-suites  every CmuxNext test target, package-test-lane.sh suite, as build-fleet steps on
-#                 macOS 27 M4 Pro workers (labels macos-27 + ram48; no M6 mini has ram48)
 #   perf-budgets  scripts/cmux-next/perf-budgets.py --gate (split-spring.sh --suite=budgets) on an
-#                 exclusive macOS 27 M4 Pro measure worker, against apple-m4-pro-macos27's baseline
+#                 exclusive macOS 27 M4 Pro measure worker, against apple-m4-pro-macos27's baseline.
+#                 A measured regression blocks; no verdict (no idle worker in 3 h, a host fault) warns.
+# Not a gate: CmuxNext's unit suites. Stable gates on the behavior people use (the UI journey on the
+# signed app, crash classes, perf, soak), not on every unit test of the commit (Aziz 2026-11-03).
 #   smoke-27      UI tests of the signed stable app on an owned M4 Pro mini, macOS 27: fresh-home
 #                 launch, then a first session (terminal echo, split, Chromium and WebKit pages,
 #                 palette, Settings, sidebar, close, Home, quit), scripts/ci/stable_next_ui_journey.py
@@ -24,10 +25,8 @@ name: cmux NEXT Stable
 #   soak          the build is still on the cmux NEXT feed, was never pulled, has no fail verdict,
 #                 and Sentry saw no new unhandled issue first seen in its release
 # Runners (no M6 mini; every owned macOS job also refuses an M6 chip at its first step):
-#   swift-suites, perf-budgets  attempt 1: glaeda-gui-std (owned M4 Pro, macOS 27, console session), the
-#                 route cmux-next.yml's swift test takes; a re-run: Blacksmith macOS (perf-budgets fails
-#                 closed there: its only baseline is apple-m4-pro-macos27). The gateway label admits
-#                 only its listed cmux-ci client jobs, and the controller does not trust a CI tailnet tag.
+#   perf-budgets  attempt 1: glaeda-gui-std (owned M4 Pro, a fleet client) submits the exclusive
+#                 measurement; a re-run lands on Blacksmith, where cmux-ci is missing, and fails closed.
 #   smoke-27      attempt 1: glaeda-gui-std (the owned M4 Pro GUI pool with a console session that
 #                 cmux-next's own UI suites use); a re-run takes Blacksmith, where its macOS 27 check
 #                 fails it. ci-owned-pool-rescue does not watch this workflow (main lists it unrescued):
@@ -175,7 +174,6 @@ jobs:
       length: ${{ steps.pick.outputs.length }}
       minimum_system_version: ${{ steps.pick.outputs.minimum_system_version }}
       commit: ${{ steps.commit.outputs.commit }}
-      matrix: ${{ steps.shards.outputs.matrix }}
       go: ${{ steps.go.outputs.go }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -226,16 +224,6 @@ jobs:
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "notes/$BUILD.json names no commit" >&2; exit 1; }
           echo "commit=$sha" >> "$GITHUB_OUTPUT"
           echo "build $BUILD was compiled from $sha"
-
-      - name: Shard the CmuxNext test targets
-        id: shards
-        env:
-          COMMIT: ${{ steps.commit.outputs.commit }}
-        run: |
-          set -euo pipefail
-          git fetch --no-tags --depth=1 origin "$COMMIT"
-          git show "$COMMIT:Packages/macOS/CmuxNext/Package.swift" > "$RUNNER_TEMP/Package.swift"
-          python3 -I scripts/ci/stable_next.py test-shards --package "$RUNNER_TEMP/Package.swift" --shards 4
 
       - name: Decide
         id: go
@@ -318,84 +306,66 @@ jobs:
           echo "stable serves $served ($base); candidate $COMMIT"
           python3 -I .stable-tooling/scripts/ci/stable_next.py crash-delta --base-tree "$RUNNER_TEMP/base-tree" --head-tree "$RUNNER_TEMP/head-tree"
 
-  # Every CmuxNext test target, four shards, each on an owned M4 Pro GUI mini (macOS 27, a console
-  # session: the suites that need a display run). The same runs-on as cmux-next.yml's swift test:
-  # the gui pool on attempt 1, Blacksmith macOS on a re-run. package-test-lane.sh suite runs the same
-  # way under Actions as in a fleet step (it fetches GhosttyKit, the web bundles and the cmux-tui tree).
-  swift-suites:
-    needs: plan
-    if: needs.plan.outputs.go == 'true'
-    name: swift suites ${{ matrix.shard }}
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
-    timeout-minutes: 150
-    permissions:
-      contents: read
-    env:
-      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
-      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
-    steps:
-      - name: This runner is not an M6 mini
-        run: |
-          chip="$(sysctl -n machdep.cpu.brand_string)"
-          echo "runner $RUNNER_NAME: $chip, macOS $(sw_vers -productVersion)"
-          case "$chip" in *M6*) echo "::error::stable-next never uses an M6 mini ($RUNNER_NAME)"; exit 1 ;; esac
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ needs.plan.outputs.commit }}
-          persist-credentials: false
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
-      - name: Every CmuxNext suite of shard ${{ matrix.shard }}
-        env:
-          FILTERS: ${{ matrix.filters }}
-        run: |
-          set -uo pipefail
-          # One retry: one flaky suite does not lose the night; a suite red twice is red.
-          for attempt in 1 2; do
-            status=0
-            ./scripts/ci/package-test-lane.sh suite Packages/macOS/CmuxNext "$FILTERS" || status=$?
-            [ "$status" = 0 ] && exit 0
-            echo "::warning title=stable swift suites::shard ${{ matrix.shard }} attempt $attempt exited $status"
-          done
-          exit "$status"
-
-  # scripts/cmux-next/perf-budgets.py --gate through split-spring.sh on an owned M4 Pro GUI mini
-  # (macOS 27): fails when a row's p95 is over 10 % above the apple-m4-pro-macos27 baseline.
+  # scripts/cmux-next/perf-budgets.py --gate through split-spring.sh, as a build-fleet measurement: an
+  # exclusive step on an idle macOS 27 M4 Pro measure worker (measure + macos-27 + ram48 + cmux: ram48 rules
+  # out every M6, and cmux the two 16 GB M4 lent minis, which have no perf baseline for their chip),
+  # the same host class and quiet the apple-m4-pro-macos27 baseline was taken in. Fails when a row's p95
+  # is over 10 % above that baseline. Measured on a busy GUI runner instead (run 41613684939), 9 benches
+  # gave no numbers and the rest regressed against an idle baseline, so the numbers judged nothing.
   perf-budgets:
     needs: plan
     if: needs.plan.outputs.go == 'true'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
-    timeout-minutes: 120
-    permissions:
-      contents: read
-    env:
-      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
-      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+    timeout-minutes: 600
+    permissions: {}
     steps:
       - name: This runner is not an M6 mini
         run: |
           chip="$(sysctl -n machdep.cpu.brand_string)"
           echo "runner $RUNNER_NAME: $chip, macOS $(sw_vers -productVersion)"
           case "$chip" in *M6*) echo "::error::stable-next never uses an M6 mini ($RUNNER_NAME)"; exit 1 ;; esac
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ needs.plan.outputs.commit }}
-          persist-credentials: false
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
-      - name: Perf budgets gate
-        run: CI_SHARED_CACHE_DIR="$RUNNER_TEMP/stable-perf-cache" bash scripts/measure/split-spring.sh --suite=budgets --gate --vdisplay=120
-      - name: Upload the perf report
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: stable-next-perf
-          path: artifacts/split-spring
-          if-no-files-found: ignore
-          retention-days: 3
+      - name: Perf budgets gate (exclusive macOS 27 M4 Pro measure worker)
+        env:
+          COMMIT: ${{ needs.plan.outputs.commit }}
+          # Keys per build, numbered: a later run or re-run walks the same keys and re-attaches to each
+          # step (queued, running or done) instead of queuing a second whole-host measurement. A step that
+          # ended with no verdict (cancelled, timed out, killed by a host fault) moves on to the next key,
+          # so one fault never leaves the build's gate red; a finished gate verdict (0 or 1) is final.
+          KEY: stable-next-${{ needs.plan.outputs.build }}-perf
+        run: |
+          set -uo pipefail
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! [[ -x "$client" ]]; then
+            echo "::error::$client is not installed on $RUNNER_NAME"
+            exit 1
+          fi
+          log="$RUNNER_TEMP/perf-step.log"
+          # Attempt 1 may wait 3 h for an idle M4 Pro; a retry after a fault gets 1 h (fits the job's 600 min).
+          for n in 1 2 3; do
+            status=0
+            queue=$([ "$n" = 1 ] && echo 10800 || echo 3600)
+            "$client" run --class exclusive --measurement --script scripts/measure/split-spring.sh --ref "$COMMIT" \
+              --label measure --label macos-27 --label ram48 --label cmux --key "$KEY-$n" \
+              --artifact artifacts/split-spring/report.json \
+              --arg=--suite=budgets --arg=--gate --arg=--vdisplay=120 \
+              --timeout 7200 --queue-timeout "$queue" 2>&1 | tee "$log" || status=${PIPESTATUS[0]}
+            case "$status" in
+              0) exit 0 ;;
+              # Still queued: no idle M4 Pro measured this build. No verdict is not a regression: warn and
+              # let the behavior gates decide; the step keeps its place and is never resubmitted.
+              75) echo "::warning title=stable perf::step $KEY-$n still queued after $((queue / 3600)) h (kept); no perf verdict for this build"; exit 0 ;;
+              124) echo "::warning title=stable perf::step $KEY-$n ran past its time limit; measuring again" ;;
+              *)
+                # A gate verdict printed its PERF-BUDGETS lines; a step that never measured did not.
+                if grep -q -E 'cmux-ci: step [0-9a-f]+ (cancelled|failed)' "$log" && ! grep -q 'PERF-BUDGETS rows=' "$log"; then
+                  echo "::warning title=stable perf::step $KEY-$n ended without a verdict; measuring again"
+                else
+                  exit "$status"
+                fi ;;
+            esac
+          done
+          echo "::warning title=stable perf::three perf steps for this build ended without a verdict; no perf verdict"
+          exit 0
 
   sign:
     needs: plan
@@ -674,17 +644,17 @@ jobs:
           persist-credentials: false
           sparse-checkout: scripts/ci/stable_next.py
           sparse-checkout-cone-mode: false
-      - name: The build is still on the cmux NEXT feed and was never pulled
+      # Not "still on the feed": the feed keeps 2 builds, so newer nightlies drop the picked one long
+      # before the gates finish (run 41419773317: build 4141347814401 refused for that alone).
+      - name: The build was never pulled and has no fail verdict
         env:
           BUILD: ${{ needs.plan.outputs.build }}
         run: |
           set -euo pipefail
-          curl -fsS --retry 3 -A cmux-stable-next/1 -o "$RUNNER_TEMP/next.xml" "$NEXT_FEED_BASE/appcast-arm64.xml"
-          curl -fsS --retry 3 -A cmux-stable-next/1 -o "$RUNNER_TEMP/pulled.json" "$NEXT_FEED_BASE/pulled.json" \
-            || echo '[]' > "$RUNNER_TEMP/pulled.json"
-          python3 -I scripts/ci/stable_next.py pick --feed "$RUNNER_TEMP/next.xml" --pulled "$RUNNER_TEMP/pulled.json" \
-            --verdicts "$NEXT_FEED_BASE/verdicts" --build "$BUILD" > /dev/null
-          echo "build $BUILD: on the feed, not pulled, no fail verdict"
+          # Fail closed: with the feed check gone, an unreadable pulled.json must never read as "nothing pulled".
+          curl -fsS --retry 5 --retry-all-errors -A cmux-stable-next/1 -o "$RUNNER_TEMP/pulled.json" "$NEXT_FEED_BASE/pulled.json"
+          python3 -I scripts/ci/stable_next.py soak --build "$BUILD" --pulled "$RUNNER_TEMP/pulled.json" \
+            --verdicts "$NEXT_FEED_BASE/verdicts"
       - name: No new unhandled Sentry issue first seen in this release
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
@@ -708,11 +678,11 @@ jobs:
           esac
 
   publish:
-    needs: [plan, crash-class, swift-suites, perf-budgets, sign, smoke-27, smoke-26, soak]
+    needs: [plan, crash-class, perf-budgets, sign, smoke-27, smoke-26, soak]
     concurrency:
       group: stable-next-publish-${{ github.ref_name }}
       cancel-in-progress: false
-    if: needs.plan.outputs.go == 'true' && !cancelled() && needs.crash-class.result == 'success' && needs.swift-suites.result == 'success' && needs.perf-budgets.result == 'success' && needs.sign.result == 'success' && needs.smoke-27.result == 'success' && needs.smoke-26.result == 'success' && needs.soak.result == 'success'
+    if: needs.plan.outputs.go == 'true' && !cancelled() && needs.crash-class.result == 'success' && needs.perf-budgets.result == 'success' && needs.sign.result == 'success' && needs.smoke-27.result == 'success' && needs.smoke-26.result == 'success' && needs.soak.result == 'success'
     environment: ${{ github.ref == 'refs/heads/nightly-next' && github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' && 'release-next' || '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 20
@@ -745,6 +715,13 @@ jobs:
             [ "$tested" = "$actual" ] || { echo "smoked $tested, publishing $actual: refused" >&2; exit 1; }
           done
           [ "$actual" = "$DMG_SHA256" ] || { echo "the DMG is not the one the sign job made" >&2; exit 1; }
+      # Again right before the feed write: a rollback may have pulled the build while the gates ran.
+      - name: The build is still not pulled and has no fail verdict
+        run: |
+          set -euo pipefail
+          curl -fsS --retry 5 --retry-all-errors -A cmux-stable-next/1 -o "$RUNNER_TEMP/pulled.json" "$NEXT_FEED_BASE/pulled.json"
+          python3 -I scripts/ci/stable_next.py soak --build "$BUILD" --pulled "$RUNNER_TEMP/pulled.json" \
+            --verdicts "$NEXT_FEED_BASE/verdicts"
       - name: Dry run - compose the feed the publish would write
         if: env.PUBLISH != 'true'
         run: |
@@ -791,7 +768,7 @@ jobs:
 
   # One rolling issue: opened or updated when a publish run fails, closed by the next publish.
   report:
-    needs: [plan, crash-class, swift-suites, perf-budgets, sign, smoke-27, smoke-26, soak, publish]
+    needs: [plan, crash-class, perf-budgets, sign, smoke-27, smoke-26, soak, publish]
     if: always() && github.ref == 'refs/heads/nightly-next' && github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' && needs.plan.outputs.go != 'false'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_2 }}
     timeout-minutes: 10
@@ -802,7 +779,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RESULTS: >-
-            plan=${{ needs.plan.result }} crash-class=${{ needs.crash-class.result }} swift-suites=${{ needs.swift-suites.result }}
+            plan=${{ needs.plan.result }} crash-class=${{ needs.crash-class.result }}
             perf-budgets=${{ needs.perf-budgets.result }} sign=${{ needs.sign.result }} smoke-27=${{ needs.smoke-27.result }}
             smoke-26=${{ needs.smoke-26.result }} soak=${{ needs.soak.result }} publish=${{ needs.publish.result }}
           BUILD: ${{ needs.plan.outputs.build }}

@@ -70,6 +70,13 @@ public protocol AccountsTeamBackend: AnyObject {
     func renameTeam(id: String, to name: String) async throws
     /// Deletes a team (admins only). When it was the active team, another becomes active.
     func deleteTeam(id: String) async throws
+    /// Pending invitations addressed to the person's verified emails.
+    func receivedTeamInvitations() async throws -> [CMUXReceivedTeamInvitation]
+    /// Joins the team an invitation names; the joined team becomes the active team.
+    @discardableResult
+    func acceptTeamInvitation(id: String) async throws -> CMUXTeamJoin
+    /// Declines an invitation; the membership does not change.
+    func declineTeamInvitation(id: String) async throws
 }
 
 extension CloudAuth: AccountsTeamBackend {}

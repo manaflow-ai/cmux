@@ -2,6 +2,8 @@ import Foundation
 
 extension Strings {
     static var hoverCloud: String { String(localized: "sidebar.hoverCard.cloud", defaultValue: "Cloud", bundle: .module) }
+    /// The ✕ on a hover preview tab row, for VoiceOver.
+    static var hoverCardCloseTab: String { String(localized: "sidebar.hoverCard.closeTab", defaultValue: "Close tab", bundle: .module) }
     static var showDetails: String { String(localized: "sidebar.hoverCard.showDetails", defaultValue: "Show details", bundle: .module) }
     static var hideDetails: String { String(localized: "sidebar.hoverCard.hideDetails", defaultValue: "Hide details", bundle: .module) }
     /// "3 subagents": an agent chat's running subagents (`WorkspaceHoverCardWork`).

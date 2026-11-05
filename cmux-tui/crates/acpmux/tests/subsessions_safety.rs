@@ -650,9 +650,7 @@ async fn an_agent_a_web_turn_drove_sends_no_files_from_its_shell_or_its_tools() 
     for (file, wait) in [(&small, true), (&big, true), (&small, false)] {
         let mut cmd = daemon_env::tokio_command(&s.root, daemon_env::Agents::Deny);
         cmd.arg("send").arg("--attach").arg(file);
-        if !wait {
-            cmd.arg("--no-wait");
-        }
+        cmd.arg(if wait { "--wait" } else { "--no-wait" });
         cmd.arg(&child).arg("see this");
         as_parent(&mut cmd);
         let out = tokio::time::timeout(Duration::from_secs(60), cmd.output()).await.unwrap();

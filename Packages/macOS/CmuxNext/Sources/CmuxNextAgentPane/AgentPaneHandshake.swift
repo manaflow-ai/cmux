@@ -1,3 +1,4 @@
+public import CmuxNextSettings
 public import Foundation
 
 /// The versioned host handshake: the one value Swift hands the React agent
@@ -23,9 +24,9 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
 
     /// The coded fields: everything but ``connection``, which never reaches the page.
     private enum CodingKeys: String, CodingKey {
-        case protocolVersion, transport, sessionId, newSession, newTab, cwd, draft, prompt, promptTicket, harness, model, peer, adopt, surface,
+        case protocolVersion, transport, sessionId, newSession, newTab, cwd, draft, prompt, promptAttachments, promptTicket, harness, model, peer, adopt, surface,
              linkScheme, sessionMustExist, revealTurn, chooseFolder, startKind, folderNeeded, pastTurns, machineName, localMachineName, githubRepository, harnesses, wake,
-             workspaceContext, sandboxState, cloudMachineID, cloudAccount, cloudCredentialRecoveryAvailable, cloudTeamMachine, cloudHandoffs, cloudRepositoryAvailable
+             workspaceContext, sandboxState, tab, cloudMachineID, cloudAccount, cloudCredentialRecoveryAvailable, cloudTeamMachine, cloudHandoffs, cloudRepositoryAvailable
     }
 
     public var protocolVersion: Int
@@ -48,6 +49,8 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// A new chat's first prompt, sent by the page once it connects.
     /// Pages that predate it ignore it (the chat just stays empty).
     public var prompt: String?
+    /// The seeded prompt's attachments after the host copied any referenced files to this machine.
+    public var promptAttachments: [JSONValue]?
     /// The single-use gesture ticket of ``prompt`` when a person's own action (or onboarding's
     /// first task) seeded it (cx-k21v gap 4): the page sends the prompt with this promptId and
     /// ticket (`_meta.cmuxGesture`), as a prompt held for the trust answer. Nil for a prompt the
@@ -137,6 +140,10 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// This app answers `sandbox.state` (``AgentPaneSandboxRuns``, hq#3367): the page reads the tab's
     /// Sandboxed send only when it is set. Pages that predate it ignore it.
     public var sandboxState: Bool? = true
+    /// The tab the page is (``AgentPaneModel/tabKey``): the page keeps its Session Info by it, so two
+    /// tabs of one chat keep their own. A page a tab adopts later hears it then (`acpmux-pane-tab`).
+    /// Pages that predate it ignore it and keep it by chat.
+    public var tab: String?
 
     public init(transport: Transport, connection: AcpmuxConnection? = nil, sessionId: String? = nil, newSession: Bool? = nil) {
         protocolVersion = Self.currentVersion

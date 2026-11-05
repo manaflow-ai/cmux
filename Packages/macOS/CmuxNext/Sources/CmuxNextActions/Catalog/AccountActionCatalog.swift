@@ -7,6 +7,11 @@ nonisolated enum AccountActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
         var actions = [
             ActionDescriptor(
+                id: "accounts.githubConnect", title: text("action.accounts.githubConnect", "Connect GitHub"),
+                keywords: ["github", "repositories", "integration"], category: .cloud, symbol: "link",
+                surfaces: [.palette], cliName: "accounts github-connect"
+            ),
+            ActionDescriptor(
                 id: "accounts.show",
                 title: text("action.accounts.show", "Accounts…"),
                 keywords: ["coderouter", "codex", "chatgpt", "claude", "anthropic", "openai", "api key", "login"],
@@ -43,7 +48,7 @@ nonisolated enum AccountActionCatalog: ActionCatalogGroup {
         ]
         // Connect and remove are CodeRouter round trips: the CLI waits for
         // the outcome and exits non-zero when it failed.
-        for index in actions.indices where ["accounts.connect", "accounts.remove"].contains(actions[index].id.rawValue) {
+        for index in actions.indices where ["accounts.connect", "accounts.remove", "accounts.githubConnect"].contains(actions[index].id.rawValue) {
             actions[index].waitsForResult = true
         }
         return actions

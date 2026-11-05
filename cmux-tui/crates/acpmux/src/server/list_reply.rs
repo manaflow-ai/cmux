@@ -127,6 +127,9 @@ fn with_tools(params: &Value) -> Result<bool, RpcError> {
 /// [`LIST_PAGE_BYTES`] (`Snapshot::page`): no reply here is too large to send.
 pub(super) async fn sessions(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
     let raw = conn.raw_text;
+    if crate::hub::session_pages::bool_filter(params, "pendingOnly")? {
+        return pending(hub, raw, params);
+    }
     let limit = params.get("limit").and_then(Value::as_u64);
     let unset = |k: &str| params.get(k).is_none_or(|v| v.is_null() || v.as_str() == Some(""));
     let by_bytes = unset("limit") && unset("orderBy");
@@ -157,6 +160,33 @@ pub(super) async fn sessions(hub: &Hub, conn: &Conn, params: &Value) -> Result<V
         within_limit(raw, |budget| list.bounded(hub, params, false, budget))
     })
     .await
+}
+
+/// `_acpmux/sessions {pendingOnly: true}`: the sessions with a pending ask
+/// (`Hub::pending_session_summaries`), never through the list guard: it summarizes only those
+/// chats, so it costs no list build and waits on no list pace. It takes no other filter, and its
+/// reply is never paged: rows that would pass the message budget are left out, newest kept.
+fn pending(hub: &Hub, raw: bool, params: &Value) -> Result<Value, RpcError> {
+    const OTHERS: [&str; 8] =
+        ["limit", "cursor", "peer", "status", "localOnly", "excludeStatus", "orderBy", "withTools"];
+    if let Some(name) = OTHERS.into_iter().find(|k| params.get(*k).is_some_and(|v| !v.is_null())) {
+        return Err(RpcError::invalid_params(format!("pendingOnly takes no {name}")));
+    }
+    let rows: Vec<String> =
+        hub.pending_session_summaries().iter().map(|row| row.to_string()).collect();
+    let text = within_limit(raw, |budget| {
+        let (mut kept, mut used) = (Vec::new(), 0_usize);
+        for row in &rows {
+            let total = used.saturating_add(row.len()).saturating_add(1);
+            if !kept.is_empty() && total > budget {
+                break;
+            }
+            used = total;
+            kept.push(row.as_str());
+        }
+        Ok(format!("{{\"sessions\":[{}]}}", kept.join(",")))
+    })?;
+    serde_json::from_str(&text).map_err(|error| RpcError::internal(error.to_string()))
 }
 
 /// `_acpmux/watch`: turns the watch on before it reads the list, so no change is missed.

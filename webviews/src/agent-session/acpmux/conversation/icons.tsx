@@ -1,256 +1,70 @@
-// Icons used by the conversation transcript, from the agent-pane reference prototype
-// (src/conversation/icons.tsx). All draw in currentColor in a 16px box
-// unless noted, matching the stroke weight of src/shell/icons.tsx.
-import type { CSSProperties, ReactNode } from "react";
-// Spinner's own default (the dot hidden, the ring turning), wherever it draws (spinner.css).
+// Static transcript glyphs use the same cmux pack as the rest of the pane.
+// Spinner and third-party marks retain their independently settled drawings.
+import type { CSSProperties } from "react";
+import { Icon } from "../icons/Icon";
 import "./spinner.css";
 
 export type CvIconProps = {
   size?: number;
-  strokeWidth?: number;
   className?: string;
   style?: CSSProperties;
 };
 
-function Svg({
-  size = 16,
-  box = 16,
-  strokeWidth = 1.25,
-  className,
-  style,
-  fill = "none",
-  children,
-}: CvIconProps & { box?: number; fill?: string; children: ReactNode }) {
-  return (
-    <svg
-      className={className}
-      style={style}
-      width={size}
-      height={size}
-      viewBox={`0 0 ${box} ${box}`}
-      fill={fill}
-      stroke="currentColor"
-      strokeWidth={strokeWidth}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      {children}
-    </svg>
-  );
+function glyph(name: string) {
+  return function TranscriptIcon(props: CvIconProps) {
+    return <Icon name={name} {...props} />;
+  };
 }
 
-export const ChevronRight = (p: CvIconProps) => (
-  <Svg {...p}>
-    <path d="M6.25 4.25 10 8l-3.75 3.75" />
-  </Svg>
+export const ChevronRight = glyph("disclosure.collapsed");
+export const ChevronLeft = glyph("nav.previous");
+export const Close = glyph("action.close");
+export const ChevronDown = glyph("disclosure.expanded");
+export const Globe = glyph("link.web");
+export const ImageIcon = glyph("site.permission.images");
+export const Copy = glyph("action.copy");
+export const Pencil = glyph("action.edit");
+export const ToolGroup = glyph("tool.group");
+export const DiffFile = glyph("diff.file");
+export const Undo = glyph("action.undo");
+export const Lock = glyph("security.lock");
+export const Plus = glyph("action.add");
+export const Check = glyph("action.confirm");
+export const Speaker = glyph("media.audio");
+export const CodeBrackets = glyph("code");
+export const WrapLines = glyph("text.wrap");
+export const TerminalSquare = glyph("tool.shell");
+export const OpenBook = glyph("tool.read");
+export const Magnifier = glyph("tool.search");
+export const Folder = glyph("folder");
+export const FileDoc = glyph("file");
+export const ArrowRight = glyph("action.go");
+export const Expand = glyph("view.expand");
+export const OpenTab = glyph("view.tab.trailing");
+export const SaveTray = glyph("action.save");
+export const Retry = glyph("action.retry");
+export const AlertCircle = glyph("status.failure");
+export const DoubleCheck = glyph("message.delivered");
+export const Quote = glyph("action.quote");
+export const StopReading = glyph("media.stop.circle");
+export const Clock = glyph("time.waiting");
+export const SummaryToggle = glyph("transcript.summary");
+export const Connectors = glyph("sources.connected");
+export const MultiTool = glyph("tool.multiple");
+export const Envelope = glyph("message.send");
+export const Bot = glyph("agent.bot");
+export const PauseCircle = glyph("agent.paused");
+export const ArrowDown = glyph("nav.down");
+
+export const Pin = ({ filled, ...props }: CvIconProps & { filled?: boolean }) => (
+  <Icon name="action.pin" selected={filled} {...props} />
 );
 
-export const ChevronLeft = (p: CvIconProps) => (
-  <Svg {...p}>
-    <path d="M9.75 4.25 6 8l3.75 3.75" />
-  </Svg>
-);
-
-export const Close = (p: CvIconProps) => (
-  <Svg {...p}>
-    <path d="m4.5 4.5 7 7m0-7-7 7" />
-  </Svg>
-);
-
-export const Expand = (p: CvIconProps) => (
-  <Svg {...p}>
-    <path d="M9.5 3.5h3v3m0-3L9 7M6.5 12.5h-3v-3m0 3L7 9" />
-  </Svg>
-);
-
-/** Open in tab: a window with its right side split off, where the new tab opens. */
-export const OpenTab = (p: CvIconProps) => (
-  <Svg {...p}>
-    <rect x="2.5" y="3.5" width="11" height="9" rx="1.5" />
-    <path d="M9 3.5v9" />
-  </Svg>
-);
-
-export const ChevronDown = (p: CvIconProps) => (
-  <Svg {...p}>
-    <path d="M4.25 6.25 8 10l3.75-3.75" />
-  </Svg>
-);
-
-export const Globe = (p: CvIconProps) => (
-  <Svg {...p}>
-    <circle cx="8" cy="8" r="6" />
-    <path d="M2 8h12M8 2c-2 2-2.6 4-2.6 6s.6 4 2.6 6M8 2c2 2 2.6 4 2.6 6s-.6 4-2.6 6" />
-  </Svg>
-);
-
-/// A picture: a framed landscape (a web image the pane links to, Markdown.tsx).
-export const ImageIcon = (p: CvIconProps) => (
-  <Svg {...p}>
-    <rect x="2.5" y="3" width="11" height="10" rx="1.75" />
-    <circle cx="6" cy="6.5" r="1.1" />
-    <path d="m3 12 3.5-3.5 2.25 2.25L10.5 9l3 3" />
-  </Svg>
-);
-
-export const Copy = (p: CvIconProps) => (
-  <Svg {...p}>
-    <rect x="5.25" y="5.25" width="8.25" height="8.25" rx="2" />
-    <path d="M10.75 5.25V4.5a2 2 0 0 0-2-2H4.5a2 2 0 0 0-2 2v4.25a2 2 0 0 0 2 2h.75" />
-  </Svg>
-);
-
-/** An arrow into a tray (Save a document to a file). */
-export const SaveTray = (p: CvIconProps) => (
-  <Svg {...p}>
-    <path d="M8 2.5v7.5M5 7l3 3 3-3" />
-    <path d="M2.75 10.5v1.75a1.25 1.25 0 0 0 1.25 1.25h8a1.25 1.25 0 0 0 1.25-1.25V10.5" />
-  </Svg>
-);
-
-export const Pencil = (p: CvIconProps) => (
-  <Svg {...p}>
-    <path d="M10.6 3.1a1.6 1.6 0 0 1 2.3 2.3l-7.6 7.6-3 .7.7-3Z" />
-    <path d="M9.5 4.2l2.3 2.3" />
-  </Svg>
-);
-
-/** Four small rings in a 2x2 grid (grouped tool activity: "Used the browser and …"). */
-export const ToolGroup = (p: CvIconProps) => (
-  <Svg {...p}>
-    <circle cx="4.75" cy="4.75" r="2.55" />
-    <circle cx="11.25" cy="4.75" r="2.55" />
-    <circle cx="4.75" cy="11.25" r="2.55" />
-    <circle cx="11.25" cy="11.25" r="2.55" />
-  </Svg>
-);
-
-/** Square with a plus over a minus ("Edited N files" card). */
-export const DiffFile = (p: CvIconProps) => (
-  <Svg {...p}>
-    <rect x="2.75" y="2.75" width="10.5" height="10.5" rx="2.4" />
-    <path d="M8 4.9v4M6 6.9h4M6 11h4" />
-  </Svg>
-);
-
-export const Undo = (p: CvIconProps) => (
-  <Svg {...p}>
-    <path d="M5.5 3.25 3 5.75l2.5 2.5" />
-    <path d="M3 5.75h6.25a3.75 3.75 0 0 1 0 7.5H7.5" />
-  </Svg>
-);
-
-/// A counterclockwise arrow: send the prompt again. The arc runs on into the arrowhead's corner
-/// (2.5, 5.56), so the head joins the line instead of floating off its end, and it spans Copy's
-/// 11px (2.5-13.5) beside it (Leo, 2026-10-27: "Looks like a, like a mangled little corpse on that
-/// arrow bit").
-export const Retry = (p: CvIconProps) => (
-  <Svg {...p}>
-    <path d="M2.5 8a5.5 5.5 0 1 0 5.5-5.5 6 6 0 0 0-4.12 1.67L2.5 5.56" />
-    <path d="M2.5 2.5v3.06h3.06" />
-  </Svg>
-);
-
-/** A failure's mark: a circle with an exclamation (a failed turn's card). */
-export const AlertCircle = (p: CvIconProps) => (
-  <Svg {...p}>
-    <circle cx="8" cy="8" r="5.75" />
-    <path d="M8 5.25v3.25" />
-    <circle cx="8" cy="10.75" r=".4" fill="currentColor" />
-  </Svg>
-);
-
-export const Lock = (p: CvIconProps) => (
-  <Svg {...p}>
-    <rect x="3.25" y="7" width="9.5" height="7" rx="2" />
-    <path d="M5.25 7V5.25a2.75 2.75 0 0 1 5.5 0V7" />
-    <circle cx="8" cy="10.5" r=".4" fill="currentColor" />
-  </Svg>
-);
-
-export const ArrowDown = (p: CvIconProps) => (
-  <Svg {...p}>
-    <path d="M8 2.5v11M3.5 9 8 13.5 12.5 9" />
-  </Svg>
-);
-
-export const Plus = (p: CvIconProps) => (
-  <Svg {...p}>
-    <path d="M8 2.25v11.5M2.25 8h11.5" />
-  </Svg>
-);
-
-export const Check = (p: CvIconProps) => (
-  <Svg {...p}>
-    <path d="M4.2 8.3 6.8 10.9 11.8 5.2" />
-  </Svg>
-);
-
-/** Two checks, the second offset: a delivered message to another agent (MessageCard), as a messaging
- *  app marks one, and a prompt the agent has read (a message's read receipt). */
-export const DoubleCheck = (p: CvIconProps) => (
-  <Svg {...p}>
-    <path d="M1.75 8.4 4.3 10.9 9.2 5.2" />
-    <path d="M7.4 10.6l.3.3 4.9-5.7" />
-  </Svg>
-);
-
-/** A pushpin, filled when the message is pinned. */
-export const Pin = ({ filled, ...p }: CvIconProps & { filled?: boolean }) => (
-  <Svg {...p}>
-    <path
-      d="M9.6 2.4 13.6 6.4 12.5 7.2 10.4 9.3 10.5 11.6 9.6 12.5 3.5 6.4 4.4 5.5 6.7 5.6 8.8 3.5Z"
-      fill={filled ? "currentColor" : "none"}
-    />
-    <path d="M6.5 9.5 2.5 13.5" />
-  </Svg>
-);
-
-/** A speaker with sound waves: Read aloud. */
-export const Speaker = (p: CvIconProps) => (
-  <Svg {...p}>
-    <path d="M2.75 6.25h2l3-2.5v8.5l-3-2.5h-2Z" />
-    <path d="M10.25 6.1a2.6 2.6 0 0 1 0 3.8M12 4.4a5 5 0 0 1 0 7.2" />
-  </Svg>
-);
-
-/** A rounded square in a ring: Stop reading, on the Read aloud button while it reads. */
-export const StopReading = (p: CvIconProps) => (
-  <Svg {...p}>
-    <circle cx="8" cy="8" r="5.75" />
-    <rect x="5.9" y="5.9" width="4.2" height="4.2" rx="0.8" fill="currentColor" stroke="none" data-glyph="stop" />
-  </Svg>
-);
-
-/** A clock: a prompt still on its way (conversation/PromptDelivery.tsx), or a steer waiting for the
- * agent's current step to end (PendingSteer.tsx). */
-export const Clock = (p: CvIconProps) => (
-  <Svg {...p}>
-    <circle cx="8" cy="8" r="5.5" />
-    <path d="M8 5v3.2l2 1.3" />
-  </Svg>
-);
-
-/** Thread summary toggle in the title bar: two rings with bars. */
-export const SummaryToggle = (p: CvIconProps) => (
-  <Svg {...p}>
-    <circle cx="4.4" cy="4.6" r="1.9" />
-    <circle cx="4.4" cy="11.4" r="1.9" />
-    <path d="M8.6 4.6h5.1M8.6 11.4h5.1" />
-  </Svg>
-);
-
-/** Two linked rings ("View all" sources). */
-export const Connectors = (p: CvIconProps) => (
-  <Svg {...p}>
-    <circle cx="3.9" cy="12.1" r="1.7" />
-    <circle cx="12.1" cy="3.9" r="1.7" />
-    <path d="M5.4 11.1c1.5-.4 1.7-1.6 2.6-3.1s2.1-2.6 2.6-3.1" />
-    <circle cx="8" cy="8" r="1.7" />
-  </Svg>
-);
+export const TurnCopy = ({ size = 14 }: CvIconProps = {}) => <Copy size={size} />;
+export const TurnFork = ({ size = 14 }: CvIconProps = {}) => <Icon name="agent.fork" size={size} />;
+export const TurnAnchor = ({ size = 14 }: CvIconProps = {}) => <Icon name="bookmark" size={size} />;
+export const StopSquare = (props: CvIconProps) => <Icon name="action.stop" selected {...props} />;
+export const PlayTriangle = (props: CvIconProps) => <Icon name="media.play" selected {...props} />;
 
 export const GitHubMark = ({ size = 16, className, style }: CvIconProps) => (
   <svg
@@ -266,28 +80,13 @@ export const GitHubMark = ({ size = 16, className, style }: CvIconProps) => (
   </svg>
 );
 
-/** The working track's strength: the native ring track's (`StatusIndicatorTunables.trackOpacity`). */
-const WORKING_TRACK_OPACITY = 0.22;
-/** The working sweep: 80° of the r 5.25 ring from 12 o'clock clockwise (the native
- * `StatusIndicatorPlan.sweepLength`, 0.22 of the circle). */
-const WORKING_SWEEP_PATH = "M8 2.75a5.25 5.25 0 0 1 5.17 4.34";
-
-/** The running mark of a transcript row. Agent work (the default) draws the working look the
- * app picks (`data-working-look` on the root, conversation.css): a breathing dot, the turning
- * sweep, or a still dot while the row's words shimmer. Agent work's spinner is a faint full ring
- * (`cv-spinner__track`) with a short bright sweep (`cv-spinner__sweep`, about 80°, round caps)
- * turning, as in Claude and ChatGPT and as the native rows draw it (CmuxNextDesign
- * `StatusIndicatorPlan.workingGlyph`). Neither the 3/4 arc (Leo 2026-10-31: "who even decided to
- * put that 3/4 circle") nor the macOS activity indicator's spokes (#29903; Leo 2026-11-01: "why the
- * f*** did you make the spinner into this????"). `loading` (a check or a page loading, not agent
- * work) keeps the turning arc. `cv-spinner` turns either on the shared clock. */
 export const Spinner = ({
   size = 16,
   className,
   style,
   strokeWidth = 1.5,
   loading = false,
-}: CvIconProps & { loading?: boolean }) => (
+}: CvIconProps & { loading?: boolean; strokeWidth?: number }) => (
   <svg
     className={className ? `cv-spinner ${className}` : "cv-spinner"}
     style={style}
@@ -298,217 +97,21 @@ export const Spinner = ({
     aria-hidden="true"
     data-working={loading ? undefined : ""}
   >
-    {loading ? (
-      <path
-        className="cv-spinner__arc"
-        d="M8 2.75a5.25 5.25 0 1 1-4.55 2.63"
-        stroke="currentColor"
-        strokeWidth={strokeWidth}
-        strokeLinecap="round"
-      />
-    ) : (
-      <>
-        <circle
-          className="cv-spinner__track"
-          cx="8"
-          cy="8"
-          r="5.25"
-          stroke="currentColor"
-          strokeWidth={strokeWidth}
-          opacity={WORKING_TRACK_OPACITY}
-        />
-        <path
-          className="cv-spinner__sweep"
-          d={WORKING_SWEEP_PATH}
-          stroke="currentColor"
-          strokeWidth={strokeWidth}
-          strokeLinecap="round"
-        />
-        <circle className="cv-spinner__dot" cx="8" cy="8" r="3" />
-      </>
-    )}
-  </svg>
-);
-
-/** Stop square inside the send button while a turn runs (8.5px, #3a3b36). */
-export const StopSquare = ({ size = 16, className, style }: CvIconProps) => (
-  <svg
-    className={className}
-    style={{ color: "#3a3b36", ...style }}
-    width={size}
-    height={size}
-    viewBox="0 0 16 16"
-    aria-hidden="true"
-  >
-    <rect x="3.75" y="3.5" width="8.5" height="9" rx="1.6" fill="currentColor" />
-  </svg>
-);
-
-/** The composer's dim busy ring (12px) with a brighter leading arc. */
-export const ComposerSpinner = ({ className, style }: CvIconProps) => (
-  <svg className={className} style={style} width={12} height={12} viewBox="0 0 12 12" fill="none" aria-hidden="true">
-    <circle cx="6" cy="6" r="5.1" stroke="#51524c" strokeWidth="1.5" />
-    <path d="M6 .9a5.1 5.1 0 0 1 4.4 2.5" stroke="#7d7e78" strokeWidth="1.5" strokeLinecap="round" />
-  </svg>
-);
-
-export const PlayTriangle = ({ size = 16, className, style }: CvIconProps) => (
-  <svg
-    className={className}
-    style={{ color: "#3b3c37", ...style }}
-    width={size}
-    height={size}
-    viewBox="0 0 16 16"
-    aria-hidden="true"
-  >
-    <path d="M4.7 4.1v7.8c0 .7.75 1.1 1.3.7l5.9-3.9a.8.8 0 0 0 0-1.4L6 3.4c-.55-.4-1.3 0-1.3.7Z" fill="currentColor" />
-  </svg>
-);
-
-/** `</>` before a code card's language label. */
-export const CodeBrackets = (p: CvIconProps) => (
-  <Svg {...p}>
-    <path d="M4.6 5.2 1.9 8l2.7 2.8M11.4 5.2 14.1 8l-2.7 2.8M9.1 4.6 6.9 11.4" />
-  </Svg>
-);
-
-/** Code card "wrap lines" toggle. */
-export const WrapLines = (p: CvIconProps) => (
-  <Svg {...p}>
-    <path d="M2.5 8.5h9M9 6l2.5 2.5L9 11M13.5 4.5v8" />
-  </Svg>
-);
-
-/*
- * Turn action glyphs (copy, fork, anchor), drawn in one 84×24 strip measured from the
- * fixture captures. Compact buttons use a 15-unit window around each glyph so the
- * mark keeps the same visual weight as the other 14px footer icons.
- */
-function TurnStrip({ slot, size = 14 }: { slot: 0 | 1 | 2; size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox={`${slot * 28 + 5} 2.5 15 15`}
-      fill="none"
+    <path
+      className="cv-spinner__arc"
+      d="M8 2.75a5.25 5.25 0 1 1-4.55 2.63"
       stroke="currentColor"
-      strokeWidth={1.25}
+      strokeWidth={strokeWidth}
       strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      {slot === 0 && (
-        <>
-          <rect x={10.6} y={6.2} width={7.8} height={7.6} rx={2.1} />
-          <rect x={7.1} y={9.4} width={7.9} height={7.6} rx={2.1} fill="var(--cx-main)" />
-        </>
-      )}
-      {slot === 1 && <path d="M34.1 11.5h4.7l5.8-5.7M40.8 5.7h3.9v4M41.4 13.4l3.4 3.4M44.8 13.1v3.8h-3.9" />}
-      {slot === 2 && (
-        <>
-          <circle cx={68.5} cy={7.4} r={1.15} />
-          <path d="M68.5 8.6v8M63.2 12.1c0 2.6 2.4 4.5 5.3 4.5s5.3-1.9 5.3-4.5M62.3 13l.9-.9.9.9M72.9 13l.9-.9.9.9" />
-        </>
-      )}
-    </svg>
-  );
-}
-export const TurnCopy = ({ size }: { size?: number } = {}) => <TurnStrip slot={0} size={size} />;
-export const TurnFork = ({ size }: { size?: number } = {}) => <TurnStrip slot={1} size={size} />;
-export const TurnAnchor = ({ size }: { size?: number } = {}) => <TurnStrip slot={2} size={size} />;
+    />
+    {!loading && <circle className="cv-spinner__dot" cx="8" cy="8" r="3" />}
+  </svg>
+);
 
-/** arXiv favicon shown before "Paper" citation links. */
 export const ArxivMark = ({ size = 16, className, style }: CvIconProps) => (
   <svg className={className} style={style} width={size} height={size} viewBox="0 0 16 16" aria-hidden="true">
     <path d="M3.2 2.2 12.8 13.8" stroke="#b31b1b" strokeWidth="2.2" strokeLinecap="round" />
     <path d="M12.6 2.4 3.4 13.6" stroke="#9a9a96" strokeWidth="1.6" strokeLinecap="round" />
     <path d="M3.2 2.2 8 8" stroke="#d64b3c" strokeWidth="1.4" strokeLinecap="round" />
   </svg>
-);
-
-/** Four small rings joined by one diagonal: a collapsed run that did more than one kind of work
- *  ("Edited 2 files, read 2 files, ran 2 commands"). */
-export const MultiTool = (p: CvIconProps) => (
-  <Svg strokeWidth={1.1} {...p}>
-    <circle cx="4.5" cy="4.5" r="2.05" />
-    <circle cx="11.5" cy="4.5" r="2.05" />
-    <circle cx="4.5" cy="11.5" r="2.05" />
-    <circle cx="11.5" cy="11.5" r="2.05" />
-    <path d="M10 6 6 10" />
-  </Svg>
-);
-
-/** Terminal square of shell tool rows ("Ran pwd && …"). */
-export const TerminalSquare = (p: CvIconProps) => (
-  <Svg strokeWidth={1.1} {...p}>
-    <rect x="2.25" y="2.25" width="11.5" height="11.5" rx="2.6" />
-    <path d="M5.2 6.2 7 8 5.2 9.8M8.2 10h2.6" />
-  </Svg>
-);
-
-/** Open book of file-read tool rows ("Read SKILL.md"). */
-export const OpenBook = (p: CvIconProps) => (
-  <Svg strokeWidth={1.1} {...p}>
-    <path d="M8 4.4c-1.4-1.1-3.3-1.4-5.5-1.1v9.4c2.2-.3 4.1 0 5.5 1.1 1.4-1.1 3.3-1.4 5.5-1.1V3.3c-2.2-.3-4.1 0-5.5 1.1ZM8 4.4v9.4M4.6 3.2v9.3" />
-  </Svg>
-);
-
-/** Magnifier of file-search tool rows ("Searched for … in …"). */
-export const Magnifier = (p: CvIconProps) => (
-  <Svg strokeWidth={1.1} {...p}>
-    <circle cx="7" cy="7" r="4.25" />
-    <path d="M10.2 10.2 13.5 13.5" />
-  </Svg>
-);
-
-/** Folder of directory-listing tool rows ("Listed files in …"). */
-export const Folder = (p: CvIconProps) => (
-  <Svg strokeWidth={1.1} {...p}>
-    <path d="M2.25 4.75c0-.83.67-1.5 1.5-1.5h2.6l1.4 1.5h4.5c.83 0 1.5.67 1.5 1.5v5.5c0 .83-.67 1.5-1.5 1.5h-8.5c-.83 0-1.5-.67-1.5-1.5Z" />
-  </Svg>
-);
-
-/** Page with folded corner: file links and file resources. */
-export const FileDoc = (p: CvIconProps) => (
-  <Svg strokeWidth={1.1} {...p}>
-    <path d="M4.25 2.25h5l3 3v8.5h-8Z" />
-    <path d="M9.25 2.25v3h3" />
-  </Svg>
-);
-
-/** Envelope of agent-to-agent message cards ("Coordinator · cmux-ci to leo"). */
-export const Envelope = (p: CvIconProps) => (
-  <Svg strokeWidth={1.1} {...p}>
-    <rect x="2.25" y="3.75" width="11.5" height="8.5" rx="1.75" />
-    <path d="m2.75 4.75 5.25 4 5.25-4" />
-  </Svg>
-);
-
-/** A small bot: another agent's message to this chat when its harness has no mark (IncomingMessageCard.tsx). */
-export const Bot = (p: CvIconProps) => (
-  <Svg strokeWidth={1.1} {...p}>
-    <rect x="2.75" y="5.25" width="10.5" height="7.5" rx="2.5" />
-    <path d="M8 5.25V3.5" />
-    <circle cx="8" cy="2.9" r="0.6" />
-    <path d="M1.75 8.25v1.5M14.25 8.25v1.5" />
-    <circle cx="6" cy="8.75" r="0.5" fill="currentColor" />
-    <circle cx="10" cy="8.75" r="0.5" fill="currentColor" />
-    <path d="M6.75 10.75c.75.4 1.75.4 2.5 0" />
-  </Svg>
-);
-
-/** A paused agent pair's note (AgentPairNote.tsx). */
-export const PauseCircle = (p: CvIconProps) => (
-  <Svg {...p}>
-    <circle cx="8" cy="8" r="5.75" />
-    <path d="M6.5 6v4M9.5 6v4" />
-  </Svg>
-);
-
-/** Arrow between a message's sender and recipient. */
-export const ArrowRight = (p: CvIconProps) => (
-  <Svg {...p}>
-    <path d="M3.5 8h9M9.25 4.75 12.5 8l-3.25 3.25" />
-  </Svg>
 );

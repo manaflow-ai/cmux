@@ -999,7 +999,7 @@ impl Io for AgentSocket {
 /// Follows this daemon's own sessions (never a peer's) and reports their turns to their
 /// hand-offs while the Cloud agent's socket is there.
 /// The Cloud agent's socket: `ACPMUX_CLOUD_AGENT_SOCKET`, else [`SOCKET`].
-fn agent_socket() -> PathBuf {
+pub(super) fn agent_socket() -> PathBuf {
     std::env::var_os(SOCKET_ENV).map_or_else(|| PathBuf::from(SOCKET), PathBuf::from)
 }
 

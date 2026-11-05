@@ -234,12 +234,33 @@ extension PageWebView {
     /// CSS pixels are view points divided by it.
     public var debugPageZoom: Double { pageZoom }
 
-    /// A left click at `x`,`y` (CSS pixels, as `getBoundingClientRect` gives them) on a Chromium
-    /// page: a trusted DevTools press and release, as a person's click, also in a window that never
-    /// activates (a capture slot), where no AppKit click reaches the page. False on a WebKit page,
-    /// which the caller clicks with AppKit events, or when DevTools refuses either half.
-    public func debugPress(x: Double, y: Double) async -> Bool {
-        guard let page = chromiumSession?.page else { return false }
+    /// A left click at `x`,`y` in CSS pixels. Chromium receives trusted DevTools
+    /// input; WebKit receives native AppKit mouse events in its own view, including
+    /// in a non-key capture window. No router gesture is granted directly.
+    public func debugPress(x: Double, y: Double, native: Bool = false) async -> Bool {
+        if native, let page = chromiumSession?.page {
+            guard x.isFinite, y.isFinite else { return false }
+            let zoom = max(pageZoom, 0.01)
+            return page.debugPress(at: NSPoint(x: x * zoom, y: y * zoom))
+        }
+        guard x.isFinite, y.isFinite else { return false }
+        guard let page = chromiumSession?.page else {
+            guard let window = webView.window, !webView.isHiddenOrHasHiddenAncestor else { return false }
+            let zoom = max(pageZoom, 0.01)
+            let viewPoint = NSPoint(x: x * zoom, y: webView.isFlipped ? y * zoom : webView.bounds.height - y * zoom)
+            guard webView.bounds.contains(viewPoint) else { return false }
+            let point = webView.convert(viewPoint, to: nil)
+            let now = ProcessInfo.processInfo.systemUptime
+            guard let down = NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: now,
+                                                windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1),
+                  let up = NSEvent.mouseEvent(with: .leftMouseUp, location: point, modifierFlags: [], timestamp: now + 0.001,
+                                              windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 0) else { return false }
+            // The view's ordinary overrides record input before WebKit handles it.
+            // Direct native delivery is needed when a capture window never becomes key.
+            webView.mouseDown(with: down)
+            webView.mouseUp(with: up)
+            return true
+        }
         for type in ["mousePressed", "mouseReleased"] {
             guard (try? await page.devTools("Input.dispatchMouseEvent", params: [
                 "type": type, "x": x, "y": y, "button": "left", "buttons": type == "mousePressed" ? 1 : 0,
@@ -247,6 +268,61 @@ extension PageWebView {
             ])) != nil else { return false }
         }
         return true
+    }
+
+    /// Waits for one rendered DOM state, with no polling timer. Every observer and
+    /// deadline is released on match, timeout, document exit or call cancellation.
+    public func debugWait(selector: String, timeoutMilliseconds: Int) async -> JSONValue {
+        let id = UUID().uuidString
+        let timeout = min(max(timeoutMilliseconds, 1), 90_000)
+        let script = """
+        const waits = window.__cmuxDebugDOMWaits ??= new Map();
+        return await new Promise((resolve) => {
+          let observer, timer, finished = false;
+          const finish = (value) => {
+            if (finished) return;
+            finished = true;
+            observer?.disconnect(); clearTimeout(timer);
+            window.removeEventListener('pagehide', leave);
+            waits.delete(id);
+            resolve(JSON.stringify(value));
+          };
+          const leave = () => finish({matched:false, error:'page left'});
+          const check = () => {
+            try {
+              const element = [...document.querySelectorAll(selector)].find(element => {
+                if (!element.getClientRects().length) return false;
+                for (let parent = element; parent; parent = parent.parentElement) {
+                  const style = getComputedStyle(parent);
+                  if (style.visibility === 'hidden' || Number(style.opacity) === 0) return false;
+                }
+                return true;
+              });
+              if (element) finish({matched:true, text:(element.innerText || '').slice(0,400)});
+            } catch (error) { finish({matched:false, error:String(error)}); }
+          };
+          waits.set(id, () => finish({matched:false, error:'cancelled'}));
+          window.addEventListener('pagehide', leave, {once:true});
+          observer = new MutationObserver(check);
+          observer.observe(document.documentElement, {subtree:true, childList:true, attributes:true, characterData:true});
+          timer = setTimeout(() => finish({matched:false, error:'timeout'}), timeout);
+          check();
+        });
+        """
+        return await withTaskCancellationHandler {
+            guard !Task.isCancelled,
+                  let text = await callPageFunction(script, arguments: ["id": id, "selector": selector, "timeout": timeout],
+                                                    timeout: .milliseconds(timeout + 1_000)) as? String,
+                  let result = try? JSONValue.parse(Data(text.utf8)) else {
+                return ["matched": false, "error": "page wait cancelled or unavailable"]
+            }
+            return result
+        } onCancel: { [weak self] in
+            // task-owner: one cancellation cleanup message; no repeated work
+            Task { @MainActor [weak self] in
+                _ = await self?.callPageFunction("window.__cmuxDebugDOMWaits?.get(id)?.();", arguments: ["id": id])
+            }
+        }
     }
 
     /// The next file input this page opens in WebKit takes `files` instead of showing the panel.

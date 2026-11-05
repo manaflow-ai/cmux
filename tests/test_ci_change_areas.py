@@ -160,6 +160,21 @@ def test_portable_guard_runner_does_not_hide_a_native_change() -> None:
     assert actual.macos is True, (paths, actual)
 
 
+def test_portable_router_linux_placement_keeps_guard_references_linux_only() -> None:
+    workflow = (ROOT / module.CI_WORKFLOW_PATH).read_text(encoding="utf-8")
+    _, jobs = module.split_workflow_jobs(workflow)
+    router = jobs["changes"]
+    assert module.job_is_plainly_linux(router)
+    references = module.macos_job_test_references("\njobs:\n  " + router)
+    assert references is not None and references[0] == frozenset(), references
+    for unknown in (
+        router.replace("outputs.linux_runner", "outputs.mini_runner"),
+        router.replace("outputs.placed_attempt", "outputs.unchecked_attempt"),
+        router.replace("' changes '", "' other-job '"),
+    ):
+        assert not module.job_is_plainly_linux(unknown), unknown
+
+
 def test_resources_bin_release_neutral_inputs_are_text_scripts() -> None:
     # The Release lane validates compiled binaries' slices; a bundled text
     # script cannot fail it. A binary in this list would skip that check.
@@ -4790,7 +4805,7 @@ def test_web_workflow_parallelizes_typecheck_tests_and_browser_checks() -> None:
     assert './scripts/run-tests.sh --shard "${{ matrix.shard }}"' in tests
 
     assert "actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae" in instant
-    assert "bunx playwright install --with-deps chromium" in instant
+    assert "ensure-system-chrome.sh" in instant
     assert "CMUX_INSTANT_SKIP_TYPECHECK" in instant
 
 

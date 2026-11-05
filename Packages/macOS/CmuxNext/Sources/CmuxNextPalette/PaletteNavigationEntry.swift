@@ -33,6 +33,8 @@ public nonisolated struct PaletteNavigationEntry: Sendable, Hashable, Identifiab
     public var title: String
     /// The workspace that holds the pane or tab.
     public var workspaceTitle: String?
+    /// That workspace's id: tabs that only repeat its name are told apart within it.
+    public var workspaceID: String?
     /// The sidebar group of that workspace, or nil.
     public var groupTitle: String?
     public var cwd: String?
@@ -55,13 +57,14 @@ public nonisolated struct PaletteNavigationEntry: Sendable, Hashable, Identifiab
     /// ids, so choosing the row acts on this machine's object only (cmux#30755).
     public var machineID: String?
 
-    public init(id: String, kind: Kind, title: String, workspaceTitle: String? = nil, groupTitle: String? = nil,
+    public init(id: String, kind: Kind, title: String, workspaceTitle: String? = nil, workspaceID: String? = nil, groupTitle: String? = nil,
                 cwd: String? = nil, url: String? = nil, agent: String? = nil, sessionID: String? = nil, keywords: [String] = [],
                 color: GroupColor? = nil, isCurrent: Bool = false, lastUsed: Date? = nil, machineID: String? = nil) {
         self.id = id
         self.kind = kind
         self.title = title
         self.workspaceTitle = workspaceTitle
+        self.workspaceID = workspaceID
         self.groupTitle = groupTitle
         self.cwd = cwd
         self.url = url
@@ -73,6 +76,22 @@ public nonisolated struct PaletteNavigationEntry: Sendable, Hashable, Identifiab
         self.lastUsed = lastUsed
         self.machineID = machineID
     }
+
+    /// The record's title of a tab that names nothing a person reads (an agent chat, a Home
+    /// conversation or a page carry `about:blank`; a new tab none), replaced by `title`, the name
+    /// its tab shows (`TabTitleResolver`). Cmd-P listed agent chats as "about:blank" (msg 11943).
+    public static func titled(_ entries: [PaletteNavigationEntry], title: (PaletteNavigationEntry) -> String?) -> [PaletteNavigationEntry] {
+        entries.map { entry in
+            guard case .tab = entry.kind, entry.title.isEmpty || entry.title == blankTitle,
+                  let shown = title(entry), !shown.isEmpty else { return entry }
+            var titled = entry
+            titled.title = shown
+            return titled
+        }
+    }
+
+    /// The address a page-backed tab's record is titled with.
+    public static let blankTitle = "about:blank"
 
     /// The prefix `cmux agent message` reads as an acpmux session (`acp:<session id>`).
     public static let acpPrefix = "acp:"

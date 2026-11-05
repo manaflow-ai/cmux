@@ -50,6 +50,20 @@ await requireBrowserLane("agent-pane-tool-group-overlap.test.ts", async () => {
     await page.evaluate(() => {
       const samples: { before: string; after: string; overlap: number }[] = [];
       (window as unknown as { overlapSamples: typeof samples }).overlapSamples = samples;
+      // A fold at the transcript's bottom slides the rows above the opened line up while the rows
+      // under it hold, and cuts each rising row's foot at the line they hold with a clip-path (#32943,
+      // pushUpCut). Its box still reaches past that cut, so measure the foot it paints.
+      const paintedBottom = (row: HTMLElement) => {
+        const bottom = row.getBoundingClientRect().bottom;
+        const inset = /^inset\(([^)]*)\)/.exec(getComputedStyle(row).clipPath);
+        if (!inset) return bottom;
+        const sides = inset[1]!
+          .split(/\s+round\s+/)[0]!
+          .trim()
+          .split(/\s+/)
+          .map(parseFloat);
+        return bottom - (sides.length >= 3 ? sides[2]! : sides[0]!);
+      };
       window.cmuxAfterPaint(() => {
         const rows = [...document.querySelectorAll<HTMLElement>(".acpmux-thread > article[data-row-id]")].sort(
           (a, b) => Number(a.getAttribute("aria-posinset")) - Number(b.getAttribute("aria-posinset")),
@@ -57,7 +71,7 @@ await requireBrowserLane("agent-pane-tool-group-overlap.test.ts", async () => {
         for (let index = 1; index < rows.length; index += 1) {
           const before = rows[index - 1]!;
           const after = rows[index]!;
-          const overlap = before.getBoundingClientRect().bottom - after.getBoundingClientRect().top;
+          const overlap = paintedBottom(before) - after.getBoundingClientRect().top;
           if (overlap > 1) samples.push({ before: before.dataset.rowId!, after: after.dataset.rowId!, overlap });
         }
       });

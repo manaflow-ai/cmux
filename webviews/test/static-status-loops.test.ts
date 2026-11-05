@@ -2,7 +2,7 @@
 // Static status indicators setting (or macOS Reduce Motion) reaches every page as
 // `data-status-indicators="static"` on the root: the app's WebTheme bootstrap sets it from the theme
 // payload (`statusIndicators`), which this test runs as the app does, and under it, or under Reduce
-// Motion, no web loop may run: the mic's wait pulse, the model picker and harness spinners, the
+// Motion, no web loop may run: the mic's wait pulse, the shared spinner (model picker, harnesses, todo list), the
 // floating chat's breathing dot, the Thinking sweep, the todo list's spinner, the static Jump to
 // Latest arrow and Home's "writing" pulse.
 // The diff viewer does not get the pane's theme, so its spinners stop under Reduce Motion alone.
@@ -53,15 +53,15 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
   // A running transcript row's working mark (Spinner, WORKING-LOOK) with its words.
   const working =
     `<div class="cv-tool"><span class="cv-tool__icon"><span class="cv-spinner" data-working>` +
-    `<span class="cv-spinner__track"></span><span class="cv-spinner__sweep"></span><span class="cv-spinner__dot"></span></span></span>` +
+    `<span class="cv-spinner__arc"></span><span class="cv-spinner__dot"></span></span></span>` +
     `<span class="cv-tool__text">Compacting</span></div>`;
   const paneLoops =
     `<button class="acpmux-mic" data-state="starting">mic</button>` +
-    `<span class="acpmux-mp-refresh-spinner"></span><span class="acpmux-harness-spinner"></span>` +
+    `<span class="acpmux-harness-spinner"></span>` +
     `<span class="acpmux-floating-status" data-status="streaming"></span>` +
     `<div class="cv-md"><span class="cv-thinking">Thinking</span></div>` +
     `<button class="acpmux-jump-latest" data-shown><span class="acpmux-jump-latest__arrow">↓</span></button>` +
-    `<ul class="cv-plan"><li class="cv-plan__item" data-status="in_progress"><span class="cv-plan__mark"></span></li></ul>` +
+    `<ul class="cv-plan"><li class="cv-plan__item" data-status="in_progress"><span class="cv-plan__mark"><span class="cv-spinner" data-working></span></span></li></ul>` +
     `<span class="cv-spinner"></span>` +
     working +
     `<span class="hc-writing">writing</span>`;
@@ -124,12 +124,13 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     const running = await loops(p);
     await p.close();
     expect(running.length).toBeGreaterThanOrEqual(6);
-    // The todo list's spinner among them, so the Static and Reduce Motion checks cover it.
-    expect(running.some((loop) => loop.startsWith("cv-plan__mark") && loop.endsWith("cmux-spin"))).toBe(true);
+    // The todo list's step at work turns the shared Spinner inside its mark, never a ring of its own
+    // (Leo 2026-11-02: "WHY ... ARE YOU GUYS POSSIBLY DIFFERING THE ... SPINNERS").
+    expect(running.some((loop) => loop.startsWith("cv-plan__mark"))).toBe(false);
     // The running rows' spinner (compaction, tool runs) too: it once had no rule and never turned.
     expect(running.some((loop) => loop.startsWith("cv-spinner") && loop.endsWith("cmux-spin"))).toBe(true);
     // Agent work uses the shared spinner by default; no working mark runs the breathing keyframe.
-    expect(running.filter((loop) => loop.startsWith("cv-spinner ") && loop.endsWith("cmux-spin")).length).toBe(2);
+    expect(running.filter((loop) => loop.startsWith("cv-spinner ") && loop.endsWith("cmux-spin")).length).toBe(3);
     expect(running.some((loop) => loop.startsWith("cv-spinner ") && loop.endsWith("cmux-breathe"))).toBe(false);
   });
 

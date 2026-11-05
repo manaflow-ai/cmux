@@ -81,11 +81,25 @@ export function ArtifactPanel({
   const t = useT();
   // The shown version by its text, not its place: a reply that finishes or a reload moves the list.
   const [shown, setShown] = useState(opened.code);
+  const heldChoice = useRef<Artifact | undefined>(undefined);
+  // Only the live choice follows revisions; choosing an older version stays put.
+  const previousOpened = useRef(opened);
+  const previous = previousOpened.current;
+  if (
+    opened.identity &&
+    previous.identity === opened.identity &&
+    (opened.revision ?? -Infinity) > (previous.revision ?? -Infinity)
+  ) {
+    if (shown === previous.code) setShown(opened.code);
+    previousOpened.current = opened;
+  }
+
   // A shown version that left the list falls back to the opened one's place, then to it alone.
   const at = (code: string) => versions.findIndex((version) => version.code === code);
   const found = at(shown) >= 0 ? at(shown) : at(opened.code);
-  const list = found >= 0 ? versions : [opened];
-  const index = Math.max(0, found);
+  const held = opened.identity && at(shown) < 0 && heldChoice.current?.code === shown ? heldChoice.current : undefined;
+  const list = held ? [held, ...versions] : found >= 0 ? versions : [opened];
+  const index = held ? 0 : Math.max(0, found);
   const artifact = list[index]!;
   const jsx = /^(jsx|tsx)$/i.test(artifact.lang);
   const previews =
@@ -94,6 +108,7 @@ export function ArtifactPanel({
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
   const step = (to: number) => {
+    heldChoice.current = list[to]!;
     setShown(list[to]!.code);
     setCopied(false);
     setSaved(false);
@@ -253,7 +268,7 @@ export function ArtifactPanel({
           // Each version is its own frame: a frame draws the first document it is sent, and a
           // version with script waits for Run again.
           <ArtifactFrame
-            key={artifact.code}
+            key={artifact.identity ?? artifact.code}
             html={previewHtml(artifact)}
             code={artifact.code}
             lang={artifact.lang}
@@ -284,7 +299,10 @@ export function ArtifactFrame({
 }) {
   const t = useT();
   const requiresRun = render || jsx || artifactNeedsRun(html);
-  const [allowed, setAllowed] = useState(() => ranRenders.has(html));
+  // Consent is for one document: a live revision with new script waits for Run again, even though
+  // this frame stays mounted across the fence's revisions.
+  const [allowedHtml, setAllowedHtml] = useState(() => (ranRenders.has(html) ? html : undefined));
+  const allowed = allowedHtml === html || ranRenders.has(html);
   // The passive frame left its document (the gallery's frame counts its loads): show the source.
   const [left, setLeft] = useState(false);
   // Markup with no script, made inert; nil when the rewrite left it needing Run after all
@@ -301,7 +319,7 @@ export function ArtifactFrame({
           className="acpmux-review-changes"
           onClick={() => {
             ranRenders.add(html);
-            setAllowed(true);
+            setAllowedHtml(html);
           }}
         >
           {t("render.run")}
@@ -309,9 +327,9 @@ export function ArtifactFrame({
       </div>
     );
   return jsx ? (
-    <JsxFrame code={html} title={title} render={render} />
+    <JsxFrame key={html} code={html} title={title} render={render} />
   ) : (
-    <RunningFrame html={html} title={title} render={render} />
+    <RunningFrame key={html} html={html} title={title} render={render} />
   );
 }
 

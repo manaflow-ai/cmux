@@ -76,7 +76,8 @@ export default componentEntry<ComponentProps<typeof SavedEnvironmentPanel>>({
   title: "Saved environment panel",
   area: "Agent pane",
   covers: ["agent-session/acpmux/SavedEnvironmentPanel.tsx#SavedEnvironmentPanel"],
-  styles: () => Promise.all([import("./styles.css"), import("./savedEnvironments.css")]),
+  styles: () =>
+    Promise.all([import("./styles.css"), import("./composerLocation.css"), import("./savedEnvironments.css")]),
   load: () => import("./SavedEnvironmentPanel").then((module) => module.SavedEnvironmentPanel),
   widths: { narrow: 360, normal: 620, wide: 760 },
   height: 320,
@@ -108,6 +109,14 @@ export default componentEntry<ComponentProps<typeof SavedEnvironmentPanel>>({
       note: "The Host select open: the menu starts at the field's leading edge and is at least as wide.",
       props: { ...baseProps, environment: sshEnvironment },
       play: openHost,
+    },
+    "ssh-host-hover": {
+      note: "Hover on build-server is neutral; gpu-box remains selected by its check alone.",
+      props: { ...baseProps, environment: sshEnvironment },
+      play: async (ctx) => {
+        await openHost(ctx);
+        await ctx.hover({ role: "menuitemradio", name: "build-server" });
+      },
     },
     "ssh-host-long-open": {
       note: "A long Host name keeps the drop-down within the compact location-menu width.",

@@ -220,15 +220,18 @@ async fn move_chat(
     let received = dst.request("_acpmux/transfer_receive", params).await?;
     let receive_id = received["receiveId"].as_str().unwrap().to_owned();
     copy_bundle(src, dst, &begin, &receive_id).await;
-    let moved = match finish(dst, &receive_id, extra).await {
+    let mut finish_params = extra;
+    finish_params["epoch"] = begin["epoch"].clone();
+    let moved = match finish(dst, &receive_id, finish_params).await {
         Ok(moved) => moved,
         Err(e) => {
-            let abort = json!({"sessionId": id, "transferId": begin["transferId"]});
+            let abort = json!({"sessionId": id, "transferId": begin["transferId"], "epoch": begin["epoch"]});
             src.request("_acpmux/transfer_abort", abort).await.unwrap();
             return Err(e);
         }
     };
-    let commit = json!({"sessionId": id, "transferId": begin["transferId"]});
+    let commit =
+        json!({"sessionId": id, "transferId": begin["transferId"], "epoch": begin["epoch"]});
     src.request("_acpmux/transfer_commit", commit).await.unwrap();
     Ok(moved)
 }
@@ -332,7 +335,8 @@ async fn a_guarded_finish_refuses_a_folder_outside_the_roots_and_the_source_stay
         std::os::unix::fs::symlink(outside.path(), &link).unwrap();
         tries.push(json!({"cwd": link}));
     }
-    for extra in tries {
+    for mut extra in tries {
+        extra["epoch"] = begin["epoch"].clone();
         let r = finish(&mut dst, &receive_id, extra.clone()).await;
         assert!(r.as_ref().is_err_and(|e| e.contains("transfer.cwd")), "{extra}: {r:?}");
     }
@@ -342,7 +346,8 @@ async fn a_guarded_finish_refuses_a_folder_outside_the_roots_and_the_source_stay
     // The source still holds the chat, frozen, until the mover aborts.
     let late = src.request(method::SESSION_PROMPT, ask(&id, "p-late", "late")).await;
     assert!(late.as_ref().is_err_and(|e| e.contains("transfer.moving")), "{late:?}");
-    let abort = json!({"sessionId": id, "transferId": begin["transferId"]});
+    let abort =
+        json!({"sessionId": id, "transferId": begin["transferId"], "epoch": begin["epoch"]});
     src.request("_acpmux/transfer_abort", abort).await.unwrap();
     src.request(method::SESSION_PROMPT, ask(&id, "p-again", "again")).await.unwrap();
 }
@@ -628,7 +633,8 @@ async fn a_chat_with_no_asking_mode_moves_under_peer_control_but_not_under_web()
     let params = json!({"manifest": begin, "guard": guard("web", &[root.path()])});
     let r = dst.request("_acpmux/transfer_receive", params).await;
     assert!(r.as_ref().is_err_and(|e| e.contains("transfer.family")), "{r:?}");
-    let abort = json!({"sessionId": id, "transferId": begin["transferId"]});
+    let abort =
+        json!({"sessionId": id, "transferId": begin["transferId"], "epoch": begin["epoch"]});
     src.request("_acpmux/transfer_abort", abort).await.unwrap();
 
     // Toward the person's own machine (peer) it moves as it is, and its queue runs as peer.
@@ -866,4 +872,24 @@ async fn a_guarded_move_drops_the_bundles_prompt_provenance() {
         assert!(!recs.is_empty(), "no {kind} record came over");
         assert!(!recs.iter().any(carried), "a moved {kind} record kept its provenance: {recs:?}");
     }
+}
+
+#[tokio::test]
+async fn a_guarded_move_keeps_only_the_folders_under_its_roots() {
+    // A crafted bundle names folders beside the chat's own: only those under the move's roots
+    // reach its harness (`hub/additional_dirs.rs`), never one outside (a home's `.ssh`, `/`).
+    let root = Scratch::home("dirs");
+    let inside = root.path().join("notes");
+    std::fs::create_dir_all(&inside).unwrap();
+    let outside = Scratch::temp("dirs-outside");
+    let (hub, mut dst) = daemon(config("ask", json!({})), None).await;
+    let m = meta(
+        root.path(),
+        json!({"additionalDirectories": [inside, outside.path(), "/", root.path(), "relative"]}),
+    );
+    let id = m["id"].as_str().unwrap().to_owned();
+    let rid = receive(&mut dst, guard("peer", &[root.path()]), &m, &[]).await.unwrap();
+    finish(&mut dst, &rid, json!({})).await.unwrap();
+    let meta = hub.resolve(&id).unwrap().meta();
+    assert_eq!(meta.additional_directories, [std::fs::canonicalize(&inside).unwrap()]);
 }

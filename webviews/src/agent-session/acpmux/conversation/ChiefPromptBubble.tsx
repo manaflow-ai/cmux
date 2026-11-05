@@ -1,5 +1,7 @@
 import { type ReactNode, useState } from "react";
+import { useChiefFace } from "../chiefFace";
 import { useT } from "../i18n";
+import { useTranscriptChief } from "./sentFrom";
 
 /// More than this many lines, or characters, and a Chief prompt opens collapsed.
 const COLLAPSED_LINES = 6;
@@ -9,8 +11,30 @@ const COLLAPSED_CHARS = 600;
 export const isLongPrompt = (text: string) =>
   text.length > COLLAPSED_CHARS || text.split("\n").length > COLLAPSED_LINES;
 
-/// A prompt the Chief sent a subagent (its task, a tell, a restart message): marked "From the
-/// Chief" so it does not read as the person's own, and a long task shows its first lines with
+/// The line over a prompt the Chief sent on the person's behalf, as ChatGPT marks a message its
+/// agent sent: the Chief's existing avatar (chiefFace.ts) and a muted "Sent from <Chief>",
+/// right-aligned with the bubble (Leo, 2026-11-02: "this is what the chatgpt dot does").
+export function ChiefSentFrom() {
+  const t = useT();
+  const face = useChiefFace(useTranscriptChief());
+  // l10n-allow: Chief is the product's name for it, never translated.
+  const name = face?.name ?? "Chief";
+  return (
+    <div className="cv-user__from">
+      {face?.src ? (
+        <img className="cv-agent-avatar cv-user__from-avatar" src={face.src} alt="" width={14} height={14} />
+      ) : face?.text ? (
+        <span className="cv-chief-text-avatar cv-user__from-avatar" aria-hidden="true">
+          {face.text}
+        </span>
+      ) : null}
+      <span className="cv-user__from-label">{t("transcript.sentFrom", { name })}</span>
+    </div>
+  );
+}
+
+/// A prompt the Chief sent a subagent (its task, a tell, a restart message): marked "Sent from
+/// <Chief>" (`ChiefSentFrom`) so it does not read as the person's own, and a long task shows its first lines with
 /// Show all (the session keeps the whole text; copy and select still take all of it when open).
 /// `actions` is the prompt's action row (time, copy, retry): a long task's Show all leads it on
 /// the left, so the toggle adds no row of its own (Leo 2026-10-31).
@@ -21,7 +45,7 @@ export function ChiefPromptBubble({ text, actions }: { text: string; actions?: R
   const collapsed = long && !open;
   return (
     <>
-      <div className="cv-user__from">{t("transcript.fromChief")}</div>
+      <ChiefSentFrom />
       <div
         className={
           collapsed

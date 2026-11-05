@@ -152,3 +152,51 @@ pub fn offer(agent: Agent, output: &str) -> Option<Offer> {
         Agent::Codex => Some(Offer { url, user_code: Some(device_code(&plain)?) }),
     }
 }
+
+/// The page Claude Code asks `$BROWSER` to open (`agent_login`'s shim saved it, one argument per
+/// line): its automatic sign-in link, whose approve sends the code straight back to the CLI's own
+/// listener on this machine. Only an allowed link (``allowed_url``) whose `redirect_uri` is
+/// exactly `http://localhost:<port>/callback` counts; the link and that port.
+pub fn auto_url(saved: &str) -> Option<(String, u16)> {
+    saved.lines().map(str::trim).find_map(|line| {
+        let url = allowed_url(line)?;
+        let port = callback_port(&url)?;
+        Some((url, port))
+    })
+}
+
+/// The port of `url`'s one `redirect_uri` when it is `http://localhost:<port>/callback`.
+fn callback_port(url: &str) -> Option<u16> {
+    let query = url.split_once('?')?.1.split('#').next().unwrap_or_default();
+    let mut found = query.split('&').filter_map(|pair| pair.strip_prefix("redirect_uri="));
+    let raw = found.next()?;
+    if found.next().is_some() {
+        return None;
+    }
+    let redirect = percent_decode(raw)?;
+    let digits = redirect.strip_prefix("http://localhost:")?.strip_suffix("/callback")?;
+    let port: u16 = digits.parse().ok().filter(|p| *p > 0)?;
+    // No leading zeros, no sign: the port as it is written.
+    (port.to_string() == digits).then_some(port)
+}
+
+/// `%XX` decoded; nil for a broken escape or a result that is not UTF-8.
+fn percent_decode(text: &str) -> Option<String> {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while let Some(&b) = bytes.get(i) {
+        if b == b'%' {
+            let hex = std::str::from_utf8(bytes.get(i + 1..i + 3)?).ok()?;
+            if !hex.bytes().all(|c| c.is_ascii_hexdigit()) {
+                return None;
+            }
+            out.push(u8::from_str_radix(hex, 16).ok()?);
+            i += 3;
+        } else {
+            out.push(b);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).ok()
+}

@@ -118,6 +118,7 @@ extension DockColumnHandlers {
                 window.toggleDock(edge, cwd: invocation["cwd"]?.stringValue)
                 return .done
             }
+            ActionTargetTitles.setPaletteState(toggle, in: registry) { LayoutTunables.dockedWorkspaces.value && context.activeWindow?.state.docks.dock(at: edge)?.hidden == false }
         }
         registry.bindEffect("workspace.undock") { invocation in
             guard LayoutTunables.dockedWorkspaces.value else { return .refused(RefusalStrings.dockedWorkspacesOff) }

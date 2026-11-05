@@ -9,6 +9,7 @@ import class CmuxNextDaemon.DaemonLaunchTimings
 import Darwin
 import os
 import CmuxNextCompat
+import struct CmuxNextControl.LaunchMarkSink
 
 /// `debug.timings`: main-thread spans of the paths the stall bench measures
 /// (scripts/cmux-next/bench-stalls.py): launch phases, each palette and icon
@@ -73,7 +74,7 @@ enum DebugTimings {
 
     static func install() {
         DaemonLaunchTimings.shared.install { markLaunch($0, at: $1) }
-        AgentPaneLaunchTimings.shared.install { markLaunch($0) }
+        AgentPaneLaunchTimings.shared.install { markLaunch($0, at: $1) }
         TerminalTimings.onSurfaceCreated = { duration in
             let ms = milliseconds(duration)
             if surfaces.count < capacity { surfaces.append(ms) }
@@ -135,6 +136,9 @@ enum DebugTimings {
         return [
             "launch_terminals": terminals?["panes"] ?? .object([:]), "launch_terminals_frame_shown_max_ms": terminals?["max_ms"] ?? .null,
             "launch_ms_since_process_start": .object(launch),
+            // The launch marks' zero on the wall clock (ms since 1970), so a page's own marks
+            // (`Date.now()`) line up with them (bench_relaunch_reconnect.py).
+            "process_start_epoch_ms": .number((processStart.timeIntervalSince1970 * 1_000).rounded()),
             "palette_opens": .array(paletteOpens.map { open in
                 ["ms": round(milliseconds(open.total)), "input_ms": round(milliseconds(open.input)),
                  "key_to_frame_ms": round(milliseconds(open.keyToFrame)), "model_ms": round(milliseconds(open.model)),

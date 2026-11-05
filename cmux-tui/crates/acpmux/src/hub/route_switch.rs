@@ -94,6 +94,8 @@ impl Hub {
             return Ok(None);
         }
         let home = route.file.account_home.clone().map(PathBuf::from);
+        let name = route.name();
+        let moved = route.clone();
         let before = route_account::home_var(&family).and_then(|var| env.get(var).cloned());
         let fam = family.clone();
         let route_env = tokio::task::spawn_blocking(move || routes::env_for(&route, &fam, &state))
@@ -101,9 +103,24 @@ impl Hub {
             .map_err(|e| RpcError::internal(e.to_string()))?
             .map_err(|e| route_error(&e))?;
         routes::apply(env, &route_env);
+        env.insert(routes::NAME_KEY.into(), name);
         // A home the profile pins (a Chief turn's, a claude-sr profile's) is
         // only replaced by a route picked for this chat or profile.
         let pinned = before.is_some() && !matches!(scope, "chat" | "profile");
+        // A started chat moved onto another login that shares its conversations (a Codex
+        // shadow home and its base) runs there now, and keeps it as its store.
+        if has_home
+            && scope == "chat"
+            && let Some(to) = route_account::moved_home(
+                &moved,
+                &family,
+                before.as_deref().map(std::path::Path::new),
+            )
+            && let Some(var) = route_account::home_var(&family)
+        {
+            env.insert(var.to_owned(), to.display().to_string());
+            return Ok(Some(to));
+        }
         if has_home || pinned {
             route_account::keep_home(&family, before, env);
             return Ok(None);
@@ -356,10 +373,27 @@ impl Hub {
         let profile = self.config.read().await.harnesses.get(&meta.harness).cloned()?;
         let family = crate::config::derive_family(&meta.harness, &profile);
         let workspace = meta.session_env.get("CMUX_WORKSPACE_ID").map(String::as_str);
-        let (id, _) =
-            routes::bound_route(&routes::bindings(&state), &session.id, workspace, &family)?;
+        // The route the spawn ran on (`routes::spawn_route`); a profile's own only for codex,
+        // whose logins this moves between.
+        let bound = routes::spawn_route(
+            &routes::bindings(&state),
+            &session.id,
+            workspace,
+            &family,
+            &profile.env,
+        )
+        .filter(|(_, scope)| *scope != "profile" || family == "codex");
+        let unbound = bound.is_none();
+        let own_endpoint = crate::byo_endpoint::Kind::of_env(&profile.env).is_some();
+        let id = match bound {
+            Some((id, _)) => id,
+            // A codex chat on the CLI's own login (no route) is on the built-in one; a profile
+            // with an endpoint of its own is not a login.
+            None if family == "codex" && !own_endpoint => routes::CODEX_LOGIN_ROUTE_ID.to_owned(),
+            None => return None,
+        };
         let route = routes::find(dir.as_deref(), &id).ok()?;
-        if routes::auto_probe_allowed(&id) {
+        if !unbound && routes::auto_probe_allowed(&id) {
             let (hub, s, r, st) = (self.clone(), session.clone(), route.clone(), state.clone());
             tokio::spawn(async move {
                 let probe = routes::probe(&r, &st).await;
@@ -369,15 +403,32 @@ impl Hub {
         // A fallback never names another account: the chat keeps its folder.
         let (_, env) = self.harness_env(&meta).await;
         let home = route_account::current_home(&meta, &family, &env);
-        let next = route.file.fallback.iter().filter(|f| **f != id).find_map(|f| {
+        let named = route.file.fallback.iter().filter(|f| **f != id).find_map(|f| {
+            // A route turned off (`_acpmux/account/set`) is never moved onto.
             routes::find(dir.as_deref(), f).ok().filter(|r| {
-                r.serves(&family) && route_account::switch_allowed(home.as_deref(), r).is_ok()
+                !r.file.disabled
+                    && r.serves(&family)
+                    && route_account::switch_allowed(home.as_deref(), r).is_ok()
             })
         });
+        // A codex chat on a router, proxy or key with no fallback of its own may always go back to
+        // the signed-in Codex login it would run on with no route at all, and does by itself.
+        // A route that names fallbacks of its own keeps to them, even when none can take the chat
+        // now: only one that names none moves by itself.
+        let signed_in = route
+            .file
+            .fallback
+            .is_empty()
+            .then(|| account_fallback(&route, &family, home.as_deref(), dir.as_deref()))
+            .flatten();
+        if unbound && signed_in.is_none() {
+            return None;
+        }
+        let auto = route.file.auto_fallback || signed_in.is_some();
         let mut out = json!({"route": {"routeId": id, "name": route.name()}});
-        if let Some(next) = next {
+        if let Some(next) = named.or(signed_in) {
             out.set("fallback", json!({"routeId": next.id, "name": next.name()}));
-            if route.file.auto_fallback
+            if auto
                 && routes::set_binding(&state, &format!("chat:{}", session.id), Some(&next.id))
                     .is_ok()
             {
@@ -393,6 +444,62 @@ impl Hub {
         }
         Some(out)
     }
+}
+
+/// The next signed-in, enabled Codex login a codex chat that failed on `failed` moves onto by
+/// itself (Leo, 2026-11-05: "the codex signed account, like auto routing permission"): the CLI's
+/// own login first, then each account route, by id. A failure on a login looks for another
+/// account; a failure on a router, proxy or key may go back to the chat's own login. Only a login
+/// the chat may move to: one with no folder of its own, its own folder, or one that shares its
+/// conversations (a shadow home and its base, route_shadow.rs).
+fn account_fallback(
+    failed: &routes::Route,
+    family: &str,
+    home: Option<&std::path::Path>,
+    dir: Option<&std::path::Path>,
+) -> Option<routes::Route> {
+    if family != "codex" {
+        return None;
+    }
+    let current = home.map(std::path::Path::to_path_buf).or_else(crate::route_shadow::codex_base);
+    let on_login = failed.file.kind == routes::RouteKind::DirectSubscription;
+    let builtin = routes::find(dir, routes::CODEX_LOGIN_ROUTE_ID).ok();
+    let accounts: Vec<_> = routes::load(dir)
+        .0
+        .into_iter()
+        .filter(|r| {
+            r.id != routes::CODEX_LOGIN_ROUTE_ID
+                && r.file.kind == routes::RouteKind::DirectSubscription
+                && r.file.account_home.is_some()
+        })
+        .collect();
+    // A chat in another account's own folder (not a shadow) has no way onto the CLI's login: it
+    // would keep running in that folder.
+    let in_account = home.is_some_and(|h| {
+        accounts.iter().any(|a| {
+            a.file.shadow_of.is_none()
+                && a.file.account_home.as_deref().map(std::path::Path::new) == Some(h)
+        })
+    });
+    // The accounts after the one that failed come first, then the rest: with A and B both out of
+    // their limits, a chat moves A -> B -> C, never back and forth between A and B.
+    let mut candidates: Vec<_> = builtin.into_iter().chain(accounts).collect();
+    if let Some(at) = candidates.iter().position(|r| r.id == failed.id) {
+        candidates.rotate_left(at + 1);
+    }
+    candidates.into_iter().find(|r| {
+        if r.id == failed.id || r.file.disabled || !r.serves(family) {
+            return false;
+        }
+        if r.id == routes::CODEX_LOGIN_ROUTE_ID && in_account {
+            return false;
+        }
+        let Some(target) = route_account::effective_home(r, home) else { return false };
+        if on_login && Some(&target) == current.as_ref() {
+            return false;
+        }
+        routes::codex_signed_in(Some(&target)) && route_account::switch_allowed(home, r).is_ok()
+    })
 }
 
 pub(crate) fn route_error(e: &routes::RouteError) -> RpcError {

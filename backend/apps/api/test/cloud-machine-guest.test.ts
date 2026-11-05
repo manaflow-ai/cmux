@@ -1,6 +1,6 @@
 import { runInDurableObject } from "cloudflare:test"
 import { describe, expect, it } from "vitest"
-import { decodeBase64, DIR_MAX_BYTES, DIR_MAX_ENTRIES, execCommand, execTimeout, FILE_MAX_BYTES, FS_PROGRAM, fsCommand, OUTPUT_MAX_BYTES, validPath } from "../src/cloud-machine-guest.ts"
+import { decodeBase64, DIR_MAX_BYTES, DIR_MAX_ENTRIES, execCommand, execTimeout, FILE_MAX_BYTES, FS_PROGRAM, fsCommand, INLINE_COMMAND_MAX_BYTES, OUTPUT_MAX_BYTES, STAGE_PIECE_BYTES, stageCommand, stagedCommand, validPath } from "../src/cloud-machine-guest.ts"
 import { bindBody, bindFile, cloudStub, createdAndBound, frame, person, post, reply, sessionToken, SIZE, worker } from "./cloud-bind-support.ts"
 import { SHARED_TEAM } from "./setup/cloud-teams.ts"
 import { DriverError } from "../src/providers/contract.ts"
@@ -162,6 +162,27 @@ describe("/v1/cloud/machines/{machine}/exec and /fs/{op}", { timeout: 60_000 }, 
     expect(await call("DELETE", `${base}/fs/remove?path=/x`, t)).toMatchObject({ status: 502, body: { error: { code: "vm_file_operation_failed", message: "Traceback: boom" } } })
   })
 
+  it("runs a command of several MiB: staged on the machine in pieces of stdin, then run from its file", async () => {
+    const { t, team, machine } = await signedInWithMachine("cloud-guest-1")
+    const stub = stubOf(team)
+    const base = `/v1/cloud/machines/${machine}`
+    await stub.fakeControl({ guest_reply: { exitCode: 0, stdout: "done\n", stderr: "" } })
+    const before = (await stub.fakeControl({})).guest_calls.length
+    let command = "printf '%s' '"
+    for (let n = 0; command.length < 5 * 1024 * 1024; n++) command += `word${(n * 7919) % 100_003} `
+    command += "' | wc -c"
+    expect(await call("POST", `${base}/exec`, t, { command })).toMatchObject({ status: 200, body: { exitCode: 0, stdout: "done\n" } })
+    const calls = (await stub.fakeControl({})).guest_calls.slice(before) as Array<{ command: string; stdin?: string }>
+    const pieces = Math.ceil(command.length / STAGE_PIECE_BYTES)
+    expect(calls.length).toBe(pieces + 1)
+    const path = /\/tmp\/\.cmux-exec-[0-9a-f]{32}/.exec(calls[0]!.command)![0]
+    calls.slice(0, pieces).forEach((piece, n) => expect(piece.command).toBe(stageCommand(path, n === 0)))
+    // The pieces put together are the command, byte for byte; no call's command holds it.
+    expect(calls.slice(0, pieces).map((piece) => piece.stdin).join("")).toBe(command)
+    expect(calls.at(-1)!.command).toBe(execCommand(stagedCommand(path)))
+    expect(calls.every((c) => c.command.length < INLINE_COMMAND_MAX_BYTES)).toBe(true)
+  })
+
   it("answers an over-limit answer as a final 413, never a retryable 502, and audits it", async () => {
     const { t, team, machine } = await signedInWithMachine("cloud-guest-1")
     const stub = stubOf(team)
@@ -199,7 +220,6 @@ describe("/v1/cloud/machines/{machine}/exec and /fs/{op}", { timeout: 60_000 }, 
     expect((await call("GET", `${base}/exec`, t)).status).toBe(405)
     expect((await call("POST", `${base}/fs/read`, t, { path: "/x" })).status).toBe(405)
     expect((await call("POST", `${base}/exec`, t, { command: "  " })).header).toBe("vm_invalid_command")
-    expect((await call("POST", `${base}/exec`, t, { command: "x".repeat(64 * 1024 + 1) })).header).toBe("vm_command_too_large")
     expect((await call("POST", `${base}/exec`, t, [ECHO])).header).toBe("vm_invalid_request")
     expect((await call("GET", `${base}/fs/read?path=relative`, t)).header).toBe("vm_invalid_path")
     expect((await call("GET", `${base}/fs/read?path=/a/../etc/shadow`, t)).header).toBe("vm_invalid_path")

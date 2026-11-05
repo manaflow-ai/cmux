@@ -60,7 +60,7 @@ def failures(needs: dict, event: str = "") -> dict[str, str]:
     allowed = {"success"} if required == "true" else {"success", "skipped"}
     return {
         job: needs.get(job, {}).get("result", "missing")
-        for job in sorted((set(needs) - {"changes"}) | {"build", "tests", "database"})
+        for job in sorted((set(needs) - {"changes", "portable-placement"}) | {"build", "tests", "database"})
         if needs.get(job, {}).get("result") not in (
             allowed | {"skipped"}
             if event in {"pull_request", "merge_group"} and job in {"build", "tests", "database"}

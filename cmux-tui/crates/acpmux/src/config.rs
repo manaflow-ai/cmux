@@ -331,6 +331,25 @@ pub(crate) fn private_state_rw(path: &Path) -> Result<std::fs::File> {
     Ok(file)
 }
 
+/// Create an owner-only state file without following a pre-positioned final
+/// symlink. Callers can distinguish an existing incident archive through the
+/// `AlreadyExists` error, so this deliberately does not open existing files.
+#[cfg(unix)]
+pub(crate) fn private_state_create_new(path: &Path) -> Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    refuse_lost_home(path)?;
+
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+        .with_context(|| format!("create private state file {}", path.display()))?;
+    validate_private_state_file(&file, path)?;
+    Ok(file)
+}
+
 /// Open or create an owner-only regular state file for append without
 /// following a pre-positioned final symlink (daemon.log).
 #[cfg(unix)]
@@ -453,6 +472,11 @@ pub(crate) fn private_state_file(path: &Path) -> Result<std::fs::File> {
 #[cfg(windows)]
 pub(crate) fn private_state_rw(path: &Path) -> Result<std::fs::File> {
     Ok(crate::owner_only::open_rw(path)?)
+}
+
+#[cfg(windows)]
+pub(crate) fn private_state_create_new(path: &Path) -> Result<std::fs::File> {
+    Ok(crate::owner_only::create_new(path)?)
 }
 
 #[cfg(windows)]
@@ -733,6 +757,11 @@ pub struct SessionDefaults {
     /// a router key variable). The profile's own `env` wins on conflicts.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub env: BTreeMap<String, String>,
+    /// `permissionMode`: the permission mode a new chat of this family or
+    /// profile starts in, over the daemon-wide `defaultPermissionMode`
+    /// (`hub/start_mode.rs`): `fullAccess` (alias `yolo`), `standard` or `ask`.
+    #[serde(default, alias = "permission_mode", skip_serializing_if = "Option::is_none")]
+    pub permission_mode: Option<String>,
 }
 
 impl SessionDefaults {
@@ -751,6 +780,9 @@ impl SessionDefaults {
         }
         for (k, v) in &top.env {
             self.env.insert(k.clone(), v.clone());
+        }
+        if top.permission_mode.is_some() {
+            self.permission_mode = top.permission_mode.clone();
         }
     }
     pub fn is_empty(&self) -> bool {
@@ -821,54 +853,6 @@ pub fn turn_cut(name: &str, profile: &HarnessProfile) -> Option<TurnCut> {
         HarnessKind::ClaudeStdio => Some(TurnCut::Claude),
         HarnessKind::Acp if derive_family(name, profile) == "codex" => Some(TurnCut::Codex),
         _ => None,
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-#[derive(Default)]
-pub enum StoreMode {
-    Memory,
-    #[default]
-    Local,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct StoreConfig {
-    #[serde(default)]
-    pub mode: StoreMode,
-    /// Segment roll size in bytes for the event log.
-    #[serde(default = "default_segment_bytes")]
-    pub segment_bytes: u64,
-    /// Days a closed chat's event log is kept whole (`hub/retention.rs`): after them, the
-    /// harness's raw lines and long tool output are removed from it, the chat's messages kept.
-    /// Default 14; 0 keeps every log whole.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub closed_log_days: Option<u32>,
-}
-
-impl StoreConfig {
-    /// How long a closed chat's log is kept whole; None: always.
-    pub fn closed_log_retention(&self) -> Option<std::time::Duration> {
-        match self.closed_log_days.unwrap_or(14) {
-            0 => None,
-            days => Some(std::time::Duration::from_secs(u64::from(days) * 86_400)),
-        }
-    }
-}
-
-fn default_segment_bytes() -> u64 {
-    8 * 1024 * 1024
-}
-
-impl Default for StoreConfig {
-    fn default() -> Self {
-        Self {
-            mode: StoreMode::Local,
-            segment_bytes: default_segment_bytes(),
-            closed_log_days: None,
-        }
     }
 }
 
@@ -1141,6 +1125,111 @@ impl ArtifactsSyncConfig {
     }
 }
 
+/// Persisted cmux-added prompt overrides. The `user` value applies to every new
+/// session on this daemon; project entries are keyed by a canonical working directory.
+/// Harness-owned prompts never live here: this store contains only text the user explicitly
+/// added through the Context viewer.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextOverrides {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub projects: BTreeMap<String, String>,
+    /// Overrides of a verified preset prompt, kept separate for each preset name.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub preset_prompts: BTreeMap<String, ContextPromptOverrides>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextPromptOverrides {
+    pub user: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub projects: BTreeMap<String, String>,
+}
+
+impl ContextPromptOverrides {
+    pub fn for_project(&self, cwd: &Path) -> Option<&str> {
+        self.projects
+            .get(&ContextOverrides::project_key(cwd))
+            .map(String::as_str)
+            .or(self.user.as_deref())
+    }
+}
+
+impl ContextOverrides {
+    pub fn is_empty(&self) -> bool {
+        self.user.is_none() && self.projects.is_empty() && self.preset_prompts.is_empty()
+    }
+
+    pub fn project_key(cwd: &Path) -> String {
+        std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_owned()).to_string_lossy().into_owned()
+    }
+
+    pub fn for_project(&self, cwd: &Path) -> Option<(&str, &str)> {
+        let key = Self::project_key(cwd);
+        self.projects
+            .get(&key)
+            .map(|text| ("project", text.as_str()))
+            .or_else(|| self.user.as_deref().map(|text| ("user", text)))
+    }
+
+    pub fn set(
+        &mut self,
+        scope: &str,
+        cwd: Option<&Path>,
+        text: Option<String>,
+    ) -> Result<(), String> {
+        match scope {
+            "user" => self.user = text,
+            "project" => {
+                let cwd = cwd.ok_or("cwd is required for a project override")?;
+                let key = Self::project_key(cwd);
+                if let Some(text) = text {
+                    self.projects.insert(key, text);
+                } else {
+                    self.projects.remove(&key);
+                }
+            }
+            _ => return Err("scope must be user or project".into()),
+        }
+        Ok(())
+    }
+
+    pub fn set_preset(
+        &mut self,
+        preset: &str,
+        scope: &str,
+        cwd: Option<&Path>,
+        text: Option<String>,
+    ) -> Result<(), String> {
+        if scope != "user" && scope != "project" {
+            return Err("scope must be user or project".into());
+        }
+        if scope == "project" && cwd.is_none() {
+            return Err("cwd is required for a project override".into());
+        }
+        let values = self.preset_prompts.entry(preset.into()).or_default();
+        match scope {
+            "user" => values.user = text,
+            "project" => {
+                let key = Self::project_key(cwd.ok_or("cwd is required for a project override")?);
+                if let Some(text) = text {
+                    values.projects.insert(key, text);
+                } else {
+                    values.projects.remove(&key);
+                }
+            }
+            _ => return Err("scope must be user or project".into()),
+        }
+        if values.user.is_none() && values.projects.is_empty() {
+            self.preset_prompts.remove(preset);
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
@@ -1156,8 +1245,15 @@ pub struct Config {
     /// the normal peer route and send behavior unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub machine_wake: Option<MachineWakeConfig>,
+    /// The read replica and write journal for paused machines (`crate::write_journal`). Off
+    /// unless `writeJournal.enabled` is true; off changes nothing.
+    #[serde(default, skip_serializing_if = "WriteJournalConfig::is_default")]
+    pub write_journal: WriteJournalConfig,
     #[serde(default, alias = "defaultAgent")]
     pub default_harness: Option<String>,
+    /// User and project cmux-added context shown in the Context viewer and captured for new sessions.
+    #[serde(default, skip_serializing_if = "ContextOverrides::is_empty")]
+    pub context_overrides: ContextOverrides,
     /// More login-shell variables agents get, beyond the allow-list
     /// (`login_env::allowed`): exact names or `PREFIX_*`. Default empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1186,6 +1282,14 @@ pub struct Config {
     /// dropped at the next save.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_permission_mode: Option<String>,
+    /// `holdAgentStartsToStarter`: a chat an agent starts from its shell (`acpmux new|run`,
+    /// `cmux agents chat new`, a local `_acpmux/dispatch`) naming no mode or policy takes its
+    /// starter's limits (`hub/start_mode.rs`, "Inherit"). Off (the default, user 2026-11-03):
+    /// it starts at the person's configured start level and default policy, as a start with no
+    /// starter does; a starter in full access still passes it on, and a sub-session is always
+    /// held to its parent.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hold_agent_starts_to_starter: bool,
     /// `composerMaxRows`: most rows the TUI composer grows to before it
     /// scrolls. Env `ACPMUX_COMPOSER_ROWS` overrides. Default 12.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1389,9 +1493,76 @@ pub struct MachineWakeConfig {
     pub token: Option<String>,
 }
 
+/// `writeJournal` in config.json: off by default; new, and not yet a default anyone asked for.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct WriteJournalConfig {
+    #[serde(default)]
+    pub enabled: bool,
+}
+
+impl WriteJournalConfig {
+    pub fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
 impl Config {
     /// Set a host-wide session resource setting from the CLI. `default`,
     /// `none`, and `clear` remove an override and restore the computed default.
+    /// `acpmux config --set KEY=VALUE`: a permission-mode key
+    /// (`set_permission_mode`), else a session resource limit
+    /// (`set_session_resource`).
+    pub fn set(&mut self, key: &str, value: &str) -> Result<()> {
+        if self.set_permission_mode(key, value)? {
+            return Ok(());
+        }
+        self.set_session_resource(key, value)
+    }
+
+    /// The permission mode new chats start in: `permissions.default` (also
+    /// `defaultPermissionMode`) for every harness, `permissions.HARNESS` (also
+    /// `defaults.HARNESS.permissionMode`) for one family or profile. Values:
+    /// `yolo` / `fullAccess`, `standard`, `ask`, or `default` to clear.
+    /// `Ok(false)`: not a permission key.
+    pub fn set_permission_mode(&mut self, key: &str, value: &str) -> Result<bool> {
+        let key = key.trim();
+        let harness = if matches!(
+            key,
+            "permissions.default" | "defaultPermissionMode" | "default_permission_mode"
+        ) {
+            None
+        } else if let Some(h) = key.strip_prefix("permissions.") {
+            Some(h)
+        } else if let Some(h) = key.strip_prefix("defaults.").and_then(|r| {
+            r.strip_suffix(".permissionMode").or_else(|| r.strip_suffix(".permission_mode"))
+        }) {
+            Some(h)
+        } else {
+            return Ok(false);
+        };
+        if harness.is_some_and(|h| h.is_empty() || h.contains('.')) {
+            anyhow::bail!("{key}: name one harness, for example permissions.codex");
+        }
+        let mode = match value.trim() {
+            "" | "default" | "none" | "clear" => None,
+            v => Some(normalize_permission_mode(v).ok_or_else(|| {
+                anyhow::anyhow!("{key} must be yolo (fullAccess), standard, ask or default")
+            })?),
+        };
+        match harness {
+            None => self.default_permission_mode = mode.map(str::to_owned),
+            Some(h) => {
+                let entry = self.defaults.entry(h.to_owned()).or_default();
+                entry.permission_mode = mode.map(str::to_owned);
+                if entry.is_empty() {
+                    self.defaults.remove(h);
+                }
+            }
+        }
+        Ok(true)
+    }
+
     pub fn set_session_resource(&mut self, key: &str, value: &str) -> Result<()> {
         let key = key.trim().replace('-', "_").to_ascii_lowercase();
         if matches!(
@@ -1565,8 +1736,7 @@ impl Config {
                 model: p.model.clone(),
                 effort: p.effort.clone(),
                 policy: p.policy,
-                prefer: vec![],
-                env: BTreeMap::new(),
+                ..Default::default()
             });
         }
         d
@@ -1879,12 +2049,14 @@ pub use discover::{
 };
 mod peer;
 pub use peer::PeerConfig;
+mod store_config;
+pub use store_config::{StoreConfig, StoreMode, store_journal_enabled};
 mod pool;
 pub use pool::PoolConfig;
 mod btw;
 pub use btw::BtwConfig;
 mod usage_warnings;
-pub use usage_warnings::{UsageLimits, UsageWarningsConfig};
+pub use usage_warnings::{ContextLimit, FALLBACK_CONTEXT_TOKENS, UsageLimits, UsageWarningsConfig};
 pub mod folder_profiles;
 pub mod harness_icon;
 pub mod profiles;
@@ -1897,6 +2069,19 @@ pub use preset_args::{
     Preset, SYSTEM_PROMPT_FILE, check_preset_args, check_preset_dir_name, checked_system_prompt,
     parse_preset_args, remove_preset_dir, write_system_prompt,
 };
+
+/// The stored spelling of a permission mode a person typed: `fullAccess`
+/// (also `yolo`, `full-access`, `bypassPermissions`), `standard` or `ask`.
+/// Exact words only: any other spelling (`Ask`) is `None`, which a reader
+/// takes as `standard`, never full access.
+pub fn normalize_permission_mode(value: &str) -> Option<&'static str> {
+    match value {
+        "fullAccess" | "yolo" | "full-access" | "bypassPermissions" => Some("fullAccess"),
+        "standard" => Some("standard"),
+        "ask" => Some("ask"),
+        _ => None,
+    }
+}
 
 #[cfg(test)]
 mod tests;

@@ -53,9 +53,10 @@ struct ServerUpdateNoticeTests {
         #expect(notice.kind == .cmuxTUI)
         #expect(notice.gainedFeatures.map(\.title).prefix(3) == ["Tab groups", "Workspace checklists", "Browser profiles"])
         #expect(notice.missingCapabilities.contains("shared-sizing-v1"))
-        #expect(notice.toastMessage.contains("cmux-tui"))
-        #expect(notice.toastMessage.contains("Tab groups"))
-        #expect(notice.toastMessage.contains("2"), "four named features show three and \"2 more\" (pinned + shared sizing)")
+        #expect(notice.toastMessage == "Update ready for cmux-tui", "the toast's message is short: \(notice.toastMessage)")
+        #expect(notice.toastButtonTitle == "Restart", "the toast's button repeats the message: \(notice.toastButtonTitle)")
+        #expect(notice.toastDetail.contains("Tab groups"))
+        #expect(notice.toastDetail.contains("2"), "four named features show three and \"2 more\" (pinned + shared sizing)")
         #expect(notice.restartButtonTitle.contains("cmux-tui"))
     }
 

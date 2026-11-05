@@ -70,7 +70,7 @@ afterEach(() => {
   root = undefined;
   host.replaceChildren();
   dom.window.localStorage.clear();
-  for (const popup of dom.window.document.querySelectorAll(".acpmux-quick-menu")) popup.remove();
+  for (const popup of dom.window.document.querySelectorAll(".acpmux-quick-menu, .acpmux-cols")) popup.remove();
 });
 
 afterAll(async () => {
@@ -131,6 +131,14 @@ describe("closed model picker catalog work", () => {
       const sonnet = items.find((item) => item.textContent?.includes("Sonnet 5.5"));
       expect(sonnet).toBeDefined();
       await act(async () => sonnet!.click());
+      // The compact menu's columns stay open after a pick and land it as the button closes them.
+      const closeColumns = async () => {
+        if (!compact) return;
+        expect(dom.window.document.querySelector(".acpmux-cols")).not.toBeNull();
+        await act(async () => host.querySelector<HTMLButtonElement>("button")!.click());
+        await settle();
+      };
+      await closeColumns();
       expect(picked).toEqual(["sonnet"]);
       await settle();
       // Closing retains the initialized list through its exit; reopening still owns selection.
@@ -142,6 +150,7 @@ describe("closed model picker catalog work", () => {
       const reopenedSonnet = reopened.find((item) => item.textContent?.includes("Sonnet 5.5"));
       expect(reopenedSonnet).toBeDefined();
       await act(async () => reopenedSonnet!.click());
+      await closeColumns();
       expect(picked).toEqual(["sonnet", "sonnet"]);
     });
   }

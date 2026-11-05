@@ -77,7 +77,7 @@ extension NewTabPage {
         // A pane of another machine shows the same page, never a prewarmed spare: a spare is connected
         // to this Mac's acpmux, and that pane's chat starts on its machine at the first send (cx-k21v).
         let spare = seed == nil && pane.daemon.isLocal
-            ? BenchSpans.measure("newTab.take", { services.newTabSpares.take(for: pane.view.window, size: NewTabSparePool.newTabContentSize(in: pane)) })
+            ? BenchSpans.measure("newTab.take", { services.newTabSpares.take(for: pane.view.window, size: NewTabSparePool.newTabContentSize(in: pane), still: { [weak strip = pane.view.stripView] in strip?.whenStill($0) }) })
             : nil
         // The tab shows at once (a store intent); the store's tab replaces it when it answers.
         guard BenchSpans.measure("newTab.open", { pane.openAgentTab(seed: seed, newTab: (page, handler), spare: spare?.view, then: then) }) else {
@@ -106,22 +106,18 @@ extension NewTabPage {
         fillPaletteActions(services)
     }
 
-    /// Lists the Commands palette's actions (30-50 ms on the main thread) for the New Tab pages that
-    /// show without them, on the frame after the one that shows the page, so Cmd-T and Cmd-N never
-    /// wait for them. The web pages take them in place (``AgentPaneView/refreshNewTabActions(_:)``);
-    /// a page with no view yet (Cmd-N's first page before its pane shows it) takes them into its
-    /// stored page, so the view made from it later lists them. One pass per call, no repeat.
+    /// Lists the Commands palette's actions for the New Tab pages that show without them, as background work from
+    /// the next frame on (``AgentPaneNewTabActions``: a slice of actions per task, yielding to input), so Cmd-T and
+    /// Cmd-N never wait for them and the open's frames never hold the whole list (PACING TRIAGE #32910). The web pages
+    /// take them in place (``AgentPaneView/refreshNewTabActions(_:)``); a page with no view yet (Cmd-N's first page
+    /// before its pane shows it) takes them into its stored page, so the view made from it later lists them.
     static func fillPaletteActions(_ services: AppServices) {
-        closeFrame.scheduleFrame {
-            closeFrame.scheduleFrameFromMain { [weak services] in
-                guard let services else { return }
-                let tabs = services.agentTabs
-                let views = tabs.newTabPages.keys.compactMap { tabs.views[$0] }.filter { $0.model.newTab?.omnibar.actions.isEmpty == true }
-                let unshown = tabs.newTabPages.filter { tabs.views[$0.key] == nil && $0.value.page.omnibar.actions.isEmpty }.map(\.key)
-                guard !views.isEmpty || !unshown.isEmpty else { return }
-                let actions = paletteActions(services)
-                for view in views { view.refreshNewTabActions(actions) }
-                for key in unshown { tabs.newTabPages[key]?.page.omnibar.actions = actions }
+        let tabs = services.agentTabs
+        let lacking = { (key: String) in tabs.views[key].map { $0.model.newTab?.omnibar.actions.isEmpty == true } ?? (tabs.newTabPages[key]?.page.omnibar.actions.isEmpty == true) }
+        // Checked at the listing's first task: Cmd-N's page joins `newTabPages` after this call (`firstPageNewTab`).
+        services.newTabActions.list(wanted: { tabs.newTabPages.keys.contains(where: lacking) }) { listed in
+            for key in tabs.newTabPages.keys where lacking(key) {
+                if let view = tabs.views[key] { view.refreshNewTabActions(listed) } else { tabs.newTabPages[key]?.page.omnibar.actions = listed.actions }
             }
         }
     }
@@ -298,7 +294,7 @@ extension NewTabPage {
             Self.page(services, selected: pane.selectedTab, window: pane.view.window, pane: pane, paletteActions: false)
         }
         let actions = nativeActions(key, cwd: page.cwd, pane: pane)
-        let list: @MainActor () -> [AgentPaneOmnibar.Action] = { [weak services] in services.map(Self.paletteActions) ?? [] }
+        let list = services.newTabActions.request
         // Cmd-T took the prepared page: it takes this tab's context, already laid out.
         if let spare = services.newTabSpares.claimNative(key), let model = spare.model {
             model.adopt(page: page, actions: actions, paletteActions: list)

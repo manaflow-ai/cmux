@@ -310,6 +310,73 @@ fn a_native_wrappers_relayed_agent_and_its_servers_let_it_end() {
     }
 }
 
+/// sr2 names an account's agent with a number (`sr2 claude2 ARGS`) and runs `claude` for it. The
+/// census took that `claude` for work the harness left running, so no idle `claude-sr2` chat ever
+/// ended: 20 of them up for hours on one Mac (2026-11-03), which with the rest pushed it into swap.
+#[test]
+fn a_native_wrappers_numbered_agent_name_relays_to_the_agent() {
+    let servers =
+        from_json(Some(&json!({"cmux": {"command": "/home/u/cmux", "args": ["mcp", "serve"]}})));
+    let args = "-p --session-id S --mcp-config /home/u/.acpmux/run/mcp/S.json";
+    let sr2 = &format!("/home/u/.local/bin/sr2 claude2 {args}");
+    let claude =
+        format!("/home/u/.local/bin/claude --autocompact 404061 --settings /tmp/s.json {args}");
+    let idle = vec![under(11, 10, &claude), under(12, 11, "/home/u/cmux mcp serve")];
+    assert!(matches!(census_of(&idle, sr2, &servers), Census::Clear));
+    // An agent really named with the number still relays.
+    let claude2 = format!("/home/u/.local/bin/claude2 --settings /tmp/s.json {args}");
+    let named = vec![under(11, 10, &claude2), under(12, 11, "/home/u/cmux mcp serve")];
+    assert!(matches!(census_of(&named, sr2, &servers), Census::Clear));
+    // Only a number after the agent's name: another word names another program.
+    for leader in [
+        format!("/home/u/.local/bin/sr2 claudex {args}"),
+        format!("/home/u/.local/bin/sr2 claude2x {args}"),
+    ] {
+        let census = census_of(&idle, &leader, &servers);
+        assert!(matches!(census, Census::Busy { pid: 11, .. }), "{leader}");
+    }
+}
+
+/// A Python framework build (Homebrew's, python.org's) runs a script as
+/// `.../Python.framework/Versions/X/Resources/Python.app/Contents/MacOS/Python SCRIPT ARGS`, not as
+/// the `python3` its `#!` line names. The census took every Python MCP server (agent-memory,
+/// repo-tools) for unreported work, so no harness with one ever hibernated (2,659 refusals in a
+/// day on one Mac, 2026-11-03).
+#[test]
+fn a_framework_pythons_app_runs_a_python_server() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = std::env::temp_dir().join(format!("idle-census-{}", uuid::Uuid::now_v7()));
+    let version = root.join("Cellar/python/3.15.2/Frameworks/Python.framework/Versions/3.15");
+    let real = version.join("bin/python3.15");
+    let app = version.join("Resources/Python.app/Contents/MacOS/Python");
+    let other = root
+        .join("Other/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python");
+    for file in [&real, &app, &other] {
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(file, "").unwrap();
+        std::fs::set_permissions(file, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let bin = root.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::os::unix::fs::symlink(&real, bin.join("python3")).unwrap();
+    let script = root.join("agent-memory");
+    std::fs::write(&script, "#!/usr/bin/env python3\nprint(1)\n").unwrap();
+    let (path, script) =
+        (bin.to_string_lossy().into_owned(), script.to_string_lossy().into_owned());
+    let servers = resolved(vec![sidecar(&script, &["mcp".to_owned()]).unwrap()], &path, &root);
+    let text = |p: &Path| p.to_string_lossy().into_owned();
+    let found = |python: &str, args: &str| [under(11, 10, &format!("{python} {script} {args}"))];
+    assert!(matches!(census(&found(&text(&app), "mcp"), &servers), Census::Clear));
+    // Another framework's Python, other args, or a file named like the app is not the server.
+    assert!(matches!(census(&found(&text(&other), "mcp"), &servers), Census::Busy { pid: 11, .. }));
+    assert!(matches!(census(&found(&text(&app), "serve"), &servers), Census::Busy { pid: 11, .. }));
+    let fake = root.join("fake/Python.app/Contents/MacOS/Python");
+    std::fs::create_dir_all(fake.parent().unwrap()).unwrap();
+    std::fs::write(&fake, "").unwrap();
+    assert!(matches!(census(&found(&text(&fake), "mcp"), &servers), Census::Busy { pid: 11, .. }));
+    let _ = std::fs::remove_dir_all(root);
+}
+
 /// A wrapper and its relayed agent are told by the executable the kernel says each runs, not by
 /// argv alone: `exec -a` makes neither.
 #[test]

@@ -67,7 +67,9 @@ re-fits. Focusing any other column forgets it.
 
 L6. Resizing: the focused column's left edge stays (L1); widening it at the right edge
 reveals the new edge. During a column-edge or divider drag the view holds and the reveal
-runs once the drag ends.
+runs once the drag ends. A Resize Pane Left/Right press that trades width between two
+columns keeps the left one of them in place and reveals nothing (`ColumnScrollState.keptColumn`):
+only the divider between them moves, and it stops at the edge of the strip the window shows.
 
 L7. Window resize: frames snap; the focused column keeps its screen x, then F1 fits it. No
 animation during live resize.

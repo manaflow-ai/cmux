@@ -29,6 +29,8 @@
 # 2026-10-21 (base red): the pet's Chief Pet Settings… and Hide Chief Pet rows from #22390; their closures run the toggle action and the settings popover (ChiefPetActions), but the pet target cannot see the registry and Settings… has no registered action yet.
 2 Packages/macOS/CmuxNext/Sources/CmuxNextFloating/ChiefPet/ChiefPetPanel.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextHistory/TitlebarHistoryMenu.swift
+# 2026-11-03 (base red): 894d34f2eff's Chief Teleport menu (a destination row per place, Roll Back) has no registered action yet.
+2 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefTeleport/ChiefTeleportMenuBuilder.swift
 2 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomeChiefSettingsView.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomePageMenus.swift
 # 2026-10-23: the one row builder (NSMenuItem.macScreen) of Mac Screen's toolbar Display, Quality and Send Keys menus and the device row's More menu; ported from SwiftUI Menu buttons (#22788, no-SwiftUI rule), which the check could not see. Those per-tab choices have no registered action yet.

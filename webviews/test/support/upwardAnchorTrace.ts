@@ -69,6 +69,7 @@ export async function traceUpwardAnchors({
       kind === "acpmux-policyUnenforced" ||
       kind === "acpmux-agentPair" ||
       kind === "acpmux-sessionStart" ||
+      kind === "acpmux-backgroundTurn" ||
       kind === "acpmux-messageRun" ||
       kind === "acpmux-laneNoticeBatch" ||
       kind === "acpmux-pendingMessages"

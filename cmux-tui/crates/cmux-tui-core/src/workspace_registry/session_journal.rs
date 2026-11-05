@@ -15,6 +15,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub(crate) mod salvage;
 const JOURNAL_RECORD_SCHEMA_VERSION: u32 = 1;
 const MAX_JOURNAL_PAGE_SIZE: usize = 1024;
+/// How many sequences one page of the non-output read spans at most
+/// ([`query_session_journal_without_output_after`]): a page sorts at most this
+/// many matches, and a long run of terminal output costs a few seeks per window.
+const JOURNAL_KIND_SEEK_WINDOW: u64 = 8_192;
 pub(crate) const MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES: usize = 16 * 1024 * 1024;
 pub(crate) const MAX_JOURNAL_SEGMENT_COMPRESSED_BYTES: usize = 32 * 1024 * 1024;
 pub(crate) const MAX_JOURNAL_CONTENT_BYTES: usize = 256 * 1024;
@@ -1467,33 +1471,45 @@ fn query_session_journal_without_output_after(
             return Ok((records, reached));
         }
     }
-    // Two ranges of the (kind, sequence) index around 'terminal.output'
-    // visit only the other kinds' entries, however much output there is.
+    // One seek per kind into the (kind, sequence) index, skipping
+    // 'terminal.output': the read visits only the records in the window, not
+    // every non-output entry the journal ever kept. A range on `kind` alone
+    // (`kind < 'terminal.output' AND sequence > ?`) cannot seek on sequence,
+    // so each page walked all of them: 5.6M entries on a nightly registry made
+    // each roster catch-up tick take 5-8 s, and the app's requests timed out
+    // behind it ("Move did not apply ... workspace.place (no reply within 2.0
+    // seconds)"). The distinct kinds come from the same index by a skip scan
+    // (a few dozen seeks). The window bounds how many matches one page sorts.
     let remaining = limit - records.len();
+    let window_end = through.min(reached.saturating_add(JOURNAL_KIND_SEEK_WINDOW));
     let mut statement = connection.prepare(
-        "SELECT sequence, event_id, schema_version, kind, class, replay_policy,
-                occurred_at_ms, committed_at_ms, producer_json, authority_json,
-                causation_id, correlation_id, causation_depth, subjects_json,
-                sensitivity, payload_json, content, resource_revision,
-                previous_resource_revision
-         FROM session_journal INDEXED BY session_journal_by_kind_sequence
-         WHERE kind < 'terminal.output' AND sequence > ?1 AND sequence <= ?2
-         UNION ALL
-         SELECT sequence, event_id, schema_version, kind, class, replay_policy,
-                occurred_at_ms, committed_at_ms, producer_json, authority_json,
-                causation_id, correlation_id, causation_depth, subjects_json,
-                sensitivity, payload_json, content, resource_revision,
-                previous_resource_revision
-         FROM session_journal INDEXED BY session_journal_by_kind_sequence
-         WHERE kind > 'terminal.output' AND sequence > ?1 AND sequence <= ?2
-         ORDER BY sequence ASC
+        "WITH RECURSIVE kinds(kind) AS (
+           SELECT (SELECT MIN(kind) FROM session_journal
+                   INDEXED BY session_journal_by_kind_sequence)
+           UNION ALL
+           SELECT (SELECT MIN(kind) FROM session_journal
+                   INDEXED BY session_journal_by_kind_sequence
+                   WHERE kind > kinds.kind)
+           FROM kinds WHERE kinds.kind IS NOT NULL
+         )
+         SELECT s.sequence, s.event_id, s.schema_version, s.kind, s.class,
+                s.replay_policy, s.occurred_at_ms, s.committed_at_ms,
+                s.producer_json, s.authority_json, s.causation_id,
+                s.correlation_id, s.causation_depth, s.subjects_json,
+                s.sensitivity, s.payload_json, s.content, s.resource_revision,
+                s.previous_resource_revision
+         FROM kinds CROSS JOIN session_journal AS s
+              INDEXED BY session_journal_by_kind_sequence
+         WHERE kinds.kind IS NOT NULL AND kinds.kind <> 'terminal.output'
+           AND s.kind = kinds.kind AND s.sequence > ?1 AND s.sequence <= ?2
+         ORDER BY s.sequence ASC
          LIMIT ?3",
     )?;
     let active = statement
         .query_map(
             params![
                 i64::try_from(sequence).context("journal sequence exceeds SQLite range")?,
-                i64::try_from(through).context("journal sequence exceeds SQLite range")?,
+                i64::try_from(window_end).context("journal sequence exceeds SQLite range")?,
                 i64::try_from(remaining).context("journal page limit exceeds SQLite range")?,
             ],
             stored_record_row,
@@ -1501,7 +1517,7 @@ fn query_session_journal_without_output_after(
         .map(|row| decode_record(row?))
         .collect::<anyhow::Result<Vec<_>>>()?;
     reached = if active.len() < remaining {
-        through
+        window_end
     } else {
         active.last().map_or(reached, |record| record.sequence)
     };

@@ -1054,3 +1054,131 @@ async fn an_author_beside_a_provenance_is_refused() {
     assert_eq!(reason(&c.reply("session/prompt", both).await), "author.value_refused");
     assert!(c.records(&session, "user_message").await.is_empty(), "a refused prompt ran");
 }
+
+/// A tool's notice (`_meta.acpmux.notice`, manaflow-ai/cmux notice prompt kind).
+fn fire_notice() -> Value {
+    json!({"sender": "base-red-watch", "host": "ci-mini-3", "severity": "fire",
+           "title": "cmux-next fast tier failed on 3 PRs",
+           "links": [{"url": "https://github.com/manaflow-ai/cmux/pull/32827", "label": "#32827"}]})
+}
+
+fn noticed(session: &str, prompt_id: &str, notice: &Value) -> Value {
+    let mut p = prompt(session, prompt_id, "[notice from base-red-watch] body", None);
+    p["_meta"]["acpmux"]["notice"] = notice.clone();
+    p
+}
+
+/// What the daemon stamps for [`fire_notice`] to `to`.
+fn stamped_notice(to: &str) -> Value {
+    json!({"kind": "notice", "from": "fromAgent", "fromName": "base-red-watch", "to": to,
+           "notice": fire_notice()})
+}
+
+/// Leo, 2026-11-03, on a base-red-watch page drawn as the person's bubble: "acpmux/cmux-next
+/// should be able to allow you guys to make (and subsequently nicely render) this sort of thing".
+/// A notice from the unix socket or a peer is recorded as one, run or queued, its unknown fields
+/// dropped and its blocks as sent.
+#[tokio::test]
+async fn a_notice_is_recorded_on_its_user_message_and_its_queued_record() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let session = c.new_session(json!({"harness": "fake"})).await;
+    let mut sent = fire_notice();
+    sent["extra"] = json!("dropped");
+    for (origin, id) in [(Origin::Local, "n-unix"), (Origin::Peer, "n-peer")] {
+        let mut from = Client::open_as(&hub, origin);
+        from.call("session/prompt", noticed(&session, id, &sent)).await;
+        let message = c.user_message(&session, id).await;
+        assert_eq!(
+            message.pointer("/_meta/provenance"),
+            Some(&stamped_notice(&session)),
+            "{origin:?}: {message}"
+        );
+        assert_eq!(message["text"], "[notice from base-red-watch] body", "{message}");
+    }
+    // Queued behind a running turn, it keeps its notice until it runs.
+    c.busy(&session).await;
+    let waiting = c.queue(noticed(&session, "n-q", &fire_notice())).await;
+    let queued = c.records(&session, "queued").await;
+    let queued = queued.iter().find(|m| m["promptId"] == "n-q").expect("its queued record");
+    assert_eq!(queued.pointer("/_meta/provenance"), Some(&stamped_notice(&session)), "{queued}");
+    c.cancel(&session).await;
+    c.reply_to(waiting).await;
+    let ran = c.user_message(&session, "n-q").await;
+    assert_eq!(ran.pointer("/_meta/provenance"), Some(&stamped_notice(&session)), "{ran}");
+}
+
+/// A notice is a tool's, never the person's: one sent from inside a session names that session
+/// for display (`fromSessionId`) and stays a notice, and one beside a person's author is still a
+/// notice.
+#[tokio::test]
+async fn a_notice_from_inside_a_session_or_beside_an_author_stays_a_notice() {
+    let hub = hub();
+    let mut person = Client::open(&hub);
+    let receiver = person.new_session(json!({"harness": "fake"})).await;
+    let sender = person.new_session(json!({"harness": "fake"})).await;
+    let mut inside = open_in_session(&hub, &sender).await;
+    inside.call("session/prompt", noticed(&receiver, "n-in", &fire_notice())).await;
+    let message = person.user_message(&receiver, "n-in").await;
+    let provenance = message.pointer("/_meta/provenance").unwrap();
+    assert_eq!(provenance["kind"], "notice", "{message}");
+    assert_eq!(provenance["fromName"], "base-red-watch", "{message}");
+    assert_eq!(provenance["fromSessionId"], json!(sender), "{message}");
+    assert_eq!(provenance["notice"], fire_notice(), "{message}");
+
+    let authored = by(noticed(&receiver, "n-author", &fire_notice()), Some(&ana()));
+    person.call("session/prompt", authored).await;
+    let message = person.user_message(&receiver, "n-author").await;
+    assert_eq!(message.pointer("/_meta/provenance"), Some(&stamped_notice(&receiver)), "{message}");
+}
+
+/// No Web client, app pane or peer forwarding for its Web client may dress text up as a fire.
+#[tokio::test]
+async fn a_notice_from_a_web_client_is_refused() {
+    let hub = hub();
+    let mut local = Client::open(&hub);
+    let session = local.new_session(json!({"harness": "fake"})).await;
+    for (origin, via) in
+        [(Origin::Web, None), (Origin::LocalApp, None), (Origin::Peer, Some("web"))]
+    {
+        let mut remote = Client::open_as(&hub, origin);
+        let mut params = noticed(&session, "n-remote", &fire_notice());
+        if let Some(via) = via {
+            params["_meta"]["acpmux"]["via"] = json!(via);
+        }
+        let value = remote.reply("session/prompt", params).await;
+        assert_eq!(reason(&value), "notice.origin_refused", "{origin:?} via {via:?}: {value}");
+    }
+    let ran = local.records(&session, "user_message").await;
+    assert!(ran.iter().all(|m| m["promptId"] != "n-remote"), "a refused notice ran: {ran:?}");
+}
+
+/// A bad field refuses the prompt and names the field; nothing is dropped silently, and a notice
+/// beside a caller's own provenance is refused too.
+#[tokio::test]
+async fn a_malformed_notice_is_refused_naming_its_field() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let session = c.new_session(json!({"harness": "fake"})).await;
+    let with = |key: &str, value: Value| {
+        let mut n = fire_notice();
+        n[key] = value;
+        n
+    };
+    for (notice, field) in [
+        (with("severity", json!("critical")), "severity"),
+        (with("title", json!("a\nb")), "title"),
+        (with("sender", json!("")), "sender"),
+        (with("links", json!([{"url": "http://insecure.dev"}])), "links.url"),
+        (json!(["not", "an", "object"]), "notice"),
+    ] {
+        let value = c.reply("session/prompt", noticed(&session, "n-bad", &notice)).await;
+        assert_eq!(reason(&value), "notice.value_refused", "{notice}: {value}");
+        assert_eq!(value.pointer("/error/data/field"), Some(&json!(field)), "{notice}: {value}");
+    }
+    let mut both = noticed(&session, "n-both", &fire_notice());
+    both["_meta"]["acpmux"]["provenance"] = provenance(&session);
+    let value = c.reply("session/prompt", both).await;
+    assert_eq!(reason(&value), "notice.value_refused", "{value}");
+    assert!(c.records(&session, "user_message").await.is_empty(), "a refused notice ran");
+}

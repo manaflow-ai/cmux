@@ -98,11 +98,11 @@ public struct BrowserFolderGrants: Sendable {
     public func isGranted(_ browser: ImportBrowser) -> Bool { !needsGrant(browser) || grantedFolder(browser) != nil }
 
     /// Browsers whose data folder is on this Mac without a grant, one per
-    /// folder (Zen and Zen Twilight share one), in registry order. Only the
-    /// folder's existence is checked.
-    public func awaiting(_ browsers: [ImportBrowser] = ImportBrowser.allCases) -> [ImportBrowser] {
+    /// folder (Zen and Zen Twilight share one), registry rows first, then the
+    /// ones found from their folders. Only the folder's existence is checked.
+    public func awaiting(_ browsers: [ImportBrowser]? = nil) -> [ImportBrowser] {
         var seen = Set<String>()
-        return browsers.filter { browser in
+        return (browsers ?? BrowserSourceDetector(environment: environment).candidates()).filter { browser in
             guard !Task.isCancelled, needsGrant(browser) else { return false }
             let directory = folder(browser)
             guard FileManager.default.fileExists(atPath: directory.path), seen.insert(Self.canonicalPath(directory)).inserted else { return false }
@@ -111,9 +111,9 @@ public struct BrowserFolderGrants: Sendable {
     }
 
     /// Detection over the browsers that need no grant and the granted ones.
-    public func detect(_ browsers: [ImportBrowser] = ImportBrowser.allCases) -> [BrowserSource] {
+    public func detect(_ browsers: [ImportBrowser]? = nil) -> [BrowserSource] {
         // Stops resolving grants once the scan is cancelled (the import window closed).
-        let readable = browsers.filter { !Task.isCancelled && isGranted($0) }
+        let readable = (browsers ?? BrowserSourceDetector(environment: environment).candidates()).filter { !Task.isCancelled && isGranted($0) }
         // Each granted folder is resolved and opened one at a time, so a cancelled scan
         // (the import window closed) stops at the next bookmark instead of resolving them all.
         var scoped: [URL] = []

@@ -55,3 +55,16 @@ test("the size bound counts UTF-8 bytes", () => {
   expect(promptBytes("é")).toBe(2);
   expect(promptBytes("a".repeat(PROMPT_MAX_BYTES))).toBe(PROMPT_MAX_BYTES);
 });
+
+test("retry keeps the refused send's text and original identity across reload", () => {
+  const storage = memoryStorage();
+  const prompts = new GuestPrompts("chief", storage, random);
+  const first = prompts.add("Build a hello page");
+  prompts.update({ client_id: first.clientId, state: "refused", reason: "offline" });
+  const reloaded = new GuestPrompts("chief", storage, random);
+  reloaded.retry(first.clientId);
+  expect(reloaded.unsent()).toEqual([{ ...first, reason: undefined }]);
+  reloaded.update({ client_id: first.clientId, state: "approved" });
+  reloaded.retry(first.clientId);
+  expect(reloaded.unsent()).toEqual([]);
+});

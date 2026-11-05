@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Runs `swift test` with the given arguments. It names the tests open at least
-# CMUX_NEXT_TEST_STUCK_SECONDS, samples the test processes so the log shows where
-# they are stuck, kills them, and fails when the run STALLS: no Swift Testing test
+# CMUX_NEXT_TEST_STUCK_SECONDS, samples the test processes and the cmux-tui and
+# acpmux daemons this run's tests started (job_daemons) so the log shows where
+# they are stuck, kills the test processes, and fails when the run STALLS: no Swift Testing test
 # has finished for CMUX_NEXT_TEST_STUCK_SECONDS (default 300; checked every
 # CMUX_NEXT_TEST_STUCK_POLL_SECONDS, default 10) and the test processes sat idle
 # in that time (under CMUX_NEXT_TEST_IDLE_CPU_SHARE of one core, default 0.05: a
@@ -207,6 +208,29 @@ names_awk='
     at = index(key, block_sep())
     if (at > 1 && substr(key, 1, at - 1) ~ /^[0-9]+$/) return substr(key, at + 1)
     return key
+  }
+  # A pass line another stream cut into ("✔ Test aFailureNothingRetriesShowsAtOnceswift runtime:
+  # backtrace-on-crash ...", run 41665450504: the helper was killed with the rest of its line
+  # unwritten). ✔ is printed only for a test that passed, so it closes the open start in this block
+  # whose name, up to its "(", begins the line and is not followed by more of a test name and its
+  # "(" (foo() is not taken for fooBar()); the longest such name. KEY when none fits.
+  function spliced_start(key,    cut, i, n, stem, at, best, best_len) {
+    cut = block_name(key)
+    best = key
+    best_len = 0
+    for (i = 1; i <= name_count; i++) {
+      n = names[i]
+      if (index(n, (count_block + 0) block_sep()) != 1 || first_open_run(n) > started[n]) continue
+      stem = block_name(n)
+      at = index(stem, "(")
+      if (at < 2) continue
+      stem = substr(stem, 1, at - 1)
+      if (index(cut, stem) == 1 && substr(cut, at) !~ /^[A-Za-z0-9_]*\(/ && at - 1 > best_len) {
+        best = n
+        best_len = at - 1
+      }
+    }
+    return best
   }'
 # The bookkeeping both readers share. Occurrences matched in order, not a set of names: one log
 # can hold the same name more than once. A finish only closes a start still open; one with no
@@ -225,6 +249,7 @@ count_awk='
   }
   is_finish($0) && $0 !~ /^➜ Test .* skipped/ {
     counted_name = block_key(name_of($0))
+    if (!(counted_name in started) && $0 ~ /^✔ Test / && $0 !~ /^✔ Test run with /) counted_name = spliced_start(counted_name)
     # Read it into a variable first. Naming first_open[counted_name] as the target of an
     # assignment CREATES that key before the right-hand side is evaluated, so
     # `first_open[n] = first_open_run(n) + 1` made first_open_run take its "already set" branch
@@ -243,9 +268,52 @@ open_tests() {
     }
   ' "$1"
 }
-# Samples this run's test processes, then ends them and the run.
+# The cmux-tui and acpmux daemons this run's tests started, one pid a line. A live-daemon test
+# waits on a daemon that is not its child: `cmux-tui server ensure` starts the owner in its own
+# session (setsid), so it is reparented to launchd, and a sample of the test process alone shows
+# it idle in a socket read (run 41497919334 job 125458481373). A daemon belongs to this run when
+# its program is cmux-tui or acpmux (never a terminal host of one) and
+#   - it is in this run's process tree (a `server ensure` client still waiting), or
+#   - its command line has `--exit-with-pid P` (the owner's form is `P:<start ms>`) for a pid P
+#     of this run: the harnesses tie their owner to the test process that way
+#     (BranchDaemonHarness, FirstLaunchTests), or
+#   - its command line, or on macOS its environment (ps -E: the job's ACPMUX_HOME, TMPDIR and
+#     RUNNER_TEMP reach the daemons the tests start), names a path under this job's RUNNER_TEMP.
+# Never by name alone: a CI mini runs other jobs' daemons, and the person's own, as this user.
+# $1: the run's pids, space separated.
+job_daemons() {
+  local listing
+  if [ "$(uname)" = Darwin ]; then
+    listing="$(ps -A -E -ww -o pid= -o command= 2>/dev/null)"
+  else
+    listing="$(ps -A -ww -o pid= -o args= 2>/dev/null)"
+  fi
+  awk -v run_pids="$1" -v temp="${RUNNER_TEMP:-}" '
+    BEGIN { count = split(run_pids, list, " "); for (i = 1; i <= count; i++) run[list[i]] = 1 }
+    function base(word) { sub(/.*\//, "", word); return word }
+    {
+      pid = $1
+      if (pid !~ /^[0-9]+$/ || $0 ~ / __terminal-host( |$)/) next
+      program = base($2)
+      if (program ~ /^(sh|bash|zsh|env)$/) program = base($3)
+      if (program !~ /^(cmux-tui|acpmux)/) next
+      mine = (pid in run)
+      rest = $0
+      while (!mine && match(rest, /--exit-with-pid[ =][0-9]+/)) {
+        owner = substr(rest, RSTART, RLENGTH); sub(/.*[ =]/, "", owner)
+        if (owner in run) mine = 1
+        rest = substr(rest, RSTART + RLENGTH)
+      }
+      if (!mine && length(temp) > 1 && index($0, temp "/")) mine = 1
+      if (mine) print pid
+    }' <<<"$listing"
+}
+# Samples this run's test processes and the daemons its tests started, then ends the test
+# processes and the run. The daemons are sampled, never killed here: the job's own stop step and
+# their --exit-with-pid end them. At most CMUX_NEXT_TEST_SAMPLE_DAEMONS (default 4) daemons, each
+# for the same 5 s as a test process.
 sample_and_kill() {
-  local tree p
+  local tree p daemons daemon_count max_daemons
   tree="$(descendants "$test_pid")"
   for p in $tree; do
     case "$(ps -o comm= -p "$p" 2>/dev/null)" in
@@ -253,6 +321,18 @@ sample_and_kill() {
         echo "=== sample $p"
         sample "$p" 5 -mayDie 2>&1 | head -n 800 ;;
     esac
+  done
+  daemons="$(job_daemons "$test_pid ${tree//$'\n'/ }")"
+  daemon_count=$(grep -c . <<<"$daemons" || true)
+  max_daemons="${CMUX_NEXT_TEST_SAMPLE_DAEMONS:-4}"
+  if (( daemon_count == 0 )); then
+    echo "=== no cmux-tui or acpmux daemon of this run to sample"
+  elif (( daemon_count > max_daemons )); then
+    echo "=== $daemon_count daemons of this run; sampling the first $max_daemons (CMUX_NEXT_TEST_SAMPLE_DAEMONS)"
+  fi
+  for p in $(head -n "$max_daemons" <<<"$daemons"); do
+    echo "=== sample daemon $p: $(ps -o args= -p "$p" 2>/dev/null | cut -c 1-300)"
+    sample "$p" 5 -mayDie 2>&1 | head -n 800
   done
   for p in $tree; do
     kill "$p" 2>/dev/null

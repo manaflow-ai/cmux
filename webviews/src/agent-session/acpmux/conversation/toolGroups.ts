@@ -10,10 +10,10 @@ import { acpmuxSendCalls, recordedMessageBodyChangesForTool, type AcpmuxSendCall
 import { agentMessage, type AgentMessage } from "./agentMessages";
 import { dispatchCall, type DispatchCall } from "./dispatchCalls";
 import { isCmuxExec } from "./cmuxExec";
-import { mcpCall, mcpIsObservational, mcpKey } from "./mcpCalls";
+import { mcpCall, mcpDescription, mcpIsObservational, mcpKey } from "./mcpCalls";
 import { subsessionCall, type SubsessionCall } from "./subsessionCalls";
 import { isThought, mergeThoughts } from "./thoughts";
-import { isFoldedRun } from "./toolRunSummary";
+import { finishedBackgroundPhrase, isFoldedRun } from "./toolRunSummary";
 
 /// The kinds of call that group with their neighbors.
 export type ToolGroupKind = "commands" | "reads" | "edits" | "searches";
@@ -29,6 +29,12 @@ export type ToolGroup =
   /// shape (acpmuxMcpSends.ts) sent: the sent-message row (SentMessageLine.tsx). A call that sent
   /// several (a batch) is one entry per message, all with the same `item`.
   | { type: "send"; item: AcpmuxActivity; send: AcpmuxSendCallPart }
+  /// Two or more sent messages in a row (`SentEntry`: a shell or MCP `acpmux send`, a message card, a
+  /// sub-session's `send_message`), from one call (a shell loop of sends) or adjacent calls: one
+  /// closed line, "Sent 8 messages", that opens to each message's row (SentMessageLine.tsx
+  /// `SentMessageGroup`; Leo, 2026-11-04: "why arent these collapsed/collapsible"). `items` are the
+  /// calls, each once; `entries` every message, in order.
+  | { type: "sendGroup"; items: AcpmuxActivity[]; entries: SentEntry[] }
   /// A sub-session started, sent a message or waited on (subsessionCalls.ts), each its own card.
   | { type: "subsession"; item: AcpmuxActivity; call: SubsessionCall }
   /// Adjacent start_session calls become one disclosure row with one expandable child per session.
@@ -42,6 +48,15 @@ export type ToolGroup =
   | { type: "item"; item: AcpmuxActivity };
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
+
+/// One message to another agent, as its own entry: what a `sendGroup` gathers.
+export type SentEntry =
+  | Extract<ToolGroup, { type: "send" }>
+  | Extract<ToolGroup, { type: "message" }>
+  | { type: "subsession"; item: AcpmuxActivity; call: Extract<SubsessionCall, { tool: "send" }> };
+
+export const isSentEntry = (group: ToolGroup): group is SentEntry =>
+  group.type === "send" || group.type === "message" || (group.type === "subsession" && group.call.tool === "send");
 
 /// The group a call joins, or nil for a call drawn on its own. Only calls with a command line
 /// are commands; an MCP call can also say "execute". An edit still waiting for its permission
@@ -153,7 +168,8 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
     const subsession = named && subsessionCall(tool!, named);
     const call = subsession ? undefined : named;
     // A cmux script is its own row even beside another: each says what it did (cmuxExec.ts).
-    const key = call && (isCmuxExec(call) ? `${mcpKey(call)}\u0000${tool!.id}` : mcpKey(call));
+    // So is a described call, as Claude Code desktop draws each with its own words (mcpDescription).
+    const key = call && (isCmuxExec(call) || mcpDescription(call) ? `${mcpKey(call)}\u0000${tool!.id}` : mcpKey(call));
     const rememberMessageFiles = () => {
       if (!tool) return;
       // A parsed MCP action must itself be observational: a generic ACP read/search/fetch kind
@@ -292,7 +308,38 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
   }
   close();
   flushLead();
-  return groups;
+  return withSendGroups(groups);
+}
+
+/// Every shell or MCP `acpmux send` message among `groups`, a group's each as its own entry, in order.
+export function sendEntries(groups: readonly ToolGroup[]): Extract<ToolGroup, { type: "send" }>[] {
+  return groups.flatMap((group) =>
+    (group.type === "sendGroup" ? group.entries : [group]).flatMap((entry) => (entry.type === "send" ? [entry] : [])),
+  );
+}
+
+/// `groups` with each run of two or more consecutive sent messages as one `sendGroup`. A lone send
+/// keeps its own row.
+function withSendGroups(groups: ToolGroup[]): ToolGroup[] {
+  let run = 0;
+  for (let at = 0; at < groups.length && run < 2; at += 1) run = isSentEntry(groups[at]!) ? run + 1 : 0;
+  if (run < 2) return groups;
+  const out: ToolGroup[] = [];
+  for (let at = 0; at < groups.length;) {
+    let end = at;
+    while (end < groups.length && isSentEntry(groups[end]!)) end += 1;
+    if (end - at < 2) {
+      out.push(groups[at]!);
+      at += 1;
+      continue;
+    }
+    const entries = groups.slice(at, end) as SentEntry[];
+    const items: AcpmuxActivity[] = [];
+    for (const entry of entries) if (items.at(-1) !== entry.item) items.push(entry.item);
+    out.push({ type: "sendGroup", items, entries });
+    at = end;
+  }
+  return out;
 }
 
 /// The one whole file a completed file tool wrote, by its absolute path: a single diff with no old
@@ -361,6 +408,11 @@ export function isFailed(tool: Tool): boolean {
   return tool.status === "failed" || (tool.exitCode !== undefined && tool.exitCode !== 0);
 }
 
+/// Whether a call counts as failed on a run's header ("(2 failed)"): it failed, or the shell it
+/// left in the background failed there (direct.ts `markBackgroundCall` keeps the launch's
+/// "completed" status and sets `background.state`).
+export const countsFailed = (tool: Tool): boolean => isFailed(tool) || tool.background?.state === "failed";
+
 /// The distinct files a run of reads opened, by their locations (model.ts `pathKey`), or one per
 /// call without any.
 function readCount(items: readonly AcpmuxActivity[]): number {
@@ -385,8 +437,15 @@ export function toolGroupLabel(
   const calls = groupCalls(items);
   const running = calls.some((item) => isRunning(item.tool!));
   switch (kind) {
-    case "commands":
-      return t(running ? "tools.running" : "tools.ran", { n: calls.length });
+    case "commands": {
+      // A finished run whose background tasks ended leads with them, as Claude Code desktop's
+      // header does: "Finished 2 background tasks, ran 3 commands" (toolRunSummary.ts).
+      const finished = running ? undefined : finishedBackgroundPhrase(t, calls);
+      if (!finished) return t(running ? "tools.running" : "tools.ran", { n: calls.length });
+      const ran = calls.length === 1 ? t("toolRun.ran.one") : t("toolRun.ran.other", { n: calls.length });
+      const text = [finished, ran].join(t("toolRun.separator"));
+      return text.charAt(0).toUpperCase() + text.slice(1);
+    }
     case "reads": {
       const n = readCount(calls);
       return t(n === 1 ? "tools.read.one" : "tools.read.other", { n });
@@ -459,6 +518,7 @@ export function staysInSight(group: ToolGroup): boolean {
   if (
     group.type === "message" ||
     group.type === "send" ||
+    group.type === "sendGroup" ||
     group.type === "subsession" ||
     group.type === "subsessionGroup" ||
     group.type === "dispatch"

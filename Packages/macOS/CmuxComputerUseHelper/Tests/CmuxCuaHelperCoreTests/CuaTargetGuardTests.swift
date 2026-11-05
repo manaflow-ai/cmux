@@ -276,6 +276,27 @@ import Testing
         }
     }
 
+    /// cmux's own Computer Use never acts on a window that keeps itself out of screen capture
+    /// (`NSWindow.sharingType = .none`: cmux's consent prompts, a password reveal): only the person
+    /// answers it. Window 9002 is such a window of an app the policy allows (TextEdit), so only the
+    /// window's capture state refuses it, by every shape that names the window and inside a batch.
+    @Test(arguments: [
+        ("click", #"{"pid":102,"window_id":9002,"x":1,"y":1}"#),
+        ("click", #"{"target":{"kind":"window","pid":102,"window_id":9002},"x":1,"y":1}"#),
+        ("press_key", #"{"window_id":9002,"key":"Return"}"#),
+        ("get_window_state", #"{"pid":102,"window_id":9002}"#),
+        ("run_steps", #"{"pid":102,"window_id":9002,"steps":[{"tool":"click","args":{"x":1,"y":1}}]}"#),
+        ("run_steps", #"{"steps":[{"tool":"click","args":{"pid":102,"window_id":9002,"x":1,"y":1}}]}"#),
+    ])
+    func aWindowHiddenFromScreenCaptureIsNeverATarget(name: String, arguments: String) async throws {
+        let guarder = CuaTargetGuard(policy: CuaTargetPolicy(), resolver: Resolver())
+        // The same app's capturable window passes, so the refusal is the window's own.
+        _ = try await guarder.check(name: name, arguments: Data(arguments.replacingOccurrences(of: "9002", with: "9001").utf8))
+        await #expect(throws: ToolError.self, "\(name) on a capture-excluded window") {
+            try await guarder.check(name: name, arguments: Data(arguments.utf8))
+        }
+    }
+
     private struct Resolver: CuaTargetResolving {
         func app(forPID pid: Int32) async -> CuaTargetIdentity? {
             switch pid {
@@ -285,8 +306,10 @@ import Testing
             }
         }
         func app(forWindowID id: UInt32) async -> CuaTargetIdentity? {
-            await app(forPID: id == 9000 ? 100 : id == 9001 ? 102 : 999)
+            await app(forPID: id == 9000 ? 100 : id == 9001 || id == 9002 ? 102 : 999)
         }
+        /// Window 9002 keeps itself out of screen capture.
+        func isCaptureExcluded(windowID id: UInt32) async -> Bool { id == 9002 }
         func app(named name: String) async -> CuaTargetIdentity? {
             await app(forPID: name == "Terminal" ? 100 : name == "TextEdit" ? 102 : 999)
         }

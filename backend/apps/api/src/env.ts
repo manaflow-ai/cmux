@@ -174,6 +174,8 @@ export interface Env {
   readonly PLATFORM_AGENT_GATEWAY?: string
   /** Service binding to cmux-platform-<env> (platform-forward.ts); absent in every environment until its cutover deploy. */
   readonly PLATFORM?: Fetcher
+  /** Binding-internal Slack bridge token shared with cmux-platform; never a public client credential. */
+  readonly INTERNAL_TOKEN?: string
   /** Var: comma-separated surfaces the platform serves ("cloud"); unset or empty = every request stays in this Worker. */
   readonly PLATFORM_SURFACES?: string
   /**
@@ -243,6 +245,13 @@ export interface Env {
   readonly STACK_SECRET_SERVER_KEY?: string
   /** Secret: the Svix endpoint secret (whsec_...) of the Stack team webhook (stack-webhook.ts); unset answers 503. */
   readonly STACK_WEBHOOK_SECRET?: string
+  /**
+   * GitHub Actions jobs that may sign in as one test account by their OIDC token (ci-session.ts, hq#7076): a JSON
+   * array of rows naming the exact repository, ref and workflow file, and the one Stack user. No secret.
+   */
+  readonly CI_SESSION_TRUST?: string
+  /** Test only (ENVIRONMENT=test): a JWKS that replaces GitHub Actions' published keys in ci-session.ts. */
+  readonly GITHUB_ACTIONS_TEST_JWKS?: string
   /** Pace of Stack webhook syncs per project, one token per sync (stack-server.ts stackReadPace); namespaces 1201-1203 (cx-f5tk4). */
   readonly STACK_READ_LIMIT?: RateLimit
   /** The low lane of the Stack read pace (stack-server.ts stackLowReadPace): syncs of never-mirrored teams no person waits on. */
@@ -429,6 +438,12 @@ export interface Env {
   readonly SENDBLUE_WEBHOOK_SECRET?: string
   /** Header that carries the SendBlue webhook secret (default sb-signing-secret; UNVERIFIED until the first staging webhook). */
   readonly SENDBLUE_WEBHOOK_HEADER?: string
+  /** Texting Chief switch, fail-closed: only "on" routes inbound texts to Chiefs and texts their replies (text-chief.ts). */
+  readonly TEXT_CHIEF?: string
+  /** Secret, JSON `{"+1555…": "user_…" | "email"}`: senders allowed to text Chief before an in-app phone link exists. */
+  readonly TEXT_CHIEF_PEOPLE?: string
+  /** JSON `{"+1555…": {"owner"?: "user_…|email", "chief"?: "agent_…"}}`: more SendBlue lines; the shared SENDBLUE_FROM_NUMBER is always one. */
+  readonly TEXT_CHIEF_LINES?: string
   /** Staging, development and previews only: comma-separated recipients invites may reach; missing = none. */
   readonly HOME_INVITE_ALLOWLIST_EMAILS?: string
   readonly HOME_INVITE_ALLOWLIST_PHONES?: string

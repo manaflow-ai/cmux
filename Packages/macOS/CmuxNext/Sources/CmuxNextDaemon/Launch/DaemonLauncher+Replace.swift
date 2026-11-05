@@ -103,6 +103,8 @@ public final class EnsureOutcome: Sendable {
     private struct State {
         var ownerLooksStuck = false
         var failure: DaemonStartFailure?
+        /// Ensures that failed in a row since the last one that worked.
+        var failedInARow = 0
         var observer: (@MainActor @Sendable () -> Void)?
         /// Gets every ensure's outcome (the automatic restart, ``UnresponsiveOwnerWatch``).
         var watch: UnresponsiveOwnerWatch?
@@ -118,7 +120,11 @@ public final class EnsureOutcome: Sendable {
     /// Why the last ensure failed; nil after one that succeeded (or before any ran).
     public var failure: DaemonStartFailure? { state.withLock { $0.failure } }
 
-    /// Calls `observer` on the main actor after each change of ``ownerLooksStuck`` or ``failure``.
+    /// How many ensures failed in a row since the last one that worked (0 after one that worked).
+    public var failedInARow: Int { state.withLock { $0.failedInARow } }
+
+    /// Calls `observer` on the main actor after each change of ``ownerLooksStuck``, ``failure`` or
+    /// ``failedInARow`` (so after every failed ensure).
     public func observe(_ observer: @escaping @MainActor @Sendable () -> Void) {
         state.withLock { $0.observer = observer }
     }
@@ -134,9 +140,13 @@ public final class EnsureOutcome: Sendable {
         let stuck = error.map(DaemonLauncher.isStuckOwnerFailure) ?? false
         let failure = error.map { DaemonStartFailure($0, freeBytes: freeBytes) }
         let (observer, watch) = state.withLock { state -> ((@MainActor @Sendable () -> Void)?, UnresponsiveOwnerWatch?) in
-            guard state.ownerLooksStuck != stuck || state.failure != failure else { return (nil, state.watch) }
+            let failedInARow = failure == nil ? 0 : state.failedInARow + 1
+            guard state.ownerLooksStuck != stuck || state.failure != failure || state.failedInARow != failedInARow else {
+                return (nil, state.watch)
+            }
             state.ownerLooksStuck = stuck
             state.failure = failure
+            state.failedInARow = failedInARow
             return (state.observer, state.watch)
         }
         watch?.note(UnresponsiveOwnerWatch.Ensure(error, pid: pid))

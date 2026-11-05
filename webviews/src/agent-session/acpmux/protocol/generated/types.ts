@@ -1023,6 +1023,14 @@ export type SessionDetail = {
   tools?: (ToolSummary[] | null);
   /** `_acpmux/set_tools` can change them; omitted from census rows. */
   toolsMutable?: (boolean | null);
+  /**
+   * The seq of its newest transcript record (`hub/paging.rs` `is_transcript`): unlike
+   * `updatedAt` and `lastSeq`, bookkeeping (an agent start's `agent_start_waiting`, usage,
+   * git, process counts) never moves it, so a client that keeps a chat's newest page reads it
+   * again only when this passes the value it read at. An upper bound after a hard stop.
+   * Absent from a peer on an older acpmux.
+   */
+  transcriptSeq?: number;
   turn?: (TurnSummary | null);
   turnCount: number;
   unread: boolean;
@@ -1246,6 +1254,14 @@ export type SessionSummary = {
   tools?: (ToolSummary[] | null);
   /** `_acpmux/set_tools` can change them; omitted from census rows. */
   toolsMutable?: (boolean | null);
+  /**
+   * The seq of its newest transcript record (`hub/paging.rs` `is_transcript`): unlike
+   * `updatedAt` and `lastSeq`, bookkeeping (an agent start's `agent_start_waiting`, usage,
+   * git, process counts) never moves it, so a client that keeps a chat's newest page reads it
+   * again only when this passes the value it read at. An upper bound after a hard stop.
+   * Absent from a peer on an older acpmux.
+   */
+  transcriptSeq?: number;
   turn?: (TurnSummary | null);
   turnCount: number;
   unread: boolean;
@@ -1290,6 +1306,12 @@ export interface SessionsParams {
    * (its name, e.g. `huge-blue`). Empty is no filter.
    */
   peer?: (string | null);
+  /**
+   * `_acpmux/sessions` only (a watch refuses it): only the sessions with a pending permission
+   * or question, local and peer, summarized alone and answered without the list's pace.
+   * Takes no other filter; the reply is never paged (capability `session-list-pending-v1`).
+   */
+  pendingOnly?: (boolean | null);
   /**
    * `_acpmux/sessions` only (a watch refuses it): only the sessions in this status
    * (`running`, `ready`, `idle`, `waiting`, `closed`). Empty is no filter.
@@ -1393,12 +1415,21 @@ export type UsageStats = {
    * Codex's `model_auto_compact_token_limit`); null otherwise.
    */
   autocompactCap: (number | null);
+  /**
+   * Of those calls' prompt tokens (input, cache read and cache write), the share the prompt
+   * cache served (0 to 1); null with no calls or when the day is not read whole.
+   */
+  cacheReadShare24h: (number | null);
+  /** Model calls of the last 24 hours, subagents' included. */
+  calls24h: (number | null);
   /** Compactions in the last 24 hours. */
   compactions24h: (number | null);
   /** The last call's context: its input, cache read and cache write tokens. */
   contextTokens: (number | null);
   /** The model's context window, as the harness reported it, else the catalog's. */
   contextWindow: (number | null);
+  /** `costUsd24h` over the priced calls: what one call costs at list prices, USD. */
+  costPerCallUsd24h: (number | null);
   /**
    * Those tokens at the model catalog's list prices, USD; null when no model
    * they ran on has a price, or when `tokens24h` is null.

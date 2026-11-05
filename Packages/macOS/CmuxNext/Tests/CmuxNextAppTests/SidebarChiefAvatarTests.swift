@@ -7,7 +7,8 @@ import CmuxNextBridge
 @testable import CmuxNextAgentLanes
 import Testing
 
-/// Leo: "they even show chief-operated chats". Ownership comes from the existing acpmux tags.
+/// Leo: "they even show chief-operated chats". Ownership comes from the existing acpmux tags; since
+/// 2026-11-02 the row draws no Chief face (the transcript says who sent a message instead).
 @MainActor @Suite(.serialized) struct SidebarChiefAvatarTests {
     private func lane(_ id: String, tags: [String: String] = [:], title: String = "Chat") throws -> AgentActivityLane {
         try #require(AgentActivityLane.of(summary: ["sessionId": id, "name": title, "tags": tags, "lane": ["state": "idle"]]))
@@ -37,38 +38,29 @@ import Testing
         }
     }
 
+    /// Leo, 2026-11-02, beside ChatGPT's "Sent from" line: "i don't think we necessarily want these
+    /// chief-operated ones looking like this". A Chief-operated row draws like any other row: its unread
+    /// dot and spinner take the trailing column, and no Chief face is drawn or read.
     @Test(arguments: SidebarRowBadgeStyle.allCases)
-    func avatarSharesTheColumnAndKeepsUnreadAndHoverControls(_ style: SidebarRowBadgeStyle) throws {
-        try SidebarRowCloseSpotTests.withCloseSpot(.end) {
-            let (model, sidebar, window) = SidebarRowCloseSpotTests.sidebar()
-            defer { window.close() }
-            var workspace = SidebarWorkspace(id: SidebarRowCloseSpotTests.shown, title: "Chief task", unread: .dot)
-            workspace.chiefAvatar = .text("SC")
-            model.sections = [SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: [.workspace(workspace)])]
-            model.rowBadgeStyle = style
-            sidebar.list.reload(animated: false)
-            sidebar.layoutSubtreeIfNeeded()
-            let row = try #require(sidebar.list.rowViews[.workspace(workspace.id)] as? WorkspaceRowView)
-            row.isHovered = false
-            row.needsLayout = true
-            row.layoutSubtreeIfNeeded()
-            #expect(!row.chiefMark.isHidden)
-            #expect(abs(row.chiefMark.frame.midX - SidebarStyle.trailingColumnCenterX(rowWidth: row.bounds.width)) < 0.5)
-            let status = style == .trailing ? row.badge as NSView : row.rowBadge
-            #expect(!status.isHidden)
-            #expect(!status.frame.intersects(row.chiefMark.frame), "the unread dot is retained beside the Chief")
-            #expect(row.accessibilityLabel()?.contains("Operated by Chief") == true)
-            row.onClose = {}
-            row.onMore = {}
-            row.isHovered = true
-            row.needsLayout = true
-            row.layoutSubtreeIfNeeded()
-            #expect(row.chiefMark.alphaValue == 0)
-            #expect(abs(row.closeButton.frame.midX - row.chiefMark.frame.midX) < 0.5)
-        }
+    func chiefOperatedRowLooksLikeAnyOtherRow(_ style: SidebarRowBadgeStyle) throws {
+        let (model, sidebar, window) = SidebarRowCloseSpotTests.sidebar()
+        defer { window.close() }
+        var workspace = SidebarWorkspace(id: SidebarRowCloseSpotTests.shown, title: "Chief task", unread: .dot)
+        workspace.chiefAvatar = .text("SC")
+        model.sections = [SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: [.workspace(workspace)])]
+        model.rowBadgeStyle = style
+        sidebar.list.reload(animated: false)
+        sidebar.layoutSubtreeIfNeeded()
+        let row = try #require(sidebar.list.rowViews[.workspace(workspace.id)] as? WorkspaceRowView)
+        row.isHovered = false
+        row.needsLayout = true
+        row.layoutSubtreeIfNeeded()
+        #expect(row.subviews.allSatisfy { !String(describing: type(of: $0)).contains("Chief") })
+        #expect(row.accessibilityLabel()?.contains("Operated by Chief") != true)
+        #expect(!(style == .trailing ? row.badge as NSView : row.rowBadge).isHidden, "the unread dot still shows")
     }
 
-    @Test func workingSpinnerStaysInTheSlotBesideChief() throws {
+    @Test func workingSpinnerTakesTheTrailingColumnOnAChiefOperatedRow() throws {
         let (model, sidebar, window) = SidebarRowCloseSpotTests.sidebar()
         defer { window.close() }
         var workspace = SidebarWorkspace(id: SidebarRowCloseSpotTests.shown, title: "Chief task")
@@ -85,8 +77,6 @@ import Testing
         row.layoutSubtreeIfNeeded()
         #expect(row.activity.showsGlyph)
         // statusGlyphFrame rounds to the nearest backing pixel (including the half-pixel tie).
-        #expect(abs(row.activity.frame.midX - (row.chiefMark.frame.midX - SidebarStyle.trailingSlotPitch)) <= 0.5 / window.backingScaleFactor)
-        #expect(!row.activity.frame.intersects(row.chiefMark.frame))
+        #expect(abs(row.activity.frame.midX - SidebarStyle.trailingColumnCenterX(rowWidth: row.bounds.width)) <= 0.5 / window.backingScaleFactor)
     }
-
 }

@@ -58,6 +58,15 @@ export default componentEntry<Props>({
   styles: () => Promise.all([import("../styles.css"), import("./sessionInfo.css")]),
   load: async () => GalleryPicker,
   variants: {
+    overflowing: {
+      note: "Forty repositories scroll below the search field with soft edges.",
+      props: {
+        repos: Array.from({ length: 40 }, (_, index) => ({
+          fullName: `acme/project-${index}`,
+          source: "installation" as const,
+        })),
+      },
+    },
     mixed: {
       note: "Local, recent, and GitHub installation results show quiet source labels; Return attaches the highlighted repo.",
       props: {

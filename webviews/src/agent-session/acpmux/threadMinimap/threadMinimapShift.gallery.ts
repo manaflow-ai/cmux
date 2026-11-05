@@ -35,7 +35,8 @@ function turn(index: number, minutes: number): AcpmuxRow[] {
 const PROMPTS = 24;
 const rows = Array.from({ length: PROMPTS }, (_, index) => turn(index + 1, 200 - index * 6)).flat();
 const SCROLLER = { selector: ".acpmux-scroll" };
-const codexChat = () => chat(rows, { harness: "codex", model: "gpt-6-astra", title: "Prompt rail holds still" });
+const codexChat = (fields: Parameters<typeof chat>[1] = {}) =>
+  chat(rows, { harness: "codex", model: "gpt-6-astra", title: "Prompt rail holds still", ...fields });
 
 const atBottom: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(`[data-row-id="rail-${PROMPTS}-summary"]`));
@@ -79,6 +80,19 @@ export default agentPaneEntry({
         await ctx.click({ selector: toggle });
         await ctx.waitFor(() => ctx.document.querySelector(`${toggle}[aria-expanded="true"]`));
       },
+    },
+    "long-chat-mid-load": {
+      note: "A 120-prompt chat whose latest 24 prompts are held and whose prompt index has not answered: the summary's count draws the other 96 as resting ticks, so the rail is at its final length and centre on the first frame (Leo, 2026-11-03: \"mostly i just don't like it when the thing shifts and whatnot trying to center itself\").",
+      snapshot: codexChat({ canLoadOlder: true, promptCount: 120 }),
+    },
+    "long-chat-indexed": {
+      note: "The same chat once its prompt index answers: the same box and tick rows as mid-load, with every tick now naming its prompt.",
+      snapshot: codexChat({
+        canLoadOlder: true,
+        earlierPrompts: Array.from({ length: 96 }, (_, index) =>
+          user(`Earlier prompt ${index + 1}`, 900 - index * 6, { id: `user-${index + 1}` }),
+        ),
+      }),
     },
     "scrolled-up": {
       note: "Play: scrolled into the middle of the chat (the top fade comes, the bottom fade comes). Only the lit band moves.",

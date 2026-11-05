@@ -63,5 +63,60 @@ import UIKit
                 "settled: decodes \(decodes) -> \(cache.decodes), revision \(revision) -> \(cache.revision)")
         #expect(cache.residentBytes <= bound, "kept \(cache.residentBytes) bytes, bound \(bound)")
     }
+
+    /// Review of the follow-up (P2): a waiting picture's hold took a thumbnail only when the
+    /// picture asked again, so with many cards waiting one decoded for it could be let go by the
+    /// bound before its turn, and be decoded again (the eviction ping-pong, at queue scale). A
+    /// thumbnail goes into the holds waiting for it as it lands: two that do not fit the bound
+    /// together are each decoded once, and the picture can be drawn.
+    @Test func aWaitingPictureHoldsWhatIsDecodedForIt() async throws {
+        // Each thumbnail is 600 x 1200 px (2.9 MB): one fits the bound, two do not.
+        let cache = SentAttachmentThumbnails(byteLimit: 4 << 20)
+        let turns = try (0 ..< 2).map { Self.turn($0, data: try Self.png(width: 600, height: 1200, hue: CGFloat($0) / 2)) }
+        let hold = SentAttachmentHold()
+        try #require(!cache.resident(turns, holding: hold), "nothing decoded yet")
+        for _ in 0 ..< 200 where cache.decodes == 2 && hold.images.count < 2 { try await Task.sleep(for: .milliseconds(10)) }
+        let resident = cache.resident(turns, holding: hold)
+        #expect(resident, "both thumbnails are held for the picture")
+        #expect(cache.decodes == 2, "each decoded once: \(cache.decodes) decodes")
+        #expect(cache.residentBytes <= 4 << 20, "the cache stays under its bound: \(cache.residentBytes)")
+    }
+
+    /// Review of #27664 (follow-up P2): only a thumbnail's short side was scaled, so a very tall
+    /// screenshot decoded to 600 x 9000 (about 22 MB). A card whose last turns carried two of them
+    /// passed the 32 MB bound: each landing evicted the other, `resident` never held for both, and
+    /// the rasterizer re-queued and decoded them again on every frame. A thumbnail keeps no more
+    /// of the image than its bubble can show, the card's thumbnails are in memory together, and
+    /// once they are nothing is decoded again.
+    @Test func twoVeryTallImagesSettleUnderTheBound() async throws {
+        let bound = 32 << 20
+        let cache = SentAttachmentThumbnails(byteLimit: bound)
+        let turns = try (0 ..< 2).map { Self.turn($0, data: try Self.png(width: 600, height: 9000, hue: CGFloat($0) / 2)) }
+        let ready = await settle(cache, turns, rounds: 100)
+        try #require(ready, "both thumbnails count as ready")
+        // As the rasterizer asks before it draws the card, once per frame.
+        var resident = false
+        for _ in 0 ..< 60 {
+            resident = cache.resident(turns)
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        let decodes = cache.decodes
+        for _ in 0 ..< 20 {
+            resident = cache.resident(turns)
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(resident, "both thumbnails are in memory together, to draw the card")
+        #expect(cache.decodes == decodes, "settled: decodes \(decodes) -> \(cache.decodes)")
+        #expect(cache.residentBytes <= bound / 4, "kept \(cache.residentBytes) bytes for two thumbnails")
+        let side = SentAttachmentThumbnails.side(SentAttachmentThumbnails.size(images: 1))
+        for turn in turns {
+            let attachment = try #require(turn.attachments.first)
+            let data = try #require(attachment.data)
+            let image = try #require(cache.image(attachment, data: data, side: side)?.cgImage,
+                                     "\(attachment.id) is drawn from memory")
+            #expect(CGFloat(min(image.width, image.height)) >= side, "sharp at its bubble's size: \(image.width)x\(image.height)")
+            #expect(CGFloat(max(image.width, image.height)) <= side * 2, "no longer than its bubble shows: \(image.width)x\(image.height)")
+        }
+    }
 }
 #endif

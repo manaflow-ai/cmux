@@ -277,6 +277,20 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
         ServerAction::Ensure { .. } | ServerAction::CompactRegistry { .. } => {
             unreachable!("ensure and compact-registry return before the lifecycle exchange")
         }
+        // A wedged owner answers identify, but serves no workspace change: the
+        // app runs `server status` first and ensures only when it fails, so
+        // say it is not running and the app's ensure replaces it (#32621).
+        ServerAction::Status
+            if cmux_tui_core::server::connect_session_socket(&socket, socket_is_derived)
+                .is_ok_and(|stream| crate::local_owner::is_wedged(stream, None)) =>
+        {
+            local_error(
+                "server.wedged",
+                crate::localization::catalog().local_server.wedged,
+                global.output,
+                3,
+            )
+        }
         ServerAction::Status => print_success(
             json!({
                 "status":"running",
@@ -762,7 +776,10 @@ fn run_ensure(
             }
         }
     } else {
-        None
+        // A wedged owner answers `identify`, so the app never sees it stuck and
+        // never asks for the replace: every ensure replaces it (#32621). A
+        // replace that fails leaves the normal ensure to report the owner.
+        crate::local_owner::replace_if_wedged(&spec).ok().flatten().map(|replaced| replaced.pid)
     };
     let deadline = Instant::now() + crate::local_owner::ENSURE_DEADLINE;
     let report = |restoring: &crate::local_owner::Restoring| {

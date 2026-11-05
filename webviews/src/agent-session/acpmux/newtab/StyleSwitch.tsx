@@ -4,9 +4,13 @@
 // fades it. Keyboard focus keeps the name visible until blur. Native radios carry the names and fill each dot's
 // hit target, larger than the dot. The row never changes size or place, so nothing shifts. The
 // composer's look dots (newtab/PageDots.tsx, LookSwitch.tsx; Leo 2026-10-22) are the same dots
-// (DotSwitch) over other options.
+// (DotSwitch) over other options. The accent dot is the shared sliding indicator (ui/motion,
+// useSlidingIndicator): placed with no motion in its first frame, it slides on transform over the
+// scale's standard step (180 ms) on a pick, from where it is drawn if a pick interrupts a slide, and
+// is placed at once with Reduce Motion, motion off or a hidden page.
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { ChoiceGroup } from "../../../ui/ChoiceGroup";
+import { type IndicatorTravel, useSlidingIndicator } from "../../../ui/motion/SlidingIndicator";
 import { FOCUS_LOCATION_EVENT } from "../NewTabPage";
 import { useNt } from "./strings";
 import { PAGE_STYLES, type PageStyle } from "./templates";
@@ -50,6 +54,7 @@ export function DotSwitch<Option extends string>({
   onPick,
   onCancel,
   onPointerPick = () => onCancel(),
+  travel = "ease",
 }: {
   options: readonly Option[];
   current: Option;
@@ -67,6 +72,9 @@ export function DotSwitch<Option extends string>({
   onCancel(): void;
   /// After a pick by the pointer, in the dots' window: back to the field (unset, as onCancel).
   onPointerPick?(view: Window & typeof globalThis): void;
+  /// How the accent dot travels to a pick: the scale's ease-out over 180 ms (the spec), the spring,
+  /// or not at all (gallery variants).
+  travel?: IndicatorTravel;
 }) {
   const ownName = useId();
   const group = useRef<HTMLDivElement>(null);
@@ -74,8 +82,6 @@ export function DotSwitch<Option extends string>({
   const label = useRef<HTMLSpanElement>(null);
   // A pointer pressed a dot and no key has gone down since: the next pick is the pointer's.
   const pressed = useRef(false);
-  // The mark slides only after its first placement, so the page never opens with a slide.
-  const [settled, setSettled] = useState(false);
   // The dot whose name shows: pointer hover, keyboard focus, then a recent pick.
   const [hovered, setHovered] = useState<Option | undefined>();
   const [picked, setPicked] = useState<Option | undefined>();
@@ -91,15 +97,8 @@ export function DotSwitch<Option extends string>({
     return () => clearTimeout(timer);
   }, [picked]);
 
-  useLayoutEffect(() => {
-    const option = group.current?.querySelector<HTMLElement>(`[data-style="${current}"]`);
-    if (!option || !mark.current) return;
-    mark.current.style.transform = `translateX(${option.offsetLeft}px)`;
-    const view = option.ownerDocument.defaultView;
-    if (settled || !view) return;
-    const frame = view.requestAnimationFrame(() => setSettled(true));
-    return () => view.cancelAnimationFrame(frame);
-  }, [current, settled]);
+  // The accent dot sits on the current dot (its label carries data-selected) and slides to a pick.
+  useSlidingIndicator(mark, { selected: current, travel });
 
   useLayoutEffect(() => {
     const option = shown && group.current?.querySelector<HTMLElement>(`[data-style="${shown}"]`);
@@ -114,7 +113,6 @@ export function DotSwitch<Option extends string>({
       <div
         ref={group}
         className="nt-style-options"
-        data-settled={settled ? "" : undefined}
         onPointerOut={(event) => {
           if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setHovered(undefined);
         }}
@@ -128,6 +126,7 @@ export function DotSwitch<Option extends string>({
             key={style}
             className="nt-style-option"
             data-style={style}
+            data-selected={style === current ? "" : undefined}
             onPointerOver={() => setHovered(style)}
             onPointerDown={() => {
               pressed.current = true;

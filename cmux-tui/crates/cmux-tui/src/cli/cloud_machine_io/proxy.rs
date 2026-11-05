@@ -78,5 +78,5 @@ pub(super) async fn run(client: &reqwest::Client, request: &Request) -> Answer {
     let body: Value = response.json().await.unwrap_or(Value::Null);
     // The route's answer as it gave it: the app reads a refusal (a plan's upgrade fields
     // included) exactly as it reads that route's.
-    Answer { status, body, code }
+    Answer { status, body, code, file: None }
 }

@@ -38,32 +38,50 @@ export function holdWebSwap(hold: WebSwapHold): () => void {
   return () => void holds.delete(hold);
 }
 
-/** The page's answer: null when a reload now keeps everything it holds, else why not. */
-export function webSwapHold(doc: Document = document): string | null {
+function registeredPageHold(doc: Document): string | null {
   for (const hold of holds) {
     const reason = hold();
     if (reason) return reason;
   }
   if (composing.has(doc)) return "ime";
-  const view = doc.defaultView;
-  const selection = view?.getSelection();
+  return null;
+}
+
+function unkeptFieldHold(doc: Document, edited = false): string | null {
+  for (const field of doc.querySelectorAll<HTMLElement>("input, textarea, [contenteditable]")) {
+    if (field.closest(`[${WEB_SWAP_KEPT_TEXT}]`) || !isEditable(field)) continue;
+    if ((field as HTMLInputElement).readOnly || (field as HTMLInputElement).disabled) continue;
+    const text = isTextField(field) ? field.value : field.textContent;
+    // Clearing an existing queued prompt is an edit too, even though it leaves no text.
+    if (text?.trim() || (edited && isTextField(field) && field.value !== field.defaultValue)) return "field";
+  }
+  return null;
+}
+
+/** What a hidden page cannot hand back in its wake state: registered unsaved state (including
+ * sends and New Tab drafts/attachments), composition, open popups and other edited fields. */
+export function pageReleaseHold(doc: Document = document): string | null {
+  return (
+    registeredPageHold(doc) ||
+    selectionHold(doc) ||
+    (doc.querySelector(OPEN_POPUP) ? "popup" : null) ||
+    unkeptFieldHold(doc, true) ||
+    unkeptScrollHold(doc)
+  );
+}
+
+function selectionHold(doc: Document): string | null {
+  const selection = doc.defaultView?.getSelection();
   const active = doc.activeElement;
   if (isTextField(active)) {
     if (active.selectionStart !== active.selectionEnd) return "selection";
   } else if (selection && !selection.isCollapsed) {
     return "selection";
   }
-  if (active && isEditable(active)) {
-    if (!active.closest(`[${WEB_SWAP_FOCUS}]`)) return "focus";
-    if (!caretAtEnd(active, selection)) return "caret";
-  }
-  if (doc.querySelector(OPEN_POPUP)) return "popup";
-  for (const field of doc.querySelectorAll<HTMLElement>("input, textarea, [contenteditable]")) {
-    if (field.closest(`[${WEB_SWAP_KEPT_TEXT}]`) || !isEditable(field)) continue;
-    if ((field as HTMLInputElement).readOnly || (field as HTMLInputElement).disabled) continue;
-    const text = isTextField(field) ? field.value : field.textContent;
-    if (text?.trim()) return "field";
-  }
+  return null;
+}
+
+function unkeptScrollHold(doc: Document): string | null {
   for (const element of doc.querySelectorAll<HTMLElement>("*")) {
     const kept = element.getAttribute(WEB_SWAP_KEPT_SCROLL);
     if (kept === "kept") continue;
@@ -74,6 +92,22 @@ export function webSwapHold(doc: Document = document): string | null {
     if (Math.abs(element.scrollTop) > 1 || Math.abs(element.scrollLeft) > 1) return "scroll";
   }
   return null;
+}
+
+/** The page's answer: null when a reload now keeps everything it holds, else why not. */
+export function webSwapHold(doc: Document = document): string | null {
+  const registered = registeredPageHold(doc) || selectionHold(doc);
+  if (registered) return registered;
+  const selection = doc.defaultView?.getSelection();
+  const active = doc.activeElement;
+  if (active && isEditable(active)) {
+    if (!active.closest(`[${WEB_SWAP_FOCUS}]`)) return "focus";
+    if (!caretAtEnd(active, selection)) return "caret";
+  }
+  if (doc.querySelector(OPEN_POPUP)) return "popup";
+  const field = unkeptFieldHold(doc);
+  if (field) return field;
+  return unkeptScrollHold(doc);
 }
 
 /** After a swap: whether the focus owner `key` had the keyboard, read once (the composer focuses itself). */

@@ -2,6 +2,7 @@ public import CmuxHomeCore
 import CmuxNextCloud
 import CmuxNextCompat
 public import CmuxNextHome
+public import CmuxNextActions
 import Foundation
 public import Observation
 
@@ -234,6 +235,82 @@ public final class HomeDirectory {
             }
         }
         return .changedElsewhere
+    }
+
+    /// Makes the cloud Chief `id` the account's primary one, the Chief texts to the cmux line reach:
+    /// `chief.update {is_default: true}` at the record's revision; UserDO clears the flag on every
+    /// other Chief. Settings' Primary row, `cmux chief primary` and the `/primary` text all set this
+    /// one flag. One revision conflict reads the list again and retries once. Nil when it is
+    /// primary (already, or now), else why not.
+    public func makePrimaryChief(_ id: String) async -> HomeChiefRenameFailure? {
+        for attempt in 0..<2 {
+            if attempt > 0 || !chiefs.contains(where: { $0.id == id }) {
+                do {
+                    let value = try Self.value(try await call("v1/read", ["op": "chief.list", "params": ["include_archived": true]]))
+                    chiefs = HomeChiefRecord.list(from: value)
+                    hiddenCloudChiefs = HomeChiefRecord.archivedIDs(from: value)
+                } catch {
+                    return Self.renameFailure(error)
+                }
+            }
+            guard let record = chiefs.first(where: { $0.id == id }) else { return .notFound }
+            if record.isDefault { return nil }
+            let body: [String: Any] = ["op": "chief.update", "origin": "user",
+                                       "idempotency_key": "chief-primary-\(record.id)-\(record.rev)-\(UUID().uuidString.lowercased())",
+                                       "params": ["chief": record.id, "expected_rev": record.rev, "is_default": true]]
+            do {
+                let value = try Self.value(try await call("v1/ops", body))
+                var primary = HomeChiefRecord.parse(value) ?? record
+                if HomeChiefRecord.parse(value) == nil { primary.rev += 1 }
+                primary.isDefault = true
+                chiefs = chiefs.map { chief in
+                    if chief.id == primary.id { return primary }
+                    var other = chief
+                    other.isDefault = false
+                    return other
+                }
+                return nil
+            } catch FeedServiceError.owner(code: "revision.conflict", message: _) where attempt == 0 {
+                continue
+            } catch {
+                return Self.renameFailure(error)
+            }
+        }
+        return .changedElsewhere
+    }
+
+    /// Archives one of my cloud Chiefs; nil when it is gone from the list (the cloud archive may
+    /// still wait, ``HomeChiefArchive``), else why not.
+    public func archiveChiefReason(_ id: String) async -> String? {
+        if chief(for: ParticipantID(id)) == nil { await refreshChiefs() }
+        switch await archiveChief(id) {
+        case .archived, .hiddenHere: return nil
+        case .refused(let reason): return reason
+        }
+    }
+
+    /// ``setPrimaryChief(_:)`` as the `home.setPrimaryChief` action's work: nil when done, else its refusal.
+    public func setPrimaryChiefWork(_ chief: String?) async -> ActionWorkFailure? {
+        await setPrimaryChief(chief ?? "").map { ActionWorkFailure(refusal: .unavailable, reason: $0) }
+    }
+
+    /// Makes the cloud Chief named or identified by `chief` the primary one: the one path of
+    /// Settings' Primary row, `home.setPrimaryChief` and `cmux chief primary`. Nil when it is
+    /// primary, else why not (localized).
+    public func setPrimaryChief(_ chief: String) async -> String? {
+        if chiefNamed(chief) == nil { await refreshChiefs() }
+        guard let record = chiefNamed(chief) else { return HomeEngineStrings.primaryUnknown }
+        return await makePrimaryChief(record.id).map(HomeEngineStrings.primaryFailed)
+    }
+
+    /// The cloud Chief with id `idOrName`, else the one whose name matches it (case and spacing
+    /// do not matter); nil when none or several do.
+    public func chiefNamed(_ idOrName: String) -> HomeChiefRecord? {
+        let wanted = idOrName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let byID = chiefs.first(where: { $0.id == wanted }) { return byID }
+        let key = { (s: String) in s.lowercased().split(whereSeparator: \.isWhitespace).joined(separator: " ") }
+        let named = chiefs.filter { key($0.name) == key(wanted) }
+        return named.count == 1 ? named[0] : nil
     }
 
     /// The card's reason for an error of `call` or of the owner.

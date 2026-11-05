@@ -11,7 +11,11 @@ from __future__ import annotations
 
 import itertools
 import math
+import os
 import re
+import shutil
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -407,10 +411,53 @@ class GeneratedFoldTest(unittest.TestCase):
 
     def test_the_check_script_skips_the_build_only_when_asked(self):
         script = (ROOT / "scripts/cmux-next/check-action-surfaces.sh").read_text()
-        self.assertRegex(script, re.escape('[[ "${CMUX_ACTION_SURFACES_SKIP_BUILD:-}" != 1 ]] || skip_build=(--skip-build)'))
+        skip, _, built = script.partition('if [[ "${CMUX_ACTION_SURFACES_SKIP_BUILD:-}" == 1 ]]; then')
+        self.assertTrue(built, "check-action-surfaces.sh has no CMUX_ACTION_SURFACES_SKIP_BUILD=1 branch")
+        asked, _, otherwise = built.partition("\nfi\n")
+        # Asked: no build, only the tests of the build the CI job already made.
+        self.assertIn("--skip-build", asked)
+        self.assertNotIn("cmux_next_warm_build", asked)
+        # Otherwise it builds (under the warm-slot contract) before it tests that build.
+        self.assertIn('cmux_next_warm_build "$root"', otherwise)
         # bash 3.2 (macOS /bin/bash) treats an empty "${a[@]}" as unbound under set -u.
-        self.assertIn('${skip_build[@]+"${skip_build[@]}"}', script)
+        self.assertIn('${jobs[@]+"${jobs[@]}"}', otherwise)
 
+
+    def test_the_check_script_takes_a_relative_package_root(self):
+        # judge-action-exports.sh passes an absolute root; a person may pass Packages/macOS/CmuxNext. The script
+        # enters the root, so every later path must not resolve it again from inside (review of #33886).
+        work = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, work, True)
+        repo, bin_dir = work / "repo", work / "bin"
+        for rel in ("scripts/cmux-next/check-action-surfaces.sh", "scripts/cmux-next/lib/fleet-only.sh",
+                    "scripts/cmux-next/lib/warm-swiftpm.sh", "scripts/ci/swift-test-debug-info.sh",
+                    "scripts/ci/swiftpm-binary-module-guard.sh"):
+            (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(ROOT / rel, repo / rel)
+        (repo / "Packages/macOS/CmuxNext").mkdir(parents=True)
+        (repo / "Packages/macOS/CmuxNext/Package.swift").write_text("")
+        bin_dir.mkdir()
+        # A swift that refuses a --package-path that is not a package, as SwiftPM does.
+        (bin_dir / "swift").write_text(
+            "#!/usr/bin/env bash\n"
+            "args=(\"$@\"); for ((i = 0; i < ${#args[@]}; i++)); do\n"
+            "  if [[ ${args[i]} == --package-path ]]; then\n"
+            "    [[ -f ${args[i + 1]}/Package.swift ]] || { echo \"no package at ${args[i + 1]}\" >&2; exit 1; }\n"
+            "  fi\n"
+            "done\n"
+            "[[ $1 != test || -f Package.swift ]] || { echo 'swift test outside the package' >&2; exit 1; }\n")
+        (bin_dir / "swift").chmod(0o755)
+        git = ["git", "-C", str(repo)]
+        subprocess.run(git + ["init", "-q"], check=True)
+        subprocess.run(git + ["add", "-A"], check=True)
+        subprocess.run(git + ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "base"], check=True)
+        env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "CMUX_CI_STEP_KEY": "test",
+               "CMUX_SWIFTPM_RESOLVE_RETRY_DELAYS": ""}
+        env.pop("CMUX_ACTION_SURFACES_SKIP_BUILD", None)
+        result = subprocess.run(["bash", "scripts/cmux-next/check-action-surfaces.sh", "Packages/macOS/CmuxNext"],
+                                cwd=repo, env=env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue((repo / "Packages/macOS/CmuxNext/.build/.cmux-ci-built-ref").is_file(), result.stdout)
 
 if __name__ == "__main__":
     unittest.main()

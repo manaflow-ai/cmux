@@ -55,7 +55,7 @@ test("measured 2px/4px column drift fails, aligned columns pass, and missing evi
 
 const fleetTest = process.env.CMUX_GALLERY_IN_VM === "1" ? test : test.skip;
 fleetTest("declared scroll setup exposes lower rows and rejects ambiguous or missing targets", async () => {
-  const browser = await chromium.launch();
+  const browser = await chromium.launch({ ...(process.env.CMUX_CHROME_HEADLESS_SHELL ? { executablePath: process.env.CMUX_CHROME_HEADLESS_SHELL } : { channel: "chrome" }) });
   try {
     const page = await browser.newPage();
     await page.setContent('<div class="area" style="height:100px;overflow:auto"><div style="height:300px"></div><button>Review</button></div>');

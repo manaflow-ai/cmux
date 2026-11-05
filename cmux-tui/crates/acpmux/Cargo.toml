@@ -23,8 +23,12 @@ default = ["build-id"]
 # a new stamp does not recompile this crate (acpmux-build-id docs).
 build-id = ["dep:acpmux-build-id"]
 tailnet = ["dep:cmux-tailnet", "dep:tokio-rustls"]
+# The deterministic simulation's in-process agent seam (src/sim_agent.rs, tests/sim.rs). Never in
+# a shipped build: only `cargo test --features sim --test sim` turns it on.
+sim = []
 
 [target.'cfg(unix)'.dependencies]
+signal-hook-registry = "1.4"
 cmux-tailnet = { workspace = true, optional = true }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"], optional = true }
 
@@ -34,10 +38,15 @@ chrono.workspace = true
 chrono-tz.workspace = true
 cmux-server = { path = "../cmux-server" }
 cmux-json.workspace = true
+# NEXT Cloud's generated client: the join's hub calls (redeem, credentials/self).
+cmux-cloud-client.workspace = true
+# The event log's journal (R-DURABILITY S2, `store.journal`).
+cmux-journal.workspace = true
 cmux-chat-index.workspace = true
 cmux-palette-ranker.workspace = true
 cmux-coderouter.workspace = true
 cmux-local-auth.workspace = true
+cmux-mcp-connect.workspace = true
 cmux-link.workspace = true
 cmux-git.workspace = true
 cmux-worktree-care.workspace = true
@@ -60,6 +69,7 @@ ratatui = "0.30"
 serde = { version = "1", features = ["derive"] }
 # raw_value: an OpenCode config keeps its keys as written (src/opencode_ask.rs).
 serde_json = { version = "1", features = ["raw_value"] }
+jsonschema.workspace = true
 sha2.workspace = true
 # P-256 signatures of the person's phones (src/hub/approvers.rs); ring is
 # already in the graph through rustls.
@@ -80,6 +90,8 @@ notify.workspace = true
 # Session tokens and secrets (the OS generator on every platform).
 getrandom.workspace = true
 base64 = "0.22"
+bytes.workspace = true
+tempfile = "3"
 # Model-sized copies of large PNG uploads (src/model_copies.rs).
 png.workspace = true
 unicode-width = "0.2"
@@ -102,12 +114,19 @@ pulldown-cmark = { version = "0.13", default-features = false }
 syntect = { version = "5.3", default-features = false, features = ["default-fancy"] }
 # Codex over `codex app-server` as an ACP agent, in process
 # (src/codex_app_server.rs). Pinned to an exact commit.
-cmux-codex-acp = { git = "https://github.com/manaflow-ai/cmux-codex-acp", rev = "ffa7aa863bcdb3f995b0c4b96ea2349e817fed1a", default-features = false }
+cmux-codex-acp = { git = "https://github.com/manaflow-ai/cmux-codex-acp", rev = "3b8fa33adad103ce04a1b622f1657bdc091a2a6d", default-features = false }
 cmux-host.workspace = true
+# The vault egress proxy (src/vault/egress.rs): agents get placeholders.
+cmux-vault-egress.workspace = true
 
 # Windows: the daemon socket is `cmux::local_socket` (AF_UNIX with its
 # same-user checks); the detached start (CreateProcess with a handle list),
 # owner-only ACLs and agent job objects use windows-sys.
+[target.'cfg(target_os = "linux")'.dependencies]
+# The login-env watcher's change-only inotify (`login_env/watch.rs` `quiet`); `notify` asks for
+# every open. Already in the tree through `notify`, with its features.
+inotify = { version = "0.11", default-features = false }
+
 [target.'cfg(windows)'.dependencies]
 cmux-sdk = { path = "../../bindings/rust", default-features = false, features = ["local-socket"] }
 windows-sys = { workspace = true, features = [
@@ -121,9 +140,19 @@ windows-sys = { workspace = true, features = [
 ] }
 
 [dev-dependencies]
+# The simulated crash file system, for the journal store's crash tests.
+cmux-journal = { workspace = true, features = ["sim"] }
 cmux-server-core = { path = "../cmux-server-core" }
-tempfile = "3"
 rcgen = "0.14"
 # Paused time for the media handle sweeper's tests (`hub/media_handles_tests.rs`).
 tokio = { version = "1.52", features = ["test-util"] }
 cmux-unix-socket = { workspace = true, features = ["test-support"] }
+# The deterministic simulation's runtime (tests/sim.rs): hosts on one thread with simulated
+# time, a simulated network, crash and restart.
+turmoil = "0.7.2"
+
+# The deterministic simulation of the daemon (HQ#6740): `cargo test --features sim --test sim`.
+[[test]]
+name = "sim"
+path = "tests/sim.rs"
+required-features = ["sim"]

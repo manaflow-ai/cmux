@@ -18,7 +18,9 @@
 //
 // A chat the agent started with cmux-subsessions (`start_session`) is an acpmux session of its own:
 // opened, it is its own chat, and Session Info is already its own.
+import type { Translate } from "../i18n";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
+import { isRawId } from "../sessionList";
 import type { Subagent } from "../subagents/subagentFold";
 import type { SummaryBackgroundTask } from "../summary/sessionSummary";
 import type { SessionInfoProcess } from "./processes";
@@ -37,6 +39,20 @@ export type SubagentScope = {
   /// Shows what spawned it again: its parent subagent's view, or the chat's.
   onBack?: () => void;
 };
+
+/// The name of what spawned the subagent, as its back button names it; undefined when there is no
+/// readable one (empty, or a raw id).
+export function readableParent(parent: string): string | undefined {
+  const name = parent.trim();
+  return name && !isRawId(name) ? name : undefined;
+}
+
+/// The subagent panel's back button: "Back to <parent>", or just "Back" when the parent has no
+/// readable name. Never a raw session id (Leo, 2026-11-02: a "Back to 01a18a35-b1e8-…" title).
+export function subagentBackLabel(t: Translate, parent: string): string {
+  const name = readableParent(parent);
+  return name ? t("sessionInfo.subagent.back", { name }) : t("sessionInfo.subagent.backPlain");
+}
 
 /// A Claude Code worktree (`<repo>/.claude/worktrees/<name>`), from any path inside it.
 const CLAUDE_WORKTREE = /^(\/.*?\/\.claude\/worktrees\/[^/]+)(?:\/|$)/;

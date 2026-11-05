@@ -27,6 +27,10 @@ final class SidebarRegionView: NSView {
     var onToggleSection: ((LayoutSectionID) -> Void)?
     /// A drag dropped `subject`: the shown sections in their new order (R77).
     var onReorder: ((SidebarRegionDragSubject, [LayoutSection]) -> Void)?
+    /// An app section dropped in another pinned band. The host forwards the
+    /// document's move; nil clears its drop outline.
+    var sectionDropTarget: ((LayoutSectionID, NSPoint?) -> SidebarLayoutOp?)?
+    var onSectionDrop: ((SidebarLayoutOp) -> Void)?
     /// Whether a window point is over the workspace list (a workspace tile
     /// dropped there unpins); nil point ends the drag. The sidebar outlines the list.
     var dropToListProbe: ((NSPoint?) -> Bool)?
@@ -49,6 +53,8 @@ final class SidebarRegionView: NSView {
         didSet { if isEditing != oldValue { for (id, view) in itemViews { edit(view, id) } } }
     }
     var onRemoveItem: ((LayoutItemID) -> Void)?
+    /// A double-click on a pinned workspace's row: rename it in place (the list's one editor).
+    var onRenameItem: ((LayoutItemID) -> Void)?
     /// The region's height changed outside its host's layout (a drag's
     /// preview, a landed drop): the host lays its bands out again.
     var onHeightChange: (() -> Void)?
@@ -357,7 +363,11 @@ final class SidebarRegionView: NSView {
                 self?.onActivate?(id)
             }
         }
-        view.onPressBegan = { [weak self] in self?.endStaleDrag() }
+        view.onPressBegan = { [weak self] in
+            self?.endStaleDrag()
+            // A press on another row ends a rename in progress, as a press on the list's rows does.
+            if let rename = self?.docList?.inlineRename, rename.isActive { rename.end(commit: true) }
+        }
         addSubview(view)
         itemViews[id] = view
         // A client-only item (What's New) only opens: no drag, no menu.
@@ -365,6 +375,7 @@ final class SidebarRegionView: NSView {
         view.onDragged = { [weak self] start, event in self?.dragMoved(.item(id), from: start, event) ?? false }
         view.onDragEnded = { [weak self] point in self?.finishDrag(at: point) }
         view.onRemove = { [weak self] in self?.onRemoveItem?(id) }
+        view.onRename = { [weak self] in self?.onRenameItem?(id) }
         view.onContextMenu = { [weak self] event, view in
             guard let menu = self?.contextMenuProvider?(.layoutItem(id)) else { return }
             NSMenu.popUpContextMenu(menu, with: event, for: view)
@@ -384,7 +395,7 @@ final class SidebarRegionView: NSView {
         let view = SidebarSectionHeaderView()
         view.onPress = { [weak self] in self?.onToggleSection?(id) }
         view.onDragged = { [weak self] start, event in self?.dragMoved(.section(id), from: start, event) ?? false }
-        view.onDragEnded = { [weak self] in self?.finishDrag() }
+        view.onDragEnded = { [weak self] point in self?.finishDrag(at: point) }
         view.onContextMenu = { [weak self] event, view in
             guard let menu = self?.contextMenuProvider?(.layoutSection(id)) else { return }
             NSMenu.popUpContextMenu(menu, with: event, for: view)

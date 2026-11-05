@@ -120,6 +120,16 @@ const rules = css.flatMap(({ file, text }) =>
   }),
 );
 
+// Glass that Leo gave an edge of its own by name, as `element <- sheet: subject`, each with his words.
+// Only that one rule's border on that one element passes; any other border on it still fails.
+const ORDERED_EDGES: Record<string, string> = {
+  // #32969: Session Info draws a hairline in the pane's border colour in every place, the glass over the
+  // chat's column included (SessionInfo.gallery.tsx hairlineEdge checks it). Leo, 2026-11-03: "maybe it's
+  // ok...? to HAVE NO BACKGROUND FOR THE SESSION INFO / but i think having a border for it might be better".
+  "agent-session/acpmux/session-info/SessionInfo.tsx: ui-glass ui-glass-floats acpmux-session-info <- agent-session/acpmux/session-info/sessionInfo.css: .acpmux-session-info[data-placement]":
+    "#32969",
+};
+
 describe("liquid glass draws one edge", () => {
   test("the glass surfaces are found", () => {
     const all = [...elements.values()].flat();
@@ -143,8 +153,20 @@ describe("liquid glass draws one edge", () => {
         (clear.specificity === draw.specificity && clear.file === draw.file && clear.order > draw.order);
       return matching
         .filter((draw) => draw.drawn && !matching.some((clear) => clear.cleared && wins(clear, draw)))
-        .map((rule) => `${element} <- ${rule.file}: ${rule.subject}`);
+        .map((rule) => `${element} <- ${rule.file}: ${rule.subject}`)
+        .filter((edge) => !(edge in ORDERED_EDGES));
     });
     expect(doubled).toEqual([]);
+  });
+
+  test("every ordered edge is still a border the scan finds", () => {
+    const found = new Set(
+      [...elements].flatMap(([element, names]) =>
+        rules
+          .filter((rule) => rule.drawn && rule.classes.every((name) => names.includes(name)))
+          .map((rule) => `${element} <- ${rule.file}: ${rule.subject}`),
+      ),
+    );
+    expect(Object.keys(ORDERED_EDGES).filter((edge) => !found.has(edge))).toEqual([]);
   });
 });

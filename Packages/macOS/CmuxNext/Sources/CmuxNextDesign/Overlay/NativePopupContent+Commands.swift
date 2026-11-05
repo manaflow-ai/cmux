@@ -11,6 +11,21 @@ extension NativePopupContent {
         control.action = #selector(NativePopupControlTarget.controlChanged(_:))
     }
 
+    /// A row's side item (a model's effort column): its label and a chevron; a click opens the
+    /// row's children beside it, without picking the row.
+    func sideItem(for row: NativePopupRow) -> NSButton {
+        let button = NSButton(title: [row.sideLabel, "›"].compactMap(\.self).joined(separator: " "), target: nil, action: nil)
+        button.isBordered = false
+        button.font = Typography.body
+        button.isEnabled = row.disabled != true
+        button.setAccessibilityLabel([row.label, row.sideLabel].compactMap(\.self).joined(separator: ", "))
+        bind(button) { [weak self] _ in
+            guard let self, let view = rowView(id: row.id) else { return }
+            openSubmenu(row, view)
+        }
+        return button
+    }
+
     func activate(_ row: NativePopupRow, view: NSView) {
         guard row.disabled != true, owns(view) else { return }
         if let slider = view as? NativePopupSliderView { slider.slider.commitValue(true) }
@@ -44,6 +59,10 @@ extension NativePopupContent {
         switch commandSelector {
         case #selector(NSResponder.moveDown(_:)): return handleKey(125)
         case #selector(NSResponder.moveUp(_:)): return handleKey(126)
+        case #selector(NSResponder.moveLeft(_:)), #selector(NSResponder.moveRight(_:)):
+            // On an empty search field Left and Right step the rail; with text they move the caret.
+            guard control === search, search?.stringValue.isEmpty == true, model?.rail?.isEmpty == false else { return false }
+            return handleKey(commandSelector == #selector(NSResponder.moveLeft(_:)) ? 123 : 124)
         case #selector(NSResponder.insertTab(_:)):
             guard control === search, let search, search.isEnabled,
                   model?.search?.completeOnTab == true else { return false }

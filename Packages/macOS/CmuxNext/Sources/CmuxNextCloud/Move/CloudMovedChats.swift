@@ -41,6 +41,12 @@ public final class CloudMovedChats {
             self.name = name
             self.broughtBack = broughtBack
         }
+
+        /// What opens the chat locally after a committed bring-back, including its retry key.
+        public func shown(_ back: BroughtBack) -> CloudMoveRetries.Shown {
+            CloudMoveRetries.Shown(session: back.session, harness: harness, machineID: machineID, folder: localChat,
+                                   name: name, key: back.key, host: host, movedSession: session)
+        }
     }
 
     /// A chat moved back to this Mac whose tab here may not have opened yet.
@@ -60,7 +66,9 @@ public final class CloudMovedChats {
     /// Where the ledger is kept (``CloudMoveSetup/ledger``); nil keeps it in memory.
     public var defaults: @MainActor () -> UserDefaults? = { nil }
     private var memory: [String: Entry] = [:]
+    private var starting: [String: Entry] = [:]
     public static let defaultsKey = "cmux.cloud.movedChats"
+    private static let startingKey = "cmux.cloud.startingChats"
 
     public init() {}
 
@@ -75,6 +83,45 @@ public final class CloudMovedChats {
         var all = entries()
         all[Self.key(entry.host, entry.session)] = entry
         save(all)
+    }
+
+    /// Keeps a committed copy until the opened tab's first send creates its session. Pending
+    /// copies never appear in menus or access triage. A relaunch can finish the same first send.
+    public func copied(_ entry: Entry) {
+        var copies = startingEntries()
+        copies[Self.key(entry.host, entry.remoteChat)] = entry
+        saveStarting(copies)
+    }
+
+    /// Completes a Cloud start with the session its daemon actually created. Returns whether
+    /// a copy was recorded, so its caller can start local access triage. Ordinary remote chats
+    /// and no-project starts have no copy and never acquire a local-folder mapping.
+    @discardableResult
+    public func started(host: String, session: String, remoteChat: String?, harness: String?) -> Bool {
+        guard let remoteChat else { return false }
+        let key = Self.key(host, remoteChat)
+        var copies = startingEntries()
+        guard var entry = copies[key] else { return false }
+        entry.session = session
+        entry.harness = harness ?? entry.harness
+        // Record first: a crash between these writes can replay this completion harmlessly.
+        if self.entry(host: host, session: session) == nil { record(entry) }
+        copies[key] = nil
+        saveStarting(copies)
+        return true
+    }
+
+    private func startingEntries() -> [String: Entry] {
+        guard let defaults = defaults() else { return starting }
+        guard let data = defaults.data(forKey: Self.startingKey) else { return [:] }
+        return ((try? JSONDecoder().decode([String: Lenient].self, from: data)) ?? [:]).compactMapValues(\.entry)
+    }
+
+    private func saveStarting(_ entries: [String: Entry]) {
+        guard let defaults = defaults() else { starting = entries; return }
+        guard !entries.isEmpty else { return defaults.removeObject(forKey: Self.startingKey) }
+        guard let data = try? JSONEncoder().encode(entries) else { return }
+        defaults.set(data, forKey: Self.startingKey)
     }
 
     public func forget(host: String, session: String) {

@@ -42,6 +42,8 @@ SWIFT = (
     "Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AgentPaneSessionInfoHeaderTests.swift",
 )
 EXTENSIONS = (".ts", ".tsx", ".css", ".swift")
+# What this check reads. scripts/web_lint_prepush.py runs it alone when a push touches one (declared_inputs()).
+INPUTS = (TREE, TESTS, *SWIFT)
 # Tests whose subject is the word itself: they look for "Inspector" so that nothing shows it, or
 # open the event Inspector beside Session Info.
 EXEMPT = {

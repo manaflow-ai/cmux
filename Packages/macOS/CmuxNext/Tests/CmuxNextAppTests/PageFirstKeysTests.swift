@@ -134,6 +134,18 @@ import Testing
         }
     }
 
+    /// Shift-Cmd-L opens a new browser from a focused Chromium page as from any other pane
+    /// (https://github.com/manaflow-ai/cmux/issues/32789). Opening a tab is a window key, like Chrome's
+    /// reserved Cmd-T: it never waits for the page, though Shift-Cmd-L is also an editing chord.
+    @Test func openBrowserRunsBeforeAChromiumPage() throws {
+        let key = Key(name: "Shift-Cmd-L", characters: "L", keyCode: 37, modifiers: [.command, .shift])
+        guard case .run(let candidate) = try Self.decision(key, facts: Self.chromium) else {
+            Issue.record("Shift-Cmd-L waited for the page instead of opening a browser")
+            return
+        }
+        #expect(candidate.id == "openBrowser")
+    }
+
     /// A WebKit page reports no unhandled keys, so cmux keeps running Find first there.
     @Test func webKitPageKeepsCmuxFind() throws {
         guard case .run(let candidate) = try Self.decision(Self.pageOwnedKeys[0], facts: KeyRouter.Facts()) else {

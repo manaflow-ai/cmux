@@ -6,7 +6,7 @@
 // Leo, 2026-10-26: "the dropdown should show the states of stuff when you've done the acp things
 // or any kind of connectivity."
 import { useSyncExternalStore } from "react";
-import type { Environment } from "./environments";
+import { environmentReady, type Environment } from "./environments";
 import { postNative } from "./native";
 
 /// One machine of the account: its id, name and `CloudMachineStage` name (`ready`, `paused`,
@@ -93,6 +93,49 @@ export function withCloudMachines<T extends Pick<Environment, "id" | "label" | "
       !taken.has(lower(environment.label)),
   );
   return [...kept, ...rows];
+}
+
+/// `CloudMachineStage` names of a machine on its way up (Swift CloudMachineStage: `resuming` while
+/// the server takes a resume, then `booting` and `connecting`; a page's own Resume reads `requesting`).
+const STARTING_STAGES = new Set(["requesting", "resuming", "creating", "booting", "connecting"]);
+
+/// The account's one machine named `name` (any case, as the app matches a peer to a Cloud machine by
+/// its title). Two of that name give none: a Resume must never start the other one.
+export function uniqueCloudMachine(machines: readonly CloudMachine[], name: string): CloudMachine | undefined {
+  const named = machines.filter((machine) => lower(machine.name) === lower(name));
+  return named.length === 1 ? named[0] : undefined;
+}
+
+/// What a Cloud machine acpmux lists but has no link to is, when the account says it sleeps: its
+/// link state reads `paused` or `resuming` in place of acpmux's `reconnecting` or `offline`, so the
+/// composer and the picker show a calm pause, never a broken link. With `pickable` (a new chat's
+/// list), a paused one also carries its machine, so a pick resumes it and the chat moves there once
+/// acpmux links it (ComposerContext `pickCloudMachine`); a resuming one stays greyed until then.
+/// Cloud machines are about to pause on their own when idle, and between tool calls (cmux-platform
+/// docs/agent-turn-sleep.md), so a pause has to read as an ordinary state.
+/// Whether the account's machine named `name` is paused or on its way up (a resume): a Cloud
+/// machine that sleeps, never one that is gone. Reads the page's copy of the app's list as it is.
+export function cloudMachineAsleep(name: string | undefined, list: readonly CloudMachine[] = machines): boolean {
+  if (!name) return false;
+  const machine = uniqueCloudMachine(list, name);
+  return machine !== undefined && (machine.stage === "paused" || STARTING_STAGES.has(machine.stage));
+}
+
+export function withCloudSleep<T extends Environment>(
+  listed: readonly T[],
+  machines: readonly CloudMachine[],
+  pickable: boolean,
+): (T | (T & CloudMachineRow))[] {
+  if (machines.length === 0) return [...listed];
+  return listed.map((environment) => {
+    if (environment.kind !== "cloud" || environmentReady(environment) || isCloudMachineRow(environment))
+      return environment;
+    const machine = uniqueCloudMachine(machines, environment.label);
+    if (machine?.stage === "paused")
+      return { ...environment, state: "paused", ...(pickable ? { cloudMachine: machine } : {}) };
+    if (machine && STARTING_STAGES.has(machine.stage)) return { ...environment, state: "resuming" };
+    return environment;
+  });
 }
 
 export function isCloudMachineRow(environment: Environment): environment is CloudMachineRow {

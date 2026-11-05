@@ -1,5 +1,5 @@
 // l10n-allow-file: gallery fixtures (sample chats, prompts and replies), not shipped UI.
-// The app, whole: the real agent pane (acpmux/main.tsx, AcpmuxApp) at the size it has in a real
+// The app, whole: the real agent pane (acpmux/mount.tsx, AcpmuxApp) at the size it has in a real
 // cmux window (the default window frame, window.ts), in the states a person reaches by using it.
 // Leo, 2026-10-30: "we should have a faithful all-levle representation of the app through that
 // stuff" and "WE DONT NEED FUCKIGN SCREENSHOTS JUST LET ME TRY THE SHIT OUT". Each variant is a

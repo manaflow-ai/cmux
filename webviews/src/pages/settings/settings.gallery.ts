@@ -1,6 +1,14 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
 import { settingsPageEntry, type PageFixtureStep, type SettingsPageVariant } from "../../gallery/format";
-import type { AccountsCmux, AccountsRow, AccountsState, CloudEnvironmentsState, HostLists } from "./ops";
+import type {
+  AccountsCmux,
+  AccountsRow,
+  AccountsState,
+  CloudEnvironmentsState,
+  HostLists,
+  ProviderAccount,
+} from "./ops";
+import { minutesAgo } from "../../gallery/clock";
 import { categories, homes } from "./categories";
 import { MockTeams } from "./mockTeams";
 import { mockThemeColors } from "./mockThemes";
@@ -286,15 +294,75 @@ const longProfiles = longRows.map((r, i) => ({
   source: "Imported sample browser profile",
 }));
 
+// Synthetic accounts only (example.com addresses): the CLI logins and one added Codex account.
+const providerAccounts: ProviderAccount[] = [
+  {
+    id: "codex-login",
+    family: "codex",
+    name: "ChatGPT",
+    home: null,
+    defaultHome: "~/.codex",
+    shadowOf: null,
+    signedIn: true,
+    plan: "pro",
+    email: "alex@example.com",
+    enabled: true,
+    builtin: true,
+  },
+  {
+    id: "codex-2",
+    family: "codex",
+    name: "ChatGPT 2",
+    home: "~/.cmux/accounts/codex-2",
+    defaultHome: "~/.codex",
+    shadowOf: "~/.codex",
+    signedIn: true,
+    plan: "plus",
+    email: "sam@example.com",
+    enabled: false,
+    builtin: false,
+  },
+  {
+    id: "claude-login",
+    family: "claude",
+    name: "Claude",
+    home: null,
+    defaultHome: "~/.claude",
+    shadowOf: null,
+    signedIn: true,
+    plan: "max",
+    email: "alex@example.com",
+    enabled: true,
+    builtin: true,
+  },
+];
+
 Object.assign(variants, {
   "agents-harnesses-registry": variant("agents", {
-    note: "Harnesses: found on PATH, a profile file, an installed ACP Registry agent, a terminal-only harness, and acpmux's problem text.",
+    note: "Harnesses: found on PATH, a profile file, an installed ACP Registry agent, a terminal-only harness, and acpmux's problem text. Codex and Claude Code say whose login they use and its plan, list every account routing may use with its switch, and Codex offers Add account.",
     harnesses: {
       loading: false,
       problem: null,
+      accounts: providerAccounts,
       harnesses: [
-        { id: "claude", name: null, kind: "claude-stdio", source: "path", problem: null },
-        { id: "codex", name: null, kind: "acp", source: "path", problem: null },
+        {
+          id: "claude",
+          name: null,
+          kind: "claude-stdio",
+          source: "path",
+          problem: null,
+          version: "2.0.9",
+          checkedAt: minutesAgo(54),
+        },
+        {
+          id: "codex",
+          name: null,
+          kind: "acp",
+          source: "path",
+          problem: null,
+          version: "0.164.0",
+          checkedAt: minutesAgo(54),
+        },
         { id: "cursor", name: null, kind: "acp", source: "path", problem: null },
         { id: "github-copilot-cli", name: "GitHub Copilot", kind: "acp", source: "user-file", problem: null },
         { id: "goose", name: null, kind: "acp", source: "registry", problem: null },
@@ -313,6 +381,40 @@ Object.assign(variants, {
     note: "Agent integrations in a build without the cmux CLI: it says so and gives the command.",
     focus: "agents.integrations",
     integrations: { loading: false, problem: "unavailable", command: "cmux agent hook install", providers: [] },
+  }),
+  "agents-harnesses-account-added": variant("agents", {
+    note: "Codex right after Add account: ChatGPT 3 has a shadow home of its own, waits for its sign-in, and is on for routing.",
+    harnesses: {
+      loading: false,
+      problem: null,
+      accounts: [
+        ...providerAccounts,
+        {
+          id: "codex-3",
+          family: "codex",
+          name: "ChatGPT 3",
+          home: "~/.cmux/accounts/codex-3",
+          defaultHome: "~/.codex",
+          shadowOf: "~/.codex",
+          signedIn: false,
+          plan: null,
+          email: null,
+          enabled: true,
+          builtin: false,
+        },
+      ],
+      harnesses: [
+        {
+          id: "codex",
+          name: null,
+          kind: "acp",
+          source: "path",
+          problem: null,
+          version: "0.164.0",
+          checkedAt: minutesAgo(2),
+        },
+      ],
+    },
   }),
   "agents-harnesses-unreachable": variant("agents", {
     note: "Harnesses when the acpmux daemon did not answer.",
@@ -708,6 +810,18 @@ Object.assign(variants, {
   "theme-picker-search": variant("theme", {
     allThemes: true,
     steps: [click("[data-theme-picker]"), input(".theme-popover input", "solarized"), wait("[data-theme-option]")],
+  }),
+  "theme-picker-starred": variant("theme", {
+    allThemes: true,
+    options: {
+      values: {
+        "appearance.theme": "Rose Pine",
+        "appearance.favoriteThemes": ["Rose Pine", "Catppuccin Mocha", "Tokyo Night"],
+        "appearance.rotateFavoriteThemes": "daily",
+      },
+    },
+    steps: [click("[data-theme-picker]"), wait(".theme-popover [data-starred-row]")],
+    note: "Starred themes first under Starred, then All Themes; each starred row's star is lit. Rotate Starred Themes shows in the card.",
   }),
   "theme-picker-empty": variant("theme", {
     allThemes: true,
@@ -1240,6 +1354,36 @@ Object.assign(variants, {
     }),
     note: "A team with an active subscription cannot be deleted: the confirmation says why.",
   }),
+  "accounts-team-invited": variant("accounts", {
+    accounts: withTeams((teams) => {
+      teams.received = [
+        {
+          id: "inv-1",
+          teamId: "team-research",
+          team: "Sample team 3",
+          invitedBy: "Sample Person",
+          email: "you@example.com",
+        },
+        { id: "inv-2", teamId: "team-design", team: "Sample team 4", invitedBy: null, email: "you@example.com" },
+      ];
+    }),
+    note: "Invitations to You: teams that invited one of your verified emails, each with Join Team and Decline.",
+  }),
+  "accounts-team-joined": variant("accounts", {
+    accounts: withTeams((teams) => {
+      teams.received = [
+        {
+          id: "inv-1",
+          teamId: "team-research",
+          team: "Sample team 3",
+          invitedBy: "Sample Person",
+          email: "you@example.com",
+        },
+      ];
+      teams.run({ action: "team.accept", team: "inv-1" });
+    }),
+    note: "Join Team: the team joins your list as a member and becomes your active team.",
+  }),
   "accounts-team-create": variant("accounts", {
     accounts: withTeams((teams) => teams.run({ action: "team.new" })),
     note: "New Team: you become its admin and it becomes your active team.",
@@ -1350,6 +1494,83 @@ const resetAnchors = Object.values(RESET_SAMPLES).flatMap((key) => [
   { selector: `${row(key)} .row-title` },
   { selector: `${row(key)} + [data-row-key] .row-title` },
 ]);
+
+const githubConnection = {
+  title: "GitHub",
+  detail: "Connected",
+  busy: false,
+  connect: "Connect GitHub",
+  disconnect: "Disconnect",
+  confirm: "Disconnect GitHub? Agents will lose access through this connection.",
+  cancel: "Cancel",
+  refresh: "Refresh",
+  canConnect: false,
+  connections: [
+    {
+      id: "sample-github",
+      canDisconnect: true,
+      account: "sample-team",
+      status: "Connected",
+      permissions: ["contents:write", "pull_requests:write"],
+    },
+  ],
+};
+for (const treatment of ["balanced", "compact", "inline"]) {
+  variants[`github-connect-${treatment}`] = variant("accounts", {
+    accounts: accounts({}, { github: githubConnection }),
+    note: `GitHub App connection: ${treatment} treatment. Balanced uses the existing Accounts spacing.`,
+    play: async (ctx) => {
+      await ctx.waitFor(() => ctx.document.querySelector('[data-card="github-connection"]'));
+      const card = ctx.document.querySelector<HTMLElement>('[data-card="github-connection"]')!;
+      card.scrollIntoView({ block: "center" });
+      if (treatment !== "balanced") {
+        const style = ctx.document.createElement("style");
+        style.textContent =
+          treatment === "compact"
+            ? '[data-card="github-connection"] .row { padding-block: 4px; } [data-card="github-connection"] .accounts-body { margin-top: 4px; }'
+            : '[data-card="github-connection"] .row { display: flex; align-items: center; gap: 16px; } [data-card="github-connection"] .accounts-body { margin: 0; padding: 0; }';
+        card.append(style);
+      }
+    },
+  });
+}
+variants["github-connect-comparison"] = variant("accounts", {
+  accounts: accounts({}, { github: githubConnection }),
+});
+variants["github-connect-empty"] = variant("accounts", {
+  accounts: accounts(
+    {},
+    {
+      github: {
+        ...githubConnection,
+        connections: [],
+        canConnect: true,
+        detail: "Connect the cmux GitHub App. Choose repositories and review permissions in GitHub.",
+      },
+    },
+  ),
+});
+variants["github-connect-pending"] = variant("accounts", {
+  accounts: accounts(
+    {},
+    {
+      github: {
+        ...githubConnection,
+        connections: [],
+        canConnect: true,
+        detail: "Finish connecting in your browser, then refresh.",
+      },
+    },
+  ),
+});
+variants["github-connect-confirm"] = variant("accounts", {
+  accounts: accounts({}, { github: githubConnection }),
+  play: async (ctx) => {
+    await ctx.waitFor(() => ctx.document.querySelector('[data-github-action="disconnect"]'));
+    await ctx.click({ selector: '[data-github-action="disconnect"]' });
+    await ctx.waitFor(() => ctx.document.querySelector('[data-card="github-connection"] output'));
+  },
+});
 
 export default settingsPageEntry({
   id: "pages.settings",

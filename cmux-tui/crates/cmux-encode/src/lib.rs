@@ -13,6 +13,10 @@ pub mod openh264;
 #[cfg(feature = "openh264-download")]
 pub mod cisco;
 
+/// Apple frameworks bound at run time, so a binary links none of them (macOS only).
+#[cfg(target_os = "macos")]
+pub mod dynlib;
+
 #[cfg(target_os = "macos")]
 pub mod videotoolbox;
 

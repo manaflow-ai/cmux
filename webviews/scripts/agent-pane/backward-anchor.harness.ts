@@ -100,7 +100,7 @@ const vite = await createServer({
   server: { port: 0, host: "127.0.0.1", strictPort: false },
   logLevel: "error",
 });
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({ channel: "chrome", headless: true });
 const context = await browser.newContext({
   viewport: { width: 900, height: 760 },
   ...(capture ? { recordVideo: { dir: capture, size: { width: 900, height: 760 } } } : {}),

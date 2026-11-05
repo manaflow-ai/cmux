@@ -14,13 +14,30 @@ public import Foundation
 /// ```
 public nonisolated struct DaemonDiagnosticKnobs: Sendable, Equatable {
     /// App launch knob to daemon variable: key-press flow marks (scripts/cmux-next/trace.py), the
-    /// create-path debug timing marks, and the terminal host model (`holder`: the install's one holder
-    /// instead of a host process per terminal; scripts/cmux-next/holder-dogfood.py, default off).
+    /// create-path debug timing marks, the terminal host model (`holder`: the install's one holder
+    /// instead of a host process per terminal; scripts/cmux-next/holder-dogfood.py, default off),
+    /// the R-DAEMON-STATE stage switches (stage S1's input lane is on by default and `0` keeps its old
+    /// path for one nightly; a switch is deleted with its old path when the stage passes;
+    /// handoff/rewrites/R-DAEMON-STATE/DESIGN.md section 3), and the R-LIFECYCLE keepers switch (`0`
+    /// keeps the app's daemon and Chief daemon running after the app left with nothing to keep them,
+    /// as before; default on; deleted when the stage has passed dogfood).
     public static let names: [(app: String, daemon: String)] = [
         ("CMUX_NEXT_TRACE_FLOWS", "CMUX_TRACE_FLOWS"),
         ("CMUX_NEXT_TUI_DEBUG_SPANS", "CMUX_TUI_DEBUG_SPANS"),
         ("CMUX_NEXT_TUI_TERMINAL_HOST_MODEL", "CMUX_TUI_TERMINAL_HOST_MODEL"),
+        ("CMUX_NEXT_TUI_RDS_INPUT", inputLaneDaemonName),
+        ("CMUX_NEXT_TUI_OWNER_KEEPERS", ownerKeepersDaemonName),
     ]
+
+    /// The R-LIFECYCLE keepers switch under the daemon's name.
+    static let ownerKeepersDaemonName = "CMUX_TUI_OWNER_KEEPERS"
+
+    /// The R-DAEMON-STATE stage S1 input lane switch under the daemon's name.
+    static let inputLaneDaemonName = "CMUX_TUI_RDS_INPUT"
+
+    /// The switches the Chief owner's launch passes on too (`DaemonLauncher.chiefEnvironment`): the Chief owner is
+    /// a cmux-tui daemon that follows the same rules as the app's own, so each switch's off value must reach it.
+    static let chiefOwnerDaemonNames = [ownerKeepersDaemonName, inputLaneDaemonName]
 
     /// The daemon variables to set, from the knobs present and non-empty in the app's environment.
     public let daemonEnvironment: [String: String]

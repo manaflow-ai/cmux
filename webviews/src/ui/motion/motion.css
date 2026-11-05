@@ -1,0 +1,210 @@
+/* ui/motion: the shared motion primitives' looks. Durations and curves come only from the motion scale
+   (schemas/motion-scale, --cmux-motion-* and --cmux-ease-* in pages/shared/desktop.css); a page that
+   does not load desktop.css gets the same values as fallbacks. */
+
+/* ---------- Sliding selection indicator (SlidingIndicator.tsx) ---------- */
+
+/* The host holds the items and the highlight. The highlight is the host's first child and every item
+   is positioned too, so the items paint over it in document order (no z-index). */
+.ui-slide-host {
+  position: relative;
+}
+.ui-slide-host > .ui-slide-item {
+  position: relative;
+}
+
+.ui-slide-indicator {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  transform-origin: 0 0;
+  box-sizing: border-box;
+  border-radius: var(--ui-slide-radius, 6px);
+  background: var(--ui-slide-fill, color-mix(in srgb, currentColor 10%, transparent));
+}
+
+.ui-slide-indicator[data-empty] {
+  visibility: hidden;
+}
+
+/* pill: the chunky filled highlight of a tab bar; the selected label reads on it. */
+.ui-slide-indicator[data-look="pill"] {
+  border-radius: var(--ui-slide-radius, 999px);
+  background: var(--ui-slide-fill, var(--agent-accent, var(--cmux-accent)));
+}
+
+/* plate: the toolbar's quiet pressed fill, now one plate that travels. */
+.ui-slide-indicator[data-look="plate"] {
+  background: var(--ui-slide-fill, color-mix(in srgb, var(--agent-text, currentColor) 8%, transparent));
+}
+
+/* underline: a 2 px bar under the selected item's label. */
+.ui-slide-indicator[data-look="underline"] {
+  background: none;
+}
+.ui-slide-indicator[data-look="underline"]::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 0;
+  border-top: 2px solid var(--ui-slide-fill, var(--agent-accent, var(--cmux-accent)));
+  border-radius: 0;
+}
+
+/* A selected item under a highlight draws no fill of its own; its colour still changes on the click. */
+.ui-slide-host > .ui-slide-item:is([aria-selected="true"], [aria-pressed="true"], [aria-checked="true"]) {
+  background: none;
+}
+.ui-slide-host:has(> .ui-slide-indicator[data-look="pill"]) > .ui-slide-item:is([aria-selected="true"], [aria-pressed="true"], [aria-checked="true"]) {
+  color: var(--ui-slide-on-fill, var(--agent-accent-text, Canvas));
+}
+
+/* ---------- View swap (ViewSwap.tsx) ---------- */
+
+.ui-view-swap {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+}
+
+.ui-view-swap[data-look="sweep"] {
+  overflow: clip;
+}
+
+.ui-view-swap__band {
+  position: absolute;
+  inset: -8% -12%;
+  z-index: var(--layer-raised);
+  pointer-events: none;
+  transform: translateX(-100%) skewX(-16deg);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--agent-accent, var(--cmux-accent)) 28%, transparent) 42%,
+    color-mix(in srgb, var(--agent-accent, var(--cmux-accent)) 28%, transparent) 58%,
+    transparent
+  );
+}
+
+/* ---------- Hover and press feedback ---------- */
+
+/* A hover fill on the control itself (never the row around it): in and out over quick (80 ms). A
+   press changes nothing: no flash, no dip, no lingering tint (Leo, 2026-10-19). The fade is named in
+   --ui-fill-transition so a control that is also revealed (.ui-reveal) keeps it. */
+.ui-hover-fill {
+  --ui-fill-transition:
+    background-color var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1)),
+    color var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1));
+  transition: var(--ui-fill-transition);
+}
+.ui-hover-fill:hover,
+.ui-hover-fill[data-popup-open] {
+  background-color: var(--ui-hover-fill, color-mix(in srgb, currentColor 10%, transparent));
+}
+
+/* A control revealed on hover of its host fades in over micro (120 ms) and out over quick (80 ms),
+   never blinks; it stays shown while a menu it opened is open (data-popup-open) or it has focus. */
+.ui-reveal {
+  --ui-reveal-ms: var(--cmux-motion-quick, 80ms);
+  opacity: 0;
+  transition: opacity var(--ui-reveal-ms) var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1));
+}
+.ui-reveal-host:hover .ui-reveal,
+.ui-reveal-host:focus-within .ui-reveal,
+.ui-reveal[data-popup-open],
+.ui-reveal-host:has([data-popup-open]) .ui-reveal {
+  --ui-reveal-ms: var(--cmux-motion-micro, 120ms);
+  opacity: 1;
+}
+/* Both: the reveal's own in and out durations, and the fill's 80 ms fade beside them. */
+.ui-reveal.ui-hover-fill {
+  transition:
+    opacity var(--ui-reveal-ms) var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1)),
+    var(--ui-fill-transition);
+}
+
+/* ---------- Depth layer (DepthLayer.tsx) ---------- */
+
+.ui-depth {
+  position: absolute;
+  inset: 0;
+  z-index: var(--layer-base);
+  overflow: hidden;
+  pointer-events: none;
+  --ui-depth-x: 0;
+  --ui-depth-y: 0;
+}
+
+.ui-depth__wash {
+  position: absolute;
+  border-radius: 50%;
+  transition: translate var(--cmux-motion-large, 240ms) var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1));
+}
+
+.ui-depth__wash[data-depth="far"] {
+  width: 70%;
+  height: 80%;
+  left: -10%;
+  top: -20%;
+  background: radial-gradient(
+    closest-side,
+    color-mix(in srgb, var(--agent-accent, var(--cmux-accent)) 14%, transparent),
+    transparent
+  );
+  translate: calc(var(--ui-depth-x) * var(--ui-depth-lean, 10px) * 0.5)
+    calc(var(--ui-depth-y) * var(--ui-depth-lean, 10px) * 0.5);
+}
+
+.ui-depth__wash[data-depth="near"] {
+  width: 60%;
+  height: 70%;
+  right: -12%;
+  bottom: -18%;
+  background: radial-gradient(
+    closest-side,
+    color-mix(in srgb, var(--agent-accent, var(--cmux-accent)) 10%, transparent),
+    transparent
+  );
+  translate: calc(var(--ui-depth-x) * var(--ui-depth-lean, 10px)) calc(var(--ui-depth-y) * var(--ui-depth-lean, 10px));
+}
+
+@keyframes ui-depth-drift-far {
+  50% {
+    transform: translate(6%, 4%) scale(1.06);
+  }
+}
+@keyframes ui-depth-drift-near {
+  50% {
+    transform: translate(-5%, -3%) scale(1.04);
+  }
+}
+
+/* One slow drift, then rest: iteration-count 1 (DRIFT_S in DepthLayer.tsx). */
+.ui-depth:is([data-look="drift"], [data-look="drift-parallax"]) .ui-depth__wash[data-depth="far"] {
+  animation: ui-depth-drift-far var(--ui-depth-drift, 24s) var(--cmux-ease-out) 1; /* motion-allow: one bounded ambient drift, paused while hidden, not a transition */
+}
+.ui-depth:is([data-look="drift"], [data-look="drift-parallax"]) .ui-depth__wash[data-depth="near"] {
+  animation: ui-depth-drift-near var(--ui-depth-drift, 24s) var(--cmux-ease-out) 1; /* motion-allow: one bounded ambient drift, paused while hidden, not a transition */
+}
+.ui-depth[data-paused] .ui-depth__wash {
+  animation-play-state: paused;
+}
+
+/* Motion off or Reduce Motion: every primitive here holds still. */
+:root:is([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .ui-depth__wash {
+  animation: none;
+  transition: none;
+  translate: none;
+}
+:root:is([data-agent-motion="off"], [data-cmux-motion="off"]) :is(.ui-hover-fill, .ui-reveal) {
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ui-depth__wash {
+    animation: none;
+    transition: none;
+    translate: none;
+  }
+}

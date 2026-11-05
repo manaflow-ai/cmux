@@ -226,6 +226,12 @@ impl Translator {
         if let Some(action) = action {
             update.set("action", json!(action));
         }
+        // A plain agent's task id is the agent id SendMessage names it by.
+        if workflow.is_none()
+            && let Some(task) = text("task_id")
+        {
+            update.set("agentId", json!(task));
+        }
         if let Some(last) = text("lastMessage").or_else(|| text("last_message")) {
             update.set("lastMessage", json!(preview(last)));
         }

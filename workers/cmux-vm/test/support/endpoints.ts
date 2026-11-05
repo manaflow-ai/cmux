@@ -23,6 +23,8 @@ export const VM_ENDPOINTS: ReadonlyArray<VmEndpointCase> = [
   { name: "resizeVm", method: "POST", template: "/v1/vms/{vmId}/resize", path: (id) => `/v1/vms/${id}/resize`, scope: "vm:write", json: { resources: { vcpus: 8 } } },
   { name: "replaceVmHttpsProxy", method: "PUT", template: "/v1/vms/{vmId}/https-proxies/{hostname}",
     path: (id) => `/v1/vms/${id}/https-proxies/api.example.test`, scope: "vm:network", json: { destination: "https://proxy.example.test" } },
+  { name: "getVmPublicEgress", method: "GET", template: "/v1/vms/{vmId}/public-egress", path: (id) => `/v1/vms/${id}/public-egress`, scope: "vm:network" },
+  { name: "allowVmPublicEgress", method: "PUT", template: "/v1/vms/{vmId}/public-egress", path: (id) => `/v1/vms/${id}/public-egress`, scope: "vm:network" },
   { name: "getVm", method: "GET", template: "/v1/vms/{vmId}", path: (id) => `/v1/vms/${id}`, scope: "vm:read" },
   { name: "startVm", method: "POST", template: "/v1/vms/{vmId}/start", path: (id) => `/v1/vms/${id}/start`, scope: "vm:write" },
   { name: "stopVm", method: "POST", template: "/v1/vms/{vmId}/stop", path: (id) => `/v1/vms/${id}/stop`, scope: "vm:write" },

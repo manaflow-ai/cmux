@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { Popover, type UiAnchor } from "../../../ui/Popover";
+import { useScrollEdges } from "../../../ui/scrollEdges";
 import { postNative } from "../native";
 import { NativeError } from "../nativeError";
 import { useT, type Translate } from "../i18n";
@@ -99,6 +100,7 @@ export function CloudRepositoryPicker({
   const t = useT();
   const [query, setQuery] = useState("");
   const [repos, setRepos] = useState<CloudRepo[]>([]);
+  const listEdges = useScrollEdges();
   const [connectUrl, setConnectUrl] = useState<string>();
   const [loading, setLoading] = useState(false);
   const [attaching, setAttaching] = useState<string>();
@@ -194,7 +196,7 @@ export function CloudRepositoryPicker({
         />
         {loading && <div className="acpmux-cloud-repository-progress">{t("cloudRepository.searching")}</div>}
         {!loading && repos.length > 0 && (
-          <ul className="acpmux-cloud-repository-list">
+          <ul ref={listEdges} className="acpmux-cloud-repository-list ui-scroll-edge-fade">
             {repos.map((repo) => (
               <li key={repo.fullName}>
                 <button

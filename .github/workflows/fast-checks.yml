@@ -216,7 +216,7 @@ jobs:
           fi
           if [[ -x webviews/node_modules/.bin/playwright ]]; then
             cd webviews
-            ./node_modules/.bin/playwright install --with-deps --only-shell chromium webkit
+            ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
           fi
 
       - name: Install gallery dependencies and browsers
@@ -232,7 +232,7 @@ jobs:
               exit 2
             fi
           fi
-          bunx --no-install playwright install --with-deps chromium webkit
+          bunx --no-install playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
           echo 'CMUX_GALLERY_IN_VM=1' >> "$GITHUB_ENV"
 
       # A script outside the checkout (a capture written to /tmp and run with bun) finds no
@@ -253,7 +253,7 @@ jobs:
             let version = "unknown";
             try { version = require("playwright/package.json").version; } catch {}
             const where = process.env.PLAYWRIGHT_BROWSERS_PATH || "the default browsers path";
-            require("playwright").chromium.launch({ headless: true })
+            require("playwright").chromium.launch({ channel: "chrome", headless: true })
               .then((browser) => browser.close())
               .catch((error) => {
                 const reason = String((error && error.message) || error).split("\n")[0];

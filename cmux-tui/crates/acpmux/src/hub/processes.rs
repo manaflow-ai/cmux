@@ -66,6 +66,10 @@ pub(super) struct Process {
     task_id: String,
     harness: String,
     command: String,
+    /// What the call that started it says it does (Claude's Bash
+    /// `description`); none from Codex.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
     cwd: String,
     /// Unix ms.
     started_at: u64,
@@ -185,6 +189,7 @@ impl ProcessTable {
                     task_id: text("taskId").unwrap_or("").to_owned(),
                     harness: crate::web_modes::family_of(&meta),
                     command: text("command").unwrap_or("").to_owned(),
+                    description: text("description").map(str::to_owned),
                     cwd: meta.cwd.to_string_lossy().into_owned(),
                     started_at: at,
                     ended_at: None,
@@ -569,8 +574,13 @@ impl Hub {
     /// A process still runs in the background: the chat is not idle
     /// (`idle.rs`).
     pub(super) fn any_process_running(&self, session: &Session) -> bool {
-        let table = self.process_table(session);
-        !table.running.is_empty()
+        self.running_processes(session) > 0
+    }
+
+    /// How many of the session's background processes run (reading its log once if this
+    /// daemon has not yet).
+    pub(super) fn running_processes(&self, session: &Session) -> usize {
+        self.process_table(session).running.len()
     }
 
     /// How many of the session's background processes run, from a table this
@@ -750,7 +760,17 @@ impl Hub {
     /// request: refused. With no turn running, nothing runs in the
     /// foreground: `backgrounded: false`, and Claude Code is not asked.
     pub async fn background_work(&self, key: &str, tool: Option<&str>) -> Result<Value, RpcError> {
-        let session = self.resolve(key)?;
+        self.background_session(&self.resolve(key)?, tool, false).await
+    }
+
+    /// [`Self::background_work`] for `session`. `auto`: acpmux moves it on its own
+    /// (`auto_background.rs`), not the person, so what moves keeps origin `auto_backgrounded`.
+    pub(super) async fn background_session(
+        &self,
+        session: &Arc<Session>,
+        tool: Option<&str>,
+        auto: bool,
+    ) -> Result<Value, RpcError> {
         if !session.backgrounds_work.load(Ordering::SeqCst) {
             return Err(RpcError::invalid_params(
                 "only Claude Code can move running work to the background",
@@ -772,6 +792,7 @@ impl Hub {
             "sessionId": session.meta().agent_session_id,
             "toolCallId": tool,
             "timeoutMs": u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX),
+            "auto": auto,
         });
         let ask = child.request(crate::claude_stdio::BACKGROUND_TASKS, params);
         match tokio::time::timeout(timeout, ask).await {

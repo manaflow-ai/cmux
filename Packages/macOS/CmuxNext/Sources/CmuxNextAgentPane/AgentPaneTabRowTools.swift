@@ -30,13 +30,20 @@ nonisolated enum AgentPaneTabRowTools {
               let id = text(object["id"]), let symbol = text(object["symbol"]), let label = text(object["label"]),
               object["enabled"] is Bool, object["toggled"] is Bool,
               let enabled = object["enabled"] as? Bool, let toggled = object["toggled"] as? Bool,
-              let menu = menu(object["menu"], depth: 0, totalMenuItems: &totalMenuItems) else { return nil }
+              let menuRows = Self.menu(object["menu"], depth: 0, totalMenuItems: &totalMenuItems) else { return nil }
         let badge: String?
         if let rawBadge = object["badge"], !(rawBadge is NSNull) {
             guard let parsed = optionalText(rawBadge) else { return nil }
             badge = parsed
         } else {
             badge = nil
+        }
+        let contextMenu: [PaneTabRowMenuItem]
+        if let rawContextMenu = object["contextMenu"] {
+            guard let parsed = menu(rawContextMenu, depth: 0, totalMenuItems: &totalMenuItems) else { return nil }
+            contextMenu = parsed
+        } else {
+            contextMenu = []
         }
         let visibleText: String?
         if let rawText = object["text"], !(rawText is NSNull) {
@@ -46,7 +53,7 @@ nonisolated enum AgentPaneTabRowTools {
             visibleText = nil
         }
         return PaneTabRowTool(id: id, symbol: symbol, label: label, enabled: enabled, toggled: toggled,
-                              badge: badge, menu: menu, text: visibleText)
+                              badge: badge, menu: menuRows, text: visibleText, contextMenu: contextMenu)
     }
 
     private nonisolated static func menu(_ raw: Any?, depth: Int, totalMenuItems: inout Int) -> [PaneTabRowMenuItem]? {
@@ -81,6 +88,13 @@ nonisolated enum AgentPaneTabRowTools {
         } else {
             role = nil
         }
+        let separatorBefore: Bool
+        if let rawSeparator = object["separatorBefore"], !(rawSeparator is NSNull) {
+            guard let parsed = rawSeparator as? Bool else { return nil }
+            separatorBefore = parsed
+        } else {
+            separatorBefore = false
+        }
         let url: String?
         if let rawURL = object["url"], !(rawURL is NSNull) {
             guard let parsed = optionalURL(rawURL) else { return nil }
@@ -89,7 +103,7 @@ nonisolated enum AgentPaneTabRowTools {
             url = nil
         }
         return PaneTabRowMenuItem(id: id, label: label, enabled: enabled, checked: checked, role: role,
-                                  children: children, url: url)
+                                  separatorBefore: separatorBefore, children: children, url: url)
     }
 
     private nonisolated static func text(_ value: Any?) -> String? {

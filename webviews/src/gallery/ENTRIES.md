@@ -29,7 +29,7 @@ The host decides how the real code receives the data:
 
 | helper               | host                                                            | a variant is                                                                                                                    |
 | -------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `agentPaneEntry`     | the whole agent pane (`acpmux/main.tsx`) on the pane bridge     | `{ ready?, snapshot }`: the `ready` answer fields and an `AcpmuxSnapshot`                                                       |
+| `agentPaneEntry`     | the whole agent pane (`acpmux/mount.tsx`) on the pane bridge    | `{ ready?, snapshot }`: the `ready` answer fields and an `AcpmuxSnapshot`                                                       |
 | `markdownPageEntry`  | the markdown page entry on an in-page cmuxPage host             | `{ path, text, readOnly?, settings?, files? }`                                                                                  |
 | `diffPageEntry`      | the diff page entry on an in-page cmuxPage host                 | `{ files: [{ path, before?, after? }] }` or `{ patch }`, `layout?`                                                              |
 | `settingsPageEntry`  | the settings page on its real mock provider through cmuxPage    | `{ section, focus?, options?, host?, accounts?, steps? }`                                                                       |
@@ -213,6 +213,71 @@ bun run typecheck
 The allowlist's `owners` names the lane that writes the entries under a path prefix (Leo's lanes
 own the composer pickers, the subagent group, render cards, Sources and Changes, and the docked
 chat). Do not write those entries yourself.
+
+## The mock app: the whole window by URL
+
+`mock-app.html` is cmux NEXT's whole window in a browser: the sidebar, each pane's tab strip, and each
+pane's real surface (the agent pane with its transcript, composer, menus and Session Info, New Tab,
+Home) in its own stage frame, as each pane is its own web view in the app. Only the native parts
+around the panes (sidebar, tab strip, traffic lights) are approximated, from the app's metrics
+(`MetricTunables.swift`) and the fixture's chats. The gallery shows one entry at a time; the mock
+app shows one state of the whole app per URL, which is what the UI judge (review council,
+`ui-climb`) and the native preview window drive.
+
+`app.html` ("Whole app" in the shell header, #35270) is the lighter page: one window over the `app.window`
+scenes in React. The mock app takes any fixture and every axis below.
+
+```
+mock-app.html?fixture=app.window/chat-session-info&window=pro14&density=compact&theme=Catppuccin%20Mocha&script=streaming
+mock-app.html?windows=pro14,air13,1280x800&layout=two&fixture2=app.window/new-tab
+mock-app.html?fixture=agent-pane.turn-error-card/disk-full&cpu=4&slot=custom-element&colorScheme=light
+```
+
+Every key is an axis in `src/gallery/mock-app/axes.ts` (`AXES`). A `frame` axis goes to every pane's
+`frame.html` unchanged, so any control a stage reads (env.ts) works here too; a `main pane` axis
+goes only to the pane `fixture` names (the panes share one main thread, so a script plays and CPU
+contention runs once); an `app` axis shapes the window. Adding an axis the stage already reads is one row in `AXES`; a new script or extension
+slot is one entry in `SCRIPTS` or `SLOTS` (`src/gallery/frame/scripts.ts`), and the URL then names
+it. `script=` also works on a plain `frame.html` stage.
+
+| Key                                                                                       | Applies to | What it sets                                                                                                                                                                 |
+| ----------------------------------------------------------------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `fixture`, `fixture2`                                                                     | app        | the main and second pane: `<entry id>/<variant>` of any agent-pane entry (default `app.window/chat-session-info`, `app.window/new-tab`)                                      |
+| `window`, `windows`                                                                       | app        | the window size (a `WINDOW_PRESETS` name or `<w>x<h>`); `windows=` lists several, each the whole app, side by side (offscreen ones mount as they scroll in)                  |
+| `layout`                                                                                  | app        | `one`, `two` or `agent-right`                                                                                                                                                |
+| `sidebar`                                                                                 | app        | `hidden` hides the sidebar                                                                                                                                                   |
+| `zoom`                                                                                    | app        | `fit` (default) scales each window with one transform; a number is a fixed scale                                                                                             |
+| `chrome`                                                                                  | app        | `web` (default) draws the window frame in the page; `native` lets a native host window (the view shell, `cmux preview open`) draw the frame and glass, and the page fills it |
+| `density`, `scale`, `interfaceScale`, `fontFamily`, `fontSize`                            | frame      | density and size, as in the gallery                                                                                                                                          |
+| `theme`, `colorScheme`, `accent`, `background`, `locale`, `reducedMotion`, `highContrast` | frame      | theme and customization, as in the gallery; the chrome takes the same theme                                                                                                  |
+| `script`, `loop`                                                                          | main pane  | `streaming`, `tools` or `error`: the chat comes alive on a loop through the pane's real `receive` (`loop=0` plays once)                                                      |
+| `cpu`                                                                                     | main pane  | simulated main-thread contention: each pane gets 1/N of its thread (a harness can also throttle with CDP)                                                                    |
+| `slot`                                                                                    | main pane  | `custom-element`: an extension's renderer (a custom element) through the pane's real registry, with a row of its kind                                                        |
+| `exp`, `arm`                                                                              | frame      | an experiment's arm                                                                                                                                                          |
+
+The page sets `data-mock-app-ready="1"` on its root and posts `{type: "cmux-mock-app", status:
+"ready"}` to its parent when the first window's panes are ready. It runs no timer or animation
+frame while idle (only a `script` or `cpu` does, and those stop while the page is hidden).
+
+Open it from `bun run gallery:dev` at `http://127.0.0.1:4210/gallery/mock-app.html`, from a static build
+(`dist/gallery/mock-app.html`), or on the live tailnet gallery (`.../live/mock-app.html`).
+
+### Open-and-idle cost
+
+`scripts/gallery-matrix/app-perf.ts` measures a built gallery in Chrome: first frame, ready, long
+tasks after ready, idle CPU (CDP `TaskDuration` over a 5 s window), idle rAF and timer calls per
+second with where they came from, JS heap, DOM nodes and layout shift after first paint. The
+scenarios and budgets (first frame under 500 ms, no long task over 50 ms after ready, about 0%
+idle CPU, no layout shift after first paint) are in `app-perf-budgets.json`. It is lane-run, not a
+CI gate: run it before and after a change and put its `table.md` in the PR.
+
+```sh
+cmux-ci test --setup playwright --artifact /tmp/perf -- bash -c '
+  cd webviews && bun install --frozen-lockfile && CMUX_GALLERY_OUT_DIR=$PWD/../dist-gallery bun run gallery:build &&
+  cd ../scripts/gallery-matrix && bun install --frozen-lockfile &&
+  eval "$(../ci/ensure-system-chrome.sh | grep ^CMUX_CHROME_HEADLESS_SHELL= | sed "s/^/export /")";
+  bun app-perf.ts --gallery-dir ../../dist-gallery --out "$FAST_CHECKS_OUT" --cpu 4'
+```
 
 ## Seeing it
 

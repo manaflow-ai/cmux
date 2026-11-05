@@ -5,9 +5,9 @@
 //!
 //! Threads: one reads terminal events; one per connection runs
 //! [`Session::next_event`] and scales each update to the pane; the main
-//! thread owns the terminal and every decision. They meet on one channel,
-//! and frames coalesce: a frame the main thread has not drawn yet is
-//! replaced, never queued.
+//! thread owns the terminal and every decision. Terminal events have a bounded
+//! channel, separate from network notifications. Frames coalesce: a frame the
+//! main thread has not drawn yet is replaced, never queued.
 
 use std::io::{self, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use base64::Engine;
 use cmux_vnc::message::button;
 use cmux_vnc::{Backoff, Cursor, Event, Input, Session, SessionOptions, VncError};
-use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
+use crossbeam_channel::{Receiver, Sender};
 use crossterm::event::{
     self as term, DisableBracketedPaste, DisableFocusChange, DisableMouseCapture,
     EnableBracketedPaste, EnableFocusChange, EnableMouseCapture, KeyboardEnhancementFlags,
@@ -26,6 +26,7 @@ use crossterm::event::{
 };
 use crossterm::{cursor, execute, queue, terminal};
 
+use super::input_spool::{DeferredInput, InputSpool};
 use super::keys::{Command, KeyAction, Keyboard};
 use super::layout::{Pane, Placement, scale_rgb};
 use super::{Config, ResizeMode, kitty, printable};
@@ -36,8 +37,9 @@ const CURSOR_ID: u32 = 0x5643_0003;
 const RESIZE_SETTLE: Duration = Duration::from_millis(300);
 /// Longest wait on quit or reconnect for queued key and button releases to reach the server.
 const RELEASE_FLUSH: Duration = Duration::from_millis(500);
-/// Most characters a paste types into the remote screen.
-const MAX_PASTE_CHARS: usize = 64 * 1024;
+/// One terminal event sends at most two operations (wheel or focus release).
+/// Leave room for those and the final key/button releases on exit.
+const INPUT_EVENT_ROOM: usize = 4;
 
 enum Msg {
     Term(term::Event),
@@ -81,6 +83,8 @@ enum State {
 
 pub(super) fn run(config: Config, first: Session) -> io::Result<()> {
     let (tx, rx) = crossbeam_channel::unbounded();
+    let (terminal_tx, terminal_rx) = crossbeam_channel::bounded(1);
+    let (capacity_tx, capacity_rx) = crossbeam_channel::bounded(1);
     let mut terminal_guard = TerminalGuard::enter()?;
     let enhanced = terminal::supports_keyboard_enhancement().unwrap_or(false);
     if enhanced {
@@ -103,40 +107,17 @@ pub(super) fn run(config: Config, first: Session) -> io::Result<()> {
         terminal_guard.pixel_mouse = true;
         io::stdout().write_all(b"\x1b[?1016h")?;
     }
-    let input_tx = tx.clone();
     thread::Builder::new().name("vnc-terminal-input".into()).spawn(move || {
         while let Ok(event) = term::read() {
-            if input_tx.send(Msg::Term(event)).is_err() {
+            if terminal_tx.send(Msg::Term(event)).is_err() {
                 return;
             }
         }
     })?;
 
-    let mut viewer = Viewer {
-        canvas: Arc::new(Mutex::new(Canvas { pane: current_pane(), frame: None })),
-        config,
-        tx,
-        generation: Arc::new(AtomicU64::new(0)),
-        state: State::Connecting,
-        backoff: Backoff::default(),
-        keyboard: Keyboard::new(enhanced),
-        buttons: 0,
-        pointer: (0, 0),
-        info: None,
-        placement: None,
-        image: 0,
-        shown: None,
-        cursor_shown: false,
-        resize_at: None,
-        resize_sent: None,
-        last_render: None,
-        frame_waiting: false,
-        name: String::new(),
-        pixel_mouse,
-        out: io::stdout(),
-    };
+    let mut viewer = Viewer::new(config, tx, capacity_tx, enhanced, pixel_mouse);
     viewer.adopt(first);
-    let result = viewer.run(&rx);
+    let result = viewer.run(&rx, &terminal_rx, &capacity_rx);
     viewer.release_input();
     if let State::Connected { input, .. } = &viewer.state {
         input.close_after_pending(RELEASE_FLUSH);
@@ -151,12 +132,14 @@ struct Viewer {
     config: Config,
     canvas: Arc<Mutex<Canvas>>,
     tx: Sender<Msg>,
+    capacity_tx: Sender<()>,
     /// The live connection's number, shared with the reader threads: a
     /// thread whose number is no longer current closes its connection.
     generation: Arc<AtomicU64>,
     state: State,
     backoff: Backoff,
     keyboard: Keyboard,
+    deferred_input: InputSpool,
     buttons: u8,
     /// The pointer in remote pixels.
     pointer: (u16, u16),
@@ -178,20 +161,72 @@ struct Viewer {
 }
 
 impl Viewer {
-    fn run(&mut self, rx: &Receiver<Msg>) -> io::Result<()> {
+    fn new(
+        config: Config,
+        tx: Sender<Msg>,
+        capacity_tx: Sender<()>,
+        enhanced: bool,
+        pixel_mouse: bool,
+    ) -> Self {
+        Self {
+            canvas: Arc::new(Mutex::new(Canvas { pane: current_pane(), frame: None })),
+            config,
+            tx,
+            capacity_tx,
+            generation: Arc::new(AtomicU64::new(0)),
+            state: State::Connecting,
+            backoff: Backoff::default(),
+            keyboard: Keyboard::new(enhanced),
+            deferred_input: InputSpool::default(),
+            buttons: 0,
+            pointer: (0, 0),
+            info: None,
+            placement: None,
+            image: 0,
+            shown: None,
+            cursor_shown: false,
+            resize_at: None,
+            resize_sent: None,
+            last_render: None,
+            frame_waiting: false,
+            name: String::new(),
+            pixel_mouse,
+            out: io::stdout(),
+        }
+    }
+
+    fn run(
+        &mut self,
+        rx: &Receiver<Msg>,
+        terminal_rx: &Receiver<Msg>,
+        capacity_rx: &Receiver<()>,
+    ) -> io::Result<()> {
         self.draw_status()?;
         loop {
-            let deadline = self.next_deadline();
-            let msg = match deadline {
-                Some(at) => match rx.recv_deadline(at) {
-                    Ok(msg) => Some(msg),
-                    Err(RecvTimeoutError::Timeout) => None,
-                    Err(RecvTimeoutError::Disconnected) => return Ok(()),
+            // Continue consuming local commands even while a paste is blocked on
+            // the network. Ordinary events wait on disk, not in an unbounded queue.
+            let ready_input = if !self.deferred_input.is_empty() && self.input_has_capacity() {
+                crossbeam_channel::after(Duration::ZERO)
+            } else {
+                crossbeam_channel::never()
+            };
+            let timer = self.next_deadline().map_or_else(crossbeam_channel::never, |at| {
+                crossbeam_channel::after(at.saturating_duration_since(Instant::now()))
+            });
+            let msg = crossbeam_channel::select! {
+                recv(rx) -> msg => match msg { Ok(msg) => Some(msg), Err(_) => return Ok(()) },
+                recv(terminal_rx) -> msg => match msg { Ok(msg) => Some(msg), Err(_) => return Ok(()) },
+                recv(ready_input) -> _ => {
+                    if let Some(event) = self.deferred_input.pop()? {
+                        self.replay_input(event)?;
+                    }
+                    None
                 },
-                None => match rx.recv() {
-                    Ok(msg) => Some(msg),
-                    Err(_) => return Ok(()),
+                recv(capacity_rx) -> _ => {
+                    if self.resize_at.is_none() { self.schedule_remote_resize(false); }
+                    None
                 },
+                recv(timer) -> _ => None,
             };
             if let Some(msg) = msg
                 && self.handle(msg)?
@@ -200,6 +235,13 @@ impl Viewer {
             }
             self.fire_timers()?;
         }
+    }
+
+    fn watch_input_capacity(&self, input: &Input) {
+        let ready = self.capacity_tx.clone();
+        input.set_capacity_notifier(move || {
+            let _ = ready.try_send(());
+        });
     }
 
     fn frame_interval(&self) -> Duration {
@@ -245,10 +287,11 @@ impl Viewer {
     /// Handles one message; `true` ends the viewer.
     fn handle(&mut self, msg: Msg) -> io::Result<bool> {
         match msg {
-            Msg::Term(event) => return self.terminal_event(event),
+            Msg::Term(event) => return self.receive_terminal(event),
             Msg::Net(generation, _) if generation != self.current_generation() => {}
             Msg::Net(_, net) => match net {
                 Net::Connected(input, name) => {
+                    self.watch_input_capacity(&input);
                     // The backoff resets only when this session lives long enough.
                     self.name = name;
                     self.state = State::Connected { input };
@@ -273,6 +316,7 @@ impl Viewer {
     }
 
     fn ended(&mut self, error: VncError, lived: Duration) -> io::Result<()> {
+        self.deferred_input.clear();
         self.keyboard.release_all();
         self.buttons = 0;
         if !self.config.reconnect {
@@ -356,7 +400,9 @@ impl Viewer {
         let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         let current = self.generation.clone();
         self.name = session.name().to_owned();
-        self.state = State::Connected { input: session.input() };
+        let input = session.input();
+        self.watch_input_capacity(&input);
+        self.state = State::Connected { input };
         let tx = self.tx.clone();
         let canvas = self.canvas.clone();
         let started = Instant::now();
@@ -386,7 +432,7 @@ impl Viewer {
     }
 
     fn release_input(&mut self) {
-        let keys = self.keyboard.release_all();
+        let keys = self.keyboard.release_remote();
         self.send_keys(&keys);
         if self.buttons != 0 {
             self.buttons = 0;
@@ -398,6 +444,66 @@ impl Viewer {
         }
     }
 
+    fn input_has_capacity(&self) -> bool {
+        self.input().is_none_or(|input| input.has_capacity(INPUT_EVENT_ROOM))
+    }
+
+    /// Local command recognition precedes the network admission check. Deferred
+    /// events are translated only on replay, preserving remote keyboard state.
+    fn receive_terminal(&mut self, event: term::Event) -> io::Result<bool> {
+        let command = match &event {
+            term::Event::Key(key) => self.keyboard.command(key),
+            term::Event::EnhancedKey(key) => self.keyboard.command(&key.key_event),
+            _ => None,
+        };
+        if let Some(action) = command {
+            if action == KeyAction::Command(Command::SendEscape) {
+                return self.defer_or_send(DeferredInput::SendEscape);
+            }
+            if action == KeyAction::Command(Command::ToggleViewOnly) {
+                return self.defer_or_send(DeferredInput::ToggleViewOnly);
+            }
+            return self.key_action(action);
+        }
+        if matches!(event, term::Event::FocusLost) {
+            self.keyboard.cancel_command();
+        }
+        if matches!(event, term::Event::Resize(..)) {
+            return self.terminal_event(event);
+        }
+        self.defer_or_send(DeferredInput::Event(event))
+    }
+
+    fn replay_input(&mut self, input: DeferredInput) -> io::Result<bool> {
+        match input {
+            DeferredInput::Event(event) => self.terminal_event(event),
+            DeferredInput::ToggleViewOnly => {
+                self.key_action(KeyAction::Command(Command::ToggleViewOnly))
+            }
+            DeferredInput::SendEscape => self.key_action(KeyAction::Command(Command::SendEscape)),
+        }
+    }
+
+    fn defer_or_send(&mut self, event: DeferredInput) -> io::Result<bool> {
+        if !self.deferred_input.is_empty() || !self.input_has_capacity() {
+            self.deferred_input.push(&event)?;
+            Ok(false)
+        } else {
+            self.replay_input(event)
+        }
+    }
+
+    /// Explicit quit/reconnect cancels a backpressured paste immediately. Small
+    /// completed input still gets the usual graceful release on exit.
+    fn cancel_pending_input(&mut self) {
+        if !self.input_has_capacity() || !self.deferred_input.is_empty() {
+            if let Some(input) = self.input() {
+                input.close();
+            }
+            self.deferred_input.clear();
+        }
+    }
+
     fn terminal_event(&mut self, event: term::Event) -> io::Result<bool> {
         match event {
             term::Event::Key(key) => return self.key(&key, None),
@@ -405,7 +511,7 @@ impl Viewer {
                 return self.key(&enhanced.key_event, enhanced.shifted_key);
             }
             term::Event::Mouse(mouse) => self.mouse(mouse)?,
-            term::Event::Paste(text) => self.paste(&text),
+            term::Event::Paste(text) => self.paste(text),
             term::Event::Resize(..) => self.pane_resized()?,
             term::Event::FocusLost => self.release_input(),
             term::Event::FocusGained => {}
@@ -414,15 +520,24 @@ impl Viewer {
     }
 
     fn key(&mut self, key: &term::KeyEvent, shifted: Option<char>) -> io::Result<bool> {
-        match self.keyboard.handle(key, shifted) {
+        let action = self.keyboard.handle_input(key, shifted);
+        self.key_action(action)
+    }
+
+    fn key_action(&mut self, action: KeyAction) -> io::Result<bool> {
+        match action {
             KeyAction::Send(keys) => self.send_keys(&keys),
             KeyAction::AwaitCommand => self.draw_status_text(
                 "Ctrl-] then: q quit · r reconnect · v view only · f refresh · Ctrl-] send Ctrl-]",
             )?,
             KeyAction::Command(command) => {
                 match command {
-                    Command::Quit => return Ok(true),
+                    Command::Quit => {
+                        self.cancel_pending_input();
+                        return Ok(true);
+                    }
                     Command::Reconnect => {
+                        self.cancel_pending_input();
                         self.release_input();
                         if let State::Connected { input, .. } = &self.state {
                             input.close_after_pending(RELEASE_FLUSH);
@@ -501,21 +616,13 @@ impl Viewer {
     }
 
     /// A paste types its text into the remote screen and sets the remote clipboard.
-    fn paste(&mut self, text: &str) {
+    fn paste(&mut self, text: String) {
         if self.config.view_only {
             return;
         }
         let Some(input) = self.input() else { return };
-        let _ = input.clipboard(text);
-        let keys: Vec<(u32, bool)> = text
-            .chars()
-            .filter(|&c| c != '\r')
-            .take(MAX_PASTE_CHARS)
-            .map(cmux_vnc::keysym::char_keysym)
-            .flat_map(|sym| [(sym, true), (sym, false)])
-            .collect();
-        // One write: a slow server holds the writer thread, not this one.
-        let _ = input.keys(&keys);
+        // One ordered operation; encoding and network backpressure stay off this loop.
+        let _ = input.paste(text);
     }
 
     fn pane(&self) -> Pane {
@@ -569,10 +676,13 @@ impl Viewer {
 
     /// Asks the server once per target size; its answer arrives as an update.
     fn send_remote_resize(&mut self) {
-        if let (Some((w, h, screen)), Some(input)) = (self.remote_resize_target(), self.input()) {
-            let _ = input.resize(w, h, screen);
+        if let (Some((w, h, screen)), Some(input)) = (self.remote_resize_target(), self.input())
+            && input.has_capacity(INPUT_EVENT_ROOM)
+            && input.resize(w, h, screen).is_ok()
+        {
             self.resize_sent = Some((w, h));
         }
+        // A capacity notification reschedules an unsent target without spinning a timer.
     }
 
     fn render(&mut self) -> io::Result<()> {
@@ -873,3 +983,7 @@ impl Drop for TerminalGuard {
         let _ = terminal::disable_raw_mode();
     }
 }
+
+#[cfg(test)]
+#[path = "viewer_tests.rs"]
+mod tests;

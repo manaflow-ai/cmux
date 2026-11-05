@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import Foundation
 
 /// How the workspace hover card lays out its tab list (Lawrence msg 19245: "alignment here looks bad ...
@@ -47,8 +48,10 @@ struct WorkspaceTabHoverCardStyle: Hashable, Sendable {
     var twoLines = true
     /// The detail line's facts, in order; empty facts are skipped. A row with none shows its kind.
     var detail: [Field] = [.command, .place, .model, .state, .machine, .time]
-    /// Whether a tab on this Mac names it too ("This Mac"), or only a tab elsewhere names its machine.
-    var namesLocalMachine = true
+    /// Whether a tab on this Mac names it too ("This Mac"), or only a tab elsewhere names its machine. Off:
+    /// a row names a machine only when it differs from the workspace's (Leo 2026-11-02, on a clipped
+    /// "… · Working · This Mac" line: "THE PLACEMENT LOOKS LIKE SHIT").
+    var namesLocalMachine = false
     /// A text column at the row's trailing end, before the status mark; nil for none.
     var trailing: Field?
     /// Tabs listed under a muted kind label (terminals, agents, pages), each group in its tabs' order.
@@ -64,6 +67,10 @@ struct WorkspaceTabHoverCardStyle: Hashable, Sendable {
     /// state · machine · time, each when the tab has it) on one text column, on the frosted glass.
     static let standard = WorkspaceTabHoverCardStyle()
 
-    /// A row's height: the title and detail lines plus a step above and below.
-    @MainActor var rowHeight: CGFloat { twoLines ? 34 : 24 }
+    /// A row's height at the sidebar's density and text size (``SidebarHoverCardMetrics``): one row, and the detail
+    /// text added for a two-line row (24 and 34 pt at compact and the default text).
+    @MainActor var rowHeight: CGFloat {
+        let card = SidebarRowTokens.current.hoverCard
+        return twoLines ? card.tabRowHeightTwoLines : card.tabRowHeight
+    }
 }

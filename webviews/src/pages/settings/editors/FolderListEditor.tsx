@@ -1,3 +1,4 @@
+import { Button } from "../../../ui/Button";
 import { useStore } from "../context";
 import { Icon } from "../icons";
 import { t } from "../strings";
@@ -23,36 +24,45 @@ export function FolderListEditor({ row, value, disabled, labelId }: EditorProps)
       {folders.map((folder, index) => (
         <span key={folder} className="folder-item" data-folder={folder}>
           <span className="folder-path selectable">{folder}</span>
-          <button
+          <Button
             type="button"
+            icon
+            size="sm"
+            variant="ghost"
             className="icon-button"
             aria-label={`${t("settingsPage.moveUp")} ${folder}`}
             disabled={disabled || index === 0}
             onClick={() => move(index, -1)}
           >
             <Icon name="chevron" className="icon-up" />
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            icon
+            size="sm"
+            variant="ghost"
             className="icon-button"
             aria-label={`${t("settingsPage.moveDown")} ${folder}`}
             disabled={disabled || index === folders.length - 1}
             onClick={() => move(index, 1)}
           >
             <Icon name="chevron" />
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            icon
+            size="sm"
+            variant="ghost"
             className="icon-button"
             aria-label={`${t("settingsPage.remove")} ${folder}`}
             disabled={disabled}
             onClick={() => write(folders.filter((item) => item !== folder))}
           >
             <Icon name="xmark" />
-          </button>
+          </Button>
         </span>
       ))}
-      <button
+      <Button
         type="button"
         className="button"
         data-add-folder=""
@@ -60,7 +70,7 @@ export function FolderListEditor({ row, value, disabled, labelId }: EditorProps)
         onClick={() => void store.addFolders(row.key)}
       >
         {t("settingsPage.addFolder")}
-      </button>
+      </Button>
     </span>
   );
 }

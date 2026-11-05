@@ -4,6 +4,227 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachineStartResult {
+    pub machine: CloudMachine,
+}
+
+wire_errors! {
+    /// The error codes cloud.machine.start declares.
+    CloudMachineStartError {
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        CloudMachineNotBound = "cloud.machine.not_bound",
+        CloudMachineNotFound = "cloud.machine.not_found",
+        CloudMachineNotPaused = "cloud.machine.not_paused",
+        CloudPlanRequired = "cloud.plan.required",
+        CloudProviderUnavailable = "cloud.provider.unavailable",
+        CloudQuotaExceeded = "cloud.quota.exceeded",
+        CloudRateLimited = "cloud.rate_limited",
+        IdempotencyConflict = "idempotency.conflict",
+        MutationIndeterminate = "mutation.indeterminate",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Move one classic machine onto cmux-next: install the daemon and bind it to the overlay. A failed upgrade leaves a working classic machine (cloud.upgrade.failed). After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.
+    CloudMachineUpgradeOp {
+        name: "cloud.machine.upgrade",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:CloudDO",
+        risk: "execute",
+        principals: [Session, Install],
+        params: CloudMachineUpgradeParams,
+        result: CloudMachineUpgradeResult,
+        error: CloudMachineUpgradeError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachineUpgradeParams {
+    pub machine: MachineId,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachineUpgradeResult {
+    pub machine: CloudMachine,
+}
+
+wire_errors! {
+    /// The error codes cloud.machine.upgrade declares.
+    CloudMachineUpgradeError {
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        CloudMachineNotClassic = "cloud.machine.not_classic",
+        CloudMachineNotFound = "cloud.machine.not_found",
+        CloudProviderUnavailable = "cloud.provider.unavailable",
+        CloudUpgradeFailed = "cloud.upgrade.failed",
+        IdempotencyConflict = "idempotency.conflict",
+        MutationIndeterminate = "mutation.indeterminate",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Move this account's classic machines to cmux-next, one way. Agent principals are refused; the client asks a person first.
+    CloudMigrationStartOp {
+        name: "cloud.migration.start",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:CloudDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: CloudMigrationStartParams,
+        result: CloudMigrationStartResult,
+        error: CloudMigrationStartError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMigrationStartParams {}
+
+wire_enum! {
+    CloudMigrationStartResultState {
+        Moving = "moving",
+        Moved = "moved",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMigrationStartResult {
+    pub state: CloudMigrationStartResultState,
+}
+
+wire_errors! {
+    /// The error codes cloud.migration.start declares.
+    CloudMigrationStartError {
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        CloudMigrationUnavailable = "cloud.migration.unavailable",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Whether this account has machines from cmux Cloud classic to move, and which were imported.
+    CloudMigrationStatusOp {
+        name: "cloud.migration.status",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:CloudDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: CloudMigrationStatusParams,
+        result: CloudMigrationStatusResult,
+        error: CloudMigrationStatusError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMigrationStatusParams {}
+
+wire_enum! {
+    CloudMigrationStatusResultState {
+        None = "none",
+        Available = "available",
+        Moving = "moving",
+        Moved = "moved",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMigrationStatusResult {
+    pub state: CloudMigrationStatusResultState,
+    pub classic_count: i64,
+    pub imported: Vec<MachineId>,
+}
+
+wire_errors! {
+    /// The error codes cloud.migration.status declares.
+    CloudMigrationStatusError {
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        OwnerUnreachable = "owner.unreachable",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// The team's plan: limits and usage this period. Read from the billing owner, never from a request.
+    CloudPlanGetOp {
+        name: "cloud.plan.get",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:CloudDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: CloudPlanGetParams,
+        result: CloudPlan,
+        error: CloudPlanGetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudPlanGetParams {}
+
+wire_errors! {
+    /// The error codes cloud.plan.get declares.
+    CloudPlanGetError {
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        OwnerUnreachable = "owner.unreachable",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Open the rescue shell: a wire stream id the client opens as a WebSocket (contract 2.6). Works when the VM daemon is down and for classic machines.
+    CloudShellOpenOp {
+        name: "cloud.shell.open",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:CloudDO",
+        risk: "execute",
+        principals: [Session, Install],
+        params: CloudShellOpenParams,
+        result: CloudShellOpenResult,
+        error: CloudShellOpenError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudShellOpenParams {
+    pub machine: MachineId,
+    pub cols: i64,
+    pub rows: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudShellOpenResult {
+    pub stream: String,
+}
+
 wire_errors! {
     /// The error codes cloud.shell.open declares.
     CloudShellOpenError {
@@ -325,7 +546,7 @@ wire_errors! {
 }
 
 wire_op! {
-    /// Read the bound VM's current receiving identities and daemon/SSH permissions, joined to original live install grants, team policy and Native service rules. The lease is at most 30 seconds and never outlives an included grant. This hidden VM-only read does not activate a listener or mint a dial credential. VM installs only (kind vm, grant vm-self, its own bound machine).
+    /// Read the bound VM's current receiving identities and daemon/SSH permissions, joined to original live install grants, team policy and Native service rules. The lease is at most 120 seconds and never outlives an included grant; admit_until, when present, lets the receiver keep this policy through a failed renewal for at most one hour after checked_at. This hidden VM-only read does not activate a listener or mint a dial credential. VM installs only (kind vm, grant vm-self, its own bound machine).
     CloudVmNetworkPolicyOp {
         name: "cloud.vm.network_policy",
         class: Read,
@@ -675,221 +896,4 @@ pub struct ConversationImportParams {
     pub messages: Vec<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
     pub read_cursors: Option<Value>,
-}
-
-wire_errors! {
-    /// The error codes conversation.import declares.
-    ConversationImportError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        ConversationExists = "conversation_exists",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        ImportOutOfOrder = "import_out_of_order",
-        Importing = "importing",
-        InvalidConversationId = "invalid_conversation_id",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        OwnerUnreachable = "owner.unreachable",
-        UnknownConversation = "unknown_conversation",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Finish an import: read cursors are clamped, normal ops open, each human gets one inbox entry.
-    ConversationImportCommitOp {
-        name: "conversation.import.commit",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConversationDO",
-        risk: "mutate-shared",
-        principals: [Session, Install],
-        params: ConversationImportCommitParams,
-        result: HomeConversationCommit,
-        error: ConversationImportCommitError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ConversationImportCommitParams {
-    pub id: ConversationId,
-    pub last_seq: i64,
-}
-
-wire_errors! {
-    /// The error codes conversation.import.commit declares.
-    ConversationImportCommitError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        ImportOutOfOrder = "import_out_of_order",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        OwnerUnreachable = "owner.unreachable",
-        UnknownConversation = "unknown_conversation",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Page the current members in join order (default 200, at most 1000); pass next as after for the next page. Works for every conversation; a large group's head carries only a roster.
-    ConversationMembersOp {
-        name: "conversation.members",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:ConversationDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: ConversationMembersParams,
-        result: ConversationMembersResult,
-        error: ConversationMembersError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ConversationMembersParams {
-    pub conversation: ConversationId,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub after: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub limit: Option<i64>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ConversationMembersResult {
-    pub members: Vec<HomeParticipant>,
-    pub member_count: i64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub next: Option<i64>,
-}
-
-wire_errors! {
-    /// The error codes conversation.members declares.
-    ConversationMembersError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        OwnerUnreachable = "owner.unreachable",
-        UnknownConversation = "unknown_conversation",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Change the chief wake policy, agent turn budget or history visibility (conversation owner).
-    ConversationSettingsSetOp {
-        name: "conversation.settings.set",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConversationDO",
-        risk: "mutate-shared",
-        principals: [Session, Install],
-        params: ConversationSettingsSetParams,
-        result: HomeConversationCommit,
-        error: ConversationSettingsSetError,
-    }
-}
-
-wire_enum! {
-    ConversationSettingsSetParamsWakePolicy {
-        Auto = "auto",
-        Mentions = "mentions",
-        All = "all",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ConversationSettingsSetParamsAgentBudget {
-    pub turns: i64,
-    pub gap_ms: i64,
-}
-
-wire_enum! {
-    ConversationSettingsSetParamsHistoryVisible {
-        All = "all",
-        SinceJoin = "since_join",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ConversationSettingsSetParams {
-    pub conversation: ConversationId,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub wake_policy: Option<ConversationSettingsSetParamsWakePolicy>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agent_budget: Option<ConversationSettingsSetParamsAgentBudget>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub history_visible: Option<ConversationSettingsSetParamsHistoryVisible>,
-}
-
-wire_errors! {
-    /// The error codes conversation.settings.set declares.
-    ConversationSettingsSetError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        InvalidSettings = "invalid_settings",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        OwnerUnreachable = "owner.unreachable",
-        UnknownConversation = "unknown_conversation",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Read the conversation and its newest messages (history_visible since_join hides earlier ones).
-    ConversationSnapshotOp {
-        name: "conversation.snapshot",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:ConversationDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: ConversationSnapshotParams,
-        result: ConversationSnapshotResult,
-        error: ConversationSnapshotError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ConversationSnapshotParams {
-    pub conversation: ConversationId,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tail: Option<i64>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ConversationSnapshotResult {
-    pub conversation: HomeConversationSummary,
-    pub messages: Vec<HomeMessage>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub threads: Option<Vec<HomeThreadSummary>>,
-    pub revision: String,
-}
-
-wire_errors! {
-    /// The error codes conversation.snapshot declares.
-    ConversationSnapshotError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        OwnerUnreachable = "owner.unreachable",
-        UnknownConversation = "unknown_conversation",
-        ValidationInvalid = "validation.invalid",
-    }
 }

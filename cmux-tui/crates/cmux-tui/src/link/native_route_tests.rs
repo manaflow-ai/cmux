@@ -97,13 +97,34 @@ fn native_cloud_gateway_refuses_changed_tunnel_identity_and_invalid_config() {
         ("interfaceAddress", json!("100.64.0.1/0")),
         ("interfaceAddress", json!("8.8.8.8/32")),
         ("meshAddress", json!("10.129.0.5")),
-        ("meshAddress", Value::Null),
         ("allowedIps", json!(["0.0.0.0/0"])),
         ("mtu", json!(9000)),
         ("persistentKeepaliveSeconds", json!(0)),
     ] {
         let mut config = tunnel();
         config[field] = value;
-        assert!(route(config).is_err(), "{field}");
+        let Err(error) = route(config) else { panic!("{field} must refuse") };
+        // The refusal names the check (it reaches link_route), never the value.
+        let message = error.to_string();
+        assert!(
+            message.starts_with("cloud.native.route_refused: ") && message.contains(field),
+            "{field}: {message}"
+        );
+        assert!(!message.contains("attacker") && !message.contains("PrivateKey"), "{message}");
     }
+}
+
+#[test]
+fn native_cloud_gateway_takes_the_providers_bare_interface_address_and_a_mesh_address_not_yet_attached()
+ {
+    // cmux-vm's tunnel before the provider attaches the device: a bare interface address, meshAddress null.
+    let mut config = tunnel();
+    config["interfaceAddress"] = json!("100.64.0.1");
+    config["meshAddress"] = Value::Null;
+    let route = route(config).unwrap();
+    let CloudRoute::Tunnel { gateway, vpc } = route.for_vm(&info()).unwrap() else {
+        panic!("tunnel route")
+    };
+    assert_eq!(gateway.client_address, "100.64.0.1/32");
+    assert_eq!(vpc.ip().to_string(), "10.128.0.5");
 }

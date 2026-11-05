@@ -22,6 +22,19 @@
 //! and the `line` and `token` fields of `--json`/`--jsonl`; no error, note or
 //! log line carries it or the credential, and errors print only the HTTP
 //! status and a code from this file's own table.
+//!
+//! One command from the old Mac (Leo, 2026-11-02: "there's too many commands
+//! and clicks to deal with all that"):
+//!
+//! - `machine add --vault` shares the person's vault (env vars and API keys,
+//!   `vault.rs`) with the new machine, after a consent that names every var;
+//! - `machine add --usb PATH` writes the line into `PATH/cmux-setup.command`
+//!   (0700) for a stick, and nowhere else (`bootstrap.rs`);
+//! - `machine add USER@HOST --vault|--bootstrap` runs the line over ssh with
+//!   the token on ssh's stdin (`bootstrap.rs`).
+//!
+//! No Claude or Codex sign-in is ever read, copied or uploaded: the new
+//! machine signs in through the vendor's own flow on that machine.
 
 use std::future::Future;
 use std::io::{BufRead, IsTerminal as _, Write};
@@ -50,13 +63,23 @@ pub(super) const ONLINE_WITHIN_MS: u64 = 120_000;
 const REVOKE_BOUND: &str = "30 seconds";
 /// The minted line's default life when the answer's `expiresAt` is unreadable.
 const DEFAULT_TTL_SECS: u64 = 600;
+/// The longest a pasted line lives (the platform's range).
+const MAX_TTL_SECS: u64 = 600;
+/// A stick's line: its default life, the platform's longest (a longer one is a platform change).
+pub(super) const USB_TTL_SECS: u64 = MAX_TTL_SECS;
 
-const USAGE: &str = "usage: cmux machine add [--name NAME] [--ttl 10m] [--wait|--no-wait]
+mod bootstrap;
+pub(super) mod vault;
+
+const USAGE: &str = "usage: cmux machine add [--name NAME] [--ttl 10m] [--wait|--no-wait] [--vault [--yes]]
+       cmux machine add --usb PATH [--ttl 10m] [--vault [--yes]]
+       cmux machine add USER@HOST --vault|--bootstrap [--yes]
        cmux machine revoke ID|NAME [--yes]
        cmux machine rotate ID|NAME
+       cmux machine vault set|rm NAME, cmux machine vault ls, cmux machine vault grant|revoke MACHINE
   each takes --platform URL (or CMUX_PLATFORM_URL; default the development platform)
   and --cloud-token-file PATH, --cloud-token-stdin or CMUX_CLOUD_ACCESS_TOKEN.
-  cmux machine add HOST opens the app's Add Machine card for an ssh host.";
+  cmux machine add HOST (without --vault or --bootstrap) opens the app's Add Machine card for an ssh host.";
 const SIGN_IN: &str = "sign in: pass --cloud-token-file PATH (or set CMUX_CLOUD_ACCESS_TOKEN), or use Add Machine in the app";
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -66,11 +89,37 @@ pub(super) struct Auth {
     pub token_stdin: bool,
 }
 
+/// `machine add`'s words.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(super) struct AddArgs {
+    pub name: Option<String>,
+    pub ttl: Option<u64>,
+    pub wait: Option<bool>,
+    /// Share the person's vault with the new machine (`vault: true` on the mint).
+    pub vault: bool,
+    /// Share it without asking.
+    pub yes: bool,
+    /// Write the line to a stick at this folder instead of printing it.
+    pub usb: Option<PathBuf>,
+    /// Run the line on this ssh host (`USER@HOST`).
+    pub host: Option<String>,
+    /// Run it over ssh without sharing the vault.
+    pub bootstrap: bool,
+}
+
+impl AddArgs {
+    /// The `machine add` that existed before the one-command join: the app may answer it.
+    fn plain(&self) -> bool {
+        !self.vault && !self.yes && self.usb.is_none() && self.host.is_none() && !self.bootstrap
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Verb {
-    Add { name: Option<String>, ttl: Option<u64>, wait: Option<bool> },
+    Add(AddArgs),
     Revoke { machine: String, yes: bool },
     Rotate { machine: String },
+    Vault(vault::VaultVerb),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -119,7 +168,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         Ok(None) => {
             // With no credential, `machine add` stays the app's Add Machine card wherever an
             // app answers, as it was before joining existed.
-            if matches!(command.verb, Verb::Add { .. })
+            if matches!(&command.verb, Verb::Add(add) if add.plain())
                 && let Some(code) = super::run_app_action_fallback(args)
             {
                 return Some(code);
@@ -146,7 +195,11 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     };
     let options = RunOptions { interactive, every: WAIT_EVERY };
     let mut ask = confirm;
-    let outcome = run(&command, &platform, global.output, options, stdout, &mut ask, interrupt);
+    let mut read_value =
+        |name: &str| acpmux::cli::harness_secret::read_value(name).map_err(|e| e.to_string());
+    let mut ssh = bootstrap::run_ssh;
+    let mut hooks = Hooks { confirm: &mut ask, read_value: &mut read_value, ssh: &mut ssh };
+    let outcome = run(&command, &platform, global.output, options, stdout, &mut hooks, interrupt);
     Some(match outcome {
         Ok(code) => code,
         Err(failure) => fail(failure),
@@ -157,13 +210,34 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
 /// `None` for another module (`machine list`, `machine add HOST`).
 pub(super) fn parse(args: &[String]) -> Option<Result<Command, UsageError>> {
     let [scope, verb, rest @ ..] = args else { return None };
-    if scope != "machine" || !matches!(verb.as_str(), "add" | "revoke" | "rotate") {
+    if scope != "machine" || !matches!(verb.as_str(), "add" | "revoke" | "rotate" | "vault") {
         return None;
     }
-    if verb == "add" && names_a_host(rest) {
+    // `machine add HOST` stays the app's ssh card unless it asks for the one-command join.
+    let joins_over_ssh = rest.iter().any(|w| matches!(w.as_str(), "--vault" | "--bootstrap"));
+    if verb == "add" && names_a_host(rest) && !joins_over_ssh {
         return None;
+    }
+    if verb == "vault" {
+        return Some(vault::parse(rest));
     }
     Some(parse_verb(verb, rest))
+}
+
+/// Switches `machine add` and `machine vault` own that take no value, so a `--json` after one is
+/// the global output mode, not its value (`machine add HOST --bootstrap --json`). Scoped to these
+/// verbs: `cloud new-machine --bootstrap NAME` takes a value, so they are not in the global
+/// `BOOLEAN_FLAGS`.
+#[cfg(unix)]
+pub(super) fn own_switch(command: &[String], flag: &str) -> bool {
+    let ours = matches!(
+        command.get(..2),
+        Some([scope, verb]) if scope == "machine" && matches!(verb.as_str(), "add" | "vault")
+    );
+    ours && matches!(
+        flag,
+        "--vault" | "--bootstrap" | "--yes" | "--wait" | "--no-wait" | "--cloud-token-stdin"
+    )
 }
 
 /// `machine add HOST` and `machine add --destination HOST` are the app's ssh card.
@@ -173,7 +247,10 @@ fn names_a_host(rest: &[String]) -> bool {
         if word == "--destination" || word.starts_with("--destination=") || !word.starts_with('-') {
             return true;
         }
-        if matches!(word.as_str(), "--name" | "--ttl" | "--platform" | "--cloud-token-file") {
+        if matches!(
+            word.as_str(),
+            "--name" | "--ttl" | "--platform" | "--cloud-token-file" | "--usb"
+        ) {
             words.next();
         }
     }
@@ -184,10 +261,11 @@ fn parse_verb(verb: &str, rest: &[String]) -> Result<Command, UsageError> {
     let usage = || UsageError::new(USAGE);
     let mut auth = Auth::default();
     let (mut name, mut ttl, mut wait, mut yes) = (None, None, None, false);
+    let mut add = AddArgs::default();
     let mut positional = Vec::new();
     let mut words = rest.iter();
     while let Some(word) = words.next() {
-        if word == "-y" && verb == "revoke" {
+        if word == "-y" && matches!(verb, "revoke" | "add") {
             yes = true;
             continue;
         }
@@ -199,7 +277,10 @@ fn parse_verb(verb: &str, rest: &[String]) -> Result<Command, UsageError> {
             Some((flag, value)) => (flag, Some(value.to_owned())),
             None => (flag, None),
         };
-        let value = if matches!(flag, "name" | "ttl" | "platform" | "cloud-token-file") {
+        let value = if matches!(
+            flag,
+            "name" | "ttl" | "platform" | "cloud-token-file" | "usb" | "destination"
+        ) {
             match inline {
                 Some(value) => Some(value),
                 None => Some(
@@ -216,10 +297,17 @@ fn parse_verb(verb: &str, rest: &[String]) -> Result<Command, UsageError> {
         };
         match (verb, flag) {
             ("add", "name") => name = value,
-            ("add", "ttl") => ttl = Some(parse_ttl(value.as_deref().unwrap_or_default())?),
+            ("add", "ttl") => ttl = value,
             ("add", "wait") => wait = Some(true),
             ("add", "no-wait") => wait = Some(false),
-            ("revoke", "yes") => yes = true,
+            ("add", "vault") => add.vault = true,
+            ("add", "bootstrap") => add.bootstrap = true,
+            ("add", "usb" | "destination") if value.as_deref().is_none_or(str::is_empty) => {
+                return Err(UsageError::new(format!("--{flag} needs a value")));
+            }
+            ("add", "usb") => add.usb = value.map(PathBuf::from),
+            ("add", "destination") => positional.push(value.unwrap_or_default()),
+            ("revoke" | "add", "yes") => yes = true,
             (_, "platform") => auth.platform = value,
             (_, "cloud-token-file") => auth.token_file = value.map(PathBuf::from),
             (_, "cloud-token-stdin") => auth.token_stdin = true,
@@ -232,11 +320,17 @@ fn parse_verb(verb: &str, rest: &[String]) -> Result<Command, UsageError> {
         ));
     }
     let verb = match (verb, positional.as_slice()) {
-        ("add", []) => {
+        ("add", [] | [_]) => {
             if name.as_deref().is_some_and(|name| !valid_name(name)) {
                 return Err(UsageError::new("--name takes 1 to 63 printable characters"));
             }
-            Verb::Add { name, ttl, wait }
+            add.host = positional.first().cloned();
+            add.yes = yes;
+            add.ttl = ttl.map(|text| parse_ttl(&text)).transpose()?;
+            add.name = name;
+            add.wait = wait;
+            check_add(&add)?;
+            Verb::Add(add)
         }
         ("revoke", [machine]) => Verb::Revoke { machine: machine.clone(), yes },
         ("rotate", [machine]) => Verb::Rotate { machine: machine.clone() },
@@ -250,16 +344,51 @@ fn valid_name(name: &str) -> bool {
     (1..=63).contains(&count) && !name.chars().any(char::is_control) && name.trim() == name
 }
 
+/// The flags of one `machine add` that go together.
+fn check_add(add: &AddArgs) -> Result<(), UsageError> {
+    if add.yes && !add.vault {
+        return Err(UsageError::new("--yes answers the vault's question: it goes with --vault"));
+    }
+    if add.usb.is_some() && add.host.is_some() {
+        return Err(UsageError::new(
+            "--usb is for a Mac you cannot reach: leave out the host (or leave out --usb)",
+        ));
+    }
+    if add.usb.is_some() && add.wait == Some(true) {
+        return Err(UsageError::new(
+            "--wait goes with a pasted line or USER@HOST; a stick's line is used later",
+        ));
+    }
+    if add.bootstrap && add.host.is_none() {
+        return Err(UsageError::new("--bootstrap runs the join over ssh: name USER@HOST"));
+    }
+    if let Some(host) = &add.host {
+        if !add.vault && !add.bootstrap {
+            return Err(UsageError::new(USAGE));
+        }
+        if !bootstrap::valid_host(host) {
+            return Err(UsageError::new(
+                "the host is USER@HOST or an ssh alias: no spaces, and not starting with -",
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// `10m`, `600s` or `600`: whole seconds from one minute to ten minutes (the platform's range).
 fn parse_ttl(text: &str) -> Result<u64, UsageError> {
+    let max = MAX_TTL_SECS;
     let error = || UsageError::new("--ttl takes 1m to 10m (for example 5m)");
-    let (digits, scale) = match text.strip_suffix('m') {
-        Some(minutes) => (minutes, 60),
-        None => (text.strip_suffix('s').unwrap_or(text), 1),
+    let (digits, scale) = if let Some(hours) = text.strip_suffix('h') {
+        (hours, 3600)
+    } else if let Some(minutes) = text.strip_suffix('m') {
+        (minutes, 60)
+    } else {
+        (text.strip_suffix('s').unwrap_or(text), 1)
     };
     let seconds =
         digits.parse::<u64>().map_err(|_| error())?.checked_mul(scale).ok_or_else(error)?;
-    if (60..=600).contains(&seconds) { Ok(seconds) } else { Err(error()) }
+    if (60..=max).contains(&seconds) { Ok(seconds) } else { Err(error()) }
 }
 
 /// The caller's cmux credential: stdin, then the file, then the environment.
@@ -307,6 +436,7 @@ pub(crate) fn platform_origin(
 pub(crate) struct Platform {
     origin: String,
     credential: String,
+    team: Option<String>,
     client: reqwest::Client,
     runtime: tokio::runtime::Runtime,
     timeout: Duration,
@@ -376,7 +506,13 @@ impl Platform {
             .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(|e| internal(&e))?;
-        Ok(Self { origin, credential, client, runtime, timeout })
+        Ok(Self { origin, credential, team: None, client, runtime, timeout })
+    }
+
+    /// Pin session-authenticated requests to the team selected by the native app.
+    pub(crate) fn with_team(mut self, team: Option<String>) -> Self {
+        self.team = team;
+        self
     }
 
     async fn call(
@@ -403,6 +539,9 @@ impl Platform {
             .timeout(timeout);
         if let Some(body) = body {
             request = request.json(&body);
+        }
+        if let Some(team) = &self.team {
+            request = request.header("x-cmux-team", team.as_str());
         }
         let response = request
             .send()
@@ -445,9 +584,23 @@ impl Platform {
             .collect())
     }
 
+    /// `method path` with an optional JSON body (`machine vault`).
+    pub(super) fn request(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        body: Option<Value>,
+    ) -> Result<Value, CallError> {
+        self.runtime.block_on(self.call(method, path, body))
+    }
+
     /// `POST path` with a JSON body: the answer, or why it failed (`link start-chat ensure`).
     pub(crate) fn post(&self, path: &str, body: Value) -> Result<Value, CallError> {
         self.runtime.block_on(self.call(reqwest::Method::POST, path, Some(body)))
+    }
+
+    pub(crate) fn delete(&self, path: &str) -> Result<Value, CallError> {
+        self.runtime.block_on(self.call(reqwest::Method::DELETE, path, None))
     }
 
     /// A short telemetry read must not extend the workspace machine admission timeout.
@@ -481,7 +634,7 @@ impl Platform {
     /// `join_token_id` appears, `deadline_ms` passes, or `interrupt` ends. A
     /// list read that does not reach the platform is retried; any other
     /// failure ends the wait.
-    fn wait_for_join(
+    pub(super) fn wait_for_join(
         &self,
         join_token_id: &str,
         deadline_ms: u64,
@@ -523,7 +676,7 @@ impl Platform {
 }
 
 #[derive(Debug)]
-enum WaitEnd {
+pub(super) enum WaitEnd {
     Joined(Box<Joined>),
     Expired,
     Interrupted,
@@ -545,7 +698,14 @@ fn entries(body: Value) -> Option<Vec<Value>> {
 }
 
 /// The platform's machine-join refusal codes. Errors print only these, from this table.
-const KNOWN_CODES: [&str; 33] = [
+const KNOWN_CODES: [&str; 46] = [
+    "lease.not_found",
+    "reservation.expired",
+    "reservation.terminal",
+    "reservation.bound",
+    "reservation.not_ready",
+    "reservation.unavailable",
+    "reservation.owner",
     "auth.unauthenticated",
     "auth.forbidden",
     "auth.sso_required",
@@ -563,6 +723,13 @@ const KNOWN_CODES: [&str; 33] = [
     "rate_limited",
     "machine.join.unavailable",
     "machine.join.not_found",
+    // The vault (`machine vault`, `machine add --vault`).
+    "machine.vault_personal_only",
+    "vault.not_found",
+    "vault.invalid",
+    "vault.too_large",
+    "vault.no_entry",
+    "vault.invalid_hosts",
     // A workspace's machine (`POST /v1/workspaces/{w}/machine`, `link start-chat ensure`).
     "cloud_environment.not_found",
     "machine.conflict",
@@ -593,21 +760,57 @@ pub(super) struct RunOptions {
     pub every: Duration,
 }
 
+/// What the verbs ask of the world besides the platform, so tests can stand in for it.
+pub(super) struct Hooks<'a> {
+    /// A yes/no question on the terminal; no terminal is a no.
+    pub confirm: &'a mut dyn FnMut(&str) -> bool,
+    /// A vault value for `NAME`: a no-echo prompt on a terminal, else stdin.
+    pub read_value: &'a mut dyn FnMut(&str) -> Result<zeroize::Zeroizing<String>, String>,
+    /// Runs ssh as the plan says; its exit code.
+    pub ssh: &'a mut dyn FnMut(&bootstrap::SshPlan) -> std::io::Result<i32>,
+}
+
 pub(super) fn run(
     command: &Command,
     platform: &Platform,
     output: OutputMode,
     options: RunOptions,
     out: &mut dyn Write,
-    confirm: &mut dyn FnMut(&str) -> bool,
+    hooks: &mut Hooks<'_>,
     interrupt: impl Future<Output = ()>,
 ) -> Result<i32, Failure> {
     match &command.verb {
-        Verb::Add { name, ttl, wait } => {
+        Verb::Add(args) => {
+            if args.vault {
+                if !args.yes && output == OutputMode::Quiet {
+                    return Err(Failure::usage("--quiet cannot ask; pass --yes"));
+                }
+                // The consent names every var before any token exists.
+                let names = vault::env_names(platform)?;
+                if !args.yes && !(hooks.confirm)(&vault::consent_text(&names)) {
+                    return Err(Failure::usage(
+                        "nothing was shared and no line was made (pass --yes to share the vault without asking)",
+                    ));
+                }
+            }
+            if let Some(dir) = &args.usb {
+                return bootstrap::add_usb(platform, args, dir, output, out, options);
+            }
+            if let Some(host) = &args.host {
+                return bootstrap::add_over_ssh(
+                    platform, args, host, output, out, options, hooks, interrupt,
+                );
+            }
             // Quiet mints and prints nothing (the exit code says whether it worked); the
             // unused line expires on its own. Scripts that want the line read `--json`'s `.line`.
-            let wait = wait.unwrap_or(output == OutputMode::Human && options.interactive);
-            let add = Add { name: name.as_deref(), ttl: *ttl, wait, every: options.every };
+            let wait = args.wait.unwrap_or(output == OutputMode::Human && options.interactive);
+            let add = Add {
+                name: args.name.as_deref(),
+                ttl: args.ttl,
+                wait,
+                every: options.every,
+                vault: args.vault,
+            };
             add_machine(platform, &add, output, out, interrupt)
         }
         Verb::Revoke { machine, yes } => {
@@ -615,17 +818,20 @@ pub(super) fn run(
                 // Quiet cannot ask: refuse before reading or revoking anything.
                 return Err(Failure::usage("--quiet cannot ask; pass --yes"));
             }
-            revoke(platform, machine, *yes, output, out, confirm)
+            revoke(platform, machine, *yes, output, out, hooks.confirm)
         }
         Verb::Rotate { machine } => rotate(platform, machine, output, out),
+        Verb::Vault(verb) => vault::run(verb, platform, output, out, hooks),
     }
 }
 
-struct Add<'a> {
-    name: Option<&'a str>,
-    ttl: Option<u64>,
-    wait: bool,
-    every: Duration,
+pub(super) struct Add<'a> {
+    pub name: Option<&'a str>,
+    pub ttl: Option<u64>,
+    pub wait: bool,
+    pub every: Duration,
+    /// Mint with `vault: true`.
+    pub vault: bool,
 }
 
 /// The one line a person pastes on the new machine.
@@ -636,13 +842,13 @@ pub(super) fn join_line(origin: &str, token: &str) -> String {
 /// A minted join token, checked: the token is `cmj_` and shell-safe, and no
 /// field printed beside it holds it or the caller's credential.
 #[derive(Debug)]
-struct Minted {
-    token: String,
-    join_token_id: String,
-    expires_at: Value,
-    expires_at_ms: Option<u64>,
-    team_id: Option<String>,
-    label: Option<String>,
+pub(super) struct Minted {
+    pub token: String,
+    pub join_token_id: String,
+    pub expires_at: Value,
+    pub expires_at_ms: Option<u64>,
+    pub team_id: Option<String>,
+    pub label: Option<String>,
 }
 
 fn minted(body: &Value, credential: &str) -> Result<Minted, Failure> {
@@ -695,13 +901,8 @@ fn plain_id(id: &str) -> bool {
         && !id.starts_with('.')
 }
 
-fn add_machine(
-    platform: &Platform,
-    add: &Add<'_>,
-    output: OutputMode,
-    out: &mut dyn Write,
-    interrupt: impl Future<Output = ()>,
-) -> Result<i32, Failure> {
+/// Mints one join token for `add` and checks it.
+pub(super) fn mint_for(platform: &Platform, add: &Add<'_>) -> Result<Minted, Failure> {
     let mut body = Map::new();
     if let Some(name) = add.name {
         body.insert("label".into(), json!(name));
@@ -709,8 +910,27 @@ fn add_machine(
     if let Some(ttl) = add.ttl {
         body.insert("ttlSeconds".into(), json!(ttl));
     }
-    let answer = platform.mint(Value::Object(body)).map_err(|e| e.failure("the join token"))?;
-    let minted = minted(&answer, &platform.credential)?;
+    if add.vault {
+        body.insert("vault".into(), json!(true));
+    }
+    let answer = platform.mint(Value::Object(body)).map_err(|e| match e {
+        CallError::Status { status: 403, code: "machine.vault_personal_only" } => Failure::new(
+            "machine_join.vault_personal_only",
+            "the vault goes only to machines of your personal team: switch to it, or add the machine without --vault",
+        ),
+        e => e.failure("the join token"),
+    })?;
+    minted(&answer, &platform.credential)
+}
+
+fn add_machine(
+    platform: &Platform,
+    add: &Add<'_>,
+    output: OutputMode,
+    out: &mut dyn Write,
+    interrupt: impl Future<Output = ()>,
+) -> Result<i32, Failure> {
+    let minted = mint_for(platform, add)?;
     let line = join_line(&platform.origin, &minted.token);
     let name = minted.label.clone().or_else(|| add.name.map(str::to_owned));
     let mut summary = json!({
@@ -803,7 +1023,7 @@ fn add_machine(
 }
 
 /// "expires at 14:32 UTC (10 min)", or "expires soon" when the time is unreadable.
-fn expiry_words(expires_at_ms: Option<u64>, now: u64) -> String {
+pub(super) fn expiry_words(expires_at_ms: Option<u64>, now: u64) -> String {
     let Some(at) = expires_at_ms else { return "expires soon".into() };
     let minutes = at.saturating_sub(now).div_ceil(60_000);
     let of_day = (at / 1000) % 86_400;
@@ -903,7 +1123,7 @@ fn minted_by(value: Option<&Value>) -> Option<String> {
 }
 
 /// `text` without control characters, so server text cannot drive the terminal.
-fn clean(text: &str) -> String {
+pub(super) fn clean(text: &str) -> String {
     text.chars().filter(|c| !c.is_control()).collect::<String>().trim().to_owned()
 }
 
@@ -1040,7 +1260,7 @@ fn rotate(
 }
 
 /// Asks on the terminal; no terminal is a no.
-fn confirm(question: &str) -> bool {
+pub(super) fn confirm(question: &str) -> bool {
     if !std::io::stdin().is_terminal() {
         return false;
     }

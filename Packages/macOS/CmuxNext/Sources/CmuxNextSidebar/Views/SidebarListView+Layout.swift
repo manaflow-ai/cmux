@@ -74,6 +74,7 @@ extension SidebarListViewComponents {
         o.pullRequests = SidebarSessionTree.shared.pullRequests
         if let tree = SidebarSessionTree.shared.drawn {
             (o.sessionTree, o.keycaps) = (tree, model.workspaceKeycaps(DesignSettings.shared.sidebarSections.navigation))
+            o.parentTitles = SidebarLayout.parentTitles(tree.parents, workspaces: model.allWorkspaces)
             o.chatHistory = SidebarChatHistory.shared.state
         }
         o.excludedWorkspaces.formUnion(leaving)
@@ -155,8 +156,18 @@ extension SidebarListViewComponents {
     func realizationRect() -> NSRect {
         // A space page never scrolls: the rows in its frame, no overscan.
         if enclosingScrollView == nil, let pageViewport { return pageViewport }
+        // A clip with no height shows nothing yet (a sidebar made before its window's frame): no row is realized until it
+        // has one, and the first one goes to the selection (`revealFirstViewport`, REOPEN-F7).
+        if let clip = enclosingScrollView?.contentView, clip.bounds.height <= 0 { return .null }
         let visible = enclosingScrollView?.contentView.bounds ?? bounds
         return visible.insetBy(dx: 0, dy: -SidebarStyle.overscan)
+    }
+    /// Responsive scrolling (`SidebarScrollView`) asks for content past the visible rows before it scrolls there off
+    /// the main thread. The list prepares exactly the rows it realizes, and says so (`realizeVisibleRows` keeps
+    /// `preparedContentRect` the realization rect), so AppKit never counts a row as drawn that has no view.
+    override func prepareContent(in rect: NSRect) {
+        super.prepareContent(in: realizationRect())
+        realizeVisibleRows()
     }
     /// `newRowsInPlace`: a reveal jumps after this apply. A new row this apply gives no view (outside the rows drawn
     /// now) is not opening: the jump draws it whole in its slot (`RowMotion.place`), since its gap is open by then and
@@ -302,6 +313,7 @@ extension SidebarListViewComponents {
         })
         var leaving: [(SidebarRowView, NSRect)] = []
         let removeRuns = SidebarRowTransition.runTops(of: old, missingFrom: layout)
+        let cards = flyingCardFrames
         for (key, view) in rowViews where !keep.contains(key) {
             if key == hoveredKey {
                 hoveredKey = nil
@@ -311,10 +323,12 @@ extension SidebarListViewComponents {
             rowViews[key] = nil
             let placeholder = switch key { case .emptySection, .emptyGroup: true; default: false }
             let replaced = old.row(for: key).map { returning.contains($0.section) || $0.group.map(emptied.contains) == true } ?? false
-            if adopting, !suppressed.contains(key) {
+            // Under a dropped card on its way to its slot, a leaving row goes at once (`isUnderCard`).
+            let underCard = isUnderCard(view.frame, cards)
+            if adopting, !suppressed.contains(key), !underCard {
                 // A row the drop or the model took away fades where it is (its slot closes on the rows' spring).
                 leaving.append((view, view.frame))
-            } else if suppressed.contains(key) || !animate || placeholder || replaced {
+            } else if suppressed.contains(key) || !animate || placeholder || replaced || underCard {
                 recycle(view)
             } else {
                 // A leaving row fades out without the selection fill: the
@@ -447,7 +461,7 @@ extension SidebarListViewComponents {
         case let (.section(id), view as SectionHeaderRowView):
             guard let section = sections[id] else { return }
             view.configure(section, row: row)
-        case let (.emptySection(id), view as EmptySectionRowView): view.configure(pinned: id == .pinned || id == .custom(SidebarDocStore.pinnedSection), shortcut: model.newWorkspaceShortcut)
+        case let (.emptySection(id), view as EmptySectionRowView): view.configure(pinned: id == .pinned || id == .custom(SidebarDocStore.pinnedSection))
         case let (.emptyGroup(id), view as EmptyGroupRowView): view.configure(groupID: id, groupName: groups[id]?.name ?? model.group(id)?.name ?? "")
         case let (.folder(_, folder), view as FolderHeaderRowView): view.configure(folder: folder)
         case let (.status, view as StatusHeaderRowView): view.configure(row)
@@ -466,12 +480,43 @@ extension SidebarListViewComponents {
     /// Exactly as wide as the visible clip and as tall as the rows or the clip, on every clip resize too (nxdog56),
     /// with views for the rows now in it: the rows load at init, before the clip has a size, and a resize scrolls nothing.
     func fitToClip() {
-        guard let clip = enclosingScrollView?.contentView else { return }
-        if frame.width != clip.bounds.width { setFrameSize(NSSize(width: clip.bounds.width, height: frame.height)) }
+        guard let scroll = enclosingScrollView else { return }
+        let width = Self.rowsWidth(in: scroll)
+        if frame.width != width { setFrameSize(NSSize(width: width, height: frame.height)) }
         // The pool parks two realization rects of rows: a space switch's leaving and returning pages.
         rowPool.limit = SidebarRowViewPool.limit(forHeight: realizationRect().height, rowHeight: metrics.rowHeight)
         updateDocumentHeight()
+        revealFirstViewport()
         realizeVisibleRows()
+    }
+    /// The first time the clip has a height (a window's first layout), it goes to the selection before any row view is
+    /// realized, so the rows are built once, around the active row: realized at offset 0 and then revealed, a reopened
+    /// window far down its list built about twice the rows it shows before its first frame (REOPEN-F7, profile 10:
+    /// 57 row views for about 22 shown at 100 workspaces). The first render then finds the selection revealed.
+    func revealFirstViewport() {
+        guard !hasViewport, let clip = enclosingScrollView?.contentView, case let height = clip.bounds.height, height > 0 else { return }
+        hasViewport = true
+        guard drag == nil, external == nil, !displayed.rows.isEmpty, let extent = selectionReveal(in: displayed, height: height) else { return }
+        revealedActive = selectionRevealKey
+        let viewport = displayed.viewport(height: height)
+        // A row already wholly in view does not move (close-focus.md rule 7, as `revealSelectionNow`).
+        guard !viewport.isFullyVisible(extent, at: clip.bounds.minY, padding: 0) else { return }
+        let target = viewport.reveal(extent, from: clip.bounds.minY, padding: SidebarLayout.revealPadding)
+        guard target != clip.bounds.minY else { return }
+        clip.setBoundsOrigin(NSPoint(x: clip.bounds.minX, y: target))
+        enclosingScrollView?.reflectScrolledClipView(clip)
+    }
+    /// The rows' width in `scroll`: its clip's width with the vertical scroller always counted for its style, never
+    /// whether the scroller shows now. A legacy scroller (macOS "Show scroll bars: Always", or a mouse attached, before
+    /// the overlay style is put back) appears only while the rows overflow, so opening a long group narrowed every row
+    /// and folding it widened them again (Leo 2026-11-03: "why when i collapse/expand the cosmic-gray group do the
+    /// workspace horizontal widths differ?"). An overlay scroller takes no width either way.
+    static func rowsWidth(in scroll: NSScrollView) -> CGFloat {
+        let scroller = scroll.hasVerticalScroller ? scroll.verticalScroller.map { type(of: $0) } ?? NSScroller.self : nil
+        let content = NSScrollView.contentSize(forFrameSize: scroll.frame.size, horizontalScrollerClass: nil,
+                                               verticalScrollerClass: scroller, borderType: scroll.borderType,
+                                               controlSize: .regular, scrollerStyle: scroll.scrollerStyle)
+        return max(0, content.width - scroll.contentInsets.left - scroll.contentInsets.right)
     }
     override func setFrameSize(_ newSize: NSSize) {
         let widthChanged = newSize.width != frame.width
@@ -509,6 +554,8 @@ extension SidebarListViewComponents {
             rowViews[row.key] = view
         }
         pruneOffscreen()
+        // What responsive scrolling may count as drawn: the rows just realized, never more (`prepareContent(in:)`).
+        if !realize.isNull, preparedContentRect != realize { preparedContentRect = realize }
         let followed = hoverFollowsScroll
         hoverFollowsScroll = true
         defer { hoverFollowsScroll = followed }

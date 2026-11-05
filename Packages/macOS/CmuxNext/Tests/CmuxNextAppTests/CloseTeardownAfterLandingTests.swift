@@ -56,6 +56,8 @@ struct CloseTeardownAfterLandingTests {
         .columns(panes.map { LayoutColumn(id: ColumnID("c-\($0.rawValue)"), width: 1.0 / 3, root: .leaf($0)) })
     }
 
+    /// FRAME OWNER S3c: the closed host stays shown with only its ground (its content hidden, no ring, no hit) on its
+    /// collapsing frame, and goes at the landing.
     @Test func aSpringingCloseTearsTheClosedPaneDownWhenItLands() throws {
         let strip = Strip()
         defer { strip.window.closeAfterTest() }
@@ -67,7 +69,9 @@ struct CloseTeardownAfterLandingTests {
         #expect(strip.root.context.hosts["p2"] == nil, "the closed pane has left the layout")
         #expect(strip.provider.released.isEmpty, "the close's own turn released the closed content: \(strip.provider.released)")
         #expect(closed.superview === strip.screen, "the close's own turn took the closed host's layers out of the tree")
-        #expect(closed.isHidden && closed.chrome.isHidden, "the closed host and its ring are hidden from the close's first frame")
+        #expect(!closed.isHidden && closed.showsClosingGround && closed.content.isHidden && closed.chrome.isHidden,
+                "the closed host shows only its ground, no content and no ring, from the close's first frame")
+        #expect(closed.hitTest(NSPoint(x: closed.frame.midX, y: closed.frame.midY)) == nil, "the closing host takes clicks")
         // The provider's shown panes lose it in the close's own turn (the App's `content.panes`: a key, a focus or a
         // lookup there never finds the closed pane, ClosedPendingSplitFocusTests); only the teardown waits.
         #expect(strip.provider.shown == ["p1", "p3"], "the close's own turn left the closed pane shown: \(strip.provider.shown)")
@@ -96,6 +100,7 @@ struct CloseTeardownAfterLandingTests {
         #expect(strip.root.context.hosts["p2"] === closed, "the pane that came back has its own host again")
         #expect(strip.provider.shown == ["p1", "p2", "p3"], "the pane taken back is not shown again: \(strip.provider.shown)")
         #expect(!closed.isHidden && closed.superview === strip.screen)
+        #expect(!closed.showsClosingGround && !closed.content.isHidden, "the host taken back does not show its content")
         for _ in 0..<600 where strip.root.advanceFrame(1.0 / 120) {}
         #expect(strip.provider.released.isEmpty, "the pane that came back was released: \(strip.provider.released)")
         #expect(!closed.isHidden && !closed.chrome.isHidden, "it shows, with its ring, after the motion")

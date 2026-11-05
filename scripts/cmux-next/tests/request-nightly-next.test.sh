@@ -650,6 +650,77 @@ request --tree-ready "$pending"
 rm -f "$TMP/gh-runs"
 git_q -C "$src" checkout -q --detach "$head"
 
+# A commit whose app is the one the feed already publishes is not requested: nothing that
+# reaches the app changed since the commit the nightly-next tag names. The classifier
+# (scripts/ci/nightly_build_inputs.py) is stubbed: only App.swift reaches the app, so a
+# cmux-tui change is caught by its tree key alone.
+git_q -C "$src" checkout -q -b app-identical "$head"
+git_q -C "$src" tag -f nightly-next "$head"
+cat > "$src/scripts/ci/nightly_build_inputs.py" <<'PY'
+import json, sys
+paths = [line.strip() for line in sys.stdin if line.strip()]
+hit = [p for p in paths if p == "App.swift"]
+print(json.dumps({"build_inputs_changed": bool(hit),
+                  "reason": f"{hit[0]} reaches the app" if hit else "no changed path reaches the app the Nightly publishes"}))
+PY
+echo notes > "$src/NOTES.md"; git_q -C "$src" add -A; git_q -C "$src" commit -m "notes only"
+same=$(git -C "$src" rev-parse HEAD)
+request --sha "$same" --release-compile-green
+[[ "$status" == 0 ]] && ! dispatched "$same" || fail "an app-identical commit must not be promoted:" "$out" "$(cat "$TMP/gh.log")"
+grep -q "nothing that reaches the app changed since the published ${head:0:12} (no changed path reaches" <<<"$out" \
+  && grep -q "already on nightly-next" <<<"$out" || fail "the skip must name the published commit and stop the tick's walk:" "$out"
+# The next app change is promoted at once: a skip never holds a real update back.
+echo app2 > "$src/App.swift"; git_q -C "$src" add -A; git_q -C "$src" commit -m "app change"
+changed=$(git -C "$src" rev-parse HEAD)
+request --sha "$changed" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$changed" || fail "an app change since the published commit must be promoted:" "$out" "$(cat "$TMP/gh.log")"
+# A change to the bundled cmux-tui binaries' inputs that the classifier calls neutral is
+# promoted: its tree key differs from the published commit's.
+git_q -C "$src" tag -f nightly-next "$changed"
+echo tui-runtime > "$src/cmux-tui/a"; git_q -C "$src" add -A; git_q -C "$src" commit -m "tui input the classifier misses"
+tuichange=$(git -C "$src" rev-parse HEAD)
+publish "$tuichange"
+request --sha "$tuichange" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$tuichange" || fail "a cmux-tui tree change must be promoted even when the classifier finds nothing:" "$out" "$(cat "$TMP/gh.log")"
+git_q -C "$src" checkout -q --detach "$changed"
+# A move out of the app (App.swift into docs/) removes an app input: promoted, never read as docs only.
+git_q -C "$src" tag -f nightly-next "$changed"
+mkdir -p "$src/docs"; git_q -C "$src" mv App.swift docs/App.swift; git_q -C "$src" commit -m "move the app file into docs"
+moved=$(git -C "$src" rev-parse HEAD)
+request --sha "$moved" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$moved" || fail "a move out of an app path must be promoted:" "$out" "$(cat "$TMP/gh.log")"
+git_q -C "$src" tag -f nightly-next "$head"
+# A revert of a promotion still building is promoted at once: its app matches the published
+# one but not the one nightly-next is about to publish.
+git_q -C "$src" checkout -q --detach "$same"
+git_q -C "$src" tag -f nightly-next "$same"
+echo pending-app > "$src/App.swift"; git_q -C "$src" add -A; git_q -C "$src" commit -m "app change still building"
+building=$(git -C "$src" rev-parse HEAD)
+git_q -C "$src" update-ref refs/heads/nightly-next "$building"
+git_q -C "$src" revert --no-edit HEAD
+reverted=$(git -C "$src" rev-parse HEAD)
+request --sha "$reverted" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$reverted" || fail "a revert of an outstanding promotion must be promoted:" "$out" "$(cat "$TMP/gh.log")"
+# A docs-only commit on top of that promotion is still promoted: the published app differs from it.
+git_q -C "$src" checkout -q --detach "$building"
+echo more > "$src/NOTES.md"; git_q -C "$src" add -A; git_q -C "$src" commit -m "notes on the building app"
+notes_on_building=$(git -C "$src" rev-parse HEAD)
+request --sha "$notes_on_building" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$notes_on_building" || fail "a commit whose app differs from the published one must be promoted:" "$out"
+git_q -C "$src" update-ref -d refs/heads/nightly-next
+git_q -C "$src" tag -f nightly-next "$head"
+git_q -C "$src" checkout -q --detach "$same"
+# A classifier that cannot answer, or no published commit, promotes as before.
+git_q -C "$src" checkout -q --detach "$same"
+echo 'raise SystemExit(3)' > "$src/scripts/ci/nightly_build_inputs.py"
+request --sha "$same" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$same" || fail "an unreadable classifier must not hold back a promotion:" "$out" "$(cat "$TMP/gh.log")"
+git -C "$src" checkout -q -- scripts/ci/nightly_build_inputs.py
+git_q -C "$src" tag -d nightly-next
+request --sha "$same" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$same" || fail "with no published commit the promotion is requested:" "$out" "$(cat "$TMP/gh.log")"
+git_q -C "$src" checkout -q --detach "$head"
+
 # The checkout must be the commit it asks for; bad input is a usage error.
 request --sha "$app" --release-compile-green
 [[ "$status" == 2 ]] || fail "a --sha other than HEAD must exit 2, got $status:" "$out"

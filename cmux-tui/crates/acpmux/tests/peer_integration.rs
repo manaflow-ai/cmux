@@ -1379,6 +1379,317 @@ async fn an_app_trust_answer_for_a_peers_folder_is_checked_and_recorded_by_the_p
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// A pending peer chat has no session to route by yet. Its folder trust must be read and
+/// answered on that peer, without changing the local daemon's record for the same path.
+#[tokio::test]
+async fn explicit_peer_trust_is_sessionless_and_keeps_each_machines_record_separate() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let local_folder = root.join("local-project");
+    let peer_folder = root.join("peer-project");
+    for path in [&local_folder, &peer_folder] {
+        std::fs::create_dir_all(path).unwrap();
+    }
+    let paths = |name: &str| acpmux::trust::Paths {
+        claude_json: root.join(name).join("claude.json"),
+        codex_config: root.join(name).join("config.toml"),
+        record: root.join(name).join("trust.json"),
+        agent_home: None,
+        cmux_worktrees: None,
+    };
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    let mut cfg = config(PermissionPolicy::Ask);
+    cfg.web_roots = vec![peer_folder.to_string_lossy().into_owned()];
+    let b = hub(cfg).await;
+    a.set_trust_gate(Some(paths("a")));
+    b.set_trust_gate(Some(paths("b")));
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "sessionless-trust").await;
+    let (relay, from_b) = recording_relay(port).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{relay}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    assert!(a.sessions().is_empty());
+    assert!(b.sessions().is_empty());
+    let connect = |origin| {
+        let (tx, input) = mpsc::channel(64);
+        let (output, rx) = mpsc::channel(4096);
+        tokio::spawn(acpmux::server::serve_connection_with(a.clone(), input, output, origin));
+        C { tx, rx, next: 0 }
+    };
+    let mut app = connect(acpmux::server::Origin::LocalApp);
+    let mut web = connect(acpmux::server::Origin::Web);
+    let mut forwarded_web = connect(acpmux::server::Origin::Peer);
+
+    let initialized = app.call(method::INITIALIZE, json!({"protocolVersion": 1})).await.unwrap();
+    assert!(
+        initialized["_meta"]["acpmux"]["extensions"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("acp.trust.peer-v1")),
+        "the app must negotiate sessionless peer trust before sending its selector: {initialized}"
+    );
+    let read =
+        app.call(method::ACP_TRUST_GET, json!({"peer": "b", "cwd": peer_folder})).await.unwrap();
+    assert_eq!(read["peer"], "b", "{read}");
+    assert_eq!(read["level"], "unknown", "{read}");
+    // A missing destination path reaches B, and is rejected there without recording anything.
+    let missing = peer_folder.join("missing");
+    let error = app
+        .call(method::ACP_TRUST_SET, json!({"peer": "b", "cwd": missing, "level": "trusted"}))
+        .await
+        .unwrap_err();
+    assert!(error.starts_with("cwd is refused"), "{error}");
+    assert!(String::from_utf8_lossy(&from_b.lock().unwrap()).contains("cwd is refused"));
+    assert!(!paths("a").record.exists());
+    assert!(!paths("b").record.exists());
+
+    // Browser provenance cannot be upgraded by a peer selector or a forged app marker.
+    for caller in [&mut web, &mut forwarded_web] {
+        let reply = caller
+            .raw(
+                method::ACP_TRUST_SET,
+                json!({"peer": "b", "cwd": peer_folder, "level": "trusted",
+                       "_meta": {"acpmux": {"via": "web"}}}),
+            )
+            .await;
+        assert_eq!(reply["error"]["data"]["reason"], "trust.remote", "{reply}");
+    }
+    let forged = web
+        .raw(
+            method::ACP_TRUST_SET,
+            json!({"peer": "b", "cwd": peer_folder, "level": "trusted",
+                   "_meta": {"acpmux": {"via": "app"}}}),
+        )
+        .await;
+    assert_eq!(forged["error"]["data"]["reason"], "trust.remote", "{forged}");
+    assert!(!paths("b").record.exists());
+
+    // The destination also enforces its own roots, not the forwarding daemon's folders.
+    let outside = app
+        .call(method::ACP_TRUST_SET, json!({"peer": "b", "cwd": local_folder, "level": "trusted"}))
+        .await;
+    assert!(outside.is_err(), "{outside:?}");
+    let spelling = peer_folder.join("..").join("peer-project");
+    let set = app
+        .call(method::ACP_TRUST_SET, json!({"peer": "b", "cwd": spelling, "level": "trusted"}))
+        .await
+        .unwrap();
+    assert_eq!(set["peer"], "b", "{set}");
+    assert_eq!(set["cwd"], json!(peer_folder), "{set}");
+    assert_eq!(set["level"], "trusted", "{set}");
+    let remote =
+        app.call(method::ACP_TRUST_GET, json!({"peer": "b", "cwd": peer_folder})).await.unwrap();
+    assert_eq!(remote["level"], "trusted", "{remote}");
+    let local = app.call(method::ACP_TRUST_GET, json!({"cwd": peer_folder})).await.unwrap();
+    assert_eq!(local["level"], "unknown", "peer trust leaked onto this machine: {local}");
+    assert!(!paths("a").record.exists());
+
+    // Omitting peer retains the local route, including for a different project folder.
+    app.call(method::ACP_TRUST_SET, json!({"cwd": local_folder, "level": "trusted"}))
+        .await
+        .unwrap();
+    let local = app.call(method::ACP_TRUST_GET, json!({"cwd": local_folder})).await.unwrap();
+    assert_eq!(local["level"], "trusted", "{local}");
+    let remote =
+        app.call(method::ACP_TRUST_GET, json!({"peer": "b", "cwd": local_folder})).await.unwrap();
+    assert_eq!(remote["level"], "unknown", "local trust leaked onto the peer: {remote}");
+    assert!(a.sessions().is_empty(), "trust must not manufacture a routing session");
+    assert!(b.sessions().is_empty());
+}
+
+#[tokio::test]
+async fn explicit_peer_trust_rejects_unknown_invalid_or_ambiguous_selectors_without_local_fallback()
+{
+    let temp = tempfile::tempdir().unwrap();
+    let folder = std::fs::canonicalize(temp.path()).unwrap();
+    let record = folder.join("trust.json");
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.set_trust_gate(Some(acpmux::trust::Paths {
+        claude_json: folder.join("claude.json"),
+        codex_config: folder.join("config.toml"),
+        record: record.clone(),
+        agent_home: None,
+        cmux_worktrees: None,
+    }));
+    let mut local = client(a.clone()).await;
+    for method in [method::ACP_TRUST_GET, method::ACP_TRUST_SET] {
+        for selector in [json!("absent-peer"), json!(""), json!(null), json!(17)] {
+            let reply = local
+                .raw(method, json!({"peer": selector, "cwd": folder, "level": "trusted"}))
+                .await;
+            assert!(reply.get("error").is_some(), "{reply}");
+        }
+        for key in ["sessionId", "session", "name"] {
+            let mut params = json!({"peer": "absent-peer", "cwd": folder, "level": "trusted"});
+            params[key] = json!("other-session");
+            let reply = local.raw(method, params).await;
+            assert_eq!(reply["error"]["code"], -32602, "{reply}");
+        }
+    }
+    assert!(!record.exists(), "a rejected destination wrote local trust");
+}
+
+/// A is paired with B, and B separately knows C. A's peer credential is not authority to
+/// use B's private peer aliases, either for a trust answer or for starting a chat on C.
+#[tokio::test]
+async fn explicit_peer_trust_and_session_start_cannot_select_a_third_daemon() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let folder = root.join("project");
+    std::fs::create_dir_all(&folder).unwrap();
+    let paths = |name: &str| acpmux::trust::Paths {
+        claude_json: root.join(name).join("claude.json"),
+        codex_config: root.join(name).join("config.toml"),
+        record: root.join(name).join("trust.json"),
+        agent_home: None,
+        cmux_worktrees: None,
+    };
+    let config = || {
+        let mut cfg = config(PermissionPolicy::Ask);
+        cfg.web_roots = vec![folder.to_string_lossy().into_owned()];
+        cfg
+    };
+    let a = hub(config()).await;
+    let b = hub(config()).await;
+    let c = hub(config()).await;
+    b.set_trust_gate(Some(paths("b")));
+    c.set_trust_gate(Some(paths("c")));
+    let (c_port, c_token) = listen_with_peer_token(c.clone(), "trust-third-c").await;
+    b.add_peer(
+        "private-c",
+        &format!("ws://127.0.0.1:{c_port}"),
+        Some("tok".into()),
+        Some(c_token),
+        true,
+    )
+    .await
+    .unwrap();
+    let (b_port, b_token) = listen_with_peer_token(b.clone(), "trust-third-b").await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{b_port}"), Some("tok".into()), Some(b_token), true)
+        .await
+        .unwrap();
+    let ab = a.peer_by_name("b").unwrap();
+    for method in [method::ACP_TRUST_GET, method::ACP_TRUST_SET, method::SESSION_NEW] {
+        // The same refusal for a real alias and an invented one avoids disclosing B's peers.
+        for peer in ["private-c", "unknown-c"] {
+            let params = if method == method::SESSION_NEW {
+                json!({"cwd": folder, "mcpServers": [], "_meta": {"acpmux": {"peer": peer}}})
+            } else {
+                json!({"cwd": folder, "peer": peer, "level": "trusted"})
+            };
+            let error = ab.request(method, params).await.unwrap_err();
+            assert_eq!(error.data.as_ref().unwrap()["reason"], "peer.forward_refused", "{error:?}");
+            assert!(
+                !error.message.contains(peer),
+                "the refusal revealed B's peer alias: {error:?}"
+            );
+        }
+    }
+    let web_start = ab
+        .request(
+            method::SESSION_NEW,
+            json!({
+                "cwd": folder, "mcpServers": [],
+                "_meta": {"acpmux": {"peer": "private-c", "via": "web"}}
+            }),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(web_start.data.as_ref().unwrap()["reason"], "peer.forward_refused");
+    assert!(!paths("b").record.exists());
+    assert!(!paths("c").record.exists(), "A wrote trust on B's private peer");
+    assert!(b.sessions().is_empty());
+    assert!(c.sessions().is_empty(), "A started an agent on B's private peer");
+
+    // B's local caller still owns that choice. Its selector is consumed before the request
+    // reaches C over the very same peer-origin connection that must reject another selector.
+    let mut local_b = client(b.clone()).await;
+    let trusted = local_b
+        .call(
+            method::ACP_TRUST_SET,
+            json!({"peer": "private-c", "cwd": folder, "level": "trusted"}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(trusted["peer"], "private-c");
+    assert_eq!(trusted["level"], "trusted");
+    assert!(!paths("b").record.exists());
+    assert!(paths("c").record.exists());
+}
+
+#[tokio::test]
+async fn explicit_peer_trust_rejects_a_known_disconnected_peer_without_local_write() {
+    let temp = tempfile::tempdir().unwrap();
+    let folder = std::fs::canonicalize(temp.path()).unwrap();
+    let record = folder.join("trust.json");
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.set_trust_gate(Some(acpmux::trust::Paths {
+        claude_json: folder.join("claude.json"),
+        codex_config: folder.join("config.toml"),
+        record: record.clone(),
+        agent_home: None,
+        cmux_worktrees: None,
+    }));
+    // Keep the port reserved but do not listen; no other test can turn this into a live peer.
+    let bound = tokio::net::TcpSocket::new_v4().unwrap();
+    bound.bind("127.0.0.1:0".parse().unwrap()).unwrap();
+    let port = bound.local_addr().unwrap().port();
+    a.add_peer("offline", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
+        .await
+        .unwrap();
+    assert!(
+        !a.peer_by_name("offline").unwrap().connected.load(std::sync::atomic::Ordering::SeqCst)
+    );
+    let (tx, input) = mpsc::channel(64);
+    let (output, rx) = mpsc::channel(4096);
+    tokio::spawn(acpmux::server::serve_connection_with(
+        a.clone(),
+        input,
+        output,
+        acpmux::server::Origin::LocalApp,
+    ));
+    let mut app = C { tx, rx, next: 0 };
+    for method in [method::ACP_TRUST_GET, method::ACP_TRUST_SET] {
+        let reply =
+            app.raw(method, json!({"peer": "offline", "cwd": folder, "level": "trusted"})).await;
+        assert_eq!(reply["error"]["data"]["reason"], "peer_unreachable", "{reply}");
+    }
+    assert!(!record.exists(), "offline peer trust fell back to this machine");
+    a.peer_by_name("offline").unwrap().stop();
+}
+
+#[tokio::test]
+async fn explicit_peer_trust_refuses_a_connected_peer_without_the_trust_protocol() {
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    let port = lying_peer(Lying { answers: json!({"level": "trusted"}), ..Lying::default() }).await;
+    a.add_peer("old", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
+        .await
+        .unwrap();
+    assert!(a.peer_by_name("old").unwrap().connected.load(std::sync::atomic::Ordering::SeqCst));
+    let mut local = client(a.clone()).await;
+    let (tx, input) = mpsc::channel(64);
+    let (output, rx) = mpsc::channel(4096);
+    tokio::spawn(acpmux::server::serve_connection_with(
+        a.clone(),
+        input,
+        output,
+        acpmux::server::Origin::LocalApp,
+    ));
+    let mut app = C { tx, rx, next: 0 };
+    for caller in [&mut local, &mut app] {
+        for method in [method::ACP_TRUST_GET, method::ACP_TRUST_SET] {
+            let reply = caller
+                .raw(
+                    method,
+                    json!({"peer": "old", "cwd": std::env::temp_dir(), "level": "trusted"}),
+                )
+                .await;
+            assert_eq!(reply["error"]["data"]["reason"], "trust.peer_unsupported", "{reply}");
+        }
+    }
+    a.peer_by_name("old").unwrap().stop();
+}
+
 /// A connection that never proves the person key: what an agent, the CLI or
 /// a relay reaches.
 async fn plain(h: Arc<Hub>) -> C {
@@ -2582,6 +2893,96 @@ async fn peer_pending_for_an_unknown_session_is_dropped() {
     assert_eq!(got.len(), 1, "{got:?}");
 }
 
+/// A live ask for a session the peer has not listed yet (its new chat asked
+/// before its `session_changed` reached this daemon) is held, not dropped as
+/// forged: once the peer lists that session, the ask reaches the watcher with
+/// its decision nonce, so the app holds a record of it and can sign a
+/// person's Allow once (2026-11-03: "That answer didn't go through" on a
+/// live ask). An ask for a session the peer never lists still never does.
+#[tokio::test]
+async fn peer_pending_for_a_session_listed_after_it_is_relayed_once_listed() {
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    let says = Lying {
+        instance: json!("l-run"),
+        sessions: vec![json!({"sessionId": "far-1", "name": "far"})],
+        pending: vec![
+            peer_prompt("nobody", "forged", "l-run"),
+            peer_prompt("far-2", "fresh", "l-run"),
+        ],
+        changed: vec![json!({"session": {"sessionId": "far-2", "name": "new"},
+                             "kind": "created", "seq": 1})],
+        ..Lying::default()
+    };
+    let port = lying_peer(says).await;
+    let mut watcher = plain(a.clone()).await;
+    watcher.call(method::MUX_WATCH, json!({"enabled": true})).await.unwrap();
+    a.add_peer("l", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
+        .await
+        .unwrap();
+    // One deadline for the whole read: `wait` restarts its own on every line the hub sends.
+    let got = tokio::time::timeout(Duration::from_secs(30), async {
+        let mut got = Vec::new();
+        loop {
+            let p = watcher.wait(method::MUX_PERMISSION_PENDING, |_| true).await;
+            let fresh = p["permissionId"] == "fresh";
+            got.push(p);
+            if fresh {
+                return got;
+            }
+        }
+    })
+    .await
+    .expect("the held ask never reached the watcher");
+    assert_eq!(got.len(), 1, "{got:?}");
+    assert_eq!(got[0]["sessionId"], "far-2", "{got:?}");
+    assert_eq!(got[0]["decisionNonce"], "n-1", "{got:?}");
+    assert_eq!(got[0]["peer"], "l", "{got:?}");
+}
+
+/// A held ask (its session not listed yet) that the peer decided before it
+/// listed the session never comes back as a live card; another session's
+/// held ask, listed after, does.
+#[tokio::test]
+async fn peer_pending_decided_before_its_session_is_listed_is_not_relayed() {
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    let says = Lying {
+        instance: json!("l-run"),
+        sessions: vec![json!({"sessionId": "far-1", "name": "far"})],
+        pending: vec![
+            peer_prompt("far-2", "gone", "l-run"),
+            peer_prompt("far-3", "fresh", "l-run"),
+        ],
+        changed: vec![
+            json!({"session": {"sessionId": "far-2", "name": "decided"},
+                   "kind": "permission_decision", "seq": 2}),
+            json!({"session": {"sessionId": "far-3", "name": "new"}, "kind": "created", "seq": 1}),
+        ],
+        ..Lying::default()
+    };
+    let port = lying_peer(says).await;
+    let mut watcher = plain(a.clone()).await;
+    watcher.call(method::MUX_WATCH, json!({"enabled": true})).await.unwrap();
+    a.add_peer("l", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
+        .await
+        .unwrap();
+    // One deadline for the whole read: `wait` restarts its own on every line the hub sends.
+    let got = tokio::time::timeout(Duration::from_secs(30), async {
+        let mut got = Vec::new();
+        loop {
+            let p = watcher.wait(method::MUX_PERMISSION_PENDING, |_| true).await;
+            let fresh = p["permissionId"] == "fresh";
+            got.push(p);
+            if fresh {
+                return got;
+            }
+        }
+    })
+    .await
+    .expect("the held ask never reached the watcher");
+    assert_eq!(got.len(), 1, "{got:?}");
+    assert_eq!(got[0]["sessionId"], "far-3", "{got:?}");
+}
+
 /// A peer's prompt for its own session in its own run reaches the watcher,
 /// with which peer asks.
 #[tokio::test]
@@ -3142,7 +3543,7 @@ async fn auto_placement_takes_a_running_name_only_with_reuse_here_or_on_a_peer()
     // On two machines: not guessed at, even with --reuse.
     let two =
         resolve(&cli, "agent", Some("both"), true, false, false).await.unwrap_err().to_string();
-    assert!(two.contains("this machine, b") && two.contains("--host"), "{two}");
+    assert!(two.contains("this machine, b") && two.contains("--machine"), "{two}");
     // A new name goes to the pick (which a busy test machine may refuse).
     if let Err(e) = resolve(&cli, "agent", Some("fresh"), false, false, false).await {
         let e = e.to_string();
@@ -3232,6 +3633,83 @@ async fn an_agent_link_resolves_to_its_session_here_or_on_a_peer() {
         .await
         .unwrap_err();
     assert!(e.contains("no session"), "{e}");
+}
+
+/// `_acpmux/resolve` and an opaque agent link (`?id=aid-...`, a public PR's footer): with the
+/// key in this daemon's home, the id resolves to the session here or on a peer it is the keyed
+/// hash of; an id of no listed session, or any id without the key, is the same not-found as any
+/// unknown session, so the caller opens the web page. Unix only: it writes and removes the key in
+/// this process's acpmux home, which is the hermetic scratch HOME only where `daemon_env` starts the
+/// process again (Windows runs with the host's HOME, where that is a person's real key).
+#[cfg(unix)]
+#[tokio::test]
+async fn an_opaque_agent_link_resolves_to_its_session_where_the_key_is() {
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "opaque").await;
+    let mut cb = client(b.clone()).await;
+    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "far-opaque"}}});
+    let far =
+        cb.call(method::SESSION_NEW, new).await.unwrap()["sessionId"].as_str().unwrap().to_owned();
+    let far_info = cb.call(method::MUX_INFO, json!({"session": far})).await.unwrap();
+    let far_agent = far_info["agentSessionId"].as_str().expect("an agent session id").to_owned();
+
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "near-opaque"}}});
+    let near =
+        ca.call(method::SESSION_NEW, new).await.unwrap()["sessionId"].as_str().unwrap().to_owned();
+    let near_info = ca.call(method::MUX_INFO, json!({"session": near})).await.unwrap();
+    let near_agent = near_info["agentSessionId"].as_str().expect("an agent session id").to_owned();
+    let family = near_info["family"].as_str().or(near_info["harness"].as_str()).unwrap().to_owned();
+    let link = |id: &str| format!("https://cmux.com/deeplink/agent?id={id}");
+    let unknown = "aid-0123456789abcdef0123";
+
+    // No key here: nothing resolves, as before. The key file is this process's own: refuse to
+    // touch it unless the home is the hermetic scratch one.
+    let home = acpmux::config::home();
+    let scratch = std::path::PathBuf::from(std::env::var_os("HOME").expect("the hermetic HOME"));
+    assert!(
+        std::env::var_os("ACPMUX_TEST_HERMETIC").is_some() && home.starts_with(&scratch),
+        "not a hermetic acpmux home: {}",
+        home.display()
+    );
+    let key_file = home.join(acpmux::opaque_agent_id::KEY_FILE);
+    let _ = std::fs::remove_file(&key_file);
+    let e = ca.call("_acpmux/resolve", json!({"query": link(unknown)})).await.unwrap_err();
+    assert!(e.contains("no session"), "{e}");
+
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::write(&key_file, "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&key_file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    let key = acpmux::opaque_agent_id::Key::load(&home).expect("the key just written");
+    let here = acpmux::pairing::machine_name();
+
+    // This machine's session, from a whole footer line.
+    let id = key.id(&here, &family, &near_agent);
+    let footer = format!("Agent session: [session]({})", link(&id));
+    let r = ca.call("_acpmux/resolve", json!({"query": footer})).await.unwrap();
+    assert_eq!(r["session"]["sessionId"], near, "{r}");
+    assert_eq!(r["session"]["peer"], Value::Null, "{r}");
+    assert_eq!(r["matches"].as_array().unwrap().len(), 1, "only the session it hashes: {r}");
+    assert_eq!(r["link"], Value::Null, "{r}");
+
+    // A peer's session, by the bare id: the peer's name is its host.
+    let id = key.id("b", &family, &far_agent);
+    let r = ca.call("_acpmux/resolve", json!({"query": id})).await.unwrap();
+    assert_eq!(r["session"]["qualifiedSessionId"], format!("b/{far}"), "{r}");
+    assert_eq!(r["matches"].as_array().unwrap().len(), 1, "{r}");
+
+    // An id no session here or on a peer hashes to.
+    let e = ca.call("_acpmux/resolve", json!({"query": link(unknown)})).await.unwrap_err();
+    assert!(e.contains("no session") && e.contains("peers (b)"), "{e}");
+    let _ = std::fs::remove_file(&key_file);
 }
 
 /// hq#2509 for `_acpmux/resolve`: a peer's connection reads a resolved session's own words
@@ -3488,4 +3966,69 @@ async fn first_no_history_attach_keeps_its_baseline_across_peer_reconnect() {
         !events.iter().any(|event| event.to_string().contains("old history before subscription"))
     );
     peer.stop();
+}
+
+/// A tool's notice to a chat on a peer goes on as it came: B records it as a notice. One beside
+/// a caller's own provenance is refused by A before the forward (which drops that provenance).
+#[tokio::test]
+async fn a_notice_through_a_peer_is_recorded_as_one_and_a_conflicting_one_is_refused_first() {
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "notice").await;
+    let mut cb = client(b.clone()).await;
+    let s = cb.call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "coordinator"}}})).await.unwrap();
+    let remote_id = s["sessionId"].as_str().unwrap().to_owned();
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+    let notice =
+        json!({"sender": "base-red-watch", "severity": "fire", "title": "fast tier failed"});
+    let sent = |id: &str| {
+        json!({"sessionId": "b/coordinator", "prompt": [{"type": "text", "text": "body"}],
+        "_meta": {"acpmux": {"promptId": id, "fromAgent": "base-red-watch", "notice": notice.clone()}}})
+    };
+    ca.call(method::SESSION_PROMPT, sent("n-peer")).await.unwrap();
+
+    let mut both = sent("n-both");
+    both["_meta"]["acpmux"]["provenance"] = json!({"kind": "agent_message", "from": "acp:x",
+        "to": format!("acp:{remote_id}"), "msgId": "m", "threadId": "t"});
+    let refused = ca.call(method::SESSION_PROMPT, both).await.unwrap_err();
+    assert!(format!("{refused:?}").contains("provenance"), "{refused:?}");
+
+    let page = cb
+        .call("_acpmux/events", json!({"sessionId": remote_id, "kinds": ["user_message"]}))
+        .await
+        .unwrap();
+    let messages: Vec<&Value> =
+        page["events"].as_array().unwrap().iter().map(|e| &e["msg"]).collect();
+    let got = messages.iter().find(|m| m["promptId"] == "n-peer").expect("the notice ran on B");
+    let provenance = &got["_meta"]["provenance"];
+    assert_eq!(provenance["kind"], "notice", "{got}");
+    assert_eq!(provenance["fromName"], "base-red-watch", "{got}");
+    assert_eq!(provenance["notice"], notice, "{got}");
+    assert!(
+        messages.iter().all(|m| m["promptId"] != "n-both"),
+        "a refused notice ran: {messages:?}"
+    );
+}
+
+/// A person who shows a chat through a peer daemon (a visible attach forwarded over the link) makes
+/// it one that gets a session recap on the daemon that owns it (`hub/away_recap.rs`); the
+/// `session/new` that made it does not.
+#[tokio::test]
+async fn a_person_viewing_through_a_peer_makes_the_chat_get_a_recap() {
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "recap").await;
+    let mut cb = client(b.clone()).await;
+    let s = cb.call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "recapped"}}})).await.unwrap();
+    let remote_id = s["sessionId"].as_str().unwrap().to_owned();
+    assert!(!b.recap_person_seen(&remote_id), "session/new is no person showing it");
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+    ca.call("_acpmux/attach", json!({"sessionId": "b/recapped", "limit": 0})).await.unwrap();
+    assert!(b.recap_person_seen(&remote_id), "a visible attach through the peer is a person");
 }

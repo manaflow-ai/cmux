@@ -92,3 +92,87 @@ async fn a_move_under_way_is_in_use() {
     session.meta.lock().unwrap().moved_to = Some(json!({}));
     assert_ne!(hub.in_use().await, Some("a move under way"), "a committed move");
 }
+
+/// A Cloud machine's activity counts each session at work (`sessions_at_work`): a running turn
+/// (the harness's own), a queued prompt and an agent request each count it once; with none, it
+/// is not at work.
+#[tokio::test]
+async fn sessions_at_work_counts_a_running_turn_until_it_ends() {
+    let (hub, session) = chat().await;
+    assert_eq!(hub.sessions_at_work(), 0, "a ready chat with nothing going on");
+    session.harness_turn.store(true, Ordering::SeqCst);
+    assert_eq!(hub.sessions_at_work(), 1, "a running turn");
+    session.queued.fetch_add(1, Ordering::SeqCst);
+    assert_eq!(hub.sessions_at_work(), 1, "one session, however much it does");
+    session.harness_turn.store(false, Ordering::SeqCst);
+    assert_eq!(hub.sessions_at_work(), 1, "a queued prompt");
+    session.queued.fetch_sub(1, Ordering::SeqCst);
+    {
+        let _asked = AgentRequest::new(&session);
+        assert_eq!(hub.sessions_at_work(), 1, "an agent request on its way");
+    }
+    assert_eq!(hub.sessions_at_work(), 0, "the turn ended");
+    *session.work_below_since.lock().unwrap() = 1;
+    assert_eq!(hub.sessions_at_work(), 1, "a sub-session or background subagent at work");
+    *session.work_below_since.lock().unwrap() = 0;
+    assert_eq!(hub.sessions_at_work(), 0);
+    hub.shutdown_all().await;
+}
+
+/// cmux#33327: a shell the harness left running in the background after its turn ended (a Claude
+/// background shell) keeps its session at work, so a Cloud machine is not paused under it.
+#[tokio::test]
+async fn sessions_at_work_counts_a_background_process_the_turn_left_running() {
+    let (hub, session) = chat().await;
+    assert_eq!(hub.sessions_at_work(), 0);
+    let shell = |state: &str| json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "own", "update": {"sessionUpdate": "background_task_update", "toolCallId": "bg", "taskId": "bg", "state": state, "command": "serve"}}});
+    let rec = hub.append(&session, "in", "background_task_update", shell("running"));
+    hub.note_process(&session, &rec, None);
+    assert_eq!(hub.sessions_at_work(), 1, "a background shell still running");
+    let rec = hub.append(&session, "in", "background_task_update", shell("completed"));
+    hub.note_process(&session, &rec, None);
+    assert_eq!(hub.sessions_at_work(), 0, "the shell ended");
+    hub.shutdown_all().await;
+}
+
+/// cmux#34298: the activity report's phases read what holds each session at work: its turn,
+/// and the processes it left running.
+#[tokio::test]
+async fn sessions_at_work_detail_says_what_holds_each_session() {
+    let (hub, session) = chat().await;
+    assert!(hub.sessions_at_work_detail().is_empty());
+    session.harness_turn.store(true, Ordering::SeqCst);
+    let detail = hub.sessions_at_work_detail();
+    assert_eq!(detail.len(), 1);
+    assert!(detail[0].turn && !detail[0].person && detail[0].processes == 0);
+    assert_eq!(detail[0].id, session.id);
+    session.harness_turn.store(false, Ordering::SeqCst);
+    let shell = |state: &str| json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "own", "update": {"sessionUpdate": "background_task_update", "toolCallId": "bg", "taskId": "bg", "state": state, "command": "serve"}}});
+    let rec = hub.append(&session, "in", "background_task_update", shell("running"));
+    hub.note_process(&session, &rec, None);
+    let detail = hub.sessions_at_work_detail();
+    assert_eq!(detail.len(), hub.sessions_at_work());
+    assert!(!detail[0].turn && detail[0].processes == 1, "a background shell, no turn");
+    let rec = hub.append(&session, "in", "background_task_update", shell("completed"));
+    hub.note_process(&session, &rec, None);
+    assert!(hub.sessions_at_work_detail().is_empty());
+    hub.shutdown_all().await;
+}
+
+/// cmux#33328: the Cloud activity report waits on the same startup gates as `in_use`.
+#[tokio::test]
+async fn startup_settles_only_once_every_load_is_done() {
+    let (hub, _session) = chat().await;
+    assert!(hub.startup_settled());
+    for (gate, name) in [
+        (&hub.startup_ready, "startup"),
+        (&hub.adoption_ready, "adoption"),
+        (&hub.logs_ready, "the chat logs"),
+        (&hub.store_load.ready, "the store"),
+    ] {
+        gate.send_replace(false);
+        assert!(!hub.startup_settled(), "{name} still loading");
+        gate.send_replace(true);
+    }
+    assert!(hub.startup_settled());
+}

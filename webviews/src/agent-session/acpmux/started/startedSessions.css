@@ -12,18 +12,18 @@
   max-width: 78%;
   margin: 0;
   border: 1px solid color-mix(in srgb, var(--agent-text) 12%, transparent);
-  border-radius: 10px;
+  border-radius: 12px;
   overflow: hidden;
 }
 .acpmux-started-row {
   box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--ds-space-2);
   width: 100%;
   min-width: 0;
   min-height: 34px;
-  padding: 7px 12px 7px 14px;
+  padding: var(--ds-space-2) var(--ds-space-3) var(--ds-space-2) var(--ds-space-2);
   border: 0;
   background: none;
   color: var(--agent-text);
@@ -43,10 +43,13 @@
   outline: 1.5px solid var(--agent-text);
   outline-offset: -2px;
 }
-/* A row's harness mark, else its toned chat icon (StartedSessionCard.tsx), before the title. */
+/* A row's harness mark, else its toned chat icon (StartedSessionCard.tsx), before the title, centred
+   in a 16 box on the row's lead (design/grid.md section 3: lead = highlight + 8, text = lead + 24). */
 .acpmux-started-icon {
   display: inline-flex;
   flex: none;
+  width: var(--grid-icon-box);
+  height: var(--grid-icon-box);
   align-items: center;
   justify-content: center;
 }
@@ -75,7 +78,7 @@
 .acpmux-session-status-line {
   display: flex;
   align-items: flex-start;
-  gap: 6px;
+  gap: var(--ds-space-1);
   min-width: 0;
   overflow: hidden;
   color: var(--acpmux-composer-dim);
@@ -88,22 +91,22 @@
   display: inline-flex;
   flex: none;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-1);
 }
 .acpmux-session-status-pr {
   display: inline-flex;
   flex-wrap: wrap;
   min-width: 0;
-  gap: 0 4px;
+  gap: 0 var(--ds-space-1);
   font-variant-numeric: tabular-nums;
 }
 .acpmux-session-status-pr-other::before {
   content: "·";
-  margin-inline-end: 4px;
+  margin-inline-end: var(--ds-space-1);
 }
 .acpmux-session-status + .acpmux-session-status-pr::before {
   content: "·";
-  margin-inline-end: 2px;
+  margin-inline-end: var(--ds-space-1);
 }
 .acpmux-session-status[data-status="running"] {
   color: var(--agent-accent);
@@ -146,7 +149,7 @@
   margin: 0;
   padding: 1px 5px;
   border: 0;
-  border-radius: 5px;
+  border-radius: 4px;
   background: color-mix(in srgb, var(--cv-text, var(--agent-text)) 9%, transparent);
   color: var(--cv-text, var(--agent-text));
   font: inherit;

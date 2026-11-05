@@ -6,7 +6,7 @@ import QuartzCore
 /// glyph lands on the pixel grid at 1x and 2x (the 10 pt static glyphs' pixel art). Behind the
 /// glyph, a disc of the row's own backdrop color cuts a 1.5 pt ring out of whatever the badge
 /// sits on, like an avatar's presence badge.
-/// - `corner`: one glyph; the disc hugs it (the unread dot uses the sidebar’s shared size).
+/// - `corner`: one glyph; the disc hugs it (a dot is `SidebarStyle.statusDotSize`, whatever its color).
 /// - `plain`: one glyph in the trailing slot of a row without an icon: the bare glyph, no disc and
 ///   no ring (Lawrence 2026-10-18: the spinner and the blue dot had "a weird background circle
 ///   thing"; nothing sits under a trailing glyph, so there is nothing to cut a ring out of).
@@ -30,14 +30,15 @@ final class RowBadgeView: NSView {
     /// 14 pt box centered in its cell, so the marks read at one size on one column. Leo 2026-11-01:
     /// "a bigger red warn symbol", like ChatGPT (the 14 pt box draws the info ring at about 13 pt),
     /// then "and every icon is still fucking small". The cell, its center and the row's spacing
-    /// stay fixed; dots keep their own tokens (the blue unread dot is `SidebarStyle.unreadDotSize`).
-    static let markSide: CGFloat = 14
+    /// stay fixed; every dot, blue or orange, paints `SidebarStyle.statusDotSize` (Lawrence msg 19696).
+    static var markSide: CGFloat { SidebarStyle.statusMarkSide }
+    /// A working or loading spinner draws smaller than the other marks: the row's status glyph size
+    /// (`SidebarStyle.statusGlyphSize`, 10 pt compact, 12 comfortable), the box the shared indicator takes
+    /// on rows without badges, so it never outweighs the 8 pt unread dot or the row's leading icon. Its
+    /// cell stays the same, so nothing moves as work starts or ends. Leo 2026-11-03: "i think the spinners
+    /// are maybe a bit too big".
+    static var spinnerSide: CGFloat { SidebarStyle.statusSpinnerSide }
     static let ringWidth: CGFloat = 1.5
-    /// The unscaled dot artwork (non-unread statuses keep this size).
-    static let dotSide: CGFloat = 6
-    /// The artwork occupies only part of its glyph box. Measure that share once, so fitting
-    /// the unread mark to its token changes neither the shared art nor the row's cell geometry.
-    private static let dotArtShare = StaticStatusGlyph.dot.path(in: CGRect(x: 0, y: 0, width: 1, height: 1)).boundingBoxOfPath.width
 
     /// A dot glyph keeps the 10 pt box its dot tokens are measured in; every other mark takes `markSide`.
     private static func isDot(_ glyph: StatusIndicatorView) -> Bool {
@@ -45,11 +46,9 @@ final class RowBadgeView: NSView {
         return drawn == .mark(.vector(.dot)) || drawn == .dot
     }
 
-    private func unreadFrame(_ frame: CGRect, for glyph: StatusIndicatorView) -> CGRect {
-        guard glyph.state == .success, glyph.indicator.plan.glyph == .mark(.vector(.dot)) else { return frame }
-        let side = SidebarStyle.unreadDotSize / Self.dotArtShare
-        return CGRect(x: frame.midX - side / 2, y: frame.midY - side / 2, width: side, height: side)
-    }
+    /// A working or loading item: the spinner (`spinnerSide`).
+    static func isSpinner(_ state: StatusIndicatorState) -> Bool { state.isWorking || state.isLoading }
+
     /// The room around a glyph in its cell: 2 pt for a corner badge (its 1.5 pt ring and half a
     /// point of air) and a plain glyph (the same cell, so the glyph keeps its place), 4 pt for a
     /// stack chip (2.5 pt of chip, then the ring).
@@ -112,7 +111,7 @@ final class RowBadgeView: NSView {
             let shown = index < states.count
             // A spinner is bare on the row's own background (Leo: "the spinner should NOT have a
             // background"); its cell keeps its size, so nothing moves when the work ends.
-            let bare = shown && (states[index].isWorking || states[index].isLoading)
+            let bare = shown && Self.isSpinner(states[index])
             rings[index].isHidden = !shown || look == .plain || bare
             chips[index].isHidden = !shown || look != .stack || bare
             glyph.configure(shown ? states[index] : .idle)
@@ -135,7 +134,8 @@ final class RowBadgeView: NSView {
         for index in glyphs.indices {
             // Whole points: the cell, so the glyph inside it, sits on the pixel grid.
             let cell = CGRect(x: CGFloat(index) * step, y: ((bounds.height - cellSide) / 2).rounded(), width: cellSide, height: cellSide)
-            let side = Self.isDot(glyphs[index]) ? Self.glyphSide : Self.markSide
+            let side = Self.isDot(glyphs[index]) ? Self.glyphSide
+                : Self.isSpinner(glyphs[index].state) ? Self.spinnerSide : Self.markSide
             let center = CGPoint(x: cell.midX, y: cell.midY)
             let glyph = CGRect(x: center.x - side / 2, y: center.y - side / 2, width: side, height: side)
             // Earlier items stack in front: each cell covers the one after it.
@@ -143,14 +143,15 @@ final class RowBadgeView: NSView {
             if look == .plain {
                 // No disc: the glyph alone.
             } else if look == .corner {
-                let mark = glyphs[index].indicator.plan.glyph == .mark(.vector(.dot))
-                    ? (glyphs[index].state == .success ? SidebarStyle.unreadDotSize : Self.dotSide) : side
+                let mark = Self.isDot(glyphs[index]) ? SidebarStyle.statusDotSize : side
                 disc(rings[index], around: center, side: mark + 2 * ring, z: z - 2)
             } else {
                 disc(rings[index], around: center, side: cellSide, z: z - 2)
                 disc(chips[index], around: center, side: cellSide - 2 * ring, z: z - 1)
             }
-            glyphs[index].frame = unreadFrame(glyph, for: glyphs[index])
+            // Every dot (blue unread, orange needs you) paints the one status dot diameter in its box.
+            glyphs[index].dotDiameter = SidebarStyle.statusDotSize
+            glyphs[index].frame = glyph
             glyphs[index].layer?.zPosition = z
         }
     }

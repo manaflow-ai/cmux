@@ -61,15 +61,20 @@ extension AgentPaneView {
         let workspaces: [AgentPaneOmnibar.Workspace]
     }
 
-    /// The Commands palette's actions for the bar arrived (they are listed on the frame after the page
+    /// The Commands palette's actions for the bar arrived (``AgentPaneNewTabActions`` lists them after the page
     /// shows, so Cmd-T does not wait for them): the page takes them in place, in the same
-    /// `acpmux-newtab-places` event, with no remount, so what is typed stays.
-    public func refreshNewTabActions(_ actions: [AgentPaneOmnibar.Action]) {
-        guard model.sessionId == nil, var page = model.newTab, page.omnibar.actions != actions else { return }
-        page.omnibar.actions = actions
+    /// `acpmux-newtab-places` event, with no remount, so what is typed stays. The actions' JSON comes encoded
+    /// (off the main thread, once for every page); only the page's own tabs and workspaces are encoded here.
+    public func refreshNewTabActions(_ listed: AgentPaneNewTabActions.Listed) {
+        guard model.sessionId == nil, var page = model.newTab, page.omnibar.actions != listed.actions else { return }
+        page.omnibar.actions = listed.actions
         model.adoptNewTab(page)
-        guard let data = try? JSONEncoder().encode(page.omnibar), let json = String(data: data, encoding: .utf8) else { return }
-        evaluateScript("window.dispatchEvent(new CustomEvent('acpmux-newtab-places', {detail: \(json)}))")
+        let encoder = JSONEncoder()
+        guard let tabs = try? encoder.encode(page.omnibar.tabs), let workspaces = try? encoder.encode(page.omnibar.workspaces),
+              let tabsJSON = String(data: tabs, encoding: .utf8), let workspacesJSON = String(data: workspaces, encoding: .utf8) else { return }
+        // The page's places handler sets the bar's tabs and workspaces from each event: they go with the actions.
+        let detail = "{\"tabs\":\(tabsJSON),\"workspaces\":\(workspacesJSON),\"actions\":\(listed.json)}"
+        evaluateScript("window.dispatchEvent(new CustomEvent('acpmux-newtab-places', {detail: \(detail)}))")
     }
 
     /// The weather widget's reading arrived or changed while this page shows (``AgentPaneNewTab/weather``):

@@ -1137,6 +1137,109 @@
       }
     },
     {
+      "name": "row_scrolled_out_bottom",
+      "rule": "a pane scrolled out below (row scroll inside a column) pulses at the bottom edge",
+      "target": "tab-a",
+      "snapshot": {
+        "tab": {
+          "workspace": "ws1",
+          "pane": "p1"
+        },
+        "windows": [
+          {
+            "id": "w1",
+            "screen": "Built-in Display",
+            "minimized": false,
+            "onActiveSpace": true,
+            "overlay": {
+              "x": 0,
+              "y": 0,
+              "w": 1000,
+              "h": 700
+            },
+            "shownWorkspace": "ws1",
+            "listedWorkspaces": [
+              "ws1",
+              "ws2"
+            ],
+            "sidebarHidden": false,
+            "sidebarRows": {
+              "ws1": {
+                "x": -240,
+                "y": 80,
+                "w": 220,
+                "h": 28
+              },
+              "ws2": {
+                "x": -240,
+                "y": 112,
+                "w": 220,
+                "h": 28
+              }
+            },
+            "panes": [
+              {
+                "id": "p1",
+                "frame": {
+                  "x": 0,
+                  "y": 800,
+                  "w": 500,
+                  "h": 700
+                },
+                "clip": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 1000,
+                  "h": 700
+                },
+                "selectedTab": "tab-a",
+                "strip": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 500,
+                  "h": 36
+                },
+                "chips": {
+                  "tab-a": {
+                    "x": 8,
+                    "y": 4,
+                    "w": 110,
+                    "h": 28
+                  },
+                  "tab-b": {
+                    "x": 120,
+                    "y": 4,
+                    "w": 110,
+                    "h": 28
+                  }
+                },
+                "page": {
+                  "viewport": {
+                    "x": 0,
+                    "y": 872,
+                    "w": 500,
+                    "h": 628
+                  },
+                  "zoom": 1
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "expect": {
+        "kind": "hidden",
+        "window": "w1",
+        "anchor": "columnEdge.bottom",
+        "rect": {
+          "x": 0,
+          "y": 696,
+          "w": 500,
+          "h": 4
+        }
+      }
+    },
+    {
       "name": "background_tab_in_partial_column_chip_is_clipped",
       "rule": "a background tab's chip in a partially visible column is cut to the shown part",
       "target": "tab-a",

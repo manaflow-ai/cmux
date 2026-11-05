@@ -82,7 +82,7 @@
   vertical-align: -1.5px;
 }
 /* A pull request chip's mark in its state's colour, as the hover card's glyph (linkCard.css):
-   open green, merged purple, closed red; a draft or an unread one keeps the link's. */
+   open green, merged purple, closed red, draft grey; an unread one keeps the link's. */
 .cv-chip.is-ref[data-pr-state="open"] .cv-chip__icon--gh {
   color: var(--agent-status-success);
 }
@@ -91,6 +91,9 @@
 }
 .cv-chip.is-ref[data-pr-state="closed"] .cv-chip__icon--gh {
   color: var(--agent-status-failure);
+}
+.cv-chip.is-ref[data-pr-state="draft"] .cv-chip__icon--gh {
+  color: var(--agent-muted);
 }
 .cv-chip:focus-visible {
   outline: 1px solid var(--cv-link);
@@ -116,7 +119,7 @@
 .cv-image-placeholder {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   max-width: 100%;
   padding: 6px 10px;
   border: 1px solid color-mix(in srgb, var(--cv-fg) 14%, transparent);
@@ -148,7 +151,7 @@
 .cv-image-file {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   max-width: 100%;
   padding: 6px 10px;
   border: 1px solid color-mix(in srgb, var(--cv-fg) 14%, transparent);
@@ -210,7 +213,7 @@
   display: block;
   max-width: min(100%, 480px);
   max-height: 320px;
-  border-radius: 8px;
+  border-radius: var(--cv-media-radius, 8px);
   background: #000;
 }
 .cv-media.is-video:not(:has(video)) {
@@ -219,7 +222,7 @@
   align-items: center;
   justify-content: center;
   padding: 8px 12px;
-  border-radius: 8px;
+  border-radius: var(--cv-media-radius, 8px);
   background: var(--cv-card-fill);
   box-shadow: inset 0 0 0 1px var(--cv-card-ring);
 }
@@ -245,7 +248,7 @@
   place-items: center;
   padding: 0;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--cv-media-radius, 8px);
   background: transparent;
   cursor: default;
 }

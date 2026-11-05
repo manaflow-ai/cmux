@@ -133,7 +133,8 @@ await requireBrowserLane("transcript-row-pitch-browser.test.ts", async () => {
           (shown) => (window as unknown as { __showRawRows(rows: unknown): void }).__showRawRows(shown),
           rows,
         );
-        await page.locator(".cv-pending__line").waitFor();
+        // One waiting message draws as its own received line, with no group head (PendingMessagesCard.tsx).
+        await page.locator(".cv-pending .cv-disclosure__line, .cv-pending__line").first().waitFor();
         await page.evaluate(() => document.fonts.ready);
         // Two frames for the transcript to place rows by their drawn heights.
         await page.evaluate(

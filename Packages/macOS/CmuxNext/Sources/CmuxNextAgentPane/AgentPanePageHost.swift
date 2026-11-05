@@ -6,14 +6,18 @@ import CmuxNextPages
 enum AgentPanePageHost {
     /// The page view for the bundled page in `root` (`testRoot`: a test's fixture), nil when the page host refuses that root.
     static func makePage(root: URL, testRoot: Bool = false, provider: AgentPageProvider, renderRate: AgentPaneRenderRate,
-                         chromium: (any PageChromiumHosting)?) -> PageWebView? {
+                         chromium: (any PageChromiumHosting)?, panelProvider: (any PageProvider)? = nil) -> PageWebView? {
         // The agent page's files live in this module's bundle, not the page host's.
         PageID.registerBundledRoot(root, for: PageDescriptor.agent.id)
+        var routes = [PageRoute(prefix: AgentPageOps.namespace, provider: provider)]
+        if let panelProvider { routes.append(PageRoute(prefix: AppsPanelsPageProvider.namespace, provider: panelProvider)) }
         let page = PageWebView(descriptor: .agent, root: root, testRoot: testRoot,
-                               routes: [PageRoute(prefix: AgentPageOps.namespace, provider: provider)],
+                               routes: routes,
                                documentAttributes: AgentPaneTunables.documentAttributes,
                                options: PageEngineOptions(fullFrameRate: renderRate != .capped,
                                                                   chromiumAgentChat: AgentPaneTunables.chromium.value),
+                               // Granted video and audio, in byte ranges (`__media/`).
+                               dynamicResources: AgentPageMediaResource.shared,
                                chromium: chromium)
         // The composer menu's edits run as the page view's own responder actions.
         provider.onEdit = { [weak page] command in page?.performEdit(command.selector) }

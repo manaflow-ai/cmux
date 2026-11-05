@@ -7,6 +7,7 @@ import type { EventRecord } from "./direct";
 import { useT, type Translate, translate } from "./i18n";
 import type { AcpmuxSnapshot } from "./model";
 import { acpWire, type AcpWireLog, type WireEntry } from "./wire";
+import { SlidingIndicator } from "../../ui/motion/SlidingIndicator";
 import "./Inspector.css";
 
 /** Rows rendered per view; the newest are kept. */
@@ -216,10 +217,12 @@ export function Inspector({
           ‹
         </button>
         <strong>{t("inspector.title")}</strong>
-        <div className="acpmux-diff-tools acpmux-inspector-views" aria-label={t("inspector.view")}>
+        <div className="acpmux-diff-tools acpmux-inspector-views ui-slide-host" aria-label={t("inspector.view")}>
+          {/* The pressed plate travels between Wire and Session (ui/motion, transform only). */}
+          <SlidingIndicator selected={view} look="plate" />
           <button
             type="button"
-            className="acpmux-diff-tool"
+            className="acpmux-diff-tool ui-slide-item"
             aria-pressed={view === "wire"}
             onClick={() => setView("wire")}
           >
@@ -227,7 +230,7 @@ export function Inspector({
           </button>
           <button
             type="button"
-            className="acpmux-diff-tool"
+            className="acpmux-diff-tool ui-slide-item"
             aria-pressed={view === "session"}
             onClick={() => setView("session")}
           >

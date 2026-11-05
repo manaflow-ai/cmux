@@ -4,6 +4,281 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_errors! {
+    /// The error codes team_vm.ssh_cert declares.
+    TeamVmSshCertError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        TeamVmSshCaNotConfigured = "team_vm.ssh_ca_not_configured",
+        TeamVmSshClassRefused = "team_vm.ssh_class_refused",
+        TeamVmSshKeyInvalid = "team_vm.ssh_key_invalid",
+        TeamVmSshPresenceRefused = "team_vm.ssh_presence_refused",
+        TeamVmSshPresenceRequired = "team_vm.ssh_presence_required",
+        TeamVmSshRateLimited = "team_vm.ssh_rate_limited",
+        TeamVmTainted = "team_vm.tainted",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Start a full-shell SSH certificate request: returns a single-use presence challenge for one of your devices. Approve it there (Face ID, Touch ID or passcode), then call team_vm.ssh_cert with class human, the proof and the same request key.
+    TeamVmSshCertChallengeOp {
+        name: "team_vm.ssh_cert.challenge",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "execute",
+        principals: [Session],
+        params: TeamVmSshCertChallengeParams,
+        result: TeamVmSshCertChallengeResult,
+        error: TeamVmSshCertChallengeError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmSshCertChallengeParams {
+    pub public_key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validity_minutes: Option<i64>,
+    pub presence_install: InstallId,
+    pub request: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmSshCertChallengeResult {
+    pub sign: Value,
+    pub message: String,
+    pub expires_at: i64,
+}
+
+wire_errors! {
+    /// The error codes team_vm.ssh_cert.challenge declares.
+    TeamVmSshCertChallengeError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        TeamVmSshCaNotConfigured = "team_vm.ssh_ca_not_configured",
+        TeamVmSshClassRefused = "team_vm.ssh_class_refused",
+        TeamVmSshKeyInvalid = "team_vm.ssh_key_invalid",
+        TeamVmSshPresenceRefused = "team_vm.ssh_presence_refused",
+        TeamVmSshRateLimited = "team_vm.ssh_rate_limited",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Revoke unexpired team VM SSH certificates by serial, user or install; the revocation list (KRL) lists them at once. Members revoke their own certificates; owners and admins revoke anyone's.
+    TeamVmSshCertRevokeOp {
+        name: "team_vm.ssh_cert.revoke",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: TeamVmSshCertRevokeParams,
+        result: TeamVmSshCertRevokeResult,
+        error: TeamVmSshCertRevokeError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmSshCertRevokeParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub serial: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<UserId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub install: Option<InstallId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmSshCertRevokeResult {
+    pub revoked: Vec<i64>,
+    pub krl_version: i64,
+}
+
+wire_errors! {
+    /// The error codes team_vm.ssh_cert.revoke declares.
+    TeamVmSshCertRevokeError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        TeamVmSshCaNotConfigured = "team_vm.ssh_ca_not_configured",
+        TeamVmSshRevocationsFull = "team_vm.ssh_revocations_full",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Show the team VM: its state, epoch and active wake leases.
+    TeamVmStatusOp {
+        name: "team_vm.status",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:TeamVmDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: TeamVmStatusParams,
+        result: TeamVmView,
+        error: TeamVmStatusError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmStatusParams {}
+
+wire_errors! {
+    /// The error codes team_vm.status declares.
+    TeamVmStatusError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// Accept the risk of a team VM tainted by a member removal and keep using it: members get certificates again and the VM's install may bind. Owners and admins only, in a person's session; names the tainted epoch; audited.
+    TeamVmTaintAcceptOp {
+        name: "team_vm.taint.accept",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "destructive",
+        principals: [Session],
+        params: TeamVmTaintAcceptParams,
+        result: TeamVmTaintAcceptResult,
+        error: TeamVmTaintAcceptError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmTaintAcceptParams {
+    pub epoch: i64,
+    pub users: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmTaintAcceptResult {
+    pub epoch: i64,
+    pub accepted_by: String,
+    pub accepted_at: i64,
+}
+
+wire_errors! {
+    /// The error codes team_vm.taint.accept declares.
+    TeamVmTaintAcceptError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        TeamVmInUse = "team_vm.in_use",
+        TeamVmNotConfigured = "team_vm.not_configured",
+        TeamVmNotInLedger = "team_vm.not_in_ledger",
+        TeamVmNotTainted = "team_vm.not_tainted",
+        TeamVmPlanGateMissing = "team_vm.plan_gate_missing",
+        TeamVmRetiredFull = "team_vm.retired_full",
+        TeamVmStaleEpoch = "team_vm.stale_epoch",
+        TeamVmStaleTaint = "team_vm.stale_taint",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Set the title, status (open or resolved) or owner of the thread of a top-level message; any participant, a chief too. An empty title or owner clears it; the owner is a current participant. A new reply reopens a resolved thread.
+    ThreadUpdateOp {
+        name: "thread.update",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: ThreadUpdateParams,
+        result: HomeConversationCommit,
+        error: ThreadUpdateError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ThreadUpdateParams {
+    pub conversation: ConversationId,
+    pub root: MessageId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<HomeThreadStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
+}
+
+wire_errors! {
+    /// The error codes thread.update declares.
+    ThreadUpdateError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        InvalidThreadOwner = "invalid_thread_owner",
+        InvalidThreadRoot = "invalid_thread_root",
+        InvalidThreadUpdate = "invalid_thread_update",
+        InvalidTitle = "invalid_title",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
+        UnknownMessage = "unknown_message",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Rename a group conversation (not a dm or chief thread).
+    TitleSetOp {
+        name: "title.set",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: TitleSetParams,
+        result: HomeConversationCommit,
+        error: TitleSetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TitleSetParams {
+    pub conversation: ConversationId,
+    pub title: String,
+}
+
+wire_errors! {
+    /// The error codes title.set declares.
+    TitleSetError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        InvalidTitle = "invalid_title",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
 wire_op! {
     /// Attach an owned WireGuard tunnel to an owned private network.
     TunnelAttachOp {

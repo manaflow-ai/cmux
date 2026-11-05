@@ -3,6 +3,7 @@
 // file with its problems (Advanced). Data comes from the host lists; writes run host ops or
 // catalog actions, the palette's paths.
 import { useEffect, useId, useRef, useState } from "react";
+import { Button } from "../../../ui/Button";
 import { useSettingsState, useStore } from "../context";
 import { settingsFileName } from "../format";
 import { rowsByKey } from "../schema";
@@ -375,9 +376,9 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
                   {t("settingsWindow.backdropPicker.usage", formatBytes(usage.bytes, locale()))}
                 </span>
               )}
-              <button type="button" className="button" onClick={() => store.revealBackdropImage()}>
+              <Button type="button" className="button" onClick={() => store.revealBackdropImage()}>
                 {t("settingsWindow.showInFinder")}
-              </button>
+              </Button>
             </div>
           )}
           <div className="backdrop-grid">
@@ -391,7 +392,10 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
                     pending: choice.downloaded === false,
                   })}
                   {/* The background in use stays: removing it would leave the window blank. */}
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon
                     type="button"
                     className="icon-button backdrop-remove"
                     aria-label={t("settingsWindow.backdropPicker.remove", choice.title)}
@@ -405,7 +409,7 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
                     }
                   >
                     ×
-                  </button>
+                  </Button>
                 </div>
               ) : (
                 tile(choice.id, choice.title, choice.attribution, {
@@ -450,9 +454,9 @@ export function AdvancedInfo() {
           <div className="rows">
             <ActionRow title={t("settingsWindow.settingsFile")} help="">
               <span className="row-help selectable">{host.settings_file}</span>
-              <button type="button" className="button" onClick={() => store.revealSettingsFile()}>
+              <Button type="button" className="button" onClick={() => store.revealSettingsFile()}>
                 {t("settingsWindow.showInFinder")}
-              </button>
+              </Button>
             </ActionRow>
           </div>
         </section>

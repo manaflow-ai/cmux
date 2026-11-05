@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR cc21760f2943f674c9ddfc3acf0b238c0388afbe9a4e3245bc24d9aa17a2208c. */
+/* cmux-tui mux protocol 12, IR 4633d08bededb0f16f8bbc5de5cbbeb5f06e9d44a544162fa5efc76c6e47e3f7. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "cc21760f2943f674c9ddfc3acf0b238c0388afbe9a4e3245bc24d9aa17a2208c" as const;
+export const SDK_IR_SHA256 = "4633d08bededb0f16f8bbc5de5cbbeb5f06e9d44a544162fa5efc76c6e47e3f7" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -341,6 +341,18 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "The owner's trusted connection only: a registered Unix client with no link peer record acting as the local user (a local client, or the link's owner_session splice). Link-stamped, relayed, WebSocket, unregistered and agent-bound connections are refused with origin.forbidden before anything is forwarded; the remote relay never admits it. Reads: one of nine /api read paths, GET; the owner's memory changes (/api/memory/edit, /api/memory/delete, /api/memory/undo): POST, which the brain refuses to the Chief's own sessions; the reserved query key chief names a non-default Chief's brain. Forwarded as one line to the brain host's tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET); answers above 5 MiB are refused. Every daemon advertises chief-inspect-v1; one without that socket answers the owner chief.not_configured. See spec/commands.md."
+    ]
+  },
+  "chief-work": {
+    "authority": "frontend",
+    "since": 12,
+    "capability": "chief-work-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Read-only inventory on the configured Chief machine. Only the local owner and the same authenticated owner Channels page admitted by chief-profile-ws-v1 may read it; paired devices, other pages, remote, peer and bound-agent connections are refused with origin.forbidden.",
+      "chief names an existing Chief record; the server resolves its configured brain home and acpmux ownership tags. Peer sessions and other Chiefs are excluded. Tasks cover the harness process registry only (taskSources: [harness]); daemon-owned bg tasks keep their separate person-proof gate.",
+      "One on-demand snapshot, no subscription or polling. Reads share a 15-second deadline, at most 200 owned sessions and 500 commands; truncated reports bounds. Failed or malformed reads reject with chief.work_unavailable instead of returning empty or partial success. A machine without this Chief home returns chief.work_not_configured; an unknown Chief returns chief.work_not_found. See spec/commands.md."
     ]
   },
   "clear-history": {
@@ -1832,6 +1844,10 @@ export const COMMAND_METADATA = {
         "since": 12,
         "capability": "tab-split-keep-focus-v1"
       },
+      "pane_id": {
+        "since": 12,
+        "capability": "tab-column-client-pane-v1"
+      },
       "respawn": {
         "since": 12,
         "capability": "tab-column-respawn-v1"
@@ -1995,7 +2011,12 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "frontend-browser-tabs-v1",
-    "fields": {},
+    "fields": {
+      "split": {
+        "since": null,
+        "capability": "frontend-browser-tab-split-v1"
+      }
+    },
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
@@ -2395,6 +2416,50 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": []
+  },
+  "remote-host-app": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "remote-host-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
+      "The verified app connection only; the secret admits only that app process and is never logged or journaled."
+    ]
+  },
+  "remote-host-call": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "remote-host-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
+      "Any local Unix connection may read, refresh, request a grant, restart a worker and lower access; turning sharing on or raising a device's access is the verified app's only (origin.forbidden otherwise)."
+    ]
+  },
+  "remote-host-config": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "remote-host-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
+      "The verified app connection only; the daemon saves the switches and starts or stops the host."
+    ]
+  },
+  "remote-host-status": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "remote-host-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
+      "Never starts the host. The device list under host.screen.devices is the verified app's only."
+    ]
   },
   "remote-terminal-snapshot": {
     "authority": "control",
@@ -2867,6 +2932,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Writes mobile.terminalSizing and mobile.terminalSizingOrder in the host's settings file, then applies them."
+    ]
+  },
+  "set-layout-sizes": {
+    "authority": "control",
+    "since": 12,
+    "capability": "layout-sizes-batch-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "All values are on one screen; a refused value refuses them all, and nothing changes."
     ]
   },
   "set-personal-terminal": {
@@ -4151,6 +4226,14 @@ export const EVENT_METADATA = {
     ],
     "emission": "emitted"
   },
+  "selection-changed": {
+    "since": 12,
+    "capability": "tree-selection-deltas-v1",
+    "streams": [
+      "subscribe-deltas"
+    ],
+    "emission": "emitted"
+  },
   "settings-changed": {
     "since": 12,
     "capability": "settings-v1",
@@ -4348,6 +4431,14 @@ export const EVENT_METADATA = {
   "workspace-moved": {
     "since": 7,
     "capability": null,
+    "streams": [
+      "subscribe-deltas"
+    ],
+    "emission": "emitted"
+  },
+  "workspace-presentation-changed": {
+    "since": 12,
+    "capability": "tree-selection-deltas-v1",
     "streams": [
       "subscribe-deltas"
     ],
@@ -5187,6 +5278,141 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint16"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ChiefWorkAgent": {
+    "additional_properties": false,
+    "fields": {
+      "id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "name": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "startedAt": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "state": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "enum",
+          "values": [
+            "working",
+            "waiting",
+            "idle",
+            "failed"
+          ]
+        }
+      },
+      "task": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "updatedAt": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ChiefWorkTask": {
+    "additional_properties": false,
+    "fields": {
+      "command": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "detail": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "endedAt": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "sessionId": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "startedAt": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "status": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "enum",
+          "values": [
+            "running",
+            "done",
+            "failed",
+            "cancelled",
+            "unknown"
+          ]
+        }
+      },
+      "title": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },
@@ -7964,6 +8190,75 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       }
     }
   },
+  "LayoutSizePaneWidth": {
+    "additional_properties": false,
+    "fields": {
+      "pane": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "width": {
+        "constraints": [
+          {
+            "maximum": 1.0,
+            "minimum": 0.1
+          }
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "float32"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "LayoutSizeSplitRatio": {
+    "additional_properties": false,
+    "fields": {
+      "ratio": {
+        "constraints": [
+          {
+            "clamped_maximum": 0.95,
+            "clamped_minimum": 0.05
+          }
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "float32"
+        }
+      },
+      "split": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "LayoutSizeValue": {
+    "kind": "untagged_union",
+    "variants": [
+      {
+        "kind": "ref",
+        "name": "LayoutSizeSplitRatio"
+      },
+      {
+        "kind": "ref",
+        "name": "LayoutSizePaneWidth"
+      }
+    ]
+  },
   "LayoutUndoConfirmationRequired": {
     "additional_properties": false,
     "fields": {
@@ -8962,6 +9257,36 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "SizeState"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "RemoteHostAppResult": {
+    "additional_properties": false,
+    "fields": {
+      "host_pid": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "secret": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "socket": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },
@@ -10087,6 +10412,77 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "SelectionPane": {
+    "additional_properties": false,
+    "fields": {
+      "active_tab": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "focused_at": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "SelectionScreen": {
+    "additional_properties": false,
+    "fields": {
+      "active": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "active_pane": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "panes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "SelectionPane"
+          },
+          "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "SendExpectAgent": {
     "additional_properties": false,
     "fields": {
@@ -10950,7 +11346,8 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     "additional_properties": false,
     "constraints": [
       "Counters accumulate since daemon start.",
-      "writer_registry_locks counts process-wide and is zero unless the journal writer took the workspace registry lock, a lock-order defect."
+      "writer_registry_locks counts process-wide and is zero unless the journal writer took the workspace registry lock, a lock-order defect.",
+      "wal_commits counts registry commits written to the WAL and wal_synced_commits those the WAL syncer flushed to disk; registry_wal_frame_bytes counts the bytes of the WAL frames those commits appended (a 24-byte header and one page each). Each is absent from daemons older than its field."
     ],
     "fields": {
       "effect_intent_batches": {
@@ -10977,9 +11374,33 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "uint64"
         }
       },
+      "registry_wal_frame_bytes": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
       "request_effect_commits": {
         "nullable": false,
         "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "wal_commits": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "wal_synced_commits": {
+        "nullable": false,
+        "presence": "optional",
         "type": {
           "kind": "scalar",
           "name": "uint64"
@@ -15016,6 +15437,69 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "chief-work": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "chief": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "agents": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "ChiefWorkAgent"
+            },
+            "kind": "array"
+          }
+        },
+        "taskSources": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        },
+        "tasks": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "ChiefWorkTask"
+            },
+            "kind": "array"
+          }
+        },
+        "truncated": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
           }
         }
       },
@@ -21368,6 +21852,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "Id"
           }
         },
+        "pane_id": {
+          "capability": "tab-column-client-pane-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
         "respawn": {
           "capability": "tab-column-respawn-v1",
           "default": null,
@@ -22204,6 +22699,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint16"
+          }
+        },
+        "split": {
+          "capability": "frontend-browser-tab-split-v1",
+          "default": null,
+          "description": "With pane: the tab goes in a new pane on that side of pane, in one pane.split commit whose one pane-added delta holds the pane with the tab; pane never lists it. Refused with after.",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "ConversationTabSplit"
           }
         },
         "title": {
@@ -23906,6 +24412,92 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         }
       },
       "kind": "object"
+    }
+  },
+  "remote-host-app": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "RemoteHostAppResult"
+    }
+  },
+  "remote-host-call": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "method": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "params": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "remote-host-config": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "computer_use": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "headless": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "screen_sharing": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "remote-host-status": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
     }
   },
   "remote-terminal-snapshot": {
@@ -25631,6 +26223,39 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "SetHostSizePolicyResult"
+    }
+  },
+  "set-layout-sizes": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "transaction": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "values": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "LayoutSizeValue"
+            },
+            "kind": "array",
+            "max_items": 64,
+            "min_items": 1
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "EmptyResult"
     }
   },
   "set-personal-terminal": {
@@ -31049,6 +31674,55 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "selection-changed": {
+    "additional_properties": false,
+    "fields": {
+      "active": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "active_workspace": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "selection-changed"
+        }
+      },
+      "screens": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "SelectionScreen"
+          },
+          "kind": "array"
+        }
+      },
+      "workspace": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "settings-changed": {
     "additional_properties": false,
     "fields": {
@@ -32252,6 +32926,36 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "workspace-presentation-changed": {
+    "additional_properties": false,
+    "fields": {
+      "entity": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Workspace"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "workspace-presentation-changed"
+        }
+      },
+      "workspace": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
         }
       }
     },

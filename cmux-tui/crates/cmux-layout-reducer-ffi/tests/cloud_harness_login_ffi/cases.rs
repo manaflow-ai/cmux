@@ -109,6 +109,40 @@ fn the_one_call_reads_the_harness_and_the_probes() {
     assert_eq!(pi["provider"], Value::Null);
 }
 
+/// A Release start: the remote switch and the person's consent ride the same one call.
+#[test]
+fn a_release_start_reads_the_switch_and_the_consent() {
+    let start = json!({"dogfood": false, "remoteSwitch": true, "harness": "", "signedIn": true,
+                       "callerOwns": true, "guestStdout": "vm-kind:owner\n",
+                       "machineProbe": {"exitCode": 0, "stdout": "none\n"}, "cached": true});
+    let (code, body) = call(c"cloud_harness_login", &start);
+    assert_eq!(code, OK);
+    assert_eq!(
+        (body["step"].as_str(), body["reason"].as_str()),
+        (Some("ask-consent"), Some("consent-first"))
+    );
+    let mut given = start.clone();
+    given["consent"] = json!(true);
+    assert_eq!(call(c"cloud_harness_login", &given).1["step"], "install");
+    let mut off = given.clone();
+    off["remoteSwitch"] = json!(false);
+    let (_, body) = call(c"cloud_harness_login", &off);
+    assert_eq!(
+        (body["step"].as_str(), body["reason"].as_str()),
+        (Some("skip"), Some("remote-switch-off"))
+    );
+    // Sent pre-resolved (no `dogfood`), the switch still holds it.
+    let (_, body) = call(
+        c"cloud_harness_login",
+        &json!({"release": true, "gate": true, "provider": "claude", "signedIn": true, "callerOwns": true,
+                "guestKind": "owner", "machineLogin": "none", "cached": true, "consent": true}),
+    );
+    assert_eq!(body["reason"], "remote-switch-off");
+    let mut team = given;
+    team["guestStdout"] = json!("vm-kind:team\n");
+    assert_eq!(call(c"cloud_harness_login", &team).1["reason"], "guest-not-owner");
+}
+
 #[test]
 fn the_start_checks_answer() {
     assert_eq!(

@@ -82,6 +82,11 @@ final class ClassicUpgradeSimulator {
         var firstWindow: Duration = .zero
         /// The migration run itself, after restore.
         var migration: Duration = .zero
+        /// Whole-tree reads (`list-workspaces`) the app sent during the run besides its store's snapshots; nil
+        /// without a ``DaemonCommandTap``.
+        var treeReads: Int?
+        /// The store's snapshots (a full resync each) during the run; nil without a ``DaemonCommandTap``.
+        var snapshots: Int?
     }
 
     /// One workspace as cmux-next has it.
@@ -97,6 +102,7 @@ final class ClassicUpgradeSimulator {
     let mac: Mac
     let services: AppServices
     private let launcher: DaemonLauncher
+    let tap: DaemonCommandTap?
     /// Seconds since the migration started at which each workspace name first showed (``watch()``).
     private(set) var appeared: [String: Double] = [:]
     /// Seconds since the migration started at which each classic key first showed in the ledger
@@ -113,9 +119,11 @@ final class ClassicUpgradeSimulator {
     /// - Parameters:
     ///   - ssh: the daemon for an SSH destination (default: none connects).
     ///   - documentRemote: wraps the home daemon's sidebar document remote (a test holds its replies).
+    ///   - tap: relays the app's daemon connection and counts its commands (``Launch/treeReads``).
     init(mac: Mac, ssh: (@MainActor (String) throws -> DaemonService)? = nil,
-         documentRemote: (@MainActor (any SidebarDocRemote) -> any SidebarDocRemote)? = nil) throws {
+         documentRemote: (@MainActor (any SidebarDocRemote) -> any SidebarDocRemote)? = nil, tap: DaemonCommandTap? = nil) throws {
         self.mac = mac
+        self.tap = tap
         let binary = try #require(SameTreeDaemonBinary.url)
         launcher = DaemonLauncher(
             configuration: .init(binary: binary, session: "cn-upgrade-\(UUID().uuidString.prefix(8).lowercased())",
@@ -152,14 +160,14 @@ final class ClassicUpgradeSimulator {
     func launch(deadline budget: Duration = .seconds(150)) async -> Launch {
         let clock = ContinuousClock()
         let start = clock.now
-        let launcher = self.launcher
+        let endpoints = tap?.relaying(launcher.endpointProvider) ?? launcher.endpointProvider
         // As the app connects (`DaemonService.localConfiguration`): `session.events` brings the sidebar document's
         // changes (the echo of each adopt and move) and the personal rows, and the document path echoes
         // `placement-shift-v1`. Without them the document never confirms a placement (#28425).
         var configuration = DaemonConnection.Configuration(terminalEnvironment: nil, sessionEvents: true)
         configuration.echoesPlacementShift = SidebarMirror.isLinked
         services.daemon.start { [configuration] in
-            DaemonConnection(configuration: configuration, endpointProvider: launcher.endpointProvider)
+            DaemonConnection(configuration: configuration, endpointProvider: endpoints)
         }
         services.windows.restoreWhenLoaded()
         var result = Launch()
@@ -174,6 +182,7 @@ final class ClassicUpgradeSimulator {
             return result
         }
         let migrating = clock.now
+        let readsBefore = tap?.count("list-workspaces"), snapshotsBefore = tap?.count(DaemonCommandTap.snapshotRead)
         launchMade = Set(made().keys)
         migrationStart = migrating
         watch(from: migrating)
@@ -200,6 +209,10 @@ final class ClassicUpgradeSimulator {
             result.failure = SimulationFailure.overBudget(made: made().count)
         }
         result.migration = clock.now - migrating
+        if let tap, let readsBefore, let snapshotsBefore {
+            result.treeReads = tap.count("list-workspaces") - readsBefore
+            result.snapshots = tap.count(DaemonCommandTap.snapshotRead) - snapshotsBefore
+        }
         watcher?.cancel()
         // The run's last turns (the SSH workspaces, after their connect limit) can end it within one sampling tick.
         sample(from: migrating)
@@ -265,6 +278,7 @@ final class ClassicUpgradeSimulator {
             await connection.close()
             _ = try? await connection.shutdownDaemon(endTerminals: true)
         }
+        tap?.close()
     }
 
     /// Each classic workspace's turn: the time from its key's first entry in the ledger to the

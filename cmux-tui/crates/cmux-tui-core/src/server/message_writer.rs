@@ -99,6 +99,10 @@ pub(super) trait MessageSink: Send + Sync {
     fn close_after_control(&self) {
         self.close();
     }
+    /// How many lines this connection wrote so far, in socket order, when the sink counts them.
+    fn lines_written(&self) -> Option<u64> {
+        None
+    }
 }
 
 /// Transport-independent writer shared by command responses and event streams.
@@ -320,6 +324,12 @@ impl MessageWriter {
 
     pub(super) fn is_open(&self) -> bool {
         self.open.load(Ordering::Acquire) && self.sink.is_open()
+    }
+
+    /// The lines this connection wrote so far, in socket order (``MessageSink::lines_written``).
+    /// Read before a command reads state, it is the read barrier the reply names (#32408).
+    pub(super) fn lines_written(&self) -> Option<u64> {
+        self.sink.lines_written()
     }
 
     pub(super) fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {

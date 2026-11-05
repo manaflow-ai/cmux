@@ -1,0 +1,302 @@
+/* CONTROLS: Button, Switch, Input and Tabs (ui/Button.tsx, Switch.tsx, Input.tsx, Tabs.tsx). shadcn's
+   Base UI shapes, drawn only with the design scale (schemas/design-scale, pages/shared/desktop.css):
+   heights on the control scale, radii, the colour roles the host derives from the terminal theme, the
+   quick motion step. Rules every control keeps:
+   - A hover or press fill covers the control itself, never the row around it.
+   - A control that opened a menu, popover or select stays lit while it is open (`data-popup-open`).
+   - Press changes the fill only: no shrink, no opacity dip, no flash.
+   - Fills ease on the quick step; Reduce Motion makes every change instant. Nothing here loops. */
+
+:where(.ui-btn, .ui-switch, .ui-input, .ui-tabs) {
+  font-family: var(--font-ui);
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* BUTTON. The base rules carry `.ui-button` too, so they outrank ui.css's later `.ui-button` reset
+   (`font: inherit`, `color: inherit`). */
+.ui-button.ui-btn {
+  /* The agent pane imports this sheet without ui.css; reset the native bezel here too. */
+  appearance: none;
+  border: 0;
+  background: transparent;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ds-space-2);
+  height: var(--ds-control-row);
+  padding-inline: var(--ds-space-3);
+  border: 0;
+  border-radius: var(--ds-radius-md);
+  color: var(--ds-color-fg);
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+  letter-spacing: var(--text-control--letter-spacing);
+  font-weight: var(--weight-regular);
+  white-space: nowrap;
+  transition:
+    background-color var(--cmux-motion-quick) var(--cmux-ease-out),
+    color var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+.ui-btn[data-size="sm"] {
+  height: var(--ds-control-compact);
+  padding-inline: var(--ds-space-2);
+  border-radius: var(--ds-radius-sm);
+}
+.ui-btn[data-size="lg"] {
+  height: var(--ds-control-primary);
+  padding-inline: var(--ds-space-4);
+  border-radius: var(--ds-radius-lg);
+}
+.ui-btn[data-icon] {
+  width: var(--ds-control-row);
+  padding-inline: 0;
+}
+.ui-btn[data-icon][data-size="sm"] {
+  width: var(--ds-control-compact);
+}
+.ui-btn[data-icon][data-size="lg"] {
+  width: var(--ds-control-primary);
+}
+.ui-btn :where(svg) {
+  flex: none;
+  width: var(--ds-icon-16);
+  height: var(--ds-icon-16);
+}
+.ui-btn[data-size="sm"] :where(svg) {
+  width: var(--ds-icon-14);
+  height: var(--ds-icon-14);
+}
+
+/* ghost: nothing at rest; the hover fill on its own box. */
+.ui-btn[data-variant="ghost"] {
+  background: transparent;
+}
+/* subtle (the default): a quiet fill at rest, one step stronger on hover. */
+.ui-btn[data-variant="subtle"] {
+  background: var(--ds-color-hover);
+}
+.ui-btn:is([data-variant="ghost"], [data-variant="subtle"]):hover:not([data-disabled]),
+.ui-btn:is([data-variant="ghost"], [data-variant="subtle"])[data-popup-open] {
+  background: var(--ds-color-pressed);
+}
+.ui-btn:is([data-variant="ghost"], [data-variant="subtle"]):active:not([data-disabled]) {
+  background: var(--ds-color-pressed);
+}
+/* solid: the theme accent (the text colour unless the theme names a hue; never system blue). */
+.ui-btn[data-variant="solid"] {
+  background: var(--ds-color-accent);
+  color: var(--ds-color-on-accent);
+  font-weight: var(--weight-emphasis);
+}
+.ui-btn[data-variant="solid"]:hover:not([data-disabled]),
+.ui-btn[data-variant="solid"][data-popup-open] {
+  background: color-mix(in srgb, var(--ds-color-accent) 88%, var(--ds-color-on-accent));
+}
+.ui-btn[data-danger]:not([data-variant="solid"]) {
+  color: var(--ds-color-danger);
+}
+.ui-btn[data-danger][data-variant="solid"] {
+  background: var(--ds-color-danger);
+  color: var(--ds-color-on-accent);
+}
+.ui-btn[data-disabled] {
+  opacity: 0.4;
+}
+
+/* SWITCH: track and thumb from the control scale; the thumb is inset 2 (grid.md's half-step). */
+.ui-switch {
+  --ui-switch-h: var(--ds-control-icon);
+  --ui-switch-w: var(--ds-space-6);
+  --ui-switch-inset: var(--grid-half-step);
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  width: var(--ui-switch-w);
+  height: var(--ui-switch-h);
+  padding: 0;
+  border: 0;
+  border-radius: calc(var(--ui-switch-h) / 2);
+  background: var(--ds-color-pressed);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--ds-color-separator);
+  transition: background-color var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+.ui-switch[data-size="sm"] {
+  --ui-switch-h: var(--ds-icon-16);
+  --ui-switch-w: var(--ds-control-row);
+}
+.ui-switch[data-size="lg"] {
+  --ui-switch-h: var(--ds-control-compact);
+  --ui-switch-w: var(--ds-space-40);
+}
+.ui-switch-thumb {
+  position: absolute;
+  inset-block-start: var(--ui-switch-inset);
+  inset-inline-start: var(--ui-switch-inset);
+  width: calc(var(--ui-switch-h) - 2 * var(--ui-switch-inset));
+  height: calc(var(--ui-switch-h) - 2 * var(--ui-switch-inset));
+  border-radius: 50%;
+  background: var(--ds-color-surface);
+  box-shadow: var(--elevation-1);
+  transition: translate var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+.ui-switch[data-checked] {
+  background: var(--ds-color-accent);
+  box-shadow: none;
+}
+.ui-switch[data-checked] .ui-switch-thumb {
+  background: var(--ds-color-on-accent);
+  translate: calc(var(--ui-switch-w) - var(--ui-switch-h)) 0;
+}
+.ui-switch:dir(rtl)[data-checked] .ui-switch-thumb {
+  translate: calc(var(--ui-switch-h) - var(--ui-switch-w)) 0;
+}
+.ui-switch[data-disabled] {
+  opacity: 0.4;
+}
+.ui-switch:focus-visible {
+  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--ds-color-focus);
+  outline-offset: 1px;
+}
+
+/* INPUT: a text field; focus is the caret and a stronger edge, never a ring. */
+.ui-input {
+  width: 100%;
+  min-width: 0;
+  height: var(--ds-control-row);
+  padding-inline: var(--ds-space-2);
+  border: 0;
+  border-radius: var(--ds-radius-md);
+  background: transparent;
+  color: var(--ds-color-fg);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  letter-spacing: var(--text-body--letter-spacing);
+  -webkit-user-select: text;
+  user-select: text;
+  transition: box-shadow var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+.ui-input::placeholder {
+  color: var(--ds-color-faint);
+}
+.ui-input[data-size="sm"] {
+  height: var(--ds-control-compact);
+  border-radius: var(--ds-radius-sm);
+}
+.ui-input[data-size="lg"] {
+  height: var(--ds-control-primary);
+  padding-inline: var(--ds-space-3);
+  border-radius: var(--ds-radius-lg);
+}
+.ui-input[data-variant="filled"] {
+  background: var(--ds-color-hover);
+}
+.ui-input[data-variant="outline"] {
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--ds-color-separator);
+}
+.ui-input:is([data-variant="filled"], [data-variant="outline"])[data-focused],
+.ui-input:is([data-variant="filled"], [data-variant="outline"]):focus {
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--ds-color-muted);
+}
+.ui-input[data-disabled] {
+  opacity: 0.4;
+}
+
+/* TABS: the active mark sits on the tab itself, so nothing measures or moves after first paint. */
+.ui-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+}
+.ui-tabs-list {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+}
+.ui-button.ui-tabs-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ds-space-2);
+  height: var(--ds-control-row);
+  padding-inline: var(--ds-space-3);
+  border-radius: var(--ds-radius-md);
+  color: var(--ds-color-muted);
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+  letter-spacing: var(--text-control--letter-spacing);
+  white-space: nowrap;
+  transition:
+    background-color var(--cmux-motion-quick) var(--cmux-ease-out),
+    color var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+.ui-tabs-trigger:hover:not([data-disabled]),
+.ui-tabs-trigger[data-active] {
+  color: var(--ds-color-fg);
+}
+.ui-tabs-trigger[data-disabled] {
+  opacity: 0.4;
+}
+.ui-tabs-trigger:focus-visible {
+  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--ds-color-focus);
+  outline-offset: -1px;
+}
+
+/* pill (the default): the hover fill on a tab under the pointer, the selection fill on the active one. */
+.ui-tabs-list[data-variant="pill"] .ui-tabs-trigger:hover:not([data-disabled], [data-active]) {
+  background: var(--ds-color-hover);
+}
+.ui-tabs-list[data-variant="pill"] .ui-tabs-trigger[data-active] {
+  background: var(--ds-color-selection);
+  font-weight: var(--weight-emphasis);
+}
+
+/* underline: a 2 px bar in the text colour under the active tab, on the list's hairline. */
+.ui-tabs-list[data-variant="underline"] {
+  gap: var(--ds-space-4);
+  box-shadow: inset 0 calc(-1 * var(--cmux-hairline, 0.5px)) 0 var(--ds-color-separator);
+}
+.ui-tabs-list[data-variant="underline"] .ui-tabs-trigger {
+  padding-inline: 0;
+  border-radius: 0;
+}
+.ui-tabs-list[data-variant="underline"] .ui-tabs-trigger[data-active] {
+  box-shadow: inset 0 calc(-1 * var(--grid-half-step)) 0 var(--ds-color-fg);
+}
+
+/* segmented: one track holding every tab; the active tab is the raised surface. */
+.ui-tabs-list[data-variant="segmented"] {
+  gap: 0;
+  align-self: flex-start;
+  padding: var(--grid-half-step);
+  border-radius: var(--ds-radius-lg);
+  background: var(--ds-color-hover);
+}
+.ui-tabs-list[data-variant="segmented"] .ui-tabs-trigger {
+  height: var(--ds-control-compact);
+  border-radius: var(--ds-radius-md);
+}
+.ui-tabs-list[data-variant="segmented"] .ui-tabs-trigger[data-active] {
+  background: var(--ds-color-surface);
+  box-shadow: var(--elevation-1);
+}
+
+.ui-tabs-content:focus-visible {
+  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--ds-color-focus);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-btn,
+  .ui-switch,
+  .ui-switch-thumb,
+  .ui-input,
+  .ui-tabs-trigger {
+    transition: none;
+  }
+}
+:root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"]) :is(.ui-btn, .ui-switch, .ui-switch-thumb, .ui-input, .ui-tabs-trigger) {
+  transition: none;
+}

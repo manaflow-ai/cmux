@@ -5,6 +5,7 @@
 // from the host lists' `computer_use` (the app's ComputerUseSetup), live through
 // cmux.settings.host.changed, and then the driver and live preview rows. The schema group
 // `settings.group.computerUse` is not drawn a second time (SectionView, COMPUTER_USE_ROWS).
+import { Button } from "../../../ui/Button";
 import { useSettingsState, useStore } from "../context";
 import type { ComputerUseState } from "../ops";
 import { rowsByKey } from "../schema";
@@ -71,9 +72,9 @@ export function ComputerUseCard({ focus = null }: { focus?: string | null }) {
   const grant = (pane: "accessibility" | "screenRecording", granted: boolean | null, action: GrantAction) => (
     <ActionRow title={t(`settingsWindow.computerUse.${pane}`)} help={t(`settingsWindow.computerUse.${pane}.help`)}>
       <Grant granted={granted} />
-      <button type="button" className="button" data-action={action} onClick={() => run(action)}>
+      <Button type="button" className="button" data-action={action} onClick={() => run(action)}>
         {t("settingsWindow.computerUse.openSettings")}
-      </button>
+      </Button>
     </ActionRow>
   );
   return (
@@ -88,23 +89,23 @@ export function ComputerUseCard({ focus = null }: { focus?: string | null }) {
             help={state && !off ? phaseText(state) : t("settingsWindow.computerUse.setUpHelp")}
           >
             {failed ? (
-              <button
+              <Button
                 type="button"
                 className="button"
                 data-action="palette.computerUse.restart"
                 onClick={() => run("palette.computerUse.restart")}
               >
                 {t("settingsWindow.computerUse.restartHelper")}
-              </button>
+              </Button>
             ) : (
-              <button
+              <Button
                 type="button"
                 className="button"
                 data-action="palette.computerUse.setup"
                 onClick={() => run("palette.computerUse.setup")}
               >
                 {t("settingsWindow.computerUse.setUp")}
-              </button>
+              </Button>
             )}
           </ActionRow>
         )}

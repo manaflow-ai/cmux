@@ -38,6 +38,8 @@ const KEEP: &[&str] = &[
     // With `sessionId` and `harness`, what a peer's reply masks a summary by (`peer_text.rs`):
     // a trimmed row without it would go to a peer unmasked.
     "lastSeq",
+    // What a client re-reads a kept chat by (`SessionSummary::transcript_seq`): a few bytes.
+    "transcriptSeq",
 ];
 
 fn size(value: &Value) -> usize {

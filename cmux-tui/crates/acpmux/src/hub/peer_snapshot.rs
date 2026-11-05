@@ -158,6 +158,7 @@ enum Op {
         generation: Option<u64>,
     },
     ForgetPeer(String),
+    Clear(mpsc::SyncSender<bool>),
     Lagged {
         peer: String,
         link: Link,
@@ -239,6 +240,8 @@ struct Thread {
 /// The hub's handle on the store's thread, started at the first op.
 pub struct PeerSnapshots {
     dir: Option<PathBuf>,
+    /// A sign-out bars earlier peer instances, including their reconnects and late replies.
+    generation_floor: AtomicU64,
     /// Set once the thread runs: a spawn that failed, or a thread that ended, is started again at
     /// the next op.
     tx: StdMutex<Option<Thread>>,
@@ -257,6 +260,7 @@ impl PeerSnapshots {
     pub fn open(home: Option<PathBuf>) -> Self {
         Self {
             dir: home.map(|h| disk::root(&h)),
+            generation_floor: AtomicU64::new(0),
             tx: StdMutex::new(None),
             ended: Arc::default(),
             queued: Arc::default(),
@@ -669,6 +673,10 @@ impl Store {
                 }
             }
             Op::ForgetPeer(peer) => self.forget_peer(&peer),
+            Op::Clear(done) => {
+                let cleared = self.clear();
+                let _ = done.send(cleared);
+            }
             Op::Lagged { peer, link } => {
                 // The lag tells of the link too: anything of an older one comes too late.
                 // Records of the link stop joining until a page again; the link still joined the
@@ -720,6 +728,10 @@ impl Store {
             // Its reader is answered at once that there is nothing (its reply went with it).
             Op::Read { .. } | Op::Covers { .. } => return,
             Op::LostPeer(_) => return self.take(op),
+            Op::Clear(_) => {
+                self.clear();
+                return;
+            }
             Op::ForgetPeer(peer) => (peer, true),
             Op::Listed { peer, .. } | Op::Lagged { peer, .. } => (peer, false),
             Op::Page { key, .. } | Op::Record { key, .. } | Op::Gone { key, .. } => (key.0, false),
@@ -1408,7 +1420,9 @@ impl Hub {
     /// replaces it registers under that lock (`spawn_peer`), so its listing comes after this op.
     fn capture_on(&self, peer: &str, (generation, link): (u64, u64), send: impl FnOnce()) {
         let _rows = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
-        if self.peer(peer).is_some_and(|p| p.generation == generation && p.link_epoch() == link) {
+        if self.peer_snapshots.allows(generation)
+            && self.peer(peer).is_some_and(|p| p.generation == generation && p.link_epoch() == link)
+        {
             send();
         }
     }
@@ -1495,6 +1509,8 @@ impl Hub {
     }
 }
 
+mod clear;
+pub(crate) use clear::clear_offline;
 mod read;
 mod warm;
 

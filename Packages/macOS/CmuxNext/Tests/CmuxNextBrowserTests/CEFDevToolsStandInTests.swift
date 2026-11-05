@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextTestSupport
 import Foundation
 import Testing
@@ -29,6 +30,30 @@ import Testing
         #expect(ShimLog.calls.filter { $0.hasPrefix("command") }.count == 1, "one open")
     }
 
+    /// NEWTAB DEVTOOLS FRAMES (#32911, pacing triage on feat 585171513e37, 120 Hz films): the stand-in's ask ran as a
+    /// main-actor `Task`, which runs from the main queue in the same run-loop pass as the key, before that pass's Core
+    /// Animation commit. So CefBrowserHost::ShowDevTools (about 18 ms, Chromium creates DevTools there) was inside the
+    /// key's commit (commit_ms 43 ms p50, 9 missed vsyncs). Chrome commits the frame the input changed first: Chromium is
+    /// asked only after the pass that shows the stand-in committed its frame.
+    @Test func chromiumIsAskedOnlyAfterTheKeysFrameCommitted() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        tab.performDevTools(.dock(.bottom))
+        // Which stage of the main run loop's pass the command runs in. Core Animation commits at before-waiting, order
+        // 2,000,000: this observer runs right after that commit and marks what follows as after it. Every other stage
+        // of a pass (the input's sources, the main queue's jobs, timers) is the turn before the commit.
+        ShimLog.stage = .turn
+        let turn = MainRunLoopObserver(activities: [.beforeTimers, .beforeSources, .afterWaiting], order: 0) { _ in ShimLog.stage = .turn }
+        let committed = MainRunLoopObserver(activities: .beforeWaiting, order: 2_000_001) { _ in ShimLog.stage = .afterCommit }
+        defer { turn.invalidate(); committed.invalidate() }
+        // The key arrives as a person's key does: in a run-loop callout, not in a main-queue job.
+        MainRunLoopBlock.perform { tab.performDevTools(.show) }
+        await rig.until { ShimLog.calls.contains { $0.hasPrefix("command") } }
+        #expect(ShimLog.calls.filter { $0.hasPrefix("command") } == ["command \(Rig.browser) show"], "one open")
+        #expect(ShimLog.commandStages == [.afterCommit], "Chromium creates DevTools only after the key's frame committed")
+    }
+
     /// The fake Chromium opens nothing (no DEVTOOLS_WILL_OPEN): the stand-in rolls back after the command.
     @Test func whenChromiumOpensNothingTheStandInRollsBack() async throws {
         let rig = try Rig()
@@ -51,7 +76,7 @@ import Testing
         tab.performDevTools(.toggle)
         tab.performDevTools(.toggle)
         #expect(!tab.devToolsController.reservesRoom)
-        for _ in 0..<20 { await Task.yield() }
+        await rig.passes(20)
         #expect(!ShimLog.calls.contains { $0.hasPrefix("command") }, "Chromium was never asked to open DevTools")
     }
 
@@ -66,7 +91,7 @@ import Testing
         tab.performDevTools(.console)
         #expect(tab.devToolsController.standIn)
         tab.container.isHidden = true  // another tab of the pane shows (PaneContentView parks this one)
-        for _ in 0..<20 { await Task.yield() }
+        await rig.passes(20)
         #expect(!ShimLog.calls.contains { $0.hasPrefix("command") }, "no console for a page that is not shown")
         #expect(!tab.devToolsController.reservesRoom, "the stand-in rolled back")
     }
@@ -95,7 +120,7 @@ import Testing
         tab.performDevTools(.toggle)  // cancels the console stand-in
         tab.performDevTools(.toggle)  // a new stand-in for show
         await rig.until { ShimLog.calls.contains { $0.hasPrefix("command") } }
-        for _ in 0..<20 { await Task.yield() }
+        await rig.passes(20)
         #expect(ShimLog.calls.filter { $0.hasPrefix("command") } == ["command \(Rig.browser) show"])
     }
 
@@ -126,6 +151,7 @@ import Testing
 
         init() throws {
             ShimLog.calls = []
+            ShimLog.commandStages = []
             root = FileManager.default.temporaryDirectory.appending(path: "cef-devtools-standin-\(UUID().uuidString)", directoryHint: .isDirectory)
             runtime = CEFRuntime(shim: try ShimLog.library(), storage: CEFProfileStorage(root: root))
         }
@@ -144,10 +170,27 @@ import Testing
             return tab
         }
 
+        /// Runs main-actor jobs and main run-loop passes (with their observers: the frame commit) until `condition`.
         func until(_ condition: () -> Bool) async {
             let clock = ContinuousClock()
             let deadline = clock.now.advanced(by: .seconds(10))
-            while !condition(), clock.now < deadline { await Task.yield() }
+            while !condition(), clock.now < deadline { await pass() }
+        }
+
+        /// `count` main run-loop passes, each after the main-actor jobs queued so far.
+        func passes(_ count: Int) async {
+            for _ in 0..<count { await pass() }
+        }
+
+        private func pass() async {
+            await Task.yield()
+            Self.runLoopPass()
+        }
+
+        /// One main run-loop pass, with its before-waiting observers (the frame commit's stage). Synchronous: the
+        /// run loop cannot be run from an async context directly.
+        private static func runLoopPass() {
+            _ = CFRunLoopRunInMode(.defaultMode, 0.001, false)
         }
 
         func close() {
@@ -170,6 +213,11 @@ private nonisolated enum ShimLog {
     nonisolated(unsafe) static var calls: [String] = []
     /// Runs inside the show command (a Chromium that creates DevTools sends DEVTOOLS_WILL_OPEN there).
     nonisolated(unsafe) static var onShow: (@MainActor () -> Void)?
+    /// The run-loop stage the main thread is in (``CEFDevToolsStandInTests/chromiumIsAskedOnlyAfterTheKeysFrameCommitted()``).
+    enum Stage: Equatable { case turn, afterCommit }
+    nonisolated(unsafe) static var stage = Stage.turn
+    /// The stage each command was sent in.
+    nonisolated(unsafe) static var commandStages: [Stage] = []
 
     static func library() throws -> CEFShimLibrary {
         let version: @convention(c) () -> Int32 = { 29 }
@@ -178,6 +226,7 @@ private nonisolated enum ShimLog {
             let name = [CEFShimLibrary.DevToolsCommand.show: "show", CEFShimLibrary.DevToolsCommand.close: "close",
                         CEFShimLibrary.DevToolsCommand.console: "console", CEFShimLibrary.DevToolsCommand.inspect: "inspect"][command]
             ShimLog.calls.append("command \(browser) \(name ?? String(command))")
+            ShimLog.commandStages.append(ShimLog.stage)
             if let onShow = ShimLog.onShow { MainActor.assumeIsolated { onShow() } }
             return 1
         }

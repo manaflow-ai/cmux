@@ -1,5 +1,5 @@
 import { afterEach, expect, jest, test } from "bun:test";
-import { pageClocks, visibleInterval } from "../src/ui/pageClock";
+import { pageClocks, subscribePageDeadline, visibleInterval } from "../src/ui/pageClock";
 import { pageLoops } from "../src/ui/pageLoops";
 
 type FakeDocument = Document & { show(state: DocumentVisibilityState): void };
@@ -50,5 +50,36 @@ test("visibleInterval owns one timer and releases it while hidden", () => {
   jest.advanceTimersByTime(1);
   expect(ticks).toBe(1);
   stop();
+  expect(pageClocks(doc)).toEqual({ running: 0, subscribers: 0, items: [] });
+});
+
+test("timestamp deadlines share the nearest timer and stop when no label will change", () => {
+  jest.useFakeTimers();
+  jest.setSystemTime(0);
+  const doc = installDocument("visible");
+  let first = 0;
+  let second = 0;
+  const stopFirst = subscribePageDeadline(
+    () => first++,
+    () => (Date.now() < 120_000 ? 120_000 : Infinity),
+  );
+  const stopSecond = subscribePageDeadline(
+    () => second++,
+    () => 3_600_000,
+  );
+  expect(pageClocks(doc)).toMatchObject({ running: 1, subscribers: 2 });
+  jest.advanceTimersByTime(60_000);
+  expect(first).toBe(0);
+  expect(second).toBe(0);
+  stopSecond();
+  jest.advanceTimersByTime(60_005);
+  expect(first).toBe(1);
+  stopFirst();
+  const stopStatic = subscribePageDeadline(
+    () => first++,
+    () => Infinity,
+  );
+  expect(pageClocks(doc)).toMatchObject({ running: 0, subscribers: 1 });
+  stopStatic();
   expect(pageClocks(doc)).toEqual({ running: 0, subscribers: 0, items: [] });
 });

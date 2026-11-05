@@ -57,6 +57,10 @@ mod servers;
 #[cfg(unix)]
 mod serves;
 #[cfg(unix)]
+mod sidebar;
+#[cfg(all(test, unix))]
+mod sidebar_integration_tests;
+#[cfg(unix)]
 mod storage;
 #[cfg(unix)]
 mod store;
@@ -77,7 +81,9 @@ mod terminal_ops;
 #[cfg(unix)]
 pub(crate) mod timer;
 
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
+
+use crate::panic_free::RecoverPoison;
 
 #[cfg(unix)]
 pub(crate) use mirror::{HiddenAccess, Origin, SetOp};
@@ -105,6 +111,10 @@ pub const CANCEL_REQUEST_CAPABILITY: &str = "cancel-request-v1";
 #[cfg(unix)]
 const MUX_EVENTS_SINK: u64 = u64::MAX;
 
+/// Called after an app server starts or stops (the owner's keepers watch,
+/// server/owner_keepers.rs).
+type ServerObservers = Arc<Mutex<Vec<Box<dyn Fn() + Send + Sync>>>>;
+
 /// The supervisor of one daemon, created on the first `apps-*` command.
 #[derive(Default)]
 pub(crate) struct AppsSlot {
@@ -112,13 +122,19 @@ pub(crate) struct AppsSlot {
     supervisor: OnceLock<Arc<Supervisor>>,
     #[cfg(not(unix))]
     supervisor: OnceLock<Arc<()>>,
+    /// Told of each app server start and stop; the supervisor gets them
+    /// when it is created and calls them outside its lock.
+    server_observers: ServerObservers,
 }
 
 impl AppsSlot {
     #[cfg(unix)]
     pub(crate) fn get_or_init(&self, mux: &Arc<crate::Mux>) -> Arc<Supervisor> {
-        self.supervisor
+        let mut created = false;
+        let supervisor = self
+            .supervisor
             .get_or_init(|| {
+                created = true;
                 let state_dir = mux.session_state_directory();
                 let idle = std::env::var("CMUX_APPS_IDLE_STOP_SECONDS")
                     .ok()
@@ -154,9 +170,20 @@ impl AppsSlot {
                         true
                     }),
                 );
+                supervisor.observe_kept_servers(self.server_observers.clone());
                 supervisor
             })
-            .clone()
+            .clone();
+        if created {
+            // Its `always` servers started before it had the observers, and
+            // `kept_servers` read 0 until this slot held it: the owner's
+            // watch reads the count again now. Later changes reach the
+            // observers from `Supervisor::emit`.
+            for observer in self.server_observers.lock().recover_poison().iter() {
+                observer();
+            }
+        }
+        supervisor
     }
 
     /// `client` cancels its own request `target` (`cancel-request`). Before
@@ -189,6 +216,28 @@ impl AppsSlot {
         }
         #[cfg(not(unix))]
         let _ = (client, &self.supervisor);
+    }
+
+    /// App servers that keep the daemon's owner (the supervisor's
+    /// `kept_servers`; none before the supervisor exists, and none off Unix,
+    /// where apps never run).
+    pub(crate) fn kept_servers(&self) -> usize {
+        #[cfg(unix)]
+        {
+            self.supervisor.get().map_or(0, |supervisor| supervisor.kept_servers())
+        }
+        #[cfg(not(unix))]
+        {
+            0
+        }
+    }
+
+    /// Calls `observer` each time [`Self::kept_servers`] changes (a server
+    /// starts or stops, a crash restart is scheduled, fired or cancelled).
+    /// It runs from the supervisor's event delivery, outside the
+    /// supervisor's lock, and must not call back into the supervisor.
+    pub(crate) fn add_server_observer(&self, observer: impl Fn() + Send + Sync + 'static) {
+        self.server_observers.lock().recover_poison().push(Box::new(observer));
     }
 }
 

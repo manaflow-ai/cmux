@@ -210,3 +210,41 @@ fn a_subagent_sent_back_to_work_is_not_untold() {
         "no untold retry turn"
     );
 }
+
+/// Leo, 2026-11-02: one forced `[untold]` turn per finished subagent (22 in
+/// four days) made Chief post one status message per report. The check waits
+/// a batching window, so outcomes that finish close together go out as one
+/// digest turn, and the note asks for one message.
+#[test]
+fn untold_checks_wait_a_batching_window_and_ask_for_one_digest() {
+    assert!(
+        optchat_chief::brain::UNTOLD_WAIT >= Duration::from_secs(60),
+        "a window, not 5 s"
+    );
+    let mut h = Harness::new(script(|_, prompt| {
+        if prompt.contains(UNTOLD_TAG) {
+            Some("a1: landed the sidebar fix.")
+        } else {
+            None
+        }
+    }));
+    report_and_settle(&mut h);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+    h.brain.fire_outcome_checks_at(now + 10_000);
+    h.settle_posts();
+    assert!(
+        !prompts(&h).iter().any(|t| t.contains(UNTOLD_TAG)),
+        "no retry turn 10 s after the report"
+    );
+    h.brain.fire_outcome_checks_at(u64::MAX / 2);
+    h.settle_posts();
+    let p = prompts(&h);
+    let retry = p
+        .iter()
+        .find(|t| t.contains(UNTOLD_TAG))
+        .expect("an untold retry turn once the window passed");
+    assert!(retry.contains("one message"), "a digest: {retry}");
+}

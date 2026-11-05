@@ -574,6 +574,170 @@ fn a_graceful_close_sends_queued_input_first() {
     assert_eq!(rest_rx.recv().unwrap(), expected);
 }
 
+/// Uses the same TCP peer for the old viewer path and the streamed path. The
+/// peer checks every key and clipboard byte without collecting the wire output.
+/// Its pause after the first key also exercises a temporarily stalled reader.
+#[test]
+fn large_paste_is_complete_ordered_and_streamed() {
+    use std::io::BufReader;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::mpsc;
+    use std::time::Instant;
+
+    const PATTERN: &str = "aé界🦀\r\n\tZ";
+    const REPEATS: usize = (8 * 1024 * 1024) / (PATTERN.len() - 1) + 1;
+    const LATER_KEY: u32 = 0xffbe; // F1 cannot occur in the paste.
+
+    struct MeasuredWriter {
+        writer: Box<dyn Write + Send>,
+        peak: Arc<AtomicUsize>,
+    }
+
+    impl Write for MeasuredWriter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.peak.fetch_max(bytes.len(), Ordering::Relaxed);
+            self.writer.write(bytes)
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.writer.flush()
+        }
+    }
+
+    fn check_clipboard(reader: &mut impl Read) -> usize {
+        let mut header = [0; 8];
+        reader.read_exact(&mut header).unwrap();
+        assert_eq!(header[..4], [6, 0, 0, 0]);
+        let count = PATTERN.chars().count() * REPEATS;
+        assert_eq!(u32::from_be_bytes(header[4..].try_into().unwrap()) as usize, count);
+        let mut expected = PATTERN.chars().cycle().map(|c| u8::try_from(c as u32).unwrap_or(b'?'));
+        let mut buffer = [0; 16 * 1024];
+        let mut remaining = count;
+        while remaining != 0 {
+            let len = remaining.min(buffer.len());
+            reader.read_exact(&mut buffer[..len]).unwrap();
+            for &byte in &buffer[..len] {
+                assert_eq!(byte, expected.next().unwrap());
+            }
+            remaining -= len;
+        }
+        count + header.len()
+    }
+
+    for legacy in [true, false] {
+        let (listener, port) = listen();
+        let (ready_tx, ready_rx) = mpsc::channel();
+        let (start_tx, start_rx) = mpsc::channel::<Instant>();
+        let (first_tx, first_rx) = mpsc::channel();
+        let (resume_tx, resume_rx) = mpsc::channel();
+        let (done_tx, done_rx) = mpsc::channel();
+        let server = serve(listener, move |server| {
+            server.send(b"RFB 003.008\n");
+            server.read(12);
+            server.send(&[1, 1]);
+            server.read(1);
+            server.send(&0u32.to_be_bytes());
+            server.read(1);
+            server.server_init(2, 2, "paste receiver");
+            server.client_setup();
+            ready_tx.send(()).unwrap();
+            let start = start_rx.recv_timeout(TIMEOUT).unwrap();
+            let mut reader = BufReader::with_capacity(64 * 1024, &mut server.stream);
+            let mut wire_bytes = 0;
+            if legacy {
+                wire_bytes += check_clipboard(&mut reader);
+            }
+            let all_chars = PATTERN.chars().filter(|&c| c != '\r').count() * REPEATS;
+            let count = if legacy { 64 * 1024 } else { all_chars };
+            let mut pair = [0; 16];
+            let mut first = Duration::ZERO;
+            let mut text_bytes = 0;
+            for (i, c) in PATTERN.chars().filter(|&c| c != '\r').cycle().take(count).enumerate() {
+                reader.read_exact(&mut pair).unwrap();
+                // Check the complete down/up pair and Unicode keysym, in order.
+                let sym = cmux_vnc::keysym::char_keysym(c);
+                assert_eq!(pair[..4], [4, 1, 0, 0]);
+                assert_eq!(pair[4..8], sym.to_be_bytes());
+                assert_eq!(pair[8..12], [4, 0, 0, 0]);
+                assert_eq!(pair[12..], sym.to_be_bytes());
+                text_bytes += c.len_utf8();
+                if i == 0 {
+                    first = start.elapsed();
+                    first_tx.send(first).unwrap();
+                    resume_rx.recv_timeout(TIMEOUT).unwrap();
+                }
+            }
+            wire_bytes += count * pair.len();
+            if !legacy {
+                wire_bytes += check_clipboard(&mut reader);
+            }
+            // Later input must remain behind both the paste and its clipboard.
+            reader.read_exact(&mut pair).unwrap();
+            assert_eq!(&pair[..8], cmux_vnc::message::key_event(LATER_KEY, true));
+            assert_eq!(&pair[8..], cmux_vnc::message::key_event(LATER_KEY, false));
+            wire_bytes += pair.len();
+            done_tx.send((start.elapsed(), first, text_bytes, wire_bytes)).unwrap();
+        });
+
+        let mut transport = Transport::tcp("127.0.0.1", port, TIMEOUT).unwrap();
+        let peak = Arc::new(AtomicUsize::new(0));
+        transport.writer =
+            Box::new(MeasuredWriter { writer: transport.writer, peak: peak.clone() });
+        let session = Session::start(transport, &SessionOptions::default()).unwrap();
+        ready_rx.recv_timeout(TIMEOUT).unwrap();
+        peak.store(0, Ordering::Relaxed);
+        let input = session.input();
+        let text = PATTERN.repeat(REPEATS);
+        let source_bytes = text.len();
+        assert!(source_bytes > 8 * 1024 * 1024);
+        let start = Instant::now();
+        start_tx.send(start).unwrap();
+        if legacy {
+            // The previous viewer implementation: clipboard first, then a
+            // fully buffered and silently capped sequence of key events.
+            input.clipboard(&text).unwrap();
+            let keys: Vec<_> = text
+                .chars()
+                .filter(|&c| c != '\r')
+                .take(64 * 1024)
+                .map(cmux_vnc::keysym::char_keysym)
+                .flat_map(|sym| [(sym, true), (sym, false)])
+                .collect();
+            input.keys(&keys).unwrap();
+        } else {
+            input.paste(text).unwrap();
+        }
+        input.keys(&[(LATER_KEY, true), (LATER_KEY, false)]).unwrap();
+        first_rx.recv_timeout(TIMEOUT).unwrap();
+        assert!(
+            matches!(done_rx.try_recv(), Err(mpsc::TryRecvError::Empty)),
+            "the first visible key arrives before the paste has completed"
+        );
+        resume_tx.send(()).unwrap();
+        let (elapsed, first, delivered, wire_bytes) =
+            done_rx.recv_timeout(Duration::from_secs(60)).unwrap();
+        let peak = peak.load(Ordering::Relaxed);
+        if legacy {
+            assert!(delivered < source_bytes / 2, "baseline must reproduce the old truncation");
+        } else {
+            assert_eq!(delivered, source_bytes - REPEATS, "only CR is filtered, as before");
+            assert!(delivered > 8 * 1024 * 1024);
+            assert!(peak <= 16 * 1024, "writer buffered a whole paste: {peak} bytes");
+        }
+        eprintln!(
+            "paste mode={} source_bytes={source_bytes} delivered_text_bytes={delivered} first_key_ms={:.3} elapsed_ms={:.3} wire_MiB_per_s={:.3} text_MiB_per_s={:.3} peak_write_bytes={peak}",
+            if legacy { "legacy" } else { "streamed" },
+            first.as_secs_f64() * 1000.0,
+            elapsed.as_secs_f64() * 1000.0,
+            wire_bytes as f64 / elapsed.as_secs_f64() / 1048576.0,
+            delivered as f64 / elapsed.as_secs_f64() / 1048576.0
+        );
+        server.join().unwrap();
+        input.close();
+    }
+}
+
 /// A proxy command gets stdin's end and time to forward the last input
 /// before it is stopped; killing it at once would lose the bytes (the
 /// proxy here starts reading only after a delay).

@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextDaemon
 import CmuxNextHomeEngine
 import CmuxNextPhone
@@ -11,6 +12,7 @@ import CmuxNextRemoteLocalhost
 import CmuxNextRemoteLocalhostService
 import CmuxNextRemoteView
 import CmuxNextRemoteViewSessions
+import CmuxNextSettings
 import Foundation
 import Observation
 
@@ -95,9 +97,11 @@ extension AppServices {
     /// Starts Cloud and keeps the registry context current.
     func startCloud() -> Task<Void, Never> {
         // An agent's request waits in the sidebar card; with the active window's sidebar hidden it takes the sheet, so it never waits unseen.
-        // The plan gate's Upgrade takes the one paid-plan path (PaidPlanUpgrade): Checkout that returns here, else pricing.
-        cloud.confirmCreate = { [weak self] in await CloudPresenter.confirmCreate($0, in: self?.windows.active?.window, asks: self?.windows.active?.state.sidebarHidden == false ? self?.machineAsks : nil, chatOpen: { [weak self] in self?.agentTabs.tab(showing: $0) != nil },
-                                                                           openPricing: { [weak self] _ in Task { await self?.paidPlanUpgrade().start(source: .cloudCreate) } }) }
+        cloud.confirmCreate = { [weak self] in await CloudPresenter.confirmCreate($0, in: self?.windows.active?.window, asks: self?.windows.active?.state.sidebarHidden == false ? self?.machineAsks : nil, chatOpen: { [weak self] in self?.agentTabs.tab(showing: $0) != nil }, stopAsking: self?.settings?.stopAskingCloudAgents) }
+        cloud.agentsAskFirst = { [weak self] in self?.settings.map { !$0.cloudAgentsSkipAsking } ?? false }
+        // The cap card's Upgrade takes the one paid-plan path (PaidPlanUpgrade): Checkout that returns here, else pricing.
+        cloud.chooseAtCap = { [weak self] in await CloudMachineCapCard.choose($0, in: self?.windows.active?.window, freePlanDetail: CloudStrings.upgradeDetail(.freePlan), openPricing: { [weak self] in Task { await self?.paidPlanUpgrade().start(source: .cloudCreate) } }) }
+        cloud.madeRoom = { [weak self] in if let self { CloudMove.toast(self, "cloud-made-room", CloudMachineCapCard.madeRoom($0), duration: .seconds(6)) } }
         cloud.planObserved = { [weak self] in self?.paidPlanObserved($0) }
         cloud.start()
         // Each Cloud machine follows the app's cmux-tui build by itself, also while an agent works there.
@@ -115,11 +119,14 @@ extension AppServices {
         iphone.pairNotices = IPhonePairNotices(post: { [weak self] in self?.notifications.desktop.post(id: IPhonePairNotices.id, title: $0,
             body: $1, surface: nil, workspace: nil, defaultSound: true, category: IPhonePairNotices.category) },
             withdraw: { [weak self] in self?.notifications.desktop.withdraw([IPhonePairNotices.id]) })
+        // The GitHub App lease goes when a sign-out starts (its install revoke may fail).
+        cloud.willSignOut.append { [weak self] in self?.githubAppLease.signOutStarted() }
         let cloud = cloud, machines = machines
         return Task { [weak self] in
             var account: (user: String, team: String)?
             var routerUser: String??
-            for await state in ObservationStream({ (cloud.isSignedIn, machines.cloud.count, cloud.auth.user?.id, cloud.auth.teamID) }) {
+            var leaseAccount = GitHubAppLease.Account()
+            for await state in ObservationStream({ (cloud.isSignedIn, machines.cloud.count, cloud.auth.user?.id, cloud.auth.teamID, cloud.auth.managedTeamID != nil) }) {
                 guard let self else { return }
                 self.cloudContextDidChange()
                 self.agentTabs.syncCloudCredentialTransferAvailability(services: self)
@@ -128,6 +135,15 @@ extension AppServices {
                 if routerUser != .some(user) {
                     routerUser = .some(user)
                     self.modelRouter?.accountChanged(user)
+                }
+                // The sign-in acpmux mints GitHub App tokens with (GitHubAppLease) follows the user
+                // and the active team (its cmux id), whose GitHub connection Cloud mints from.
+                let team = GitHubAppLease.backendTeam(stackProjectID: cloud.auth.configuration.stackProjectID,
+                                                      userID: user, stackTeamID: state.3, managed: state.4)
+                if leaseAccount.changed(user: user, team: team) {
+                    let project = cloud.auth.configuration.stackProjectID
+                    self.githubAppLease.accountChanged(user: user.map { CloudIdentity.workerUserID(stackProjectID: project, stackUserID: $0) },
+                                                       team: team)
                 }
                 // Phone access follows the account: start after sign-in, restart on a user or team switch,
                 // stop on sign-out. A switch of the active team also reloads the team's machines and accounts.

@@ -12,7 +12,7 @@ import { CodeHeader, codeHeaderClass, useCodeHeaderLook } from "./CodeHeader";
 import { useT } from "../i18n";
 import { MAX_TOKENIZED_LINE } from "./highlightLimits";
 import { onHighlightTimeout, paneHighlightPool } from "./highlightPool";
-import { PlainCode } from "./StreamingCode";
+import { PlainCode, PlainCodeLines } from "./StreamingCode";
 import { OpenPreview } from "./OpenPreview";
 import type { CodeBlockProps } from "./CodeBlock";
 import { currentChatMetrics } from "../chatDisplay";
@@ -59,7 +59,14 @@ const paneThemeType = () => (document.documentElement.dataset.theme === "light" 
  * re-renders the same instance instead of building another; a theme switch on the page
  * (applyAgentTheme sets `data-theme`) changes its syntax colors in place.
  */
-export function HighlightedCode({ code, lang = "text", label, actions }: CodeBlockProps) {
+export function HighlightedCode({
+  code,
+  lang = "text",
+  label,
+  actions,
+  artifactIdentity,
+  artifactRevision,
+}: CodeBlockProps) {
   const t = useT();
   const look = useCodeHeaderLook(lang, label);
   const host = useRef<HTMLDivElement>(null);
@@ -67,6 +74,7 @@ export function HighlightedCode({ code, lang = "text", label, actions }: CodeBlo
   const pool = paneHighlightPool("word-alt", isHighlighted(lang) ? lang : "text");
   const workerFailed = useSyncExternalStore(subscribeHighlightWorker, highlightWorkerFailed, () => false);
   const [wrap, setWrap] = useState(false);
+  const [painted, setPainted] = useState(false);
   // A highlight job past its budget (highlightWatchdog.ts) draws the card as plain text.
   const name = `snippet-${useId()}`;
   const [tooSlow, setTooSlow] = useState(false);
@@ -75,6 +83,7 @@ export function HighlightedCode({ code, lang = "text", label, actions }: CodeBlo
   useLayoutEffect(() => {
     const el = host.current;
     if (!el || !workerAvailable || highlightWorkerFailed() || !pool?.isWorkingPool()) return;
+    setPainted(false);
     registerAgentDiffTheme();
     const file = new PierreFile(
       {
@@ -85,6 +94,9 @@ export function HighlightedCode({ code, lang = "text", label, actions }: CodeBlo
         overflow: "scroll",
         unsafeCSS: look === "corner" ? cornerUnsafeCSS : codeUnsafeCSS,
         tokenizeMaxLineLength: MAX_TOKENIZED_LINE,
+        onPostRender: (node, _instance, phase) => {
+          if (phase !== "unmount" && node.shadowRoot?.querySelector("[data-line]")) setPainted(true);
+        },
       },
       pool,
       // React owns the host element: Pierre must not remove it on cleanUp.
@@ -111,11 +123,21 @@ export function HighlightedCode({ code, lang = "text", label, actions }: CodeBlo
       file: { name, contents: code, lang: (isHighlighted(lang) ? lang : "text") as never },
     });
   }, [code, lang, look, pool, wrap, name, workerAvailable]);
-  if (!workerAvailable) return <PlainCode code={code} lang={lang} actions={actions} />;
+  if (!workerAvailable)
+    return (
+      <PlainCode
+        code={code}
+        lang={lang}
+        label={label}
+        actions={actions}
+        artifactIdentity={artifactIdentity}
+        artifactRevision={artifactRevision}
+      />
+    );
   return (
     <div className={`cv-codeblock${codeHeaderClass(look)}`} ref={menuPartRef({ code })}>
       <CodeHeader look={look} lang={lang} label={label}>
-        <OpenPreview code={code} lang={lang} />
+        <OpenPreview code={code} lang={lang} identity={artifactIdentity} revision={artifactRevision} />
         <button
           type="button"
           className="cv-codeblock__action"
@@ -130,12 +152,18 @@ export function HighlightedCode({ code, lang = "text", label, actions }: CodeBlo
         <CopyButton text={code} label={t("code.copy")} />
         {actions}
       </CodeHeader>
-      {/* Pierre paints the lines once the highlight worker answers; until then the body keeps the
-          plain card's height, so the text under the card does not move up and back (cx-wdenv). */}
+      {/* Keep the text visible until the worker has actually painted. Reserving height alone
+          leaves a blank card between the lazy fallback and the worker's first result. */}
+      {!painted && (
+        <div className="cv-codeblock__body">
+          <PlainCodeLines code={code} wrap={wrap} />
+        </div>
+      )}
       <DiffsHost
         ref={host}
         className="cv-codeblock__body selectable"
         style={{
+          ...(!painted ? ({ position: "absolute", inset: "0 0 auto", visibility: "hidden" } as const) : {}),
           minHeight: code.replace(/\n$/, "").split("\n").length * currentChatMetrics().codeLineHeight,
         }}
       />

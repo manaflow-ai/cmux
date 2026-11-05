@@ -11,8 +11,9 @@
 //!   user's own servers stay).
 //! - Skills: Claude Code gets a session-only plugin named `cmux`
 //!   (`--plugin-dir`) whose skills are `cmux:cmux-browser`,
-//!   `cmux:cmux-cua` and `cmux:acpmux` (the acpmux CLI guide, for driving
-//!   sessions from a shell). The skill text is compiled in from `skills/` and
+//!   `cmux:cmux-cua`, `cmux:cmux-customization` (settings, and a view of the
+//!   person's own that an agent writes as the customize app) and
+//!   `cmux:acpmux` (the acpmux CLI guide, for driving sessions from a shell). The skill text is compiled in from `skills/` and
 //!   written once per content hash under `<ACPMUX_HOME>/agent-tools/`.
 //!   Only the skill descriptions reach the prompt (progressive disclosure).
 //!   `cmux-cua` is model-invocable: its description claims tasks in a
@@ -53,6 +54,8 @@
 //!   of the notes it saves.
 //! - Kept servers (`ACPMUX_AGENT_TOOL_SERVERS`, a profile or preset env):
 //!   only the named MCP servers; the Chief's turns keep `cmux` (cx-4a5w2).
+
+pub mod prompt_sources;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -117,17 +120,12 @@ pub const CHIEF_TURN_TOOLS: &str = "agents_snapshot,agents_workspace_create,\
 /// multiple-choice question that read "Waiting for you: allow this?" (Leo
 /// 2026-10-21: decide, say why, continue). The bundled acpmux skill and the
 /// cmux skill say the same. Claude Code may cut server instructions past
-/// 2048 characters, so the code-mode text plus this rule stays under that.
-pub const ASKING_RULE: &str = "Asking the person: the person allows tools through the chat's \
-    mode and the harness's own permission prompts, never through your questions, and a chat in \
-    Full access (Claude Code bypassPermissions, Codex full access) has already allowed every \
-    tool call its harness would ask about. So never ask them to allow, confirm or approve a \
-    step, with AskUserQuestion or in text (\"should I go ahead?\"): decide, say why in one \
-    line, and go on. Deciding never widens the task: a step a cmux skill keeps for the person's \
-    own request (importing a browser's cookies, deleting their data) waits for that request, \
-    and a cmux consent card is theirs to answer; leave such a step out and say so. Ask only \
-    about product taste you cannot settle from the request or the code, as that choice, never \
-    as a permission.";
+/// 2048 characters, so both compact rules stay under that.
+pub const ASKING_RULE: &str = "Asking the person: Full access already permits harness tool calls; never ask them to allow or confirm one. Decide, say why, continue. This never widens the task: respect user-only skill steps and consent cards; never bypass refusals. Ask only unresolved product taste, not permission.";
+
+/// The small cmux-owned coordination block sent once as hidden first-turn context.
+/// Keep it canonical so the Context viewer shows and edits exactly what new sessions receive.
+pub const CONCURRENT_WORK_RULE: &str = "Read relevant instructions and likely source files early. Batch independent reads and searches into parallel tool calls; sequence dependent work. Start long-running builds, tests, and waits in the background when the tools support it, then continue useful independent work. Rejoin and inspect the results before relying on them. Keep reports concise: explain the outcome, verification, and remaining blockers.";
 
 /// cmux's own rules for its computer use server (`cmux-cua`), which `cmux
 /// mcp serve` puts before that server's `initialize` instructions on each
@@ -207,6 +205,19 @@ const SKILL_FILES: &[(&str, &str)] = &[
         include_str!("../../../../skills/cmux-browser/templates/form-automation.sh"),
     ),
     ("cmux-cua/SKILL.md", include_str!("../../../../skills/cmux-cua/SKILL.md")),
+    ("cmux-customization/SKILL.md", include_str!("../../../../skills/cmux-customization/SKILL.md")),
+    (
+        "cmux-customization/references/examples.md",
+        include_str!("../../../../skills/cmux-customization/references/examples.md"),
+    ),
+    (
+        "cmux-customization/references/local-app-views.md",
+        include_str!("../../../../skills/cmux-customization/references/local-app-views.md"),
+    ),
+    (
+        "cmux-customization/references/viewer-types.md",
+        include_str!("../../../../skills/cmux-customization/references/viewer-types.md"),
+    ),
     ("acpmux/SKILL.md", include_str!("../skills/acpmux/SKILL.md")),
 ];
 
@@ -1067,11 +1078,21 @@ fn bg_hooks() -> String {
     let mut words = vec![this.exe.to_string_lossy().into_owned()];
     let home = crate::config::home().to_string_lossy().into_owned();
     words.extend(this.args_lossy(&[crate::bg_hook::HOOK_ARG, home.as_str()]));
+    json!({"hooks": {"PreToolUse": [{"matcher": "Bash",
+        "hooks": [{"type": "command", "command": hook_command(&words), "timeout": 10}]}]}})
+    .to_string()
+}
+
+/// The hook's shell command: `words` quoted, then `|| true`. Claude Code blocks the tool call
+/// when a PreToolUse hook exits 2, and the hook only ever turns a call away through the JSON it
+/// prints on success, so a failure (a binary that is gone, or one that does not know
+/// `__bg-hook`, such as the cmux CLI, whose usage errors exit 2) lets the call run instead of
+/// refusing every Bash call of the chat (gcp-codex-swarm-09, 2026-11-02:
+/// `unknown resource scope "__bg-hook"` on each call).
+pub(crate) fn hook_command(words: &[String]) -> String {
     let quoted: Vec<String> =
         words.iter().map(|w| format!("'{}'", w.replace('\'', "'\\''"))).collect();
-    json!({"hooks": {"PreToolUse": [{"matcher": "Bash",
-        "hooks": [{"type": "command", "command": quoted.join(" "), "timeout": 10}]}]}})
-    .to_string()
+    format!("{} || true", quoted.join(" "))
 }
 
 /// The signed helper's own `cmux-cua` (`<app>/Contents/Library/cmux Computer

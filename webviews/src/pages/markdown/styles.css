@@ -63,15 +63,17 @@ body,
   height: 100%;
 }
 
-/* The viewer is a reading surface: its page is opaque, also over a see-through window, where
-   pageBase.css paints `--cmux-surface-background` transparent and faint text from behind the
-   window read through the document (user 2026-10-31). `--cmux-surface-solid` is the same page
-   color made opaque (WebTheme.swift). The native theme bootstrap forces
+/* The viewer is a reading surface. `--cmux-reading-background` (WebTheme.swift) is clear over a
+   background picture, which hides what is behind the window, so the page shows the App Theme's one
+   veil like the terminals (user 2026-11-02); where the desktop reads through (glass, a translucent
+   theme, Window Glass) it is the page color made opaque, so no faint text from behind the window
+   reads through the document (user 2026-10-31). An older host without it gets the opaque
+   `--cmux-surface-solid`. The native theme bootstrap forces
    `html{background:var(--cmux-surface-background) !important}` (WebTheme.bootstrapScript), so these
    page backgrounds are `!important` too: `:root` outranks `html`. The `markdown.theme` paper
    (light, dark) below, at `:root[...]`, still wins over this one. */
 :root {
-  background: var(--cmux-surface-solid, var(--cmux-surface-background, Canvas)) !important;
+  background: var(--cmux-reading-background, var(--cmux-surface-solid, var(--cmux-surface-background, Canvas))) !important;
 }
 
 /* R139: the page selects nothing by default (shared/desktop.css); the document (.md-doc) is
@@ -663,10 +665,16 @@ body {
   color: var(--md-tok-light);
 }
 
+/* The token scheme is the paper's: a fixed `markdown.theme` paper (light or dark) wins over the App
+   Theme's appearance, which `prefers-color-scheme` follows (colorScheme.ts picks the same for diagrams). */
 @media (prefers-color-scheme: dark) {
-  .md-code [style*="--md-tok-dark"] {
+  :root:not([data-cmux-md-theme="light"]) .md-code [style*="--md-tok-dark"] {
     color: var(--md-tok-dark);
   }
+}
+
+:root[data-cmux-md-theme="dark"] .md-code [style*="--md-tok-dark"] {
+  color: var(--md-tok-dark);
 }
 
 .md-diagram {

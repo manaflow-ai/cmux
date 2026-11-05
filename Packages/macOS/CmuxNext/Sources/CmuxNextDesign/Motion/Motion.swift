@@ -113,10 +113,4 @@ extension MotionGate {
     public func duration(_ token: MotionFade) -> TimeInterval { policy.duration(token) }
     public func duration(_ token: MotionSpring) -> TimeInterval { policy.duration(token) }
     public func period(_ loop: MotionLoop) -> TimeInterval? { policy.period(loop) }
-
-    /// Seconds of a released divider's velocity projected to find a snap; 0
-    /// when movement does not animate.
-    public var dividerReleaseProjection: Double {
-        animatesMovement ? MotionTunables.dividerReleaseProjection.value * speed.timeScale : 0
-    }
 }

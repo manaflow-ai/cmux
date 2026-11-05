@@ -651,6 +651,8 @@ fn every_verb(surface: SurfaceId) -> Vec<Value> {
         json!({"id":1,"cmd":"agent-session-attach","surface":surface}),
         json!({"id":2,"cmd":"agent-session-events","surface":surface}),
         json!({"id":3,"cmd":"agent-session-prompt","surface":surface,"prompt_id":"p1","text":"hi"}),
+        json!({"id":12,"cmd":"agent-session-prompt","surface":surface,"prompt_id":"content",
+               "content":[{"type":"image","mimeType":"image/png","data":"eA=="}]}),
         json!({"id":4,"cmd":"agent-session-cancel","surface":surface}),
         json!({"id":5,"cmd":"agent-session-permission","surface":surface,
                "permission_id":"perm_attach","option_id":"allow"}),
@@ -801,6 +803,11 @@ fn attach_replays_the_page_and_streams_live_records_of_that_session_only() {
     assert_eq!(sent["params"]["sessionId"], json!(SESSION), "session comes from the store record");
     assert_eq!(sent["params"]["eventStream"], json!(true));
     assert_eq!(sent["params"]["kinds"], json!(["transcript"]));
+    assert_eq!(
+        sent["params"]["waitLogs"],
+        json!(false),
+        "the open's page does not wait for a restarted daemon's log restore"
+    );
 
     // The record acpmux sent before its reply follows the reply.
     let early = client.event(WAIT).expect("the early record");
@@ -933,6 +940,69 @@ fn a_prompt_is_one_text_block_on_the_pinned_session() {
     ] {
         let mut frame = json!({"cmd":"agent-session-prompt","surface":surface});
         for (key, value) in bad.as_object().unwrap() {
+            frame[key] = value.clone();
+        }
+        assert_code(&client.request(frame), "agent_session.bad_request");
+    }
+    fake.no_frame();
+}
+
+#[test]
+fn a_content_prompt_preserves_order_bytes_and_pasted_metadata_on_the_pinned_session() {
+    let fake = FakeAcpmux::start("prompt-content");
+    let mux = mux_with(&fake, "asa-prompt-content");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let identity = run(&mux, json!({"cmd":"identify"}));
+    assert!(
+        identity["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| { value == agent_session_attach::AGENT_SESSION_CONTENT_CAPABILITY })
+    );
+    let mut client = Client::connect(&mux, "prompt-content");
+    assert_eq!(attach(&mut client, surface)["ok"], true);
+    let _ = fake.frame();
+    let image = json!({"type":"image", "mimeType":"image/png", "name":"shot.png",
+        "data":"AAAA".repeat(agent_session_attach::MAX_PROMPT_BYTES / 4 + 1)});
+    let mixed = json!([
+        {"type":"text", "text":"before"}, image,
+        {"type":"text", "text":"pasted", "_meta":{"cmux":{"pasted":true}}},
+        {"type":"document", "mimeType":"application/pdf", "data":"JVBERi0=", "name":"a.pdf"},
+        {"type":"audio", "mimeType":"audio/wav", "data":"UklGRg=="},
+        {"type":"resource_link", "uri":"file:///home/cmux/work/shot.png", "name":"shot.png"},
+        {"type":"text", "text":"after"}
+    ]);
+    let spaced = json!([
+        {"type":"text", "text":" "}, image, {"type":"text", "text":" "}, image,
+        {"type":"text", "text":"\n"}
+    ]);
+    for (id, content) in
+        [("mixed", mixed), ("attachment-only", json!([image])), ("spaced-images", spaced)]
+    {
+        let reply = client.request(json!({"cmd":"agent-session-prompt", "surface":surface,
+            "prompt_id":id, "content":content}));
+        assert_eq!(reply["ok"], true, "{reply}");
+        assert_eq!(
+            fake.frame()["params"],
+            json!({"sessionId":SESSION, "prompt":content,
+            "_meta":{"acpmux":{"promptId":id}}})
+        );
+    }
+    for invalid in [
+        json!({"content":[]}),
+        json!({"content":[null]}),
+        json!({"content":[{"type":"text", "text":" "}]}),
+        json!({"content":[{"type":"text", "text":""}, {"type":"text", "text":" \n"}]}),
+        json!({"text":"legacy", "content":[{"type":"text", "text":"other"}]}),
+        json!({"content":[{"type":"image", "mimeType":"image/png", "data":""}]}),
+        json!({"content":[{"type":"resource_link", "uri":""}]}),
+        json!({"content":[{"type":"text", "text":"x", "_meta":{"acpmux":{"author":"owner"}}}]}),
+        json!({"content":[{"type":"command", "text":"x"}]}),
+        json!({"content":[{"type":"text", "text":"x", "sessionId":"other"}]}),
+    ] {
+        let mut frame = json!({"cmd":"agent-session-prompt", "surface":surface, "prompt_id":"bad"});
+        for (key, value) in invalid.as_object().unwrap() {
             frame[key] = value.clone();
         }
         assert_code(&client.request(frame), "agent_session.bad_request");

@@ -312,6 +312,17 @@ test("Changes uses the state color for every pull-request glyph", () => {
       ["conflicting", "red"],
     ]),
   );
+  // The App draws the pack's pull-request glyphs (the page's row's own), never SF Symbol arrows.
+  const symbols = new Map(section.rows.map((row) => [row.title.split(" ")[0], row.symbol]));
+  expect(symbols).toEqual(
+    new Map([
+      ["open", "cmux:git.pullrequest"],
+      ["merged", "cmux:git.pullrequest.merged"],
+      ["draft", "cmux:git.pullrequest.draft"],
+      ["closed", "cmux:git.pullrequest.closed"],
+      ["conflicting", "cmux:git.pullrequest.closed"],
+    ]),
+  );
 });
 
 test("Sources preserves scoped paths and renders refused opens", () => {

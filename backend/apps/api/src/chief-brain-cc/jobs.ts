@@ -1,3 +1,5 @@
+import { rememberJobDestination, resolveJobDestination, validSlackDestination } from "./job-destination.ts"
+import type { SlackDestination } from "../chief-slack.ts"
 import type { Automation, Body } from "@cmux/protocol"
 import type { OwnerFrame, Principal } from "@cmux/ownership"
 import type { ChiefBrainDO } from "../chief-brain/brain-do.ts"
@@ -43,6 +45,7 @@ export interface ChiefJob {
   readonly trigger: string
   readonly input?: unknown
   readonly charged_user: string | null
+  readonly destination?: SlackDestination
 }
 export type JobDelivery = { readonly ok: true } | { readonly ok: false; readonly code: string; readonly message: string; readonly retry?: true }
 
@@ -65,6 +68,7 @@ export const chiefJobWake = async (b: ChiefBrainDO, j: ChiefJob): Promise<JobDel
   if (!a.ok && a.reason === "owner.unreachable") return { ok: false, code: "owner.unreachable", message: "the Chief's record could not be read", retry: true }
   // Out of credits is not refused here: the turn refuses and posts the one top-up notice (brain-turn.ts).
   if (!a.ok && a.reason !== "credits_exhausted") return { ok: false, code: `chief.${a.reason}`, message: a.reason === "chief_placed" ? "a paired computer runs this Chief; scheduled jobs need the Cloud Chief" : `the Chief cannot take a turn (${a.reason})` }
+  if (j.destination !== undefined && !validSlackDestination(j.destination)) return { ok: false, code: "validation.invalid", message: "invalid Slack destination" }
   const seq = Number(b.sql.exec<{ seq: number }>(`SELECT seq FROM cb_cursor WHERE conversation = ?`, j.conversation).toArray()[0]?.seq ?? 0)
   // An event's input is written by whoever caused it (a fork PR's title, an email's sender), not the
   // owner: like a teammate's message, it does not authorize effects (the turn has no hands or chiefs).
@@ -76,6 +80,7 @@ export const chiefJobWake = async (b: ChiefBrainDO, j: ChiefJob): Promise<JobDel
     jobNote(j),
     j.trigger === "event" ? 0 : 1
   )
+  if (j.destination) rememberJobDestination(b, `job:${j.run}`, j.destination)
   b.kick()
   return { ok: true }
 }
@@ -141,7 +146,8 @@ const view = (a: Automation): JobView => ({
   enabled: a.enabled,
   triggers: a.triggers.map((t) => t.spec as unknown as Record<string, unknown>),
   next_run_at: a.next_run_at,
-  prompt: a.body.type === "chief" ? a.body.prompt : undefined
+  prompt: a.body.type === "chief" ? a.body.prompt : undefined,
+  ...(a.body.type === "chief" && a.body.destination ? { destination: a.body.destination } : {})
 })
 
 /** The SchedulerDO's Chief jobs: rm, run, pause and resume one of this Chief's jobs in `conversation`. */
@@ -168,6 +174,11 @@ export const autoCall = async (b: ChiefBrainDO, conversation: string, raw: unkno
   const p = chiefJobPrincipal(cfg.agent, cfg.owner)
   const req = (raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>
   const fail = (status: number, r: { code: string; message: string }) => ({ status, json: { error: `${r.code}: ${r.message}`, code: r.code } })
+  let destination: SlackDestination | undefined
+  if (req.action === "auto_create") {
+    try { destination = await resolveJobDestination(env, cfg.owner, req) }
+    catch (e) { return { status: 400, json: { error: e instanceof Error ? e.message : "Slack destination unavailable", code: "destination.invalid" } } }
+  }
   const upstash = upstashConfig(env)
   if (upstash) {
     const name = str(req.name, 80)
@@ -175,7 +186,7 @@ export const autoCall = async (b: ChiefBrainDO, conversation: string, raw: unkno
     if (req.action === "auto_create" && (!name || !prompt)) return { status: 400, json: { error: "a job needs a name and a prompt (what to do on each run)" } }
     // An event WHEN with filters runs long; a cut one would be made and listed but never match, so refuse it.
     if (req.action === "auto_create" && typeof req.when === "string" && req.when.trim().length > WHEN_MAX) return { status: 400, json: { error: `WHEN is longer than ${WHEN_MAX} characters`, code: "trigger.invalid" } }
-    const create = req.action === "auto_create" ? { name: name!, prompt: prompt!, when: str(req.when, WHEN_MAX), tz: str(req.tz, 64) ?? "UTC" } : null
+    const create = req.action === "auto_create" ? { name: name!, prompt: prompt!, when: str(req.when, WHEN_MAX), tz: str(req.tz, 64) ?? "UTC", ...(destination ? { destination } : {}) } : null
     return upstashAuto(env, upstash, p, conversation, String(req.action ?? ""), req, create, (count) => planGate(env, p, cfg.owner!, count), legacyJobs(env, p, conversation))
   }
   if (req.action === "auto_list") return { status: 200, json: { jobs: (await ownJobs(env, p, conversation)).map(view) } }
@@ -194,7 +205,7 @@ export const autoCall = async (b: ChiefBrainDO, conversation: string, raw: unkno
   // The upsell gate: on the free plan a Chief has FREE_CHIEF_JOBS jobs (over all its conversations).
   const blocked = await planGate(env, p, cfg.owner, (await ownJobs(env, p, null)).length)
   if (blocked) return blocked
-  const body: Body = { type: "chief", chief: cfg.agent, conversation, prompt }
+  const body: Body = { type: "chief", chief: cfg.agent, conversation, prompt, ...(destination ? { destination } : {}) }
   const r = await mutate(env, p, "automation.create", { name, description: `Chief job: ${prompt.slice(0, 200)}`, triggers, body }, `chief-auto:create:${cfg.agent}:${conversation}:${crypto.randomUUID()}`)
   if (!r.ok) return fail(r.code === "trigger.invalid" || r.code === "validation.invalid" ? 400 : r.code === "automation.limit" ? 413 : 502, r)
   const job = r.value as Automation
@@ -227,7 +238,7 @@ export const AUTO_CLIENT = `#!/bin/sh
 # chief-auto: your scheduled and triggered jobs (apps/api/src/chief-brain-cc/jobs.ts). Each run puts
 # "[job ID] PROMPT" in this chat as your own note and starts a turn in the cloud, with the person's
 # computers asleep too: do the job then and post the result here.
-#   chief-auto add [--tz Area/City] NAME WHEN "PROMPT"
+#   chief-auto add [--tz Area/City] [--slack-channel C123|#name] NAME WHEN "PROMPT"
 #     WHEN: a 5-field cron like "0 9 * * 1-5" (in --tz, default UTC), webhook, manual, or an event of the
 #     person's connections: "PROVIDER EVENT [PATH=VALUE ...]" (PROVIDER github, linear, slack or gmail), e.g.
 #     "github workflow_run.completed workflow_run.conclusion=failure repository.full_name=OWNER/REPO" (CI failed)
@@ -246,17 +257,23 @@ call() {
   printf '%s\\n' "$body"
   [ "$code" = 200 ] || exit 1
 }
-usage() { echo 'usage: chief-auto add [--tz TZ] NAME WHEN "PROMPT" | ls | run ID | pause ID | resume ID | hook ID | rm ID' >&2; exit 2; }
+usage() { echo 'usage: chief-auto add [--tz TZ] [--slack-channel C123|#name] NAME WHEN "PROMPT" | ls | run ID | pause ID | resume ID | hook ID | rm ID' >&2; exit 2; }
 case "\${1:-ls}" in
   ls) printf '{"action":"auto_list"}' | call ;;
   run|rm|pause|resume|hook)
     [ $# -eq 2 ] || usage
     node -e 'process.stdout.write(JSON.stringify({action:process.argv[1],automation:process.argv[2]}))' "auto_$1" "$2" | call ;;
   add)
-    shift; tz=UTC
-    if [ "\${1:-}" = --tz ]; then [ $# -ge 2 ] || usage; tz="$2"; shift 2; fi
+    shift; tz=UTC; slack_channel=
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --tz) [ $# -ge 2 ] || usage; tz="$2"; shift 2 ;;
+        --slack-channel) [ $# -ge 2 ] || usage; slack_channel="$2"; shift 2 ;;
+        *) break ;;
+      esac
+    done
     [ $# -eq 3 ] || usage
-    node -e 'process.stdout.write(JSON.stringify({action:"auto_create",name:process.argv[1],when:process.argv[2],prompt:process.argv[3],tz:process.argv[4]}))' "$1" "$2" "$3" "$tz" | call ;;
+    node -e 'process.stdout.write(JSON.stringify({action:"auto_create",name:process.argv[1],when:process.argv[2],prompt:process.argv[3],tz:process.argv[4],...(process.argv[5]?{slack_channel:process.argv[5]}:{})}))' "$1" "$2" "$3" "$tz" "$slack_channel" | call ;;
   *) usage ;;
 esac
 `

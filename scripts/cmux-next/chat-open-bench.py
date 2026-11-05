@@ -19,6 +19,19 @@ to the first frame the pane shows the chat's content, with every surface the pan
              for 223 calls)
   restore    the app quit and launched again on the same state: the restored chat's pane, timed
              from the process start (a launch trace, CMUX_CHAT_OPEN_TRACE_LAUNCH=1)
+  click      a mouse click on the sidebar row of a chat never shown in this app's life (its workspace made in
+             the background, so the click makes its pane): judged from pixels, not the page's mark
+  click_again  a click back onto the row of a chat shown before and left (its page kept)
+
+The click cases read the window as the window server composited it, frame after frame, from the click
+(`debug.new_tab frame_strip` with gesture `mouse`, `above` so the Chromium page is in it: read through
+ScreenCaptureKit when the process lacks the Screen Recording grant, as on a fleet step, since the window list
+then leaves the page out; each record's `capture` says which) until the pane
+stops changing, and report click to first content frame, click to final frame, whether those are the same
+frame, and how far the transcript's rows moved after the page first drew them (`layout_watch`, started at the
+click): chat_open_frames.py (Leo, 2026-11-03: the final view on the first frame, never "text first and the
+real view a second later"; a cold local chat at its final frame in under 300 ms). They run first in each
+condition, while the sidebar is short, so every row is on screen.
 
 each under four conditions, so the share that is CPU priority separates from the share that is the
 app's own path:
@@ -35,6 +48,9 @@ The chats come from a seeding daemon (idle_cost_load.PeerDaemon) on chat_open_ag
 template of each shape, written by acpmux itself, copied into the app's store under fresh ids, so
 every cold open is a chat no page of this app has read. --sessions more short chats fill the
 store's list, as a long-used daemon's does.
+The templates are cached on the worker (chat_open_seed_cache.py: keyed by the seed inputs, the
+template generator's sources and acpmux's store schema), so the arms of an A/B seed a 10,000-turn
+chat once; every run still copies them into a fresh store under fresh ids. --no-seed-cache seeds again.
 
 Every number is from this app's own clock; the per-open record keeps each trace's marks, the
 surfaces it showed (`frames`: a flash is a return to an empty surface after content), the page's
@@ -67,7 +83,9 @@ sys.path.insert(0, HERE)
 import bench_memory as bm  # noqa: E402
 import idle_cost_load as icl  # noqa: E402
 from bench_power import wipe_state  # noqa: E402  (the tagged app's saved state under the real ~/Library)
-from chat_open_summary import cell, summarize  # noqa: E402
+import chat_open_frames as cof  # noqa: E402
+from chat_open_summary import cell, invalid_reason, summarize  # noqa: E402
+import chat_open_seed_cache as seed_cache  # noqa: E402
 
 parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
 parser.add_argument("--app", required=True)
@@ -78,7 +96,15 @@ parser.add_argument("--subagents", type=int, default=0, help="subagents in the s
 parser.add_argument("--bloat", default="20 400 5", help="calls, updates per call, KiB per update")
 parser.add_argument("--sessions", type=int, default=1500)
 parser.add_argument("--conditions", default="idle,load,load_utility,load_nice")
-parser.add_argument("--cases", default="sidebar,reopen,subagent,big,bloated,restore")
+parser.add_argument("--cases", default="click,click_again,sidebar,reopen,subagent,big,bloated,restore")
+parser.add_argument("--strip-ms", type=float, default=2500, help="click cases: how long the frame strip records after the click")
+parser.add_argument("--strip-tolerance", type=float, default=0.001,
+                    help="click cases: the share of the content area's pixels that may differ for two frames to count as one "
+                         "picture; under frame_strip's 0.002, since a near-empty terminal and a blank pane differ by about 0.0017")
+parser.add_argument("--keep-frames", type=int, default=1,
+                    help="click cases: the first N opens of each case keep their before, first-content and final frames in the JSON (base64 PNG)")
+parser.add_argument("--settle-frames", type=int, default=10,
+                    help="click cases: frames equal to the last that make the pane settled (the final frame starts them)")
 parser.add_argument("--settle", type=float, default=6, help="seconds a load runs before the first open under it")
 parser.add_argument("--config", default="{}", help="cmux.json for the app (JSON); workspaces.newPlacement stays bottom")
 parser.add_argument("--record-launch", type=float, default=0,
@@ -90,12 +116,24 @@ parser.add_argument("--backdrop", choices=["opaque", "frosted", "glass", "glass-
                     help="the window material (appearance.backgroundBlur at 85%% opacity; opaque leaves the default): "
                          "a page over a translucent window is clear, which a saved picture must keep")
 parser.add_argument("--tag", default="chatopen", help="the tag the app was built with (its state folder)")
+parser.add_argument("--no-seed-cache", action="store_true",
+                    help="seed every template on the daemon again, neither reading nor writing the worker's seed cache")
+parser.add_argument("--capture-check", action="store_true",
+                    help="only say whether this process (and so the app it launches) may read the screen "
+                         "(screen_capture_check.py) into --json, then exit: nothing is launched (scripts/measure/chat-open.sh "
+                         "with --app=PATH builds nothing)")
 parser.add_argument("--json")
 parser.add_argument("--md")
 opts = parser.parse_args()
+if opts.capture_check:
+    sys.exit(subprocess.run([sys.executable, os.path.join(HERE, "screen_capture_check.py"), "--embed-png",
+                             *(["--json", opts.json] if opts.json else [])]).returncode)
 APP = os.path.realpath(opts.app.rstrip("/"))
 CONDITIONS = [c.strip() for c in opts.conditions.split(",") if c.strip()]
 CASES = [c.strip() for c in opts.cases.split(",") if c.strip()]
+CLICK_CASES = ("click", "click_again")
+# The click cases go first in a condition: each makes a sidebar row, and a row below the sidebar's fold can't be clicked.
+CASES = [c for c in CASES if c in CLICK_CASES] + [c for c in CASES if c not in CLICK_CASES]
 SUBAGENTS = opts.subagents or opts.runs + 1
 # A new workspace goes last, so `workspace.selectLast` shows the one an open just made (the default
 # placement is the top of the list). Over --config: another placement would show the wrong workspace.
@@ -188,32 +226,74 @@ def copy_chat(home, template, title):
     return session
 
 
+def seed_templates(root):
+    """The template chats, from the worker's seed cache (chat_open_seed_cache.py) when it has them,
+    else written by acpmux on a seeding daemon and cached. Each entry is keyed by its own inputs and
+    the sources that shape it, so the arms of an A/B (different app builds, the same templates)
+    seed once. The templates, how long getting them took and each entry's cache result."""
+    started = time.monotonic()
+    specs = {"small": {"turns": opts.small_turns}, "subagent": {"subagents": SUBAGENTS}}
+    if "big" in CASES:
+        specs["big"] = {"turns": opts.turns}
+    if "bloated" in CASES:
+        specs["bloated"] = {"bloat": opts.bloat}
+    specs["store"] = {}  # the answered and closed chats seed_store copies, made last as before
+    cache_root = None if opts.no_seed_cache else seed_cache.default_root()
+    got, keys, result = {}, {}, {}
+    if cache_root:
+        digest = seed_cache.source_digest(icl.bundled_acpmux(APP))
+        for name, inputs in specs.items():
+            keys[name] = seed_cache.entry_key(name, inputs, digest)
+            got[name] = seed_cache.get(cache_root, keys[name])
+            result[name] = "hit" if got[name] else "miss"
+    else:
+        result = {name: "off" for name in specs}
+    missing = [name for name in specs if not got.get(name)]
+    if missing:
+        peer = icl.PeerDaemon(APP, root, AGENT)
+        peer.start()
+        try:
+            def chat(first, more):
+                session = peer.new_chat(first)
+                if not session:
+                    raise SystemExit("chat-open: the seeding daemon made no chat")
+                for text in more:
+                    sent = peer.acpmux("send", session, text, timeout=120)
+                    if sent.returncode != 0:
+                        raise SystemExit(f"chat-open: send {text!r}: {(sent.stdout + sent.stderr).strip()[-2000:]}")
+                return icl.read_chat(peer.home, session)
+
+            makers = {
+                "small": lambda: {"small": chat("turn: 0", [f"turn: {i}" for i in range(1, opts.small_turns)])},
+                "subagent": lambda: {"subagent": chat("turn: 0", ["turn: 1", f"subagents: {SUBAGENTS}"])},
+                "big": lambda: {"big": chat("turn: 0", [f"turn: {i}" for i in range(1, opts.turns)])},
+                "bloated": lambda: {"bloated": chat("turn: 0", [f"bloat: {opts.bloat}", "turn: 1"])},
+                "store": lambda: dict(zip(("answered", "closed"), peer.templates())),
+            }
+            for name in missing:
+                made_at = time.monotonic()
+                got[name] = makers[name]()
+                if cache_root:
+                    seed_cache.put(cache_root, keys[name], specs[name], got[name], time.monotonic() - made_at)
+        finally:
+            peer.stop()
+    if cache_root:
+        seed_cache.prune(cache_root, keep=tuple(keys.values()))
+    templates = {}
+    for entry in got.values():
+        templates.update(entry)
+    return templates, time.monotonic() - started, result
+
+
 def seed(root):
-    """Templates written by acpmux on the seeding daemon, then the app's store: --sessions short
-    chats for the list and fresh copies of each shape for every cold open."""
-    peer = icl.PeerDaemon(APP, root, AGENT)
-    peer.start()
-    try:
-        started = time.monotonic()
-
-        def chat(first, more):
-            session = peer.new_chat(first)
-            if not session:
-                raise SystemExit("chat-open: the seeding daemon made no chat")
-            for text in more:
-                sent = peer.acpmux("send", session, text, timeout=120)
-                if sent.returncode != 0:
-                    raise SystemExit(f"chat-open: send {text!r}: {(sent.stdout + sent.stderr).strip()[-2000:]}")
-            return icl.read_chat(peer.home, session)
-
-        small = chat("turn: 0", [f"turn: {i}" for i in range(1, opts.small_turns)])
-        sub = chat("turn: 0", ["turn: 1", f"subagents: {SUBAGENTS}"])
-        big = chat("turn: 0", [f"turn: {i}" for i in range(1, opts.turns)]) if "big" in CASES else None
-        bloated = chat("turn: 0", [f"bloat: {opts.bloat}", "turn: 1"]) if "bloated" in CASES else None
-        answered, closed = peer.templates()
-        seeded_s = time.monotonic() - started
-    finally:
-        peer.stop()
+    """Templates written by acpmux on the seeding daemon (or the worker's seed cache), then the
+    app's store: --sessions short chats for the list and fresh copies of each shape for every cold
+    open, under fresh ids in a fresh store every run."""
+    templates, seeded_s, cache_result = seed_templates(root)
+    small, sub = templates["small"], templates["subagent"]
+    big, bloated = templates.get("big"), templates.get("bloated")
+    answered, closed = templates["answered"], templates["closed"]
+    stored_at = time.monotonic()
     home = os.path.join(root, "acpmux")
     filler = icl.seed_store(home, opts.sessions, 0.6, answered, closed)
     per = {}
@@ -221,13 +301,16 @@ def seed(root):
         per[condition] = {
             "sidebar": [copy_chat(home, small, f"Sidebar {condition} {i}") for i in range(opts.runs)],
             "reopen": [copy_chat(home, small, f"Reopen {condition} {i}") for i in range(opts.runs)],
+            "click": [copy_chat(home, small, f"Click {condition} {i}") for i in range(opts.runs)],
+            "click_again": [copy_chat(home, small, f"Click again {condition} {i}") for i in range(opts.runs)],
             "subagent": [copy_chat(home, sub, f"Subagents {condition} {i}") for i in range(opts.runs)],
             "big": [copy_chat(home, big, f"Big {condition} {i}") for i in range(opts.runs)] if big else [],
             "bloated": [copy_chat(home, bloated, f"Bloated {condition} {i}") for i in range(opts.runs)] if bloated else [],
         }
     sizes = {name: sum(len(v) for v in t["events"].values()) for name, t in
              (("small", small), ("subagent", sub), ("big", big), ("bloated", bloated)) if t}
-    return home, per, {"seed_s": round(seeded_s, 1), "filler": filler, "template_bytes": sizes,
+    return home, per, {"seed_s": round(seeded_s, 1), "store_s": round(time.monotonic() - stored_at, 1),
+                       "seed_cache": cache_result, "filler": filler, "template_bytes": sizes,
                        "turns": opts.turns, "small_turns": opts.small_turns, "subagents": SUBAGENTS}
 
 
@@ -427,16 +510,20 @@ def why(record):
     """What an open's log line says beyond its times, so a run with no artifact (a failed step returns
     none) still shows why an open had no first content."""
     parts = []
-    for key in ("error", "timed_out"):
+    for key in ("error", "timed_out", "invalid_reason"):
         if record.get(key):
             parts.append(f"{key}={str(record[key])[:200]}")
     if not record.get("first_content_ms"):
         reply = record.get("open_reply")
         shown = reply.pop("shown", None) if isinstance(reply, dict) else None
+        probe = reply.pop("probe", None) if isinstance(reply, dict) else None
         parts.append(f"open_reply={json.dumps(reply, default=str)[:200]}")
         if shown:
             parts.append(f"shown={json.dumps(shown, default=str)[:200]}")
             reply["shown"] = shown
+        if probe:  # a subagent click that matched nothing: what the page shows (click_subagent)
+            parts.append(f"probe={json.dumps(probe, default=str)[:2000]}")
+            reply["probe"] = probe
         # Frames are [ms, surface] pairs (flashes, first_of).
         surfaces = sorted({str(f[1]) for f in record.get("frames") or [] if isinstance(f, (list, tuple)) and len(f) > 1})
         # `order` lists the marks that ran; `marks_ms` names every mark, null for one that did not.
@@ -449,20 +536,241 @@ def why(record):
     return (" " + " ".join(parts)) if parts else ""
 
 
+# A subagent's line, by what opens it: its finished transcript line (SubagentDoneLine.tsx), then its running-tray
+# line (AgentLine.tsx). Enabled ones only: a line with nothing to open is disabled and its click opens nothing.
+SUBAGENT_LINES = ("button.cv-subagent-done:not([disabled])", "button.acpmux-agent-line__button:not([disabled])")
+NO_MATCH = "no visible element matches"
+
+
+def subagent_task(k):
+    """What chat_open_agent.py asks subagent `k` to do; a line that names a subagent by its task first shows this."""
+    return f"Audit area {k}: crashes, edge cases, slow paths"
+
+
 def click_subagent(run):
     """Clicks a subagent line the chat shows, newest first. The click needs the line in the page,
     and which of the chat's subagent lines it renders depends on the build: a fixed name per open
     failed with "no visible element matches" for "Auditor 0" at one base and "Auditor 1" at
     another (2026-10-31). A click that matches nothing returns that error at once and does
-    nothing, so the next name is tried. The reply is the app's (its `clicked` and any `error` as
-    they came), with the subagent it named under `subagent`. Each open is its own copy of the chat with its own
-    subagents, so the same name in two opens opens two subagents."""
+    nothing, so the next candidate is tried. The reply is the app's (its `clicked` and any `error` as
+    they came), with what it clicked under `subagent`. Each open is its own copy of the chat with its own
+    subagents, so the same name in two opens opens two subagents.
+
+    By text, each subagent's name, then its task: a build that names a line by its task (the tray and a
+    finished line read "Audit area 3: ..." since 2026-11-04) shows no element whose text is the name alone.
+    Then by structure (`SUBAGENT_LINES`). When nothing matches, `probe` lists which of those selectors match
+    anything, so a failed run says what the page shows."""
     reply = None
-    for k in range(SUBAGENTS - 1, -1, -1):
-        reply = run.rpc("debug.agent_pane", {"action": "click", "text": f"Auditor {k}"}) or {}
-        if reply.get("error") != "no visible element matches":
-            return {**reply, "subagent": f"Auditor {k}"}
-    return reply
+    texts = [text for k in range(SUBAGENTS - 1, -1, -1) for text in (f"Auditor {k}", subagent_task(k))]
+    for text in texts:
+        reply = run.rpc("debug.agent_pane", {"action": "click", "text": text}) or {}
+        if reply.get("error") != NO_MATCH:
+            return {**reply, "subagent": text}
+    for selector in SUBAGENT_LINES:
+        reply = run.rpc("debug.agent_pane", {"action": "click", "selector": selector}) or {}
+        if reply.get("error") != NO_MATCH:
+            return {**reply, "subagent": selector}
+    return {**reply, "probe": subagent_probe(run)}
+
+
+# What a failed subagent click looks for, to say what the page shows instead (`probe` in the open's reply).
+PROBE_SELECTORS = ("button.cv-subagent-done", "button.acpmux-agent-line__button", ".acpmux-summary-agent__name",
+                   ".acpmux-tray-pull__tab", "[data-tray-status]", ".cv-tool")
+
+
+def subagent_probe(run):
+    """Per `PROBE_SELECTORS`, whether the page shows one (a `hover`, which moves the pointer and clicks nothing)."""
+    found = {}
+    for selector in PROBE_SELECTORS:
+        reply = run.rpc("debug.agent_pane", {"action": "hover", "selector": selector}) or {}
+        found[selector] = reply.get("error") or "shown"
+    state = run.rpc("debug.agent_pane", {"action": "chat_state"}) or {}
+    found["chat_state"] = json.dumps(state, default=str)[:1500]  # the summary card and what the page says it shows
+    return found
+
+
+def workspace_id(row):
+    """The workspace id of a `debug.sidebar_rows` row: its key reads `workspace(<id>)` (SidebarRowKey's description);
+    None for a row that is not a workspace (a section, a group, an item)."""
+    key = str((row or {}).get("key") or "")
+    return key[len("workspace("):-1] if key.startswith("workspace(") and key.endswith(")") else None
+
+
+def sidebar_rows(run):
+    return [row for window in (run.rpc("debug.sidebar_rows") or {}).get("windows") or [] for row in window.get("rows") or []]
+
+
+def shown_workspace(run):
+    """The id of the workspace the window shows (its selected sidebar row). A launch can show Home or another layout
+    item, with no workspace row selected: then a new workspace (a terminal, no chat) is made and shown, bounded."""
+    def selected():
+        return next((workspace_id(row) for row in sidebar_rows(run) if row.get("selected") and workspace_id(row)), None)
+
+    found = selected()
+    if found:
+        return found
+    run.app.action("workspace.newAtBottom", focus=True)
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        found = selected()
+        if found:
+            return found
+        time.sleep(0.1)  # test script: the new workspace is not shown yet
+    say("chat-open: no workspace row is selected, even after a new workspace; rows:",
+        json.dumps([[row.get("key"), row.get("selected")] for row in sidebar_rows(run)][:20]))
+    return None
+
+
+def background_row(run, session):
+    """Opens `session` in a new workspace without showing it (no focus: its pane is made when it shows) and
+    waits, bounded, for the workspace's sidebar row; (its workspace id, row, error). The id is the row's (`row` of
+    debug.mouse and goToWorkspace take it), which holds the open's key and may qualify it by machine."""
+    key = str(uuid.uuid4())
+    opened = run.app.action("agent.openSessionWorkspace", wait=False, session=session, key=key)
+    if opened.get("error"):
+        return None, None, f"open: {opened}"
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        row = next((r for r in sidebar_rows(run) if key in (workspace_id(r) or "") and r.get("in_list")), None)
+        if row and row.get("selected"):
+            return workspace_id(row), row, "the background open showed its workspace: the click would measure nothing"
+        if row:
+            return workspace_id(row), row, None
+        time.sleep(0.05)  # test script: the workspace is not listed yet
+    return key, None, "the workspace's sidebar row never appeared"
+
+
+def watch_layout(run, out, stop_at):
+    """From the click until `stop_at` (monotonic): asks the shown chat's page for its `layout_watch` once a page
+    shows one (before the click the shown workspace has none, so the ask fails at once and is asked again).
+    One watch runs; the thread ends with it or at `stop_at`."""
+    started = time.monotonic()
+    while time.monotonic() < stop_at:
+        asked = time.monotonic()
+        asked_wall = time.time()
+        reply = run.rpc("debug.agent_pane", {"action": "layout_watch", "ms": max(100, opts.strip_ms - 200)}, timeout=20)
+        if isinstance(reply, dict) and not reply.get("error") and "frames" in reply:
+            out["watch"], out["watch_asked"], out["watch_asked_wall"] = reply, asked, asked_wall
+            return
+        out["watch_error"] = reply
+        errors = out.setdefault("watch_errors", [])
+        text = json.dumps(reply, default=str)[:300]
+        if not errors or errors[-1]["error"] != text:  # each distinct answer once, with when it was asked and how long it took
+            errors.append({"asked_ms": round((asked - started) * 1000), "took_ms": round((time.monotonic() - asked) * 1000), "error": text})
+        time.sleep(0.033)  # test script: no page shows the chat yet (a few asks a frame would load the main actor)
+
+
+def frame_pictures(folder, frames, record, width=640, names=None):
+    """The frame before the click, the first-content frame, the final frame and the last frame of a strip, each as
+    a PNG at most `width` px wide in base64 (sips; macOS), keyed by name: pixel evidence of what the click drew, in
+    the one file a fleet step returns. A frame that could not be read is left out."""
+    import base64
+    rows = [f for f in frames or [] if f.get("file")]
+    picks = {name: next((f for f in rows if f["ms"] == ms), None) for name, ms in names.items()} if names else {
+             "before": next((f for f in reversed(rows) if isinstance(f["ms"], (int, float)) and f["ms"] <= 0), None),
+             "first_content": next((f for f in rows if f["ms"] == record.get("first_content_ms")), None),
+             "final": next((f for f in rows if f["ms"] == record.get("final_frame_ms")), None),
+             "last": rows[-1] if rows else None}
+    out = {}
+    for name, row in picks.items():
+        source = os.path.join(folder, row["file"]) if row else None
+        if not source or not os.path.exists(source):
+            continue
+        small = os.path.join(folder, f"small-{name}.png")
+        done = subprocess.run(["sips", "-Z", str(width), source, "--out", small], capture_output=True, timeout=30)
+        path = small if done.returncode == 0 and os.path.exists(small) else source
+        with open(path, "rb") as handle:
+            out[name] = {"ms": row["ms"], "png_base64": base64.b64encode(handle.read()).decode()}
+    return out
+
+
+def frame_click(run, key, label, keep=False):
+    """Clicks the sidebar row of workspace `key` inside a frame strip and judges the frames (chat_open_frames)."""
+    import threading
+    out = {}
+    # The page's debug hook may take up to 5 s to come (DebugAgentPane.script): the watch may ask that long past the strip.
+    stop_at = time.monotonic() + opts.strip_ms / 1000 + 6
+    watcher = threading.Thread(target=watch_layout, args=(run, out, stop_at), daemon=True)
+    folder = os.path.join(tempfile.gettempdir(), f"chat-open-click-{os.getpid()}", label)
+    params = {"action": "frame_strip", "gesture": "mouse", "mouse": {"row": key, "action": "click"}, "above": True,
+              "duration_ms": opts.strip_ms, "dir": folder, "tolerance": opts.strip_tolerance}
+    watcher.start()
+    # frame_strip clicks 120 ms after it starts recording (DebugFrameStrip's lead), or once ScreenCaptureKit's first
+    # frame is in when that is later: the click's monotonic time, corrected from the reply's lead_ms.
+    asked = time.monotonic()
+    asked_wall = time.time()
+    clicked = asked + 0.12
+    strip = run.rpc("debug.new_tab", params, timeout=opts.strip_ms / 1000 + 60) or {}
+    if isinstance(strip.get("lead_ms"), (int, float)):
+        clicked = asked + strip["lead_ms"] / 1000
+    watcher.join(timeout=max(0.0, stop_at - time.monotonic()) + 20)
+    if strip.get("error"):
+        shutil.rmtree(folder, ignore_errors=True)
+        return {"error": f"frame_strip: {strip.get('error')}", "click": strip.get("key")}
+    record = cof.final_frame(strip.get("frames"), settle_frames=opts.settle_frames, tolerance=opts.strip_tolerance)
+    if keep:
+        record["pictures"] = frame_pictures(folder, strip.get("frames"), record)
+        # The same moment through the screen (screencapture, this script's own capture), to check the app's frames
+        # show the chat's page pixels: a capture without them shows the pane empty.
+        screen = os.path.join(folder, "screen.png")
+        shot = subprocess.run(["screencapture", "-x", "-t", "png", screen], capture_output=True, text=True, timeout=30)
+        if shot.returncode == 0 and os.path.exists(screen):
+            record["pictures"].update(frame_pictures(folder, [{"ms": "screen", "file": "screen.png"}], {}, names={"screen": "screen"}))
+        else:
+            record["screen_error"] = f"screencapture exited {shot.returncode}: {(shot.stderr or shot.stdout).strip()[:300]}"
+    shutil.rmtree(folder, ignore_errors=True)  # the PNGs: the numbers per frame, and the kept pictures, are the evidence
+    # How the frames were read: screencapturekit has the Chromium page's pixels without the Screen Recording grant;
+    # window_list without the grant shows the pane empty (cmuxterm-hq#6338).
+    record.update({"capture": strip.get("capture"), "capture_error": strip.get("capture_error")})
+    record.update({"click": strip.get("key"), "frame_count": strip.get("frame_count"),
+                   "mean_interval_ms": strip.get("mean_interval_ms"), "strip_settled_ms": strip.get("settled_ms"),
+                   "strip_first_change_ms": strip.get("first_change_ms"), "spans": strip.get("spans"),
+                   "frames": [[f.get("ms"), round(f.get("content_vs_before") or 0, 4), round(f.get("content_vs_final") or 0, 4),
+                               round(f.get("flatness") or 0, 4), bool(f.get("blank"))] for f in strip.get("frames") or []],
+                   "frames_columns": ["ms", "content_vs_before", "content_vs_final", "flatness", "blank"],
+                   "layout_watch": out.get("watch"), "drift": cof.row_drift(out.get("watch")),
+                   "watch_asked_ms": round((out["watch_asked"] - clicked) * 1000) if out.get("watch_asked") else None,
+                   "watch_started_ms": cof.watch_started_ms(out.get("watch"), out.get("watch_asked"), clicked,
+                                                            asked_wall + (clicked - asked))})
+    record["transcript_ms"] = cof.transcript_ms(out.get("watch"), record["watch_started_ms"], opts.strip_ms)
+    record["layout_watch_errors"] = out.get("watch_errors")  # the asks before one answered too: why the watch started late
+    if not out.get("watch"):
+        record["layout_watch_error"] = out.get("watch_error")
+    # Rows the page added after its first paint are a second view: the first frame was not the final one.
+    if (record.get("drift") or {}).get("rows_appeared_later"):
+        record["first_is_final"] = False
+    return record
+
+
+def measure_click(run, case, session, base, label, index=0):
+    """One click case: the chat's workspace made in the background (`click`), or shown once and left
+    (`click_again`), then a click on its row from the workspace `base`, which shows no chat."""
+    key, row, error = background_row(run, session)
+    if error:
+        return {"error": error, "row": row}
+    if case == "click_again":
+        run.app.action("goToWorkspace", focus=True, workspace=key)
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            ready = run.rpc("debug.agent_pane", {"action": "readiness"}) or {}
+            if (ready.get("body_text_length") or 0) > 0:
+                break
+            time.sleep(0.3)  # test script: waiting for the chat to show
+        time.sleep(1.5)  # test script: let the page's own reads finish before it is left
+        run.app.action("goToWorkspace", focus=True, workspace=base)
+        time.sleep(1)  # test script: the page hands its tail over as it leaves
+    else:
+        time.sleep(0.5)  # test script: the new row settles (its own motion is not the chat's)
+        # Still not selected right before the click, after the settle (a late auto-select would leave the click
+        # nothing to change; cmux#33845).
+        if next((r.get("selected") for r in sidebar_rows(run) if workspace_id(r) == key), False):
+            return {"error": "the chat's workspace was shown before the click: the click would measure nothing", "row": row}
+    record = frame_click(run, key, label, keep=index < opts.keep_frames)
+    record["workspace"] = key
+    # Back to the workspace with no chat, so the next click starts from the same picture.
+    run.app.action("goToWorkspace", focus=True, workspace=base)
+    time.sleep(0.5)  # test script: the switch back settles
+    return record
 
 
 def measure_case(run, case, sessions, index):
@@ -478,6 +786,20 @@ def measure_case(run, case, sessions, index):
         settle_open(run, session)
         return traced(run, lambda: click_subagent(run))
     raise ValueError(case)
+
+
+def write_results(results):
+    """Prints the table and writes --json and --md; the table. main calls it before teardown."""
+    table = markdown(results)
+    print("CHAT-OPEN-TABLE-BEGIN\n" + table + "\nCHAT-OPEN-TABLE-END", flush=True)
+    if opts.json:
+        os.makedirs(os.path.dirname(os.path.abspath(opts.json)), exist_ok=True)
+        with open(opts.json, "w") as handle:
+            json.dump(results, handle, indent=1)
+    if opts.md:
+        with open(opts.md, "w") as handle:
+            handle.write(table + "\n")
+    return table
 
 
 def main():
@@ -508,17 +830,29 @@ def main():
                 load.start(condition)
                 time.sleep(opts.settle)  # test script: the load reaches steady state
             results.setdefault("load_avg", {})[condition] = load_average()
+            base = shown_workspace(run)
             for case in [c for c in CASES if c != "restore"]:
                 if case in ("big", "bloated") and not sessions[condition][case]:
                     continue
                 records = []
                 for index in range(opts.runs):
+                    if case in CLICK_CASES:
+                        record = measure_click(run, case, sessions[condition][case][index], base, f"{condition}-{case}-{index}", index) \
+                            if base else {"error": "no shown workspace to click from"}
+                        records.append(record)
+                        say(f"chat-open: {condition} {case} {index}: first_content_frame_ms={record.get('first_content_ms')} "
+                            f"final_frame_ms={record.get('final_frame_ms')} first_is_final={record.get('first_is_final')} "
+                            f"between={record.get('between_frames')} blank={record.get('blank_frames')} "
+                            f"transcript_ms={record.get('transcript_ms')} watch_started_ms={record.get('watch_started_ms')} "
+                            f"drift={json.dumps(record.get('drift'))}" + (f" error={str(record['error'])[:300]}" if record.get("error") else ""))
+                        continue
                     record = measure_case(run, case, sessions[condition], index)
+                    record["invalid_reason"] = invalid_reason(record)
                     records.append(record)
                     say(f"chat-open: {condition} {case} {index}: first_content_ms={record.get('first_content_ms')} "
                         f"empty={record.get('longest_empty_ms')} flashes={record.get('flashes')}{why(record)}")
                 results["raw"].setdefault(condition, {})[case] = records
-                results["cases"].setdefault(condition, {})[case] = summarize(records)
+                results["cases"].setdefault(condition, {})[case] = (cof.summarize if case in CLICK_CASES else summarize)(records)
             if "restore" in CASES:
                 records = []
                 for index in range(opts.runs):
@@ -541,6 +875,7 @@ def main():
                             time.sleep(0.5)  # test script: waiting for the app's recorder to finish
                         if not recorded(record_dir):
                             say(f"chat-open: {condition} restore {index}: the launch recording wrote no frames.json")
+                    record["invalid_reason"] = invalid_reason(record)
                     records.append(record)
                     say(f"chat-open: {condition} restore {index}: first_content_ms={record.get('first_content_ms')} "
                         f"first_image_ms={record.get('first_image_ms')} saved_pictures={pictures}{why(record)}")
@@ -550,6 +885,12 @@ def main():
             time.sleep(3)  # test script: the machine settles between conditions
     finally:
         load.stop()
+        try:
+            table = write_results(results)  # before teardown: a teardown that stalls never loses the run
+        except Exception as error:  # noqa: BLE001 - a report that fails must not hide the run's own error
+            say(f"chat-open: writing the results failed: {error!r}")
+            table = None
+        teardown = time.monotonic()
         if run:
             run.end()
         if opts.record_launch and os.path.isdir(frames_root):
@@ -558,15 +899,9 @@ def main():
             archive = shutil.make_archive(os.path.abspath(opts.launch_frames).removesuffix(".tar.gz"), "gztar", frames_root)
             say(f"chat-open: launch frames in {archive}")
         shutil.rmtree(root, ignore_errors=True)
-    table = markdown(results)
-    print("CHAT-OPEN-TABLE-BEGIN\n" + table + "\nCHAT-OPEN-TABLE-END", flush=True)
-    if opts.json:
-        os.makedirs(os.path.dirname(os.path.abspath(opts.json)), exist_ok=True)
-        with open(opts.json, "w") as handle:
-            json.dump(results, handle, indent=1)
-    if opts.md:
-        with open(opts.md, "w") as handle:
-            handle.write(table + "\n")
+        say(f"chat-open: teardown {time.monotonic() - teardown:.1f} s")
+    if table is None:
+        raise SystemExit("chat-open: no results written")
     failed = [f"{condition} {case}" for condition, cases in results["cases"].items()
               for case, summary in cases.items() if not summary.get("complete")]
     if failed:
@@ -578,7 +913,9 @@ def markdown(results):
     lines = [f"chat-open-bench on {results['host']} ({results['model']}, {results['ncpu']} CPUs); "
              f"median of {opts.runs} opens, milliseconds from the action to the first frame of chat content; "
              f"a cell reads FAILED when an open of its case timed out, errored, or showed no content or no empty time "
-             f"(no median over the rest)",
+             f"(no median over the rest); click rows are from pixels: click to first content frame and to final frame "
+             f"(the first of {opts.settle_frames}+ frames equal to the last), how many clicks drew the final frame first, "
+             f"frames between, blank frames, and the most px a transcript row moved after first paint",
              "", "| case | " + " | ".join(CONDITIONS) + " |", "|---|" + "---|" * len(CONDITIONS)]
     for case in CASES:
         cells = []
@@ -587,7 +924,7 @@ def markdown(results):
             if not s:
                 cells.append("–")
                 continue
-            cells.append(cell(s, case))
+            cells.append(cof.cell(s) if case in CLICK_CASES else cell(s, case))
         lines.append(f"| {case} | " + " | ".join(cells) + " |")
     lines += ["", "load average per condition: " + ", ".join(f"{c} {v}" for c, v in results.get("load_avg", {}).items())]
     return "\n".join(lines)

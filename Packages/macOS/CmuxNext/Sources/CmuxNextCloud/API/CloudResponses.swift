@@ -9,6 +9,9 @@ public struct CloudMachineStats: Sendable, Hashable, Decodable {
     public var memoryUsedMb: Double?
     public var diskTotalMb: Double?
     public var diskUsedMb: Double?
+
+    /// Only a state: a Worker machine (the app server link) has no stats route.
+    public init(state: String) { self.state = state }
 }
 
 /// One snapshot from `GET /api/vm/{id}/snapshots` or `POST …/snapshot`.

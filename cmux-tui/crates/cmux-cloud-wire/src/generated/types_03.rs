@@ -4,6 +4,96 @@
 #[allow(unused_imports)]
 use super::*;
 
+/// A normalized invite code: 10 Crockford base32 symbols, no hyphen.
+pub type PairingInviteCode = String;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PairingPreview {
+    pub code: PairingCode,
+    pub info: PairingInfo,
+    pub public_jwk: PublicJwk,
+    pub thumbprint: String,
+    pub country: Option<String>,
+    pub expires_at: i64,
+}
+
+/// user_<id>, agent_<name> or addr_<26> (an invited address).
+pub type ParticipantId = String;
+
+wire_enum! {
+    Platform {
+        Macos = "macos",
+        Ios = "ios",
+        Linux = "linux",
+        Windows = "windows",
+        Web = "web",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PolicyChange {
+    pub key: PolicyKey,
+    pub value: Option<PolicyChangeValue>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PolicyChangeValue {
+    pub value: Value,
+    pub mode: PolicyMode,
+}
+
+wire_enum! {
+    /// A team policy key (spec/enterprise.md 4.2).
+    PolicyKey {
+        GithubRepoScope = "github.repoScope",
+        GithubRequireOrgAdmin = "github.requireOrgAdmin",
+        GithubRepoAllowList = "github.repoAllowList",
+        GithubAllowWorkflows = "github.allowWorkflows",
+        IntegrationsAllowedProviders = "integrations.allowedProviders",
+        McpServer = "mcp.server",
+        McpRemoteTransport = "mcp.remoteTransport",
+        AppsInstall = "apps.install",
+        AppsAllowedTiers = "apps.allowedTiers",
+        AppsAllowList = "apps.allowList",
+        AppsForcedInstalls = "apps.forcedInstalls",
+        ComputerUseAllowed = "computerUse.allowed",
+        BrowserAutomationRawCdp = "browserAutomation.rawCdp",
+        CloudSandboxes = "cloud.sandboxes",
+        CloudConnectServices = "cloud.connectServices",
+        CloudIdlePause = "cloud.idlePause",
+        TelemetryLevel = "telemetry.level",
+        UpdatesChannel = "updates.channel",
+        UpdatesMinimumVersion = "updates.minimumVersion",
+        RetentionCuaEventsDays = "retention.cuaEventsDays",
+        RetentionCuaFramesDays = "retention.cuaFramesDays",
+        RetentionTranscriptDays = "retention.transcriptDays",
+        RetentionAuditDays = "retention.auditDays",
+        SsoEnforce = "sso.enforce",
+        SsoEnforceForOwners = "sso.enforceForOwners",
+        SsoAllowGuests = "sso.allowGuests",
+        SsoSessionMaxAgeHours = "sso.sessionMaxAgeHours",
+        SsoIdleTimeoutHours = "sso.idleTimeoutHours",
+        AgentsAllowedClasses = "agents.allowedClasses",
+        DeviceSettings = "device.settings",
+    }
+}
+
+wire_enum! {
+    PolicyMode {
+        Enforced = "enforced",
+        Default = "default",
+    }
+}
+
+/// ES256 (P-256) public key of an install.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PublicJwk {
+    pub kty: LitEc,
+    pub crv: LitP256,
+    pub x: String,
+    pub y: String,
+}
+
 /// One device's APNs registration.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PushTarget {
@@ -168,6 +258,13 @@ pub enum ServerNetworkState {
     ServerNetworkBinding(ServerNetworkBinding),
     /// A member this build does not know (a newer backend), kept verbatim.
     Unknown(Value),
+}
+
+wire_enum! {
+    Sharing {
+        Team = "team",
+        Private = "private",
+    }
 }
 
 /// A Cloud machine snapshot.
@@ -803,103 +900,4 @@ pub struct TeamPolicyVersion {
     pub at: i64,
     pub reason: Option<String>,
     pub rollback_of: Option<i64>,
-}
-
-wire_enum! {
-    TeamRole {
-        Owner = "owner",
-        Admin = "admin",
-        Member = "member",
-        Billing = "billing",
-        Guest = "guest",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmAccountUser {
-    pub user: String,
-    pub uid: i64,
-    pub class: SshCertClass,
-    pub principals: Vec<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmError {
-    pub code: String,
-    pub message: String,
-    pub at: i64,
-}
-
-pub type TeamVmLeaseId = String;
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmRetired {
-    pub vm: String,
-    pub epoch: i64,
-    pub state: TeamVmRetiredState,
-    pub at: i64,
-    pub by: String,
-    pub tainted_by: Vec<String>,
-}
-
-wire_enum! {
-    TeamVmRetiredState {
-        Pausing = "pausing",
-        Paused = "paused",
-    }
-}
-
-wire_enum! {
-    /// Last observed state of the team VM. `none`: never created. `failed`: the last provider call failed for good; the next ensure_awake retries.
-    TeamVmStatus {
-        None = "none",
-        Provisioning = "provisioning",
-        Starting = "starting",
-        Running = "running",
-        Paused = "paused",
-        Failed = "failed",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmTaint {
-    pub epoch: i64,
-    pub at: i64,
-    pub users: Vec<String>,
-    pub accepted_by: Option<String>,
-    pub accepted_at: Option<i64>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmView {
-    pub team: TeamId,
-    pub status: TeamVmStatus,
-    pub vm: Option<String>,
-    pub epoch: i64,
-    pub leases: Vec<TeamVmViewLeasesItem>,
-    pub last_error: Option<TeamVmError>,
-    pub updated_at: i64,
-    pub taint: Option<TeamVmTaint>,
-    pub retired: Vec<TeamVmRetired>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub no_owner: Option<bool>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmViewLeasesItem {
-    pub lease: TeamVmLeaseId,
-    pub holder: String,
-    pub reason: String,
-    pub expires_at: i64,
-}
-
-/// RFC 3339 UTC with milliseconds.
-pub type Timestamp = String;
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct Trigger {
-    pub id: TriggerId,
-    pub status: TriggerStatus,
-    pub spec: TriggerInput,
-    pub next_at: Option<i64>,
 }

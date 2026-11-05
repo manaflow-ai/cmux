@@ -25,6 +25,14 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
     var search: NSSearchField?
     private var title: ThemedLabel?
     var pendingCompositionModel: NativePopupModel?
+    /// An update that would rebuild the rows while AppKit tracks a slider: it applies when the
+    /// drag ends, so the slider under the pointer is never replaced mid-drag.
+    var pendingInteractionModel: NativePopupModel?
+    /// The symbols and top placements' wrapping strip (its own scroll view past its row limit).
+    var railStrip: NSScrollView?
+    /// The hairline between a placed rail and the list.
+    var railDivider: NSBox?
+    var lastCheckedRail: String?
     private var typeahead = ""
     private var typeaheadTime: TimeInterval = 0
     private(set) var contentHeight: CGFloat = 0
@@ -36,7 +44,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         isPresentationActive = true
         presentationIdentity += 1
         model = nil; selected = nil; selectionReason = "none"
-        searchHasInput = false; pendingCompositionModel = nil
+        searchHasInput = false; pendingCompositionModel = nil; pendingInteractionModel = nil
         typeahead = ""; typeaheadTime = 0
         inputState = NativePopupInputState()
         emittingRevision = nil
@@ -45,6 +53,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         subviews.forEach { $0.removeFromSuperview() }
         fields = [:]; editableControls = [:]; rowViews = []; targets = []
         search = nil; title = nil
+        railStrip = nil; railDivider = nil; lastCheckedRail = nil
     }
 
     func update(_ incoming: NativePopupModel) {
@@ -80,7 +89,9 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         let priorSelection = next.id == model?.id ? selected : nil
         if next.id != model?.id || next.search?.id != model?.search?.id { searchHasInput = false }
         let retainedSliders = retainSliders(updating: next)
-        if retireComposition || !retainedSliders && (next.rows != model?.rows || next.rail != model?.rail || next.footer != model?.footer) || next.title != model?.title || next.search?.id != model?.search?.id {
+        if retireComposition || !retainedSliders && (next.rows != model?.rows || next.rail != model?.rail || next.footer != model?.footer) || next.railPlacement != model?.railPlacement || next.title != model?.title || next.search?.id != model?.search?.id {
+            if !retireComposition, isTrackingSlider { pendingInteractionModel = next; return }
+            pendingInteractionModel = nil
             rebuild(next)
             if let focusedID, let replacement = editableControls[focusedID] ?? fields[focusedID] {
                 window?.makeFirstResponder(replacement)
@@ -104,7 +115,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         selected = next.highlighted ?? priorSelection
         if next.highlighted == nil, selectionReason == "none", !auto { selected = nil }
         if selected != priorSelection { selectionReason = "none" }
-        if !enabledRows.contains(where: { $0.0.id == selected }) {
+        if !(enabledRows + enabledRailRows).contains(where: { $0.0.id == selected }) {
             selected = auto ? enabledRows.first?.0.id : nil
             selectionReason = "none"
         }
@@ -120,10 +131,6 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
     }
 
     func rowView(id: String) -> NSView? { rowViews.first { $0.0.id == id }?.1 }
-
-    var enabledRows: [(NativePopupRow, NSView)] {
-        rowViews.filter { !$0.0.isNoninteractive && $0.0.disabled != true }
-    }
 
     private func rebuild(_ model: NativePopupModel) {
         subviews.forEach { $0.removeFromSuperview() }
@@ -152,6 +159,15 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
             fields[spec.id] = field
             search = field
             addSubview(field)
+        }
+        railStrip = nil
+        railDivider = nil
+        if let placement = model.railPlacement, let rail = model.rail, !rail.isEmpty {
+            let rows = model.rows + (model.footer ?? [])
+            let hasIcons = rows.contains { $0.icon != nil }
+            rowViews = rail.map { ($0, makeRailTab($0, placement: placement)) } + rows.map { row in (row, makeRow(row, hasIconColumn: hasIcons)) }
+            addPlacedRail(placement, rail: Set(rail.map(\.id)))
+            return
         }
         let rows = (model.rail ?? []) + model.rows + (model.footer ?? [])
         let hasIcons = rows.contains { $0.icon != nil }
@@ -185,12 +201,13 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
                 }
             }
             view.escape = { [weak self] in if owns() { self?.dismiss() } }
+            view.slider.interactionEnded = { [weak self] in self?.applyPendingInteraction() }
             view.slider.navigate = { [weak self] key in owns() ? (self?.navigateFromSlider(row.id, key: key) ?? false) : false }
             editableControls[row.id] = view.slider
             return view
         }
+        // One right-hand column: controls, the side item, accessory actions, then the key.
         var trailing: [NSView] = []
-        if let shortcut = row.shortcut { trailing.append(PopupRowView.shortcut(shortcut)) }
         if row.kind == .toggle {
             let control = NSSwitch()
             control.state = row.checked == true ? .on : .off
@@ -222,6 +239,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
                                   minValue: row.minimum ?? 0, maxValue: row.maximum ?? 1,
                                   target: nil, action: nil)
             slider.isContinuous = true
+            slider.interactionEnded = { [weak self] in self?.applyPendingInteraction() }
             slider.isEnabled = row.disabled != true
             slider.setAccessibilityLabel(row.label)
             let preferredWidth = slider.widthAnchor.constraint(equalToConstant: 120)
@@ -237,6 +255,9 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
             editableControls[row.id] = slider
             trailing.append(slider)
         }
+        if row.kind == .action, row.opensChildren {
+            trailing.append(sideItem(for: row))
+        }
         for action in row.actions ?? [] {
             let button = NSButton(title: action.label, target: nil, action: nil)
             button.isBordered = false
@@ -247,8 +268,9 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
             editableControls[action.id] = button
             trailing.append(button)
         }
+        if let shortcut = row.shortcut { trailing.append(PopupRowView.shortcut(shortcut)) }
         if row.kind == .submenu {
-            trailing.append(PopupRowView.shortcut("›"))
+            trailing.append(PopupRowView.shortcut([row.sideLabel, "›"].compactMap(\.self).joined(separator: " ")))
         }
         let accessory = trailing.isEmpty ? nil : NSStackView(views: trailing)
         accessory?.orientation = .horizontal
@@ -297,8 +319,14 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
     }
 
     func paintSelection() {
-        for (row, view) in rowViews { (view as? PopupRowView)?.isHighlighted = row.id == selected }
-        if let view = rowViews.first(where: { $0.0.id == selected })?.1 { scrollToVisible(view.frame) }
+        for (row, view) in rowViews {
+            (view as? PopupRowView)?.isHighlighted = row.id == selected
+            (view as? NativePopupRailTab)?.isHighlighted = row.id == selected
+        }
+        if let view = rowViews.first(where: { $0.0.id == selected })?.1 {
+            // A tab in the wrapping strip scrolls the strip, not the popup.
+            if view.superview === self { scrollToVisible(view.frame) } else { view.scrollToVisible(view.bounds) }
+        }
     }
 
     override func layout() {
@@ -310,6 +338,11 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
     }
 
     private func layoutRows() {
+        if let placement = model?.railPlacement, model?.rail?.isEmpty == false {
+            contentHeight = layoutPlacedRail(placement, title: title, search: search)
+            if frame.height != contentHeight { setFrameSize(NSSize(width: frame.width, height: contentHeight)) }
+            return
+        }
         let inset = PopupStyle.standard.padding
         let railIDs = Set((model?.rail ?? []).map(\.id))
         let footerIDs = Set((model?.footer ?? []).map(\.id))
@@ -361,26 +394,4 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         }
         super.keyDown(with: event)
     }
-
-    func handleKey(_ key: UInt16) -> Bool {
-        let enabled = enabledRows
-        if key == 53 { dismiss(); return true }
-        if key == 125 || key == 126 {
-            guard !enabled.isEmpty else { return true }
-            let index = enabled.firstIndex(where: { $0.0.id == selected }) ?? (key == 125 ? -1 : 0)
-            selected = enabled[(index + (key == 125 ? 1 : -1) + enabled.count) % enabled.count].0.id
-            selectionReason = "keyboard"
-            paintSelection()
-            if window?.firstResponder === self, let view = enabled.first(where: { $0.0.id == selected })?.1 as? NativePopupSliderView {
-                window?.makeFirstResponder(view.slider)
-            }
-            emit(.highlight, selected, nil)
-            return true
-        }
-        if [36, 76, 49, 124].contains(key), let (row, view) = enabled.first(where: { $0.0.id == selected }) {
-            if key != 124 || row.kind == .submenu { activate(row, view: view); return true }
-        }
-        return false
-    }
-
 }

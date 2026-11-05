@@ -92,6 +92,8 @@ extension DaemonService {
             if let start = self.recovery.startFailure {
                 recovery["start_failure"] = .string(start.kind.rawValue)
                 recovery["start_failure_detail"] = .string(start.detail)
+                // The notice over content shows only once the start keeps failing (`startFailurePersists`).
+                recovery["start_failure_persists"] = .bool(self.recovery.startFailurePersists)
             }
             report["recovery"] = .object(recovery)
             report["windows"] = .array(windows().map { .object(["id": .string($0.id), "shows": .string($0.shows)]) })

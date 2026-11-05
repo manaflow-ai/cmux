@@ -14,7 +14,8 @@ import type { Env } from "./env.ts"
  *
  *   POST   /v1/cloud/machines/{machine}/exec              {command, timeoutMs?} -> {exitCode, stdout, stderr}
  *          (30 s default; at most 5 min, the provider's inline exec limit, where classic allows 15; at
- *          most OUTPUT_MAX_BYTES of each stream, then a truncation note on stderr)
+ *          most OUTPUT_MAX_BYTES of each stream, then a truncation note on stderr; a command of any
+ *          length: one over INLINE_COMMAND_MAX_BYTES is staged on the machine first)
  *   GET    /v1/cloud/machines/{machine}/fs/dir?path=      -> {entries: [{name, kind, size, mode, modifiedAt}]}
  *   GET    /v1/cloud/machines/{machine}/fs/read?path=     -> {path, dataBase64, size}
  *   GET    /v1/cloud/machines/{machine}/fs/stat?path=     -> {path, kind, size, mode, modifiedAt}
@@ -36,8 +37,15 @@ export const GUEST_PATH = /^\/v1\/cloud\/machines\/(vm_[a-z0-9]{20})\/(exec|fs\/
 type Op = "exec" | "fs/dir" | "fs/read" | "fs/stat" | "fs/write" | "fs/mkdir" | "fs/remove"
 const METHOD: Readonly<Record<Op, string>> = { exec: "POST", "fs/dir": "GET", "fs/read": "GET", "fs/stat": "GET", "fs/write": "POST", "fs/mkdir": "POST", "fs/remove": "DELETE" }
 
-/** Classic's limits: a 64 KiB command, a 30 s default exec, a 4096 byte absolute path. */
-export const COMMAND_MAX_BYTES = 64 * 1024
+/**
+ * The longest command that goes inline. It reaches the machine as one argument (`bash -c` under runuser), and
+ * Linux takes at most 128 KiB in one argument. A longer command is staged as a file of the work user's first, in
+ * STAGE_PIECE_BYTES pieces of stdin, and run from there (stagedCommand), so an exec has no length limit.
+ */
+export const INLINE_COMMAND_MAX_BYTES = 64 * 1024
+/** One staging piece: about what the provider's exec takes as stdin. */
+export const STAGE_PIECE_BYTES = 1024 * 1024
+/** Classic's limits: a 30 s default exec, a 4096 byte absolute path. */
 export const EXEC_DEFAULT_MS = 30_000
 /** The provider answers an exec inline for at most 5 minutes (classic's 15 needs its own background exec). */
 export const EXEC_MAX_MS = PLATFORM_EXEC_MAX_MS
@@ -180,6 +188,16 @@ sys.exit(r if r>=0 else 128-r)
 /** An exec's command as the work user, with its output capped on the machine. */
 export const execCommand = (command: string): string => asWorkUser(["python3", "-c", shellQuote(OUTPUT_CAP_PROGRAM), String(OUTPUT_MAX_BYTES), shellQuote(command)].join(" "))
 
+/**
+ * The work user's command that writes its stdin to a staged command's file: the first piece creates it (0600,
+ * never over an existing file), the others append.
+ */
+export const stageCommand = (path: string, first: boolean): string =>
+  asWorkUser(first ? `umask 077 && set -C && cat > ${shellQuote(path)}` : `cat >> ${shellQuote(path)}`)
+
+/** Runs a staged command: bash reads it from an open descriptor, and the file is removed before any of it runs. */
+export const stagedCommand = (path: string): string => `exec 3<${shellQuote(path)} && rm -f ${shellQuote(path)} && exec bash /dev/fd/3`
+
 /** The root command for one file operation. */
 export const fsCommand = (op: "dir" | "read" | "stat" | "write" | "mkdir" | "remove", path: string, mode?: number): string =>
   ["python3", "-c", shellQuote(FS_PROGRAM), op, shellQuote(path), ...(mode === undefined ? [] : [String(mode)])].join(" ")
@@ -247,8 +265,24 @@ export const handleCloudMachineGuest = async (request: Request, env: Env, machin
     if (body instanceof Response) return body
     const command = body.command
     if (typeof command !== "string" || command.trim() === "") return refuse(400, "vm_invalid_command", "command must be a non-empty string")
-    if (new TextEncoder().encode(command).byteLength > COMMAND_MAX_BYTES) return refuse(413, "vm_command_too_large", `the command is over ${COMMAND_MAX_BYTES} bytes`)
-    const r = await run(execCommand(command), null, execTimeout(body.timeoutMs))
+    const bytes = new TextEncoder().encode(command)
+    // Only an inline command is quoted into the wrapper (quoting a long one could take many times its size).
+    let staged: string | null = null
+    if (bytes.byteLength > INLINE_COMMAND_MAX_BYTES) {
+      const path = `/tmp/.cmux-exec-${crypto.randomUUID().replaceAll("-", "")}`
+      for (let at = 0; at < bytes.byteLength; at += STAGE_PIECE_BYTES) {
+        const piece = await run(stageCommand(path, at === 0), bytes.subarray(at, at + STAGE_PIECE_BYTES), FS_TIMEOUT_MS)
+        if (piece instanceof Response || piece.exitCode !== 0) {
+          // Nothing of the command ran; what was staged goes.
+          await run(asWorkUser(`rm -f ${shellQuote(path)}`), null, FS_TIMEOUT_MS)
+          return piece instanceof Response ? piece : refuse(502, "vm_unavailable", (piece.stderr || "the command could not be staged on the machine").slice(-500))
+        }
+      }
+      staged = path
+    }
+    const r = await run(execCommand(staged === null ? command : stagedCommand(staged)), null, execTimeout(body.timeoutMs))
+    // Refused before it started (busy, not running, unreachable): the staged file goes too.
+    if (r instanceof Response && staged !== null) await run(asWorkUser(`rm -f ${shellQuote(staged)}`), null, FS_TIMEOUT_MS)
     return r instanceof Response ? r : ok({ exitCode: r.exitCode, stdout: r.stdout, stderr: r.stderr })
   }
 

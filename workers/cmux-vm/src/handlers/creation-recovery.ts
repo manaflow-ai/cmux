@@ -22,9 +22,9 @@ export const reconcileCreation = <C>(caller: Named<C, Principal>, scope: KeyHasS
   const scoped = yield* scopedCreationKey(caller.value, key);
   if (status.state !== "pending" || status.id === null) {
     if (status.id !== null && (status.state === "committed" || status.state === "deleted")) {
-      const record = yield* limits.inspect(caller.value.tenantId, scoped).pipe(Effect.mapError(() => unavailable()));
+      const record = yield* limits.inspect(caller.value.tenantId, scoped).pipe(Effect.mapError(unavailable));
       if (record?.progress.phase === "creating" && record.progress.vmId === status.id) {
-        yield* limits.settleCreation(caller.value.tenantId, scoped, status.id).pipe(Effect.mapError(() => unavailable()));
+        yield* limits.settleCreation(caller.value.tenantId, scoped, status.id).pipe(Effect.mapError(unavailable));
       }
     }
     return status;
@@ -32,7 +32,7 @@ export const reconcileCreation = <C>(caller: Named<C, Principal>, scope: KeyHasS
   return yield* name(status.id, (vm) => Effect.gen(function* () {
     const pending = yield* pendingVmCreation(caller, vm, key);
     if (pending === null) return yield* readVmCreation(caller, key);
-    const recovered = yield* (yield* UpstreamClient).recoverCreation(caller, vm, { pending, scope }).pipe(Effect.mapError(() => unavailable()));
+    const recovered = yield* (yield* UpstreamClient).recoverCreation(caller, vm, { pending, scope }).pipe(Effect.mapError(unavailable));
     if (recovered === null) return status;
     // A simultaneous completion or key reuse must not adopt stale evidence.
     if ((yield* pendingVmCreation(caller, vm, key)) === null) return yield* readVmCreation(caller, key);
@@ -42,8 +42,8 @@ export const reconcileCreation = <C>(caller: Named<C, Principal>, scope: KeyHasS
       tenantId: caller.value.tenantId, kind: "vm", cmuxId: vm.value, upstreamId: recovered.upstreamId,
       createdBy: retained.createdBy, createdAt: new Date(retained.intent.createdAt),
       displayName: receipt.displayName, labels: receipt.labels, creation: { key: retained.key, receipt },
-    }).pipe(Effect.mapError(() => unavailable()));
-    yield* limits.settleCreation(caller.value.tenantId, retained.key, vm.value).pipe(Effect.mapError(() => unavailable()));
+    }).pipe(Effect.mapError(unavailable));
+    yield* limits.settleCreation(caller.value.tenantId, retained.key, vm.value).pipe(Effect.mapError(unavailable));
     if (retained.snapshotId !== undefined) yield* cleanupForkSnapshot(caller, scope, retained.snapshotId);
     return yield* readVmCreation(caller, key);
   }));

@@ -5,15 +5,13 @@
 // never merged in; text typed before the page ever read the chat's draft is kept beside acpmux's;
 // an untouched prompt shows acpmux's draft.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { JSDOM } from "jsdom";
 import { act, createRef } from "react";
 import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
-import { MAX_DRAFT_CHARS, hydratedDraft, notifyDraftActionsChanged } from "../src/agent-session/acpmux/composerDraft";
+import { hydratedDraft, notifyDraftActionsChanged } from "../src/agent-session/acpmux/composerDraft";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -37,7 +35,10 @@ let root: Root | undefined;
 let host: HTMLElement;
 
 beforeAll(() => {
-  dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, url: "https://cmux.test/" });
+  dom = new JSDOM("<!doctype html><div id=root></div>", {
+    pretendToBeVisual: true,
+    url: "https://cmux.test/",
+  });
   const { window } = dom;
   Object.assign(scope, {
     ResizeObserver: class {
@@ -59,7 +60,17 @@ beforeAll(() => {
     localStorage: window.localStorage,
   });
   // jsdom lays nothing out and its Range has no rects: ProseMirror measures one to scroll.
-  const box = () => ({ left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => ({}) });
+  const box = () => ({
+    left: 0,
+    top: 0,
+    right: 0,
+    bottom: 0,
+    width: 0,
+    height: 0,
+    x: 0,
+    y: 0,
+    toJSON: () => ({}),
+  });
   Object.assign(window.Range.prototype, {
     getClientRects: () => Object.assign([box()], { item: () => box() }),
     getBoundingClientRect: box,
@@ -96,7 +107,12 @@ async function render(
   const { Composer } = await import("../src/agent-session/acpmux/Composer");
   const snapshot = noChat(
     [],
-    sessionId ? { sessionId, summary: { sessionId, harness: "claude", cwd: "/Users/you/src/app", turnCount: 0 } } : {},
+    sessionId
+      ? {
+          sessionId,
+          summary: { sessionId, harness: "claude", cwd: "/Users/you/src/app", turnCount: 0 },
+        }
+      : {},
   );
   root ??= createRoot(host);
   await act(async () =>
@@ -409,7 +425,14 @@ for (const row of rows) {
 }
 
 test("hydratedDraft: the one rule", () => {
-  const base = { current: "", restored: undefined, read: false, edited: false, sent: false, pendingWrite: false };
+  const base = {
+    current: "",
+    restored: undefined,
+    read: false,
+    edited: false,
+    sent: false,
+    pendingWrite: false,
+  };
   // Untouched, read before: acpmux's draft fills the prompt.
   expect(hydratedDraft({ ...base, current: "old", restored: "new", read: true })).toEqual({
     text: "new",
@@ -465,31 +488,24 @@ test("a quit's read answers before the load's: the editor and acpmux both keep s
   expect(state.held).toBe("saved\n\ntyped!");
 });
 
-// cmux#28204 review at b7cddbbf: a saved draft one character under the limit plus "x" typed before
-// the read merged to a text past the limit. The stores refuse such a text (acpmux's draft_set errors;
-// AgentUnsentDrafts.set turned it into nil, removing the saved draft), so a quit lost the draft.
-// The chosen behaviour when "saved\n\ntyped" does not fit: no merge is written, the saved draft
-// stays exactly as it was, and the editor keeps what the person typed. Nothing is lost.
-// The limit as the stores keep it (acpmux's Hub::MAX_COMPOSER_DRAFT_CHARS, AgentUnsentDrafts).
-const LIMIT = 1_000_000;
-const tooLong = (text: string) => Array.from(text).length > LIMIT;
-
-test("the web's draft limit is acpmux's and AgentUnsentDrafts'", () => {
-  const repo = path.resolve(import.meta.dir, "../..");
-  const rust = readFileSync(path.join(repo, "cmux-tui/crates/acpmux/src/hub/mod.rs"), "utf8");
-  const swift = readFileSync(
-    path.join(repo, "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentUnsentDrafts.swift"),
-    "utf8",
-  );
-  const number = (match: RegExpMatchArray | null) => Number(match?.[1]?.replaceAll("_", ""));
-  expect(number(rust.match(/MAX_COMPOSER_DRAFT_CHARS: usize = ([\d_]+);/))).toBe(LIMIT);
-  expect(number(swift.match(/static let maximumCharacters = ([\d_]+)/))).toBe(LIMIT);
-  expect(MAX_DRAFT_CHARS).toBe(LIMIT);
+test("a multi-megabyte saved draft merges and is written whole", () => {
+  const saved = "s".repeat(3 * 1024 * 1024);
+  const typed = "typed after restore";
+  const merged = hydratedDraft({
+    current: typed,
+    restored: saved,
+    read: false,
+    edited: true,
+    sent: false,
+    pendingWrite: false,
+  });
+  expect(merged.text).toBe(`${saved}\n\n${typed}`);
+  expect(merged.write).toBe(true);
 });
 
-test("a saved draft at the limit and text typed before the read: nothing written over it, the typing kept", async () => {
-  const sessionId = "ordering-over-limit";
-  const saved = "s".repeat(LIMIT - 1);
+test("a large saved draft and text typed before the read are merged and written", async () => {
+  const sessionId = "ordering-large";
+  const saved = "s".repeat(3 * 1024 * 1024);
   const { state, actions } = gatedDaemon(saved);
   state.holdReads = true;
   page().cmuxAcpmuxActions = actions as never;
@@ -503,23 +519,20 @@ test("a saved draft at the limit and text typed before the read: nothing written
   for (const answer of state.reads.splice(0)) await act(async () => answer());
   await settle();
   await settle();
-  expect(prompt()).toBe("x");
-  expect(state.held).toBe(saved);
-  // A later key and a quit keep it too: the typed text never goes over the saved draft.
+  expect(prompt()).toBe(`${saved}\n\nx`);
+  expect(state.held).toBe(`${saved}\n\nx`);
   await type("y");
-  await until(() => prompt() === "xy", "the next key");
+  await until(() => prompt() === `${saved}\n\nxy`, "the next key");
   await settle();
   await act(async () => handle.current!.settleDraft());
   await settle();
-  expect(state.held).toBe(saved);
-  expect(state.written.some((text) => tooLong(text) || !text.trim())).toBe(false);
+  expect(state.held).toBe(`${saved}\n\nxy`);
+  expect(state.written.some((text) => text === `${saved}\n\nxy`)).toBe(true);
 });
 
-test("a saved draft left apart at the limit, then the typing sent: the saved draft stays and comes back", async () => {
-  // cmux#28204 review at c736d691: the send marked the prompt sent, and the next read took the
-  // empty prompt as the draft and wrote it over the saved one the overflow had kept.
-  const sessionId = "ordering-over-limit-sent";
-  const saved = "s".repeat(LIMIT - 1);
+test("a large merged saved draft clears after sending", async () => {
+  const sessionId = "ordering-large-sent";
+  const saved = "s".repeat(3 * 1024 * 1024);
   const { state, actions } = gatedDaemon(saved);
   state.holdReads = true;
   page().cmuxAcpmuxActions = actions as never;
@@ -533,16 +546,18 @@ test("a saved draft left apart at the limit, then the typing sent: the saved dra
   for (const answer of state.reads.splice(0)) await act(async () => answer());
   await settle();
   await settle();
-  expect(prompt()).toBe("x");
+  expect(prompt()).toBe(`${saved}\n\nx`);
+  expect(state.held).toBe(`${saved}\n\nx`);
+  expect(state.written.some((text) => !text.trim())).toBe(false);
   await act(async () => void handle.current!.send());
   await until(() => prompt() === "", "the send's clear");
   await settle();
-  // The next read (actions reinstalled after a reconnect) finds the saved draft and shows it.
+  // A reconnect sees the cleared daemon draft.
   await act(async () => notifyDraftActionsChanged());
-  await until(() => prompt() === saved, "the saved draft back");
+  await until(() => prompt() === "", "the cleared draft");
   await settle();
-  expect(state.held).toBe(saved);
-  expect(state.written.some((text) => !text.trim())).toBe(false);
+  expect(state.held).toBeUndefined();
+  expect(state.written.at(-1)).toBe("");
 });
 
 test("a read asked before an edit's write was answered never puts the old draft back", async () => {
@@ -617,9 +632,9 @@ test("a quit after a reconnect took another pane's draft never writes it over th
   expect(state.written).not.toContain("B");
 });
 
-test("a saved draft and typed text that fit the limit exactly: merged and written", async () => {
+test("a large saved draft and typed text are merged and written", async () => {
   const sessionId = "ordering-at-limit";
-  const saved = "s".repeat(LIMIT - 3);
+  const saved = "s".repeat(3 * 1024 * 1024);
   const { state, actions } = gatedDaemon(saved);
   state.holdReads = true;
   page().cmuxAcpmuxActions = actions as never;
@@ -634,13 +649,12 @@ test("a saved draft and typed text that fit the limit exactly: merged and writte
   await settle();
   await settle();
   const merged = `${saved}\n\nx`;
-  expect(merged.length).toBe(LIMIT);
   expect(prompt()).toBe(merged);
   expect(state.held).toBe(merged);
 });
 
-test("a new chat's kept draft at the limit arriving after the person typed: the host keeps it, the typing stays", async () => {
-  const saved = "k".repeat(LIMIT - 1);
+test("a new chat's large kept draft arriving after the person typed is merged", async () => {
+  const saved = "k".repeat(3 * 1024 * 1024);
   const sent: string[] = [];
   const onUnsentDraft = (text: string) => void sent.push(text);
   const handle = await render(undefined, { onUnsentDraft });
@@ -652,19 +666,17 @@ test("a new chat's kept draft at the limit arriving after the person typed: the 
   await render(undefined, { draft: saved, onUnsentDraft }, handle);
   await settle();
   await settle();
-  expect(prompt()).toBe("x");
+  expect(prompt()).toBe(`${saved}\n\nx`);
   await type("y");
-  await until(() => prompt() === "xy", "the next key");
+  await until(() => prompt() === `${saved}\n\nxy`, "the next key");
   await settle();
   await act(async () => handle.current!.settleDraft());
   const after = sent.slice(before);
-  // Nothing past the limit, and no blank, went to the host; what it holds last is the kept draft.
-  expect(after.some((text) => tooLong(text) || !text.trim())).toBe(false);
-  expect(after.at(-1)).toBe(saved);
+  expect(after.at(-1)).toBe(`${saved}\n\nxy`);
 });
 
-test("a new chat's kept draft and typed text that fit exactly: merged and sent", async () => {
-  const saved = "k".repeat(LIMIT - 3);
+test("a new chat's large kept draft and typed text are merged and sent", async () => {
+  const saved = "k".repeat(3 * 1024 * 1024);
   const sent: string[] = [];
   const onUnsentDraft = (text: string) => void sent.push(text);
   const handle = await render(undefined, { onUnsentDraft });

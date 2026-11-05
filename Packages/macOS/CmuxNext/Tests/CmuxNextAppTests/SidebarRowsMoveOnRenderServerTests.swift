@@ -348,6 +348,94 @@ struct SidebarRowsMoveOnRenderServerTests {
         #expect(farthest > nudge + 1, "the expanded members came out by at most \(farthest) pt (the nudge), not from under the header")
     }
 
+    /// w1, group Work (docs, web, api; open unless `collapsed`), then w9 below it.
+    private static func workThenBelow(collapsed: Bool = false) -> [CmuxNextSidebar.SidebarSection] {
+        let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
+        let work = CmuxNextSidebar.SidebarGroup(id: GroupID("g-work"), name: "Work", color: .blue, isCollapsed: collapsed,
+                                                workspaces: ["docs", "web", "api"].map(ws))
+        return [CmuxNextSidebar.SidebarSection(kind: .machine(machine), nodes: [.workspace(ws("w1")), .group(work), .workspace(ws("w9"))])]
+    }
+
+    /// The fold's mask on `view` (`clipFold`), its model frame in the list's coordinates.
+    private static func foldClip(_ view: NSView, in list: SidebarListView) -> (layer: CALayer, inList: CGRect)? {
+        guard let mask = view.layer?.mask, mask.name == SidebarListView.foldClipName else { return nil }
+        return (mask, view.convert(view.convertFromLayer(mask.frame), to: list))
+    }
+
+    /// Leo 2026-11-02, on collapsing a group: "the collapsing group animation is kinda funky looking when the text all
+    /// races up" (compared to Claude Code). The members stay in place, each masked to the group's slot under the header,
+    /// whose bottom edge closes on the rows' `.move` spring with w9 below; no member slides up over another.
+    @Test(.enabled("needs an awake display and animations on, or every fold snaps anyway") {
+        await SidebarInsertWhileDisplayAsleepTests.animatesHere()
+    })
+    func collapsingAGroupClipsItsMembersInPlace() throws {
+        let (model, list, _, restore) = try Self.sidebar(Self.workThenBelow())
+        defer { restore() }
+        let header = try #require(list.rowViews[.group(GroupID("g-work"))]).frame
+        var members: [String: (view: SidebarRowView, frame: NSRect)] = [:]
+        for member in ["docs", "web", "api"] {
+            let view = try #require(list.rowViews[.workspace(CmuxNextSidebar.WorkspaceID(member))], "\(member) has no view")
+            members[member] = (view, view.frame)
+        }
+        model.noteUserIntent()
+        model.setGroupCollapsed(GroupID("g-work"), true)
+        let below = try #require(list.rowViews[.workspace(CmuxNextSidebar.WorkspaceID("w9"))])
+        #expect(Self.positionSprings(below) > 0, "w9 below the group does not rise on the spring")
+        let moveDuration = Motion.sidebar.springAnimation(.move, "position", from: 0, to: 0).duration
+        for (name, member) in members {
+            #expect(member.view.frame == member.frame, "\(name) moved from \(member.frame) to \(member.view.frame): it races up")
+            #expect(Self.positionSprings(member.view) == 0, "\(name) slides")
+            let clip = try #require(Self.foldClip(member.view, in: list), "\(name) is not clipped to the group's slot")
+            #expect(abs(clip.inList.minY - header.maxY) < 0.5, "\(name)'s slot starts at \(clip.inList.minY), the header ends at \(header.maxY)")
+            #expect(clip.inList.height < 0.5, "\(name)'s slot ends \(clip.inList.height) pt tall, not closed")
+            let spring = (clip.layer.animationKeys() ?? []).compactMap { clip.layer.animation(forKey: $0) as? CASpringAnimation }
+                .first { $0.keyPath == "bounds.size" }
+            #expect(spring.map { abs($0.duration - moveDuration) < 0.001 } == true, "\(name)'s slot does not close on .move")
+        }
+    }
+
+    /// The reverse: an opened group's members show at their own frames under a slot that opens down with the rows below.
+    @Test(.enabled("needs an awake display and animations on, or every fold snaps anyway") {
+        await SidebarInsertWhileDisplayAsleepTests.animatesHere()
+    })
+    func expandingAGroupOpensItsSlotOverTheMembersInPlace() throws {
+        let (model, list, _, restore) = try Self.sidebar(Self.workThenBelow(collapsed: true))
+        defer { restore() }
+        let header = try #require(list.rowViews[.group(GroupID("g-work"))]).frame
+        model.noteUserIntent()
+        model.setGroupCollapsed(GroupID("g-work"), false)
+        let height = try #require(list.displayed.row(for: .workspace(CmuxNextSidebar.WorkspaceID("w9")))).y
+            - list.frame(for: try #require(list.displayed.row(for: .group(GroupID("g-work"))))).maxY
+        for member in ["docs", "web", "api"] {
+            let key = SidebarRowKey.workspace(CmuxNextSidebar.WorkspaceID(member))
+            let view = try #require(list.rowViews[key], "\(member) has no view")
+            #expect(view.frame == list.frame(for: try #require(list.displayed.row(for: key))), "\(member) does not start at its own place")
+            #expect(Self.positionSprings(view) == 0, "\(member) slides out from under the header")
+            let clip = try #require(Self.foldClip(view, in: list), "\(member) is not clipped to the group's slot")
+            #expect(abs(clip.inList.minY - header.maxY) < 0.5)
+            #expect(clip.inList.height >= height - Metrics.space2, "the slot opens to \(clip.inList.height) pt, the members take \(height)")
+        }
+    }
+
+    /// With movement off the fold lands in one step: no member keeps a mask, and the folded ones go at once.
+    @Test(.enabled("needs a screen for the sidebar's window") { NSScreen.main != nil })
+    func aFoldWithoutMotionLeavesNoMask() throws {
+        let (model, list, _, restore) = try Self.sidebar(Self.workThenBelow())
+        defer { restore() }
+        Motion.reduceMotionOverride = true
+        let views = ["docs", "web", "api"].compactMap { list.rowViews[.workspace(CmuxNextSidebar.WorkspaceID($0))] }
+        try #require(views.count == 3)
+        model.noteUserIntent()
+        model.setGroupCollapsed(GroupID("g-work"), true)
+        for view in views { #expect(Self.foldClip(view, in: list) == nil) }
+        model.noteUserIntent()
+        model.setGroupCollapsed(GroupID("g-work"), false)
+        for member in ["docs", "web", "api"] {
+            let view = try #require(list.rowViews[.workspace(CmuxNextSidebar.WorkspaceID(member))])
+            #expect(Self.foldClip(view, in: list) == nil, "\(member) keeps a fold mask with motion off")
+        }
+    }
+
     /// Codex review of #24374: a row's open is over once the spring it opened on settles. Under the nudge that is
     /// `.tabOpen`, shorter than `.move`: a reorder just after it moves the row, in the same view, and does not open
     /// it again (a new view, its fade and its size replayed).

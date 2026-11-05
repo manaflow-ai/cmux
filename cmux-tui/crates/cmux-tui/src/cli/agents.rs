@@ -426,7 +426,11 @@ fn run_app<B: Backend>(
             let pending_only = !args.iter().any(|arg| arg == "--all");
             ("feed.list", json!({"pending_only": pending_only}), app::READ_TIMEOUT)
         }
-        "dialog.answer" => dialog_answer(args).map_err(|error| AgentFailure::Usage(error.0))?,
+        "dialog.answer" => {
+            let (method, params, timeout) =
+                dialog_answer(args).map_err(|error| AgentFailure::Usage(error.0))?;
+            (method, with_answerer(params, origin, |key| std::env::var(key).ok()), timeout)
+        }
         _ => return Err(AgentFailure::Usage("unknown app action".into())),
     };
     // Feed replies change the app but take no key; only `action.run` does.
@@ -436,6 +440,24 @@ fn run_app<B: Backend>(
         .app(method, params, timeout, key.as_deref(), mutation)
         .map_err(AgentFailure::Owner)?;
     Ok((result, key))
+}
+
+/// A dialog answer with who sends it: the app takes an app ask's Start (an
+/// agent's Cloud start card) only from the person, a CLI with no agent
+/// session, or from an agent the person delegated it to
+/// (cmux-cloud-start-core `ask`). `origin` is `mcp` for the MCP tool, else
+/// `cli`; the caller goes along when it is an agent session or a Chief turn
+/// (a terminal alone is the person's).
+fn with_answerer(mut params: Value, origin: &str, env: impl Fn(&str) -> Option<String>) -> Value {
+    if let Some(object) = params.as_object_mut() {
+        object.insert("origin".into(), json!(if origin == "mcp" { "mcp" } else { "cli" }));
+        if let Some(caller) =
+            app::caller_from(env).filter(|caller| caller.get("terminal_id").is_none())
+        {
+            object.insert("caller".into(), caller);
+        }
+    }
+    params
 }
 
 fn dialog_answer(args: &[String]) -> Result<(&'static str, Value, Duration), UsageError> {
@@ -499,7 +521,8 @@ fn receipt<B: Backend>(
     result: Value,
     idempotency_key: Option<String>,
 ) -> Value {
-    let state = fresh_state(backend, session);
+    // A read (the dialog list) wrote nothing to wait for: its snapshot is the app's last one.
+    let state = state_after(backend, session, action != "dialog.list");
     let mut receipt =
         json!({"schema_version": 1, "action": action, "result": result, "state": state});
     if let Some(key) = idempotency_key {
@@ -510,10 +533,19 @@ fn receipt<B: Backend>(
 
 /// A fresh composed snapshot, the `state` of every receipt.
 fn fresh_state<B: Backend>(backend: &B, session: Option<&str>) -> Value {
+    state_after(backend, session, true)
+}
+
+/// A composed snapshot. With `writes`, the app's part waits for the app to
+/// catch up with the daemon (the read barrier, `after: "sync"`); without, it
+/// is the app's last published snapshot (`after: 0`), which no daemon round
+/// trip can hold up.
+fn state_after<B: Backend>(backend: &B, session: Option<&str>, writes: bool) -> Value {
+    let params = if writes { json!({}) } else { json!({"after": 0}) };
     compose_snapshot(
         backend.resource(session, snapshot_plan(), &[]).map_err(mcp::agent_failure_value),
         backend
-            .app("snapshot.get", json!({}), app::READ_TIMEOUT, None, false)
+            .app("snapshot.get", params, app::READ_TIMEOUT, None, false)
             .map_err(mcp::agent_failure_value),
     )
 }

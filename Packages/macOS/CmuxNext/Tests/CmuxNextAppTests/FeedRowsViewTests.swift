@@ -23,7 +23,9 @@ import Testing
     private func shown(count: Int, mode: FeedRowsView.Mode = .list, height: CGFloat = 600, resolves: Bool = true)
         -> (FeedRowsView, FeedModel, InMemoryFeedSource, NSWindow) {
         let items = (0..<count).map { item($0, ago: Double($0) * 60 + 30, dedupe: "d\($0)") }
-        let source = InMemoryFeedSource(snapshot: FeedSnapshot(revision: 1, user: "usr_me", device: "Mac", items: items))
+        // A list-scale fixture: room for every row and the ones a test posts (the default keeps 500).
+        let source = InMemoryFeedSource(snapshot: FeedSnapshot(revision: 1, user: "usr_me", device: "Mac", items: items),
+                                        maxItems: count + 1_000)
         let model = FeedModel(source: source, clock: { [now] in now })
         model.place = { item in
             resolves ? FeedPlace(agent: "Claude Code", workspace: "api-server", tab: "Fix login \(item.context.tab ?? "")") : nil

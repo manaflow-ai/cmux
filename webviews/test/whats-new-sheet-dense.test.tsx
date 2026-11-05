@@ -10,7 +10,7 @@ import { act } from "react";
 import { createStrings } from "../src/pages/shared/i18n";
 import table from "../src/pages/changelog/generated/strings.json";
 import { mergedView, titleKey } from "../src/pages/changelog/model";
-import { placeholderRows, sheetRows } from "../src/pages/changelog/SheetPage";
+import { placeholderAreas, placeholderRows, sheetRows } from "../src/pages/changelog/SheetPage";
 import { parseSheetLayout } from "../src/pages/changelog/store";
 import { dayOfNightlies } from "../src/pages/changelog/whatsNewFixtures";
 
@@ -41,7 +41,8 @@ afterAll(() => {
 const expected = [
   "Show the Feed in Chief draws in Settings > Chief > Look",
   "Ultracode and Fast mode do not block Bring Back Local",
-  "Drop saved incognito task ids whose tasks ended",
+  // Its summary "While the app was stopped." was the rest of the line (2026-11-02): one title.
+  "Drop saved incognito task ids whose tasks ended while the app was stopped",
   "Routing follow-ups (trim recovered route, prepared presets only, cap before split)",
   "Cloud start replaces rejected Claude logins",
   "A message's More menu opens upward when it does not fit below",
@@ -71,7 +72,7 @@ test("a day of nightlies gives every change one row with its own key, however ma
 test("a title cut inside its parentheses reads as the one line it was", () => {
   const rows = sheetRows(mergedView(dayOfNightlies.slice(0, 1), "en"), createStrings(table));
   const routing = rows.find((r) => r.title.startsWith("Routing follow-ups"));
-  expect(routing).toEqual({
+  expect(routing).toMatchObject({
     key: "summary-3",
     category: "improved",
     title: "Routing follow-ups (trim recovered route, prepared presets only, cap before split)",
@@ -85,6 +86,16 @@ test("a loading day holds about the rows its index promises, three when it promi
   expect(placeholderRows([build(2), build(3)])).toBe(5);
   expect(placeholderRows([build(0)])).toBe(3);
   expect(placeholderRows([build(500)])).toBe(60);
+});
+
+test("a loading day also holds the area headers its rows will sit under (#32744 grouped by area)", () => {
+  const build = (highlights: number) => ({ build: "1", shortVersion: "1", date: "2026-11-01", highlights });
+  // Real nightly days: 1 change in 1 area, 3 in 3, 10 in 6, 26 in 9.
+  expect([1, 3, 10, 26].map((n) => placeholderAreas([build(n)]))).toEqual([1, 3, 6, 9]);
+  expect(placeholderAreas([build(2), build(3)])).toBe(4);
+  expect(placeholderAreas([build(500)])).toBe(13);
+  // A day the index counts nothing for: its three-row guess sits under one header.
+  expect(placeholderAreas([build(0)])).toBe(1);
 });
 
 test("titles compare without case, repeated spaces, curly quotes or a closing period", () => {
@@ -104,8 +115,12 @@ test("the page lists each change once while a day's builds load one by one", asy
   const root = dom.window.document.createElement("div");
   dom.window.document.body.append(root);
   await act(async () => void mountChangelogPage(root, new MockChangelogProvider(dayOfNightlies) as never));
+  // A long area folds after its first rows; "Show more" opens it.
   for (let tries = 0; tries < 200 && root.querySelectorAll(".cls-row").length < expected.length; tries += 1)
-    await act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
+    await act(async () => {
+      for (const more of root.querySelectorAll<HTMLButtonElement>(".cls-more")) more.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
   expect(root.querySelector(".cls")?.classList.contains("cls-inline")).toBe(true);
   const titles = [...root.querySelectorAll(".cls-row-title")].map((t) => t.textContent ?? "");
   expect(titles.length).toBe(new Set(titles).size);

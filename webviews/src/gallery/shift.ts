@@ -12,8 +12,14 @@
 //   - a box that has not yet held still for `REST_FRAMES` frames: an entrance animation, a row
 //     still mounting. Once it rested, any later move counts (the composer gap that jumps on load).
 //     A step starts on a settled page, so its first frame's boxes have rested (`restedAtStart`);
-//   - the step's target, its ancestors and descendants (the tool row that expands);
+//   - the step's target, its ancestors and descendants (the tool row that expands), and while that
+//     row opens at the very bottom (`BOTTOM_FOLD`), everything inside it: it rises as one;
 //   - a box after the target in document order that moves straight down: the expansion pushes it;
+//   - a box before the target that moves straight up while the target's transcript row opens at the
+//     very bottom (`BOTTOM_FOLD`, `data-bottom-stack-fold`, set by the transcript for the length of
+//     that fold): there the opening pushes the text above up by design (Leo, 2026-11-02: "YOU
+//     EXPAND UP WHILE YOUR SCCROLL IS AT THE VERY BOTTOM AKA YOU ... PUSH THE TEXT UP VISUALLY
+//     INSTEAD OF EXPANDING DOWN LIKE USUAL / JUST THAT CASE", #32644). Anywhere else a row rising is still a shift;
 //   - a box's first move after a resize (`firstMoveFree`): the new width lays it out once; a second
 //     move is the bounce a sidebar toggle must not have;
 //   - moves under half a CSS px (layout rounding), and boxes outside the viewport.
@@ -21,12 +27,19 @@
 
 export type Box = { x: number; y: number; width: number; height: number };
 
-/** One tracked box in one frame. `after` is true when it follows the step's target in document order. */
-export type BoxSample = { box: Box; label: string; targeted?: boolean; after?: boolean };
+/**
+ * One tracked box in one frame. `after` is true when it follows the step's target in document order;
+ * `before` when it precedes a target whose row is opening at the bottom of its transcript (`BOTTOM_FOLD`).
+ */
+export type BoxSample = { box: Box; label: string; targeted?: boolean; after?: boolean; before?: boolean };
 export type BoxFrame = Map<number, BoxSample>;
 
 export type BoxMove = { label: string; frame: number; dx: number; dy: number };
 export type BoxShift = { score: number; moves: BoxMove[] };
+
+/** The transcript row that is opening or closing at the very bottom, so the text above it rises or
+ *  falls (App.tsx `beginBottomStackFold`, `data-bottom-stack-fold`, set for every bottom stack). */
+export const BOTTOM_FOLD = "[data-bottom-stack-fold]";
 
 /** Frames a box must hold still before its moves count. */
 export const REST_FRAMES = 2;
@@ -119,6 +132,7 @@ export function scoreBoxFrames(
       }
       if (now.targeted) continue;
       if (now.after && dy > 0 && Math.abs(dx) <= MOVE_SLACK) continue;
+      if (now.before && dy < 0 && Math.abs(dx) <= MOVE_SLACK) continue;
       if (options.firstMoveFree && !freeUsed.has(id)) {
         freeUsed.add(id);
         continue;
@@ -158,17 +172,26 @@ export function sampleBoxes(doc: Document, target: Element | null, extra: Elemen
   const view = doc.defaultView;
   const width = view?.innerWidth ?? 0;
   const height = view?.innerHeight ?? 0;
+  // The row opening at the very bottom moves as one: what it holds (a batch's message rows) rises
+  // with its toggle and the text above, so it is the target's as much as the toggle's line is.
+  const folding = target?.closest(BOTTOM_FOLD) ?? null;
+  const foldingUp = !!folding;
   for (const element of new Set([...doc.querySelectorAll(TRACK_SELECTOR), ...extra])) {
     const rect = element.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) continue;
     if (rect.bottom <= 0 || rect.right <= 0 || rect.top >= height || rect.left >= width) continue;
-    const targeted = !!target && (element === target || element.contains(target) || target.contains(element));
-    const after = !!target && !targeted && (target.compareDocumentPosition(element) & 4) !== 0; // 4: DOCUMENT_POSITION_FOLLOWING (no global Node in tests)
+    const targeted =
+      !!target &&
+      (element === target || element.contains(target) || target.contains(element) || !!folding?.contains(element));
+    const position = target && !targeted ? target.compareDocumentPosition(element) : 0;
+    const after = (position & 4) !== 0; // 4: DOCUMENT_POSITION_FOLLOWING (no global Node in tests)
+    const before = foldingUp && (position & 2) !== 0; // 2: DOCUMENT_POSITION_PRECEDING
     frame.set(idOf(element), {
       box: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
       label: labelOf(element),
       targeted,
       after,
+      before,
     });
   }
   return frame;

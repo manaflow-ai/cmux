@@ -13,9 +13,10 @@ import { PAGE_CONNECTION } from "../shared/pageStreams";
 import type { DaemonError, DaemonSocket } from "../shared/daemonSocket";
 import { CloudHome, WS_CLOUD_CAPABILITY } from "./cloudHome";
 import { DaemonPeople } from "./daemonPeople";
+import { AttachmentService, messageGroups } from "./attachmentService";
+import { INLINE_TEXT_BYTES, TextUpload } from "./textUpload";
 import {
   HomeOps,
-  MESSAGE_PARTS,
   type HomeAttachment,
   type HomeChiefNames,
   type HomeConversation,
@@ -673,6 +674,29 @@ export class DaemonHomeClient implements PageClient {
     };
   }
 
+  /** The owner keeps small text inline. Larger text is an ordinary downloadable attachment,
+   * uploaded in slices before its message is committed (also on edit and retry). */
+  private async textParts(conversation: string, text: string, options?: PageCallOptions): Promise<Json[]> {
+    options?.signal?.throwIfAborted();
+    if (!text) return [];
+    // UTF-8 takes at most three bytes per UTF-16 code unit. Most drafts need no byte index.
+    if (text.length <= INLINE_TEXT_BYTES / 3) return [{ type: "text", text }];
+    const source = new TextUpload(text);
+    if (source.size <= INLINE_TEXT_BYTES) return [{ type: "text", text }];
+    const attachment = await new AttachmentService(this).uploadText(conversation, source, () => {}, options?.signal);
+    options?.signal?.throwIfAborted();
+    return [wireAttachment(attachment)];
+  }
+
+  /** A child key stays stable across reconnects/retries and fits even when the caller's key is
+   * already 128 bytes. The first message keeps the original key for the optimistic row. */
+  private async groupKey(key: string, index: number): Promise<string> {
+    if (index === 0) return key;
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(key));
+    const hash = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+    return `home-${hash}-${index}`;
+  }
+
   /** A read of the conversation's owner: the local one, or a cloud owner through the daemon. */
   private read(cmd: string, id: string, params: Json): Promise<Json> {
     if (this.cloud.owns(id)) return this.cloud.read(`cloud-${cmd}`, params);
@@ -792,17 +816,23 @@ export class DaemonHomeClient implements PageClient {
       case HomeOps.send: {
         const text = String(params.text ?? "").trim();
         const files = Array.isArray(params.attachments) ? params.attachments.map(wireAttachment) : [];
-        if ((!text && files.length === 0) || text.length > 40_000) throw pageError("cmux.page.invalid_params", "text");
+        if (!text && files.length === 0) throw pageError("cmux.page.invalid_params", "text");
+        const conversation = str(params, "conversation");
         const key = this.key(params, options);
-        const parts: Json[] = [...(text ? [{ type: "text", text }] : []), ...files];
-        // One message's protocol bound; the store sends more files as several messages (messageGroups).
-        if (parts.length > MESSAGE_PARTS) throw pageError("cmux.page.invalid_params", "attachments");
-        const send: Json = { kind: "message.send", client_msg_id: key, parts };
-        if (typeof params.threadRoot === "string" && params.threadRoot) send.thread_root = params.threadRoot;
-        // The reply's parent at any depth (conversation-tree-v1): the owner keeps the top root.
-        if (typeof params.replyTo === "string" && params.replyTo)
-          send.reply_to = { message_id: params.replyTo, part_index: 0 };
-        return this.submit(str(params, "conversation"), key, send);
+        const textParts = await this.textParts(conversation, text, options);
+        let result: Json = {};
+        for (const [index, group] of messageGroups(text, files).entries()) {
+          options?.signal?.throwIfAborted();
+          const groupKey = await this.groupKey(key, index);
+          const parts = [...(index === 0 ? textParts : []), ...group.files];
+          const send: Json = { kind: "message.send", client_msg_id: groupKey, parts };
+          if (typeof params.threadRoot === "string" && params.threadRoot) send.thread_root = params.threadRoot;
+          // The reply's parent at any depth (conversation-tree-v1): the owner keeps the top root.
+          if (typeof params.replyTo === "string" && params.replyTo)
+            send.reply_to = { message_id: params.replyTo, part_index: 0 };
+          result = await this.submit(conversation, groupKey, send);
+        }
+        return result;
       }
       case HomeOps.react: {
         const value = str(params, "value", 32);
@@ -817,10 +847,11 @@ export class DaemonHomeClient implements PageClient {
       case HomeOps.edit: {
         const text = String(params.text ?? "").trim();
         if (!text) throw pageError("cmux.page.invalid_params", "text");
-        return this.submit(str(params, "conversation"), this.key(params, options), {
+        const conversation = str(params, "conversation");
+        return this.submit(conversation, this.key(params, options), {
           kind: "message.edit",
           message_id: str(params, "message"),
-          parts: [{ type: "text", text }],
+          parts: await this.textParts(conversation, text, options),
         });
       }
       case HomeOps.retract:
@@ -954,7 +985,18 @@ export class DaemonHomeClient implements PageClient {
         return this.createGroup(params, options);
       case HomeOps.capabilities:
         // New messages and invites are the local owner's (`conversation-create`, `participants.add`).
-        return { start: true, invite: true, chiefs: await this.people.managesChiefs() };
+        return {
+          start: true,
+          invite: true,
+          chiefs: await this.people.managesChiefs(),
+          chiefWork: await this.capable("chief-work-v1"),
+        };
+      case HomeOps.chiefWork:
+        // The owner resolves this Chief and scopes the inventory; the page never requests a
+        // machine-wide session/process list. Unsupported owners fail rather than invent an empty list.
+        if (!(await this.capable("chief-work-v1")))
+          throw pageError("cmux.page.unavailable", "Chief work is unavailable on this owner");
+        return this.local.request("chief-work", { chief: params.chief });
       case HomeOps.directory:
         return { people: await this.people.directory(participant) };
       case HomeOps.startConversation: {

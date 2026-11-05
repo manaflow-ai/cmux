@@ -22,6 +22,8 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), 
 SOURCE = "schemas/surface-roles/surface-roles.json"
 CSS_FILE = "webviews/src/ui/glass/glass.css"
 SWIFT_FILE = "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FloatingGlass/SurfaceRole.swift"
+# What this check reads. scripts/web_lint_prepush.py runs it alone when a push touches one (declared_inputs()).
+INPUTS = (SOURCE, CSS_FILE, SWIFT_FILE)
 BEGIN = "/* surface-roles:begin. Follows " + SOURCE + " (scripts/cmux-next/check-surface-roles.py checks it). */"
 END = "/* surface-roles:end */"
 # The neutral glass's gray levels (FloatingGlassStyle.look): dark veil, light veil.

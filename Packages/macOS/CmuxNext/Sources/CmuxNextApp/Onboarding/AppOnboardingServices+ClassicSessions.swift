@@ -103,7 +103,7 @@ extension AppOnboardingServices {
             await created(id)
             guard let connection = daemon.connection else { throw ClassicImportFailure.noDaemon }
             try await restoreClassicLayout(node, workspaceID: id, browsers: browsers, daemon: daemon, connection: connection)
-            let placed = try await restoreClassicTitles(layout, workspaceID: id, connection: connection)
+            let placed = try await restoreClassicTitles(layout, workspaceID: id, daemon: daemon, connection: connection)
             // Adopted chats run in this Mac's acpmux, which has only this
             // Mac's sessions: an SSH workspace's agent stays a terminal.
             if daemon.isLocal { await openClassicChats(placed, on: daemon, connection: connection) }
@@ -210,7 +210,7 @@ extension AppOnboardingServices {
             .webkit
         }
         var builder = WorkspaceBlueprintBuilder(
-            connection: connection,
+            daemon: daemon, connection: connection,
             key: WorkspaceKey(rawValue: workspaceID),
             browsers: browsers,
             defaultEngine: engine
@@ -254,16 +254,14 @@ extension AppOnboardingServices {
         }
     }
 
-    /// Names each tab as classic did and returns where each one landed.
-    private func restoreClassicTitles(_ layout: ClassicSessionLayout, workspaceID: String,
+    /// Names each tab as classic did and returns where each one landed (read from the store, never the whole tree).
+    private func restoreClassicTitles(_ layout: ClassicSessionLayout, workspaceID: String, daemon: DaemonService,
                                       connection: DaemonConnection) async throws -> [ClassicPlacedTab] {
-        let tree = try await connection.listWorkspaces()
-        guard let workspace = tree.workspaces.first(where: { $0.key?.rawValue == workspaceID }),
-              let screen = workspace.screens.first else { return [] }
+        guard let screen = try await daemon.shape(of: WorkspaceKey(rawValue: workspaceID), after: connection)?.screens.first else { return [] }
         var placed: [ClassicPlacedTab] = []
         for paneID in screen.layout.paneIDs {
-            guard let pane = screen.panes.first(where: { $0.id == paneID }) else { continue }
-            placed += pane.tabs.enumerated().map { ClassicPlacedTab(pane: paneID, index: $0.offset, surface: $0.element.surface) }
+            guard let pane = screen.panes.first(where: { $0.handle == paneID }) else { continue }
+            placed += pane.surfaces.enumerated().map { ClassicPlacedTab(pane: paneID, index: $0.offset, surface: $0.element) }
         }
         for (index, tab) in layout.tabs.enumerated() where index < placed.count {
             placed[index].tab = tab

@@ -87,8 +87,11 @@ would do it, spring curves", "proper physics". Design:
   animates"); nothing holds a final-size layout under a clip. A zoom or
   unzoom does the same on the `zoom` spring: the zooming pane is the topmost
   layer, its tab strip whole in every frame, and covers the other panes,
-  which stay opaque and still. A released divider flung onto a snap within
-  `motion.divider.releaseProjection` of its velocity lands there.
+  which stay opaque and still. A released divider stays where the pointer let go;
+  a Shift release lands it on a snap on the pane spring, a split divider's from the
+  pointer's speed, a column edge's from rest (resize-modifiers.md; the fling snap and
+  `motion.divider.releaseProjection` went 2026-11-03: no hold or jump in a drag,
+  FRAME OWNER REFACTOR KEYS).
   A split (Cmd-D, Cmd-Shift-D) moves on its own `split` spring (0.28 s, damping 0.95; Lawrence
   2026-10-19: "resize all of them while adding a new one"), and the even sizing of its chain
   shows in the key's frame with the split (`LayoutModel.showSplitSizing`), not after the

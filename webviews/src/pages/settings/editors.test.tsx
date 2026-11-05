@@ -114,7 +114,10 @@ describe("editors", () => {
           continue;
         }
         // appearance.themeEdits is the pickers' "(custom)" themes, edited in the Theme section, not a row.
-        if (row.key === "appearance.themeEdits") {
+        // appearance.favoriteThemes is the pickers' stars, likewise not a row. Rotate Starred Themes
+        // shows only once a theme is starred, which this page has none of (themePane.test.tsx draws it).
+        if (row.key === "appearance.rotateFavoriteThemes") continue;
+        if (row.key === "appearance.themeEdits" || row.key === "appearance.favoriteThemes") {
           if (page.container.querySelector(`[data-row-key="${row.key}"]`)) failures.push(`${row.key}: drawn as a row`);
           continue;
         }

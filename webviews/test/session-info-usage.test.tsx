@@ -3,6 +3,8 @@
 // acpmux's `usageStats` on the session summary, and every session acpmux lists, this Mac's and its
 // peers', sorted by 24h cost or by context. Leo, 2026-10-30: "that visibility into huge-blue guys
 // was (and is?) pretty bad i feel like we can make more improvements to acpmux/cmux-next".
+// Every section in view (`setSessionInfoMore(true)`): the panel's compact default view is
+// session-info-compact-default.test.tsx's.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -10,10 +12,21 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
-import { DEFAULT_SECTIONS, resetSessionInfoState } from "../src/agent-session/acpmux/session-info/sessionInfoState";
+import {
+  DEFAULT_SECTIONS,
+  resetSessionInfoState,
+  setSessionInfoMore,
+} from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import { DEFAULT_ORDER, GROUP_SECTIONS } from "../src/agent-session/acpmux/session-info/sectionOrder";
 import { sessionEntry } from "../src/agent-session/acpmux/sessionList";
-import { byUsage, sameUsageStats, usageCost, usageStatsOf } from "../src/agent-session/acpmux/usageStats";
+import {
+  byUsage,
+  sameUsageStats,
+  usageCallCost,
+  usageCost,
+  usageShare,
+  usageStatsOf,
+} from "../src/agent-session/acpmux/usageStats";
 import { SessionPager, withUsage } from "../src/agent-session/acpmux/sessionPages";
 
 const scope = globalThis as Record<string, unknown>;
@@ -41,6 +54,7 @@ beforeEach(() => {
   for (const key of Object.keys(replacements)) saved.set(key, scope[key]);
   Object.assign(scope, replacements);
   resetSessionInfoState();
+  setSessionInfoMore(true);
   host = dom.window.document.getElementById("root")!;
 });
 
@@ -48,6 +62,7 @@ afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
   resetSessionInfoState();
+  setSessionInfoMore(true);
   dom.window.close();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
@@ -145,6 +160,17 @@ test("usageStatsOf reads acpmux's usageStats; null numbers are unknown, and only
   expect(SESSIONS[3]!.usageStats).toBeUndefined();
 });
 
+test("usageStatsOf reads the prompt cache's share and cost per call; a share outside 0 to 1 is not one", () => {
+  const read = usageStatsOf(stats({ calls24h: 182, cacheReadShare24h: 0.981, costPerCallUsd24h: 0.3363 }));
+  expect([read?.calls24h, read?.cacheReadShare24h, read?.costPerCallUsd24h]).toEqual([182, 0.981, 0.3363]);
+  expect(usageStatsOf(stats({ cacheReadShare24h: 1.5 }))?.cacheReadShare24h).toBeUndefined();
+  expect(usageStatsOf(stats({ cacheReadShare24h: null }))?.cacheReadShare24h).toBeUndefined();
+  expect(usageShare(0.9431, "en")).toBe("94.3%");
+  // A call under a cent keeps two significant digits, never $0.00.
+  expect(usageCallCost(0.0042, "en")).toBe("$0.0042");
+  expect(usageCallCost(0.3363, "en")).toBe("$0.34");
+});
+
 test("sameUsageStats keeps the previous object while acpmux's numbers are the same, so a snapshot per token redraws no Usage row", () => {
   const first = sameUsageStats(stats({ costUsd24h: 3.5 }), undefined);
   // A new raw object from the next session_changed, the same numbers: the same decoded object.
@@ -186,7 +212,16 @@ test("open, Usage lists this chat's numbers, then every host's sessions by 24h c
         sessionId: "this-chat",
         cwd: "/repo",
         usageStats: usageStatsOf(
-          stats({ costUsd24h: 12.4, tokens24h: 4_000_000, subagentsLive: 2, subagents1h: 5, subagents24h: 14 }),
+          stats({
+            costUsd24h: 12.4,
+            tokens24h: 4_000_000,
+            subagentsLive: 2,
+            subagents1h: 5,
+            subagents24h: 14,
+            calls24h: 40,
+            cacheReadShare24h: 0.9431,
+            costPerCallUsd24h: 0.31,
+          }),
         ),
       }}
       allSessions={SESSIONS}
@@ -200,8 +235,16 @@ test("open, Usage lists this chat's numbers, then every host's sessions by 24h c
     row.dataset.usage,
     row.querySelector(".acpmux-session-info-row__end")?.textContent,
   ]);
+  expect(
+    [...usage.querySelectorAll<HTMLElement>("li[data-usage]")].every((row) =>
+      row.querySelector(".acpmux-session-info-usage__lead-slot"),
+    ),
+  ).toBe(true);
   expect(own).toEqual([
     ["cost", "$12.40"],
+    // The prompt cache's share of the prompt tokens and one call's cost (the 1h cache's win).
+    ["cache-read", "94.3%"],
+    ["call-cost", "$0.31"],
     ["tokens", "4M"],
     // acpmux sent no context for it: unknown, never 0.
     ["context", "—"],
@@ -279,7 +322,16 @@ test("unknown numbers show an em dash, never 0 or $0.00, and an unread cap offer
       row.querySelector(".acpmux-session-info-row__end")?.textContent,
     ]),
   );
-  expect(values).toEqual({ cost: "—", tokens: "—", context: "—", cap: "—", compactions: "—", subagents: "—" });
+  expect(values).toEqual({
+    cost: "—",
+    "cache-read": "—",
+    "call-cost": "—",
+    tokens: "—",
+    context: "—",
+    cap: "—",
+    compactions: "—",
+    subagents: "—",
+  });
   expect(host.querySelectorAll("li[data-usage] button").length).toBe(0);
   // Folded, the section names no value rather than a made-up one.
   expect(host.querySelector('section[data-section="usage"] .acpmux-session-info-section__meta')).toBeNull();

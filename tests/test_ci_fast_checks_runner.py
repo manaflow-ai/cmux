@@ -6,6 +6,7 @@ from __future__ import annotations
 import base64
 import contextlib
 import datetime as dt
+import email.message
 import gzip
 import importlib.util
 import http.server
@@ -18,6 +19,7 @@ import sys
 import threading
 import time
 import unittest
+import urllib.error
 from unittest import mock
 
 
@@ -68,7 +70,7 @@ class _DripServer(socketserver.ThreadingTCPServer):
 
 
 class FastChecksRunnerTests(unittest.TestCase):
-    def test_busy_document_is_rechecked_live_after_waiting(self) -> None:
+    def test_busy_fleet_in_the_shared_document_keeps_the_fleet_without_waiting(self) -> None:
         idle = dict(id=1, name="synthetic-fast-check", os="Linux", status="online", busy=False,
                     labels=[{"name": picker.FLEET}])
         doc = dict(schema="runner-state/v1", repository="manaflow-ai/cmux", complete=True,
@@ -89,9 +91,11 @@ class FastChecksRunnerTests(unittest.TestCase):
              mock.patch.object(picker.pr_runner_pool.GitHub, "get_api", side_effect=api), \
              contextlib.redirect_stderr(io.StringIO()):
             selected = picker.choose(env, sleep=lambda s: clock.__setitem__(0, clock[0] + s), clock=lambda: clock[0])
+        # One look decides: the fleet runner is online (busy), so the checks
+        # queue on the fleet label, where the broker bounds the wait; no poll.
         self.assertEqual(selected, picker.FLEET)
-        self.assertEqual(clock[0], picker.POLL_SECONDS)
-        self.assertEqual(len(paths), 4)
+        self.assertEqual(clock[0], 0.0)
+        self.assertEqual(paths, [])
 
     def test_live_idle_linux_fleet_runner_is_selected(self) -> None:
         rows = [{"status": "online", "busy": False, "os": "Linux",
@@ -111,7 +115,31 @@ class FastChecksRunnerTests(unittest.TestCase):
         selected = picker.choose({"REQUESTED_RUNNER": "", "ROUTE_TOKEN": "read", "GITHUB_REPOSITORY": "manaflow-ai/cmux"}, read=lambda _env, **_kwargs: [],
                                  sleep=lambda seconds: sleeps.append(seconds), clock=lambda: next(now))
         self.assertEqual(selected, "blacksmith-8vcpu-ubuntu-2404")
-        self.assertEqual(sleeps, [15])
+        self.assertEqual(sleeps, [])
+
+    def test_one_census_read_decides_without_polling(self) -> None:
+        # cmux run 41718897738: the picker polled 182 s for an idle fleet
+        # runner, then took Blacksmith 8 vCPU. A readable census decides at once.
+        base = {"REQUESTED_RUNNER": "", "ROUTE_TOKEN": "read", "GITHUB_REPOSITORY": "manaflow-ai/cmux"}
+        busy = {"status": "online", "busy": True, "os": "Linux", "labels": [picker.FLEET]}
+        for rows, expected in (
+            ([busy], picker.FLEET),
+            ([dict(busy, status="offline")], "blacksmith-8vcpu-ubuntu-2404"),
+            ([dict(busy, os="macOS")], "blacksmith-8vcpu-ubuntu-2404"),
+            ([dict(busy, labels=["other"])], "blacksmith-8vcpu-ubuntu-2404"),
+        ):
+            with self.subTest(rows=rows):
+                reads, sleeps = [], []
+                selected = picker.choose(base, read=lambda _env, **_kwargs: (reads.append(1), rows)[1],
+                                         sleep=sleeps.append, clock=lambda: sum(sleeps))
+                self.assertEqual((selected, len(reads), sleeps), (expected, 1, []))
+
+    def test_an_unreadable_census_is_read_once_more_then_overflows(self) -> None:
+        reads, sleeps = [], []
+        selected = picker.choose(
+            {"REQUESTED_RUNNER": "", "ROUTE_TOKEN": "read", "GITHUB_REPOSITORY": "manaflow-ai/cmux"},
+            read=lambda _env, **_kwargs: reads.append(1), sleep=sleeps.append, clock=lambda: sum(sleeps))
+        self.assertEqual((selected, len(reads), sleeps), ("blacksmith-8vcpu-ubuntu-2404", 2, [picker.POLL_SECONDS]))
 
     def test_live_fleet_runner_is_selected_without_waiting(self) -> None:
         rows = [{"status": "online", "busy": False, "os": "Linux",
@@ -247,6 +275,98 @@ class FastChecksRunnerTests(unittest.TestCase):
             thread.join(1.0)
             self.assertFalse(thread.is_alive())
 
+
+    @staticmethod
+    def _refusal(path: str, code: int, headers: dict[str, str]) -> "urllib.error.HTTPError":
+        message = email.message.Message()
+        for name, value in headers.items():
+            message[name] = value
+        return urllib.error.HTTPError(f"https://api.github.com{path}", code, "Forbidden", message,
+                                      io.BytesIO(b'{"message": "API rate limit exceeded"}'))
+
+    def _choose_with_api(self, api) -> tuple[str, list[float], list[str]]:
+        env = dict(ROUTE_TOKEN="synthetic-token", GITHUB_REPOSITORY="manaflow-ai/cmux")
+        sleeps, paths, clock = [], [], [0.0]
+
+        def record(path):
+            paths.append(path)
+            return api(path)
+
+        def sleep(seconds):
+            sleeps.append(seconds)
+            clock[0] += seconds
+
+        with mock.patch.dict(os.environ, env, clear=True), \
+             mock.patch.object(picker.pr_runner_pool.GitHub, "get_api", side_effect=record), \
+             contextlib.redirect_stderr(io.StringIO()):
+            selected = picker.choose(env, sleep=sleep, clock=lambda: clock[0])
+        return selected, sleeps, paths
+
+    def test_spent_quota_on_repository_runners_overflows_without_polling(self) -> None:
+        # cmux runs 41614121649, 41614232965 and 41614590891: every census read was
+        # a 403 with X-RateLimit-Remaining=0, and the picker asked again every 15 s
+        # for the whole 180 s before taking the overflow it could have taken at once.
+        def api(path):
+            raise self._refusal(path, 403, {"X-RateLimit-Remaining": "0", "X-RateLimit-Resource": "core"})
+
+        selected, sleeps, paths = self._choose_with_api(api)
+        self.assertEqual(selected, "blacksmith-8vcpu-ubuntu-2404")
+        self.assertEqual(sleeps, [])
+        self.assertEqual(len(paths), 1)
+
+    def test_spent_quota_on_org_runner_groups_overflows_without_polling(self) -> None:
+        def api(path):
+            if "/orgs/" in path:
+                raise self._refusal(path, 403, {"X-RateLimit-Remaining": "0"})
+            return {"runners": []}
+
+        selected, sleeps, paths = self._choose_with_api(api)
+        self.assertEqual(selected, "blacksmith-8vcpu-ubuntu-2404")
+        self.assertEqual(sleeps, [])
+        self.assertEqual(len(paths), 2)
+
+    def test_secondary_limit_and_429_count_as_spent_quota(self) -> None:
+        for code, headers in ((429, {}), (403, {"Retry-After": "60"})):
+            with self.subTest(code=code):
+                selected, sleeps, _ = self._choose_with_api(
+                    lambda path, code=code, headers=headers: (_ for _ in ()).throw(self._refusal(path, code, headers)))
+                self.assertEqual(selected, "blacksmith-8vcpu-ubuntu-2404")
+                self.assertEqual(sleeps, [])
+
+    def test_permission_403_looks_once_more_then_overflows(self) -> None:
+        def api(path):
+            raise self._refusal(path, 403, {"X-RateLimit-Remaining": "4321"})
+
+        selected, sleeps, _ = self._choose_with_api(api)
+        self.assertEqual(selected, "blacksmith-8vcpu-ubuntu-2404")
+        self.assertEqual(sleeps, [picker.POLL_SECONDS])
+
+    def test_slow_runner_pages_cannot_push_admission_past_its_deadline(self) -> None:
+        # Every census page drips: without one deadline across read_live's
+        # page reads, each request would take its own 15 s timeout.
+        _DripHandler.stop.clear()
+        server = _DripServer(("127.0.0.1", 0), _DripHandler)
+        thread = threading.Thread(target=server.serve_forever, name="fast-check-admission-drip-server")
+        thread.start()
+        api = picker.pr_runner_pool.API
+        picker.pr_runner_pool.API = f"http://127.0.0.1:{server.server_address[1]}"
+        env = dict(ROUTE_TOKEN="synthetic-token", GITHUB_REPOSITORY="manaflow-ai/cmux")
+        started = time.monotonic()
+        try:
+            with mock.patch.dict(os.environ, env, clear=True), \
+                 mock.patch.object(picker, "WAIT_SECONDS", 0.3), \
+                 mock.patch.object(picker, "POLL_SECONDS", 0.05), \
+                 contextlib.redirect_stderr(io.StringIO()):
+                selected = picker.choose(env)
+            elapsed = time.monotonic() - started
+        finally:
+            picker.pr_runner_pool.API = api
+            _DripHandler.stop.set()
+            server.shutdown()
+            server.server_close()
+            thread.join(1.0)
+        self.assertEqual(selected, "blacksmith-8vcpu-ubuntu-2404")
+        self.assertLess(elapsed, 0.3 + 0.5)
 
 if __name__ == "__main__":
     unittest.main()

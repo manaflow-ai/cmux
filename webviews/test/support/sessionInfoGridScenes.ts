@@ -50,7 +50,9 @@ export const sessionInfoGridScenes: GridScene[] = [
     lead("context heading", `${section("context")} ${p}-section__icon`),
     lead("connectors heading", `${section("connectors")} ${p}-section__icon`),
     text("section headings", `${p}-section__title`),
-    trail("section headings", `${p}-section__fold`),
+    // No trail line for the fold chevron: #32817 moved it one grid gap after the title and hides it
+    // at rest (cmux#32765), so it is not on the trailing column. SessionInfo.gallery.tsx
+    // (chevronOnHoverAfterTitle) checks where it sits and that it shows on hover.
     lead("context rows", `${p}-context__swatch`),
     text("context rows", `${section("context")} ${p}-row__name`),
     lead("subagents", ".acpmux-lineage__icon"),
@@ -74,24 +76,30 @@ export const sessionInfoGridScenes: GridScene[] = [
       expected: token("row"),
       all: true,
     },
+    // Session Info's own spacing, tighter than the transcript's (Leo, 2026-11-04: "there's a bit too big of
+    // a gap between sections"): one base step inside a block, one inner gap between blocks.
+    // Adjacent sections of one block in the default order (sectionOrder.ts DEFAULT_ORDER, #32850:
+    // environment, context, usage, subagents, tasks, sources, changes, outputs, connectors).
     ...[
       ["environment", "context"],
       ["context", "usage"],
-      ["usage", "connectors"],
     ].map(([before, after]): GridLine => ({
       name: `${before} to ${after}: inner gap`,
       actual: point(section(after!), "top"),
       origin: point(section(before!), "bottom"),
-      expected: token("gap-inner"),
+      expected: token("base"),
     })),
+    // The block runs that order draws: where it runs, what it runs, what it made, then Connectors
+    // (where it runs) last.
     ...[
-      ["about", "made"],
-      ["made", "running"],
+      ["about", "running"],
+      ["running", "made"],
+      ["made", "about"],
     ].map(([before, after]): GridLine => ({
       name: `${before} to ${after}: block gap`,
       actual: point(`${p}-slot[data-run-start][data-group="${after}"]`, "top"),
       origin: point(`${p}-slot[data-run-end][data-group="${before}"]`, "bottom"),
-      expected: token("gap-block"),
+      expected: token("gap-inner"),
     })),
   ]),
   ...["workflow-running", "workflow-agent-row-narrow"].map((variant) =>

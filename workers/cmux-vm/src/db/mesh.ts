@@ -9,7 +9,7 @@
 import { Context, Effect, Layer, Option, Schema } from "effect";
 import { TenantId as TenantIdBrand, type TenantId } from "../lib/ids.ts";
 import type { AclDocument, MeshProtocol } from "../mesh/acl.ts";
-import { SqlClient, StoreError } from "./sql.ts";
+import { SqlClient, StoreError, type SqlParam } from "./sql.ts";
 import { sqlOverlayServerCodes, type OverlayServerCodeStore } from "./overlay-server-codes.ts";
 import { sqlOverlayServers, type OverlayServerStore } from "./overlay-servers.ts";
 
@@ -136,7 +136,11 @@ export interface MeshStoreService extends OverlayServerStore, OverlayServerCodeS
 
   readonly listRules: (tenantId: TenantId, meshId: string) => Effect.Effect<ReadonlyArray<MeshRuleRow>, StoreError>;
   readonly recordRule: (tenantId: TenantId, rule: MeshRuleRow) => Effect.Effect<void, StoreError>;
+  /** `recordRule` for many rules in one statement: all of them are recorded, or none. */
+  readonly recordRules: (tenantId: TenantId, rules: ReadonlyArray<MeshRuleRow>) => Effect.Effect<void, StoreError>;
   readonly markRuleDeleted: (tenantId: TenantId, meshId: string, key: string, at: Date) => Effect.Effect<void, StoreError>;
+  /** `markRuleDeleted` for many keys of one mesh in one statement. */
+  readonly markRulesDeleted: (tenantId: TenantId, meshId: string, keys: ReadonlyArray<string>, at: Date) => Effect.Effect<void, StoreError>;
 }
 
 export class MeshStore extends Context.Tag("cmux-vm/MeshStore")<MeshStore, MeshStoreService>() {}
@@ -505,8 +509,12 @@ export const sqlMeshStoreLayer: Layer.Layer<MeshStore, never, SqlClient> = Layer
         sql
           .query(
             "mesh.listMembers",
-            `SELECT mesh_cmux_id, vm_cmux_id, ipv4, attached_at FROM cmux_vm.mesh_members
-              WHERE mesh_cmux_id = $1 AND tenant_id = $2 AND detached_at IS NULL ORDER BY attached_at, vm_cmux_id`,
+            // A VM deleted before its delete detached it (rows from before that fix) is not a member.
+            `SELECT m.mesh_cmux_id, m.vm_cmux_id, m.ipv4, m.attached_at FROM cmux_vm.mesh_members m
+              WHERE m.mesh_cmux_id = $1 AND m.tenant_id = $2 AND m.detached_at IS NULL
+                AND NOT EXISTS (SELECT 1 FROM cmux_vm.resources r
+                  WHERE r.cmux_id = m.vm_cmux_id AND r.tenant_id = m.tenant_id AND r.deleted_at IS NOT NULL)
+              ORDER BY m.attached_at, m.vm_cmux_id`,
             [meshId, tenantId],
           )
           .pipe(Effect.flatMap(decode(MemberRow, "mesh.listMembers")), Effect.map((rows) => rows.map(toMember))),
@@ -553,7 +561,7 @@ export const sqlMeshStoreLayer: Layer.Layer<MeshStore, never, SqlClient> = Layer
             "mesh.insertAcl",
             `WITH claimed AS (
                INSERT INTO cmux_vm.mesh_acl_versions (mesh_cmux_id, tenant_id, version, document, sha256, author, created_at)
-               VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7::timestamptz)
+               VALUES ($1, $2, $3, $4::text::jsonb, $5, $6, $7::timestamptz)
                ON CONFLICT DO NOTHING RETURNING 1)
              SELECT count(*)::int AS claimed FROM claimed`,
             [meshId, tenantId, acl.version, JSON.stringify(acl.document), acl.sha256, acl.author, acl.createdAt.toISOString()],
@@ -587,6 +595,24 @@ export const sqlMeshStoreLayer: Layer.Layer<MeshStore, never, SqlClient> = Layer
             [rule.meshId, tenantId, rule.key, rule.upstreamRuleId, rule.deviceId, rule.vmId, rule.protocol, rule.port, rule.createdAt.toISOString()],
           )
           .pipe(Effect.asVoid),
+      recordRules: (tenantId, rules) => {
+        if (rules.length === 0) return Effect.void;
+        const params: Array<SqlParam> = [];
+        const rows = rules.map((rule) => {
+          const at = params.length;
+          params.push(rule.meshId, tenantId, rule.key, rule.upstreamRuleId, rule.deviceId, rule.vmId, rule.protocol, rule.port, rule.createdAt.toISOString());
+          return `($${at + 1}, $${at + 2}, $${at + 3}, $${at + 4}, $${at + 5}, $${at + 6}, $${at + 7}, $${at + 8}, $${at + 9}::timestamptz)`;
+        });
+        return sql
+          .query(
+            "mesh.recordRules",
+            `INSERT INTO cmux_vm.mesh_firewall_rules
+               (mesh_cmux_id, tenant_id, rule_key, upstream_rule_id, device_cmux_id, vm_cmux_id, protocol, port, created_at)
+             VALUES ${rows.join(", ")}`,
+            params,
+          )
+          .pipe(Effect.asVoid);
+      },
       markRuleDeleted: (tenantId, meshId, key, at) =>
         sql
           .query(
@@ -596,6 +622,19 @@ export const sqlMeshStoreLayer: Layer.Layer<MeshStore, never, SqlClient> = Layer
             [meshId, tenantId, key, at.toISOString()],
           )
           .pipe(Effect.asVoid),
+      markRulesDeleted: (tenantId, meshId, keys, at) =>
+        keys.length === 0
+          ? Effect.void
+          : sql
+              .query(
+                "mesh.markRulesDeleted",
+                // The keys go as one JSON array parameter (SqlParam is scalar), cast as text first (sql.ts).
+                `UPDATE cmux_vm.mesh_firewall_rules SET deleted_at = $3::timestamptz
+                  WHERE mesh_cmux_id = $1 AND tenant_id = $2 AND deleted_at IS NULL
+                    AND rule_key IN (SELECT jsonb_array_elements_text($4::text::jsonb))`,
+                [meshId, tenantId, at.toISOString(), JSON.stringify(keys)],
+              )
+              .pipe(Effect.asVoid),
     };
     return service;
   }),

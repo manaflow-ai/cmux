@@ -20,6 +20,24 @@ public nonisolated struct AgentPaneWakeState: Codable, Sendable, Equatable {
     /// The page holds or sends prompts waiting for a folder trust answer (webviews trustHeld.ts),
     /// each with its send's gesture ticket, which ends with the page: it is not let go.
     public var holdsPrompts: Bool?
+    /// The page holds edits, attachments or sends that its wake state cannot restore, or has an
+    /// input method or popup open. Only a hidden-page release asks to retain that state.
+    public var holdsPageState: Bool?
+    /// The subagents' unsent prompts this page kept (webviews subagents/subagentDrafts.ts), by draft
+    /// key: a subagent has no acpmux session to keep it, so the page's wake state does. A quit keeps
+    /// each one's text in a file of its own (``AgentPaneRelaunchWake``), so it has no size limit.
+    public var subagentDrafts: [String: SubagentDraft]?
+
+    /// A subagent's unsent prompt as text, its pasted chips in their places, with when it was kept
+    /// (ms since 1970), which decides between two pages' copies. An empty text is a cleared draft.
+    public nonisolated struct SubagentDraft: Codable, Sendable, Equatable {
+        public var text: String?
+        public var at: Double
+
+        public init(text: String?, at: Double) {
+            (self.text, self.at) = (text, at)
+        }
+    }
 
     public nonisolated struct Attachment: Codable, Sendable, Equatable {
         public var id: String
@@ -49,18 +67,22 @@ public nonisolated struct AgentPaneWakeState: Codable, Sendable, Equatable {
     }
 
     public init(attachments: [Attachment]? = nil, shell: Bool? = nil, shellText: String? = nil,
-                scrollAnchor: AgentPaneScrollAnchor? = nil, atLatest: Bool? = nil, holdsPrompts: Bool? = nil) {
+                scrollAnchor: AgentPaneScrollAnchor? = nil, atLatest: Bool? = nil, holdsPrompts: Bool? = nil,
+                holdsPageState: Bool? = nil, subagentDrafts: [String: SubagentDraft]? = nil) {
         self.attachments = attachments
         self.shell = shell
         self.shellText = shellText
         self.scrollAnchor = scrollAnchor
         self.atLatest = atLatest
         self.holdsPrompts = holdsPrompts
+        self.holdsPageState = holdsPageState
+        self.subagentDrafts = subagentDrafts
     }
 
     /// Nothing to hand back.
     public var isEmpty: Bool {
-        (attachments ?? []).isEmpty && shell != true && scrollAnchor == nil && atLatest != true && holdsPrompts != true
+        (attachments ?? []).isEmpty && shell != true && scrollAnchor == nil && atLatest != true
+            && holdsPrompts != true && holdsPageState != true && (subagentDrafts ?? [:]).isEmpty
     }
 
     /// The page's `pane.wakeState` answer; empty when the page has no such action (an older page)
@@ -123,6 +145,7 @@ extension AgentPaneWakeState {
         // ticket, which ends with the page (webviews trustHeld.ts). Asked again, it goes once its
         // prompts have.
         if wake?.holdsPrompts == true { return "holds prompts for a trust answer" }
+        if wake?.holdsPageState == true { return "holds page state" }
         return nil
     }
 

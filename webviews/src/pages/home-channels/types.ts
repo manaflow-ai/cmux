@@ -59,6 +59,8 @@ export const HomeOps = {
   chiefAvatarSet: "cmux.home.chiefAvatarSet",
   /** A Chief's picture, base64 (`{mediaType, data}`), or null. */
   chiefAvatar: "cmux.home.chiefAvatar",
+  /** A local Chief's own subagents and registered background processes (read-only snapshot). */
+  chiefWork: "cmux.home.chiefWork",
 } as const;
 
 /** `cmux.home.capabilities`: each entry is hidden when its capability is missing (no dead ends). */
@@ -69,6 +71,8 @@ export interface HomeCapabilities {
   invite: boolean;
   /** Create Chiefs and edit their profile and picture (`chief-profile-ws-v1`). */
   chiefs: boolean;
+  /** The local owner serves a scoped Chief work inventory (`chief-work-v1`). */
+  chiefWork?: boolean;
 }
 
 /** The tools a Chief may be granted (the daemon's closed catalog). */

@@ -39,7 +39,7 @@ final class SystemPermissionOpener: PermissionSettingsOpening {
         case .automation:
             guard let target else { return }
             // task-owner: one macOS prompt, off the main actor (the call blocks until the person answers).
-            Task { _ = await SystemPermissionProbe.automation(of: target, ask: true) }
+            Task { _ = await SystemPermissionAccess().automation(of: target, ask: true) }
         // The window guides both helper grants in order, with the drag panel docked to System Settings.
         // It reads the legacy helper's grants: under the helper v2 the card asks for its grant directly.
         case .accessibility, .screenRecording, .computerUse:

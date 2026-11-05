@@ -254,6 +254,9 @@ public final class TabModel: Identifiable {
         kind == .conversation ? conversation?.page : nil
     }
 
+    /// Home's docked chat page tab (`WorkspaceModel.homeDockPage`), where a Chief's turns post.
+    public var isHomeDockPage: Bool { page == WorkspaceModel.homeDockPage }
+
     /// What a page tab shows (`page-tab-route-v1`); nil for none or any other tab.
     public var pageRoute: String? {
         kind == .conversation ? conversation?.route : nil

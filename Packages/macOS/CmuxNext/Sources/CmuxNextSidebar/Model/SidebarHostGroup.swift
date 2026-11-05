@@ -39,6 +39,7 @@ extension SidebarSection {
         guard isHostGroup, case let .machine(machine) = kind, machine.kind != .local else { return self }
         let id = SidebarGroup.hostGroupID(machine.id)
         var host = SidebarGroup(id: id, name: machine.name, color: .grey, isCollapsed: isCollapsed, workspaces: [])
+        host.tint = .none // nobody picked a color for a machine's group: none, not a grey band
         host.machine = machine
         host.hostLook = look
         var members: [SidebarGroupMember] = []

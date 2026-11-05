@@ -1,4 +1,5 @@
-import type { AcpmuxRow, ConversationLayout } from "../model";
+import type { AcpmuxRow } from "../model";
+import { geometryOf, type GeometrySource } from "../conversationGeometry";
 
 /** Keep the follow correction small enough to absorb layout rounding, but not a real measured gap. */
 export const FOLLOW_BOTTOM_DEADBAND_PX = 4;
@@ -23,17 +24,10 @@ export function settleFollowBottom(
   return true;
 }
 
-// Binary search only geometry; importing the transcript model here would also initialize its
-// markdown/font measurement dependencies. Zero-height bookkeeping rows are skipped as in layout.
-function firstVisible(tops: Float64Array, top: number): number {
-  let low = 0;
-  let high = tops.length;
-  while (low < high) {
-    const middle = (low + high) >>> 1;
-    if (tops[middle]! <= Math.max(0, top)) low = middle + 1;
-    else high = middle;
-  }
-  return Math.max(0, low - 1);
+// Geometry only: importing the transcript model here would also initialize its markdown/font
+// measurement dependencies. Zero-height bookkeeping rows are skipped as in layout.
+function firstVisible(layout: GeometrySource, top: number): number {
+  return Math.max(0, geometryOf(layout).upperBoundTop(Math.max(0, top)) - 1);
 }
 
 // A prepend moves old rows by the count added; a stream keeps their indices. Check both in O(1),
@@ -77,14 +71,16 @@ export function preserveScrollAnchorTop({
   liveTop,
   anchorTop,
 }: {
-  oldLayout: ConversationLayout;
-  newLayout: ConversationLayout;
+  oldLayout: GeometrySource;
+  newLayout: GeometrySource;
   oldRows: readonly Pick<AcpmuxRow, "id">[];
   newRows: readonly Pick<AcpmuxRow, "id">[];
   liveTop: number;
   anchorTop: number;
 }): number | undefined {
-  const first = firstVisible(oldLayout.tops, liveTop);
+  const first = firstVisible(oldLayout, liveTop);
+  const oldGeometry = geometryOf(oldLayout);
+  const newGeometry = geometryOf(newLayout);
   // A row's own resize must not move its top edge. The first visible row is
   // therefore the anchor; rows below it are irrelevant to this correction. A simple prepend or
   // stream resolves in constant time. Build an id index only after that fast path misses, which
@@ -99,7 +95,7 @@ export function preserveScrollAnchorTop({
       newIndex = movedIndex(newRows, id, oldIndex, newRows.length - oldRows.length, indexById);
     }
     if (newIndex < 0) continue;
-    return anchorTop + newLayout.tops[newIndex]! - oldLayout.tops[oldIndex]!;
+    return anchorTop + newGeometry.topAt(newIndex) - oldGeometry.topAt(oldIndex);
   }
   return undefined;
 }

@@ -1,7 +1,9 @@
 public import Foundation
 
 public enum NativeDeviceEnrollmentError: Error, Equatable, Sendable, CustomStringConvertible {
-    case invalidScope, invalidState, invalidIdentity, busy, signedOut, revoked
+    case invalidScope, invalidState, busy, signedOut, revoked
+    /// An identity or reply check refused, and where: the check's `file:line`, never a value.
+    case invalidIdentity(at: String)
     /// An HTTP status the backend answered with, and the step that got it: an owner op name or a
     /// `METHOD /path` template with ids replaced (never an id or a token).
     case refused(Int, step: String)
@@ -11,13 +13,18 @@ public enum NativeDeviceEnrollmentError: Error, Equatable, Sendable, CustomStrin
         switch self {
         case .invalidScope: "invalidScope"
         case .invalidState: "invalidState"
-        case .invalidIdentity: "invalidIdentity"
+        case .invalidIdentity(let at): "invalidIdentity at \(at)"
         case .busy: "busy"
         case .signedOut: "signedOut"
         case .revoked: "revoked"
         case .refused(let status, let step): "refused(\(status)) at \(step)"
         case .secureStorage(let status): "secureStorage(\(status))"
         }
+    }
+
+    /// The identity refusal for the check at the call site.
+    public static func identity(_ file: StaticString = #fileID, _ line: UInt = #line) -> Self {
+        .invalidIdentity(at: "\(file):\(line)")
     }
 }
 

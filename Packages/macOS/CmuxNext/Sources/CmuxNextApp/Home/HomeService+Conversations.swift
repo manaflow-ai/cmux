@@ -113,16 +113,6 @@ extension HomeService {
         }
     }
 
-    /// Archives one of my cloud Chiefs; nil when it is gone from the list (the cloud archive may
-    /// still wait, HomeChiefArchive), else why not.
-    func archiveChief(_ id: String) async -> String? {
-        if directory.chief(for: ParticipantID(id)) == nil { await directory.refreshChiefs() }
-        switch await directory.archiveChief(id) {
-        case .archived, .hiddenHere: return nil
-        case .refused(let reason): return reason
-        }
-    }
-
     /// The Chief record behind a conversation row, when the row is a DM
     /// with one of my cloud Chiefs (the local Chief is never archived).
     func chief(of row: InboxRow) -> HomeChiefRecord? {

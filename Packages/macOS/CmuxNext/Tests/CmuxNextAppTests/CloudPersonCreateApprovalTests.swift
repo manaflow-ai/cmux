@@ -53,11 +53,35 @@ import Testing
         #expect(calls.ops == ["cloud.machine.create", "cloud.machine.create"])
     }
 
+    @Test func aBackendCapabilityRefusalSendsNoCreateOrApproval() async throws {
+        let calls = Calls()
+        var create = flow(calls)
+        create.validateOptions = { _ in
+            throw CloudAppOpFailure(code: "validation.invalid", message: "create option unavailable: create.bootstrap")
+        }
+        do {
+            _ = try await create.create(name: "requested", startedByPerson: true)
+            Issue.record("a refused create must not succeed")
+        } catch let error as CloudAppOpFailure {
+            #expect(error.code == "validation.invalid")
+            #expect(error.message == "create option unavailable: create.bootstrap")
+        }
+        #expect(calls.ops.isEmpty)
+        #expect(calls.approved.isEmpty)
+    }
+
     @Test func aCreateNobodyStartedAsksOnceThenAnswersTheHold() async throws {
         let calls = Calls()
         _ = try await flow(calls).create(name: nil, startedByPerson: false, askedBy: "agent-1")
         #expect(calls.prompts.count == 1)
         if case .agentRequest = calls.prompts.first {} else { Issue.record("expected the agent request prompt, got \(calls.prompts)") }
+        #expect(calls.approved == ["apr_1"])
+    }
+
+    @Test func aCreateNobodyStartedMayBypassTheCardWhenPolicyAllows() async throws {
+        let calls = Calls()
+        _ = try await flow(calls).create(name: nil, startedByPerson: false, asksFirst: false)
+        #expect(calls.prompts.isEmpty)
         #expect(calls.approved == ["apr_1"])
     }
 

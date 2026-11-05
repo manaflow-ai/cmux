@@ -4,7 +4,10 @@
 // held ticks to the box's foot, just above the composer (Leo, 2026-11-01: "what a stupid f***ing choice
 // to put the f***ing scroll rail at the bottom???"). The prompt index gives every prompt its tick, so
 // the rail is full height once it answers (Leo, 2026-11-01: "i also want the left scroll rail to be
-// starting off to its max height if there truly are that many prompts in the chat").
+// starting off to its max height if there truly are that many prompts in the chat"). Before it answers,
+// the count's prompts draw as pending resting ticks above the held ones (model.ts pendingTurns), so the
+// first frame is the final frame: the same length, top and tick rows while history pages in (Leo,
+// 2026-11-03: "mostly i just don't like it when the thing shifts and whatnot trying to center itself").
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -112,7 +115,7 @@ const rail = () => {
   const rows = [...ticks].reduce(
     (sum, node) =>
       sum +
-      (node.classList.contains("acpmux-minimap__gap") ? Number.parseFloat((node as HTMLElement).style.height) / 10 : 1),
+      (node.classList.contains("acpmux-minimap__gap") ? Number.parseFloat((node as HTMLElement).style.height) / 20 : 1),
     0,
   );
   const top = Number.parseFloat(nav.style.top);
@@ -121,14 +124,14 @@ const rail = () => {
     top,
     lead,
     height: Number.parseFloat(nav.style.height),
-    latest: top + lead + (rows - 1) * 10 - list.scrollTop,
+    latest: top + lead + (rows - 1) * 20 - list.scrollTop,
   };
 };
 
 /// Centered in the view, then moved up only as far as it takes to clear the bottom stack (model.ts railTop).
 const centered = (height: number) => Math.round((VIEWPORT - height) / 2);
 /// Where the drawn ticks' run is centered, in px down the view.
-const middle = (box: ReturnType<typeof rail>) => (box.top + box.lead + box.latest + 10) / 2;
+const middle = (box: ReturnType<typeof rail>) => (box.top + box.lead + box.latest + 20) / 2;
 
 test("held ticks sit centered in the view, never stacked at the box's foot, while older prompts are not held", async () => {
   const all = chat(45);
@@ -154,19 +157,30 @@ test("held ticks sit centered in the view, never stacked at the box's foot, whil
     // The first frame: twelve prompts held, the summary says forty-five.
     await render({ promptCount: 45 });
     const open = rail();
-    // The box holds the twelve ticks (the 320 px floor), centered: no empty rows above them.
+    // The box is the rail's one height (480 px, twice the original height) over all forty-five ticks, the
+    // thirty-three not held yet as resting ticks, centered: no empty rows above the held ones.
     expect(open.lead).toBe(0);
-    expect(open.height).toBe(320);
-    expect(open.top).toBeLessThanOrEqual(centered(320));
+    expect(open.height).toBe(480);
+    // Every prompt has its row, drawn or (past the list's view) a gap's.
+    const rows = [...document.querySelectorAll<HTMLElement>(".acpmux-minimap__entry, .acpmux-minimap__gap")].reduce(
+      (sum, node) =>
+        sum + (node.classList.contains("acpmux-minimap__gap") ? Number.parseFloat(node.style.height) / 20 : 1),
+      0,
+    );
+    expect(rows).toBe(45);
+    expect(open.top).toBeLessThanOrEqual(centered(480));
     // The ticks' run is about the view's middle, nowhere near its foot.
     expect(Math.abs(middle(open) - VIEWPORT / 2)).toBeLessThanOrEqual(100);
-    expect(open.latest).toBeLessThan(VIEWPORT - stack - 100);
-    // The index answers: every prompt has its tick, and the taller box is still centered.
+    // The latest tick ends the box, clear of the bottom stack.
+    expect(open.latest + 20).toBe(open.top + open.height);
+    expect(open.latest + 20).toBeLessThanOrEqual(VIEWPORT - stack);
+    // The index answers: every prompt has its tick, in the same box.
     await render({ earlier });
     const full = rail();
+    expect(full).toEqual(open);
     expect(full.lead).toBe(0);
-    expect(full.height).toBe(450);
-    expect(full.top).toBeLessThanOrEqual(centered(450));
+    expect(full.height).toBe(480);
+    expect(full.top).toBeLessThanOrEqual(centered(480));
     expect(Math.abs(middle(full) - VIEWPORT / 2)).toBeLessThanOrEqual(100);
   } finally {
     await act(async () => root.unmount());
@@ -189,9 +203,9 @@ test("without a count the rail grows as prompts arrive, as before", async () => 
         />,
       ),
     );
-    // Twelve prompts: the rail's 320 px floor, centered.
-    expect(rail().height).toBe(320);
-    expect(rail().top).toBeLessThanOrEqual(centered(320));
+    // Twelve prompts: the rail's one height, centered.
+    expect(rail().height).toBe(480);
+    expect(rail().top).toBeLessThanOrEqual(centered(480));
   } finally {
     await act(async () => root.unmount());
   }
@@ -219,15 +233,87 @@ test("a chat with more prompts than the rail holds keeps its latest tick at the 
     );
   try {
     await render({ promptCount: 80 });
-    // Twelve held: the 320 px floor, centered, with no empty rows above the ticks.
-    expect(rail().lead).toBe(0);
-    expect(rail().height).toBe(320);
+    // Twelve held and sixty-eight pending: already the rail's final box, with no empty rows.
+    const first = rail();
+    expect(first.lead).toBe(0);
     await render({ earlier });
     const open = rail();
+    expect(open).toEqual(first);
     // Taller than the room: the rail fills it, and the latest tick ends at its bottom.
     expect(open.height).toBeLessThan(800);
-    expect(open.latest + 10).toBe(open.top + open.height);
+    expect(open.latest + 20).toBe(open.top + open.height);
   } finally {
     await act(async () => root.unmount());
   }
 });
+
+/// Every frame's rail: its box, the list's offset, how many prompts it draws, and where each held
+/// prompt's tick is (by its text, which a pending tick has none of), in px down the view.
+const frame = () => {
+  const nav = document.querySelector<HTMLElement>("nav.acpmux-minimap__rail")!;
+  const list = nav.querySelector<HTMLElement>(".acpmux-minimap__list")!;
+  const ticks: Record<string, number> = {};
+  for (const tick of nav.querySelectorAll<HTMLElement>("[data-tick]")) {
+    const prompt = tick.getAttribute("aria-label")?.match(/Question \d+/)?.[0];
+    if (prompt) ticks[prompt] = Number.parseFloat(nav.style.top) + Number(tick.dataset.tick) * 20 - list.scrollTop;
+  }
+  return {
+    top: Number.parseFloat(nav.style.top),
+    height: Number.parseFloat(nav.style.height),
+    scrollTop: list.scrollTop,
+    prompts: Number(nav.querySelector("[aria-setsize]")?.getAttribute("aria-setsize")),
+    ticks,
+  };
+};
+
+for (const count of [45, 80])
+  test(`a ${count}-prompt chat whose rows load in pages draws the same rail on every frame`, async () => {
+    const all = chat(count);
+    const prompts = all.filter((entry) => entry.kind === "user");
+    /// The rows held once `pages` pages of twelve prompts have loaded above the latest twelve.
+    const heldAfter = (pages: number) => all.slice(all.indexOf(prompts[Math.max(0, count - 12 * (pages + 1))]!));
+    const root = createRoot(document.getElementById("root")!);
+    const dock = document.getElementById("dock")!;
+    const frames: ReturnType<typeof frame>[] = [];
+    const render = async (rows: AcpmuxRow[], props: { earlier?: AcpmuxRow[]; promptCount?: number }) => {
+      await act(async () =>
+        root.render(
+          <VirtualTranscript
+            rows={turnView(rows, new Set())}
+            {...props}
+            sessionId={`rail-pages-${count}`}
+            dock={dock}
+            onToggleActivity={() => {}}
+            expanded={new Set()}
+          />,
+        ),
+      );
+      frames.push(frame());
+    };
+    try {
+      // The first frame: the latest page and the summary's count (direct.ts promptCountAwaited).
+      await render(heldAfter(0), { promptCount: count });
+      // A page loads above it before the index answers.
+      await render(heldAfter(1), { promptCount: count });
+      // The index answers (the count goes with it), then the rest of the pages load.
+      const held = heldAfter(1);
+      const firstHeld = prompts.findIndex((entry) => held.includes(entry));
+      await render(held, { earlier: prompts.slice(0, firstHeld).map((entry) => ({ ...entry })) });
+      for (let pages = 2; 12 * (pages + 1) < count + 12; pages += 1) {
+        const rows = heldAfter(pages);
+        const from = prompts.findIndex((entry) => rows.includes(entry));
+        await render(rows, from > 0 ? { earlier: prompts.slice(0, from).map((entry) => ({ ...entry })) } : {});
+      }
+      const last = frames.at(-1)!;
+      expect(last.prompts).toBe(count);
+      for (const each of frames) {
+        // The same box, list offset and prompt count as the final frame.
+        expect({ ...each, ticks: undefined }).toEqual({ ...last, ticks: undefined });
+        // Every prompt drawn on both frames sits on the same row.
+        for (const [prompt, y] of Object.entries(each.ticks))
+          if (prompt in last.ticks) expect([prompt, y]).toEqual([prompt, last.ticks[prompt]!]);
+      }
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });

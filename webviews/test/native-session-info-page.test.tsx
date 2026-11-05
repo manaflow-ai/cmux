@@ -104,6 +104,17 @@ async function flushFrame() {
 
 const model = () => sent.at(-1)!;
 
+test("a panel over the chat says so, a popover with no foot too, so the App gives it its glass", async () => {
+  const input = props();
+  await render({ ...input, overChat: true });
+  await flushFrame();
+  expect(model()).toMatchObject({ open: true, overChat: true });
+  expect(model()!.foot).toBeUndefined();
+  await render({ ...input, overChat: false });
+  await flushFrame();
+  expect(model()!.overChat).toBeUndefined();
+});
+
 test("the page posts the latest geometry once per frame and withdraws it when hidden", async () => {
   const input = props();
   await render(input);
@@ -264,4 +275,26 @@ test("an older failed post cannot withdraw a newer native model", async () => {
   expect(nativeSessionInfoDrawn()).toBe(true);
   await act(async () => rejects[1]!(new Error("Latest request failed")));
   expect(nativeSessionInfoDrawn()).toBe(false);
+});
+
+test("native Progress marks each step's state and meters the plan", async () => {
+  const entries = [
+    { content: "Write", status: "completed" as const },
+    { content: "Test", status: "in_progress" as const },
+    { content: "Ship", status: "pending" as const },
+  ];
+  await render({ ...props(), plan: { entries, ended: false } });
+  await flushFrame();
+  const live = model()!.sections.find((section) => section.id === "progress")!;
+  expect(live.meter).toBeCloseTo(1 / 3);
+  expect(live.rows.map((row) => [row.symbol, row.tone, Boolean(row.working)])).toEqual([
+    ["checkmark.circle.fill", "muted", false],
+    [undefined, "running", true],
+    ["circle.dashed", "waiting", false],
+  ]);
+  // A step left in progress when the turn ended gets a plain ring, never a frozen spinner.
+  await render({ ...props(), plan: { entries, ended: true } });
+  await flushFrame();
+  const ended = model()!.sections.find((section) => section.id === "progress")!;
+  expect(ended.rows[1]).toMatchObject({ symbol: "circle", tone: "waiting", working: false });
 });

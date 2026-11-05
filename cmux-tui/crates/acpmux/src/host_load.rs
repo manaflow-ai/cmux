@@ -5,7 +5,7 @@
 //!
 //! Every field but `at` is left out when it cannot be read: off Linux most are,
 //! and the command still prints `at` and exits 0. Reads only: it never starts a
-//! daemon, and a daemon that does not answer quickly leaves `busy`,
+//! daemon, and a daemon that does not answer within `DAEMON_WAIT` leaves `busy`,
 //! `localTurns` and `heavy` out.
 //!
 //! `heavy` is the heaviest known build or test the daemon's agents run now: the
@@ -21,7 +21,7 @@ use std::time::Duration;
 #[cfg(target_os = "linux")]
 const CPU_WINDOW: Duration = Duration::from_secs(1);
 /// How long the daemon has to say whether a turn runs.
-const DAEMON_WAIT: Duration = Duration::from_millis(1500);
+const DAEMON_WAIT: Duration = crate::rpc::ANSWER_WAIT;
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -165,40 +165,129 @@ pub fn heaviest<'a>(processes: impl IntoIterator<Item = (&'a str, Vec<&'a str>)>
 }
 
 /// Words before a command's program that are not it: a wrapper that runs the rest.
-const WRAPPERS: &[&str] = &["env", "time", "nice", "nohup", "exec", "command"];
+const WRAPPERS: &[&str] =
+    &["env", "time", "nice", "nohup", "exec", "command", "timeout", "gtimeout", "sudo"];
 
-/// The heavy work a shell command does: the heaviest of its simple commands (split at `;`,
-/// `&&`, `||`, `|`, `&` and line ends), each read from its program on, past leading
-/// `NAME=value` words, a wrapper and its options ([`WRAPPERS`]). `sh -c SCRIPT` (and `bash`,
-/// `zsh`, `-lc`) is its script. A loose read, not a shell parse: it only names a build or test.
-pub fn classify_command(script: &str) -> Option<Heavy> {
-    script.split(['\n', ';', '|', '&']).fold(None, |best, segment| {
+/// Words before a command's program that only open a compound command (`if`, `{`, `!`).
+const KEYWORDS: &[&str] =
+    &["!", "{", "}", "if", "then", "else", "elif", "do", "while", "until", "fi", "done"];
+
+/// Shells whose `-c SCRIPT`, or a heredoc fed to them, is commands of their own.
+const SHELLS: &[&str] = &["sh", "bash", "zsh", "dash", "ksh"];
+
+/// How deep `sh -c`, substitutions and heredocs into a shell are read; deeper is read loosely.
+const DEPTH: usize = 8;
+
+/// A command's words from its program on, past leading `NAME=value` words, keywords, a
+/// wrapper and its options ([`WRAPPERS`]).
+fn argv_of<'a>(words: &[&'a str]) -> Vec<&'a str> {
+    let skip = |w: &&str| {
+        WRAPPERS.contains(w)
+            || KEYWORDS.contains(w)
+            || w.starts_with('-')
+            || w.bytes().all(|b| b.is_ascii_digit())
+            || w.split_once('=').is_some_and(|(name, _)| {
+                !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+            })
+    };
+    words.iter().copied().skip_while(skip).collect()
+}
+
+/// A shell's `-c` script (`sh -c S`, `bash -lc S`, `bash -e -c S`): Some(Some(S)); a shell
+/// without one, which reads a file or stdin: Some(None); not a shell: None.
+fn shell_script<'a>(argv: &[&'a str]) -> Option<Option<&'a str>> {
+    if !SHELLS.contains(&program(argv.first()?)) {
+        return None;
+    }
+    let mut rest = argv.get(1..).unwrap_or_default().iter();
+    while let Some(w) = rest.next() {
+        if w.starts_with("--") {
+            continue;
+        }
+        if !w.starts_with(['-', '+']) {
+            break;
+        }
+        if w.starts_with('-') && w.contains('c') {
+            return Some(rest.next().copied());
+        }
+    }
+    Some(None)
+}
+
+/// Calls `each` with every simple command a shell script runs, each read from its program on,
+/// past leading `NAME=value` words, a wrapper and its options ([`WRAPPERS`]). The words are the
+/// shell's ([`crate::shell_words`]): a quoted argument, a heredoc's body and a comment run
+/// nothing, while `$(...)`, backticks, `sh -c SCRIPT` (and `bash`, `zsh`, `-lc`), `eval` and a
+/// heredoc fed to a shell are commands of their own. A script it cannot read (an unclosed
+/// quote) is read loosely, split at `;`, `&`, `|` and line ends, which names more, never less. It
+/// only names what a command runs (`classify_command`, the slow commands of `bg_hook.rs`).
+pub fn for_each_command(script: &str, each: &mut dyn FnMut(&[&str])) {
+    commands_at(script, each, 0);
+}
+
+fn commands_at(script: &str, each: &mut dyn FnMut(&[&str]), depth: usize) {
+    let Some(lexed) = crate::shell_words::lex(script).filter(|_| depth < DEPTH) else {
+        return loose_commands(script, each);
+    };
+    let mut bare_shells = Vec::new();
+    for command in &lexed.commands {
+        let words: Vec<&str> = command.words.iter().map(String::as_str).collect();
+        let argv = argv_of(&words);
+        match (shell_script(&argv), argv.first()) {
+            (Some(Some(inner)), _) => commands_at(inner, each, depth + 1),
+            (Some(None), _) => {
+                bare_shells.push(command.pipeline);
+                each(&argv);
+            }
+            (None, Some(&"eval")) => {
+                commands_at(&argv.get(1..).unwrap_or_default().join(" "), each, depth + 1)
+            }
+            (None, Some(_)) => each(&argv),
+            (None, None) => {}
+        }
+    }
+    // `bash <<EOF` and `cat <<EOF | sh` run the body (a shell in the heredoc's pipeline); a
+    // heredoc into anything else is data, though an unquoted one's substitutions run (`subs`).
+    for (pipeline, body) in &lexed.heredocs {
+        if bare_shells.contains(pipeline) {
+            commands_at(body, each, depth + 1);
+        }
+    }
+    for sub in &lexed.subs {
+        commands_at(sub, each, depth + 1);
+    }
+}
+
+/// The loose read for a script the lexer cannot read: split at `;`, `&`, `|` and line ends,
+/// quotes trimmed from each word.
+fn loose_commands(script: &str, each: &mut dyn FnMut(&[&str])) {
+    for segment in script.split(['\n', ';', '|', '&']) {
         let words: Vec<&str> = segment
             .split_whitespace()
             .map(|w| w.trim_matches(|c| matches!(c, '"' | '\'' | '(' | ')')))
             .filter(|w| !w.is_empty())
             .collect();
-        let skip = |w: &&str| {
-            WRAPPERS.contains(w)
-                || w.starts_with('-')
-                || w.bytes().all(|b| b.is_ascii_digit())
-                || w.split_once('=').is_some_and(|(name, _)| {
-                    !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
-                })
-        };
-        let argv: Vec<&str> = words.iter().copied().skip_while(skip).collect();
-        let found = match (argv.first().copied().map(program), argv.get(1).copied()) {
+        let argv = argv_of(&words);
+        match (argv.first().copied().map(program), argv.get(1).copied()) {
             (Some("sh" | "bash" | "zsh"), Some("-c" | "-lc")) => {
-                classify_command(&argv.get(2..).unwrap_or_default().join(" "))
+                loose_commands(&argv.get(2..).unwrap_or_default().join(" "), each)
             }
-            (Some(name), _) => classify(name, &argv),
-            (None, _) => None,
-        };
-        match found {
-            Some(h) => heavier(best, h),
-            None => best,
+            (Some(_), _) => each(&argv),
+            (None, _) => {}
         }
-    })
+    }
+}
+
+/// The heavy work a shell command does: the heaviest of its simple commands
+/// ([`for_each_command`]).
+pub fn classify_command(script: &str) -> Option<Heavy> {
+    let mut best = None;
+    for_each_command(script, &mut |argv| {
+        if let Some(h) = argv.first().and_then(|zero| classify(program(zero), argv)) {
+            best = heavier(best, h);
+        }
+    });
+    best
 }
 
 /// The heavy work an ACP tool call (`tool_call` or `tool_call_update`) runs: its shell command,
@@ -211,9 +300,15 @@ pub fn heavy_of_tool(update: &serde_json::Value) -> Option<Heavy> {
     }
     match update.pointer("/rawInput/command")? {
         Value::String(script) => classify_command(script),
-        Value::Array(argv) => {
-            classify_command(&argv.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" "))
-        }
+        // An argv is quoted word by word, so `["bash", "-lc", "swift build"]` keeps its script.
+        Value::Array(argv) => classify_command(
+            &argv
+                .iter()
+                .filter_map(Value::as_str)
+                .map(|w| format!("'{}'", w.replace('\'', r"'\''")))
+                .collect::<Vec<_>>()
+                .join(" "),
+        ),
         _ => None,
     }
 }

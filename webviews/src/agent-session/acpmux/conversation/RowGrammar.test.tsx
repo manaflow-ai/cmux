@@ -251,7 +251,9 @@ test("a subagent's line with no harness known draws the subagent mark, not the c
   expect(icon.querySelector('[data-icon="task.ai"]')).not.toBeNull();
 });
 
-test("a subagent naming no harness draws the chat's harness mark when the chat has one", async () => {
+// Leo, 2026-11-04: "these all being claude": a subagent of the chat's own family draws its toned
+// subagent mark, not the chat's harness mark on every line.
+test("a subagent of the chat's own family draws its toned subagent mark", async () => {
   const container = await render(
     <SubagentHarnessContext.Provider value="claude">
       <SubagentDoneLine row={subagentRow} />
@@ -259,16 +261,19 @@ test("a subagent naming no harness draws the chat's harness mark when the chat h
   );
   const icon = container.querySelector(".cv-tool__icon")!;
   expect(icon.querySelector('[data-icon="agent.session"]')).toBeNull();
-  expect(icon.querySelector('[data-icon="task.ai"]')).toBeNull();
-  expect(icon.children.length).toBeGreaterThan(0);
+  expect(icon.querySelector('[data-agent-tone] [data-icon="task.ai"]')).not.toBeNull();
 });
 
-test("a subagent that names its own harness draws that harness's mark", async () => {
+test("a subagent of another family than the chat's draws its harness's mark", async () => {
   const codexRow = {
     ...subagentRow,
     subagents: [{ ...subagentRow.subagents![0]!, harness: "codex" }],
   } as AcpmuxRow;
-  const container = await render(<SubagentDoneLine row={codexRow} />);
+  const container = await render(
+    <SubagentHarnessContext.Provider value="claude">
+      <SubagentDoneLine row={codexRow} />
+    </SubagentHarnessContext.Provider>,
+  );
   const icon = container.querySelector(".cv-tool__icon")!;
   expect(icon.querySelector('[data-icon="agent.session"]')).toBeNull();
   expect(icon.querySelector('[data-icon="task.ai"]')).toBeNull();
@@ -288,15 +293,23 @@ test("an opened send shows its message once, under the row, not again on the lin
   }
 });
 
-test("the trailing column and chevron use the shared flex row contract", () => {
+test("the chevron follows the words and the trailing column ends the line", () => {
+  // Leo, 2026-11-03: "this how chatgpt does their chevrons". In the transcript a row's chevron
+  // sits right after its words and its status or duration ends the line
+  // (test/transcript-chevron-after-label.test.ts measures it in Chromium).
   const css = readFileSync(new URL("./conversation.css", import.meta.url), "utf8");
-  const block = (selector: string) =>
-    new RegExp(`(?:^|\\n)${selector.replace(/[.]/g, "\\.")} \\{([^}]*)\\}`).exec(css)?.[1] ?? "";
-  expect(block(".cv-tool")).toContain("display: flex");
+  const block = (selector: string) => {
+    const at = css.indexOf(`\n${selector} {`);
+    return at < 0 ? "" : css.slice(at, css.indexOf("}", at));
+  };
+  expect(css).toMatch(/\n\.cv-tool \{[^}]*display: flex/);
   expect(block(".cv-tool__chevron")).toContain("order: 3");
+  expect(block(".acpmux-row .cv-tool > .cv-tool__trail")).toContain("order: 5");
+  expect(block(".acpmux-row .cv-tool > .cv-tool__trail")).toContain("margin-inline-start: auto");
   expect(css).toContain(".cv-tool:not(.cv-agentmsg__line) > .cv-command__meta,");
-  expect(css).toContain("  order: 4;");
-  // Message rows use the same shared flex sentence, with the trailing status outside it.
+  // A message line's sentence joins the line in the transcript, so the chevron can precede Copy;
+  // outside it (Home's run ledger) the sentence keeps the free width.
+  expect(block(".acpmux-row .cv-agentmsg__line > .cv-agentmsg__sentence")).toContain("display: contents");
   const agentCss = readFileSync(new URL("./AgentMessageRow.css", import.meta.url), "utf8");
   const sentence = /\.cv-agentmsg__sentence \{([^}]*)\}/.exec(agentCss)?.[1] ?? "";
   expect(sentence).toContain("flex: 1 1 0");

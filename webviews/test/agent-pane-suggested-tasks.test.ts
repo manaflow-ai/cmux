@@ -216,8 +216,8 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
     extra?: () => Record_[];
     width?: number;
   };
-  /// The Retry buttons a page shows: under the person's prompts (each prompt's own, Leo's prompt row),
-  /// and anywhere else (a turn's footer, another agent's message).
+  /// The Retry buttons a page shows: under the person's prompts (the Messages view's), and anywhere
+  /// else (a turn's reply footer, where the transcript's Retry is).
   async function retryButtons(page: Page): Promise<{ prompts: number; elsewhere: number }> {
     return page.evaluate(() => {
       const shown = [...document.querySelectorAll('button[aria-label="Retry"]')].filter(
@@ -959,13 +959,14 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       expect(order.first).toBeGreaterThanOrEqual(0);
       expect(order.footers.some((index) => index > order.first && index < order.second)).toBe(true);
       expect(await page.locator("body").innerText()).not.toContain("The date changed.");
-      // The last turn is the reminder's, which has no prompt of the person's to send again: no
-      // Retry resends the earlier prompt in its place. Only the person's one prompt has its own.
-      expect(await retryButtons(page)).toEqual({ prompts: 1, elsewhere: 0 });
+      // The last turn is the reminder's, which has no prompt of the person's to send again, so its
+      // footer offers no Retry. The person's one prompt keeps one, on its own turn's footer
+      // (cmux#34779: Retry is the reply footer's, never the prompt bubble's).
+      expect(await retryButtons(page)).toEqual({ prompts: 0, elsewhere: 1 });
       await page.close();
     });
 
-    test("Retry on another agent's message sends it again as the agent got it, sender and all", async () => {
+    test("another agent's message offers no Retry: the person's own prompt keeps the chat's one", async () => {
       const text = [
         '<cross-session-message from="uds:/tmp/cc-socks/72618.sock" from-name="leoli-fb" from-mode="bypass">',
         "Please review #123.",
@@ -983,11 +984,10 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       });
       await page.getByText("Reviewing #123 now.").first().waitFor({ timeout: 10_000 });
       await hoverLine(incoming(page).last());
-      await page.getByRole("button", { name: "Retry", exact: true }).last().click();
-      await waitUntil(() => calls.some((c) => c.method === "session/prompt"));
-      const sent = JSON.stringify(calls.find((c) => c.method === "session/prompt")?.params.prompt);
-      expect(sent).toContain("cross-session-message");
-      expect(sent).toContain("leoli-fb");
+      // Only a prompt of the person's own draws Retry (turns.ts isRetryablePrompt, cmux#34779): the
+      // message line and its turn's footer draw none, and the person's prompt keeps the one Retry.
+      expect(await incoming(page).last().getByRole("button", { name: "Retry", exact: true }).count()).toBe(0);
+      expect(await retryButtons(page)).toEqual({ prompts: 1, elsewhere: 0 });
       await page.close();
     });
 
@@ -1006,7 +1006,8 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
         ],
       });
       await page.getByText("The build is done.").first().waitFor({ timeout: 10_000 });
-      // Only the person's one prompt has its own Retry; the notification's turn offers none.
+      // Only the person's one prompt has a Retry; the notification's turn offers none. Its turn's
+      // footer draws nothing at rest here, so the prompt keeps it (turns.ts retryPlacement, cmux#34779).
       expect(await retryButtons(page)).toEqual({ prompts: 1, elsewhere: 0 });
       await page.close();
     });
@@ -1051,8 +1052,10 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
           }),
         ],
       });
-      // It waits for the running turn, in the one group of waiting messages (pendingMessages.ts).
-      await page.locator(".cv-pending__toggle").click();
+      // It waits for the running turn as its own line: one waiting message has no group to open
+      // (PendingMessagesCard.tsx).
+      await page.locator(".cv-pending__toggle, .cv-pending--one").first().waitFor({ timeout: 10_000 });
+      if (await page.locator(".cv-pending__toggle").count()) await page.locator(".cv-pending__toggle").click();
       const card = incoming(page);
       await card.waitFor({ timeout: 10_000 });
       // Closed, the line alone; its images are in the panel the line opens.

@@ -25,7 +25,15 @@ const SPLIT_SPAN =
 
 for (const [name, line] of Object.entries(tokenLines))
   test(`${name}: output first, then what the model read, named on hover`, () => {
-    const html = tokenLineMarkup(line, SPLIT);
+    // The live line says one count by default, as Claude Code's does (claude-code-tool-rows.test.tsx);
+    // its `split` arm keeps this look.
+    globalThis.cmuxExperiments = { "live-line-tokens": "split" };
+    let html: string;
+    try {
+      html = tokenLineMarkup(line, SPLIT);
+    } finally {
+      delete globalThis.cmuxExperiments;
+    }
     expect(html).toMatch(SPLIT_SPAN);
     expect(text(html)).toMatch(/· ↓ 12\.4K out ↑ 2\.1M in$/);
     // The time is in its own quieter span.

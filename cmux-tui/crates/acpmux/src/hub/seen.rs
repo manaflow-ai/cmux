@@ -27,6 +27,8 @@ impl Hub {
                 let _ = session.hidden.fetch_update(Ordering::SeqCst, Ordering::SeqCst, less);
             }
         }
+        // Leaving the chat or coming back to it (`away_recap.rs`).
+        self.recap_visibility(session);
         // The git watch follows the chats clients hold (`git_watch.rs`).
         self.git_watch_wake();
         // Its `attached` and `shown` change no event carries (`list_guard.rs`).
@@ -42,6 +44,7 @@ impl Hub {
         } else {
             session.hidden.fetch_add(1, Ordering::SeqCst);
         }
+        self.recap_visibility(session);
         self.events.changed();
     }
 

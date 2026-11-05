@@ -206,9 +206,9 @@ extension PaneController {
             await previous?.value
             do {
                 let created = try await pending.send(); BenchSpans.mark("daemon.newTab.returned")
-                // The swap moved the selection already (NewTabSuccession); a pane still on the stand-in follows it.
+                // The swap moved the selection already (NewTabSuccession); a pane still on the stand-in follows it (its `successor`'s).
                 if selectHere {
-                    if stripModel.selectedID?.rawValue == pending.tab { selectWhenReported(surface: created.surface) }
+                    if (successor ?? self).stripModel.selectedID?.rawValue == pending.tab { selectWhenReported(surface: created.surface) }
                     self.workspace?.expectFocus(on: created.surface, generation: intent)
                 }
                 landed = true
@@ -234,9 +234,10 @@ extension PaneController {
     func newBrowserTab(url: URL? = nil, engine requested: String? = nil, inherited: String? = nil,
                        adopting child: (any BrowserTab)? = nil, background: Bool = false, profile: String? = nil,
                        notice: String? = nil, opener: SurfaceID? = nil, placementOwner: Bool = false,
-                       then: (@MainActor (SurfaceID) -> Void)? = nil) -> Bool {
+                       split: BrowserTabSplitRequest? = nil, then: (@MainActor (SurfaceID) -> Void)? = nil) -> Bool {
         PaneBrowserTabOpener(controller: self).open(url: url, engine: requested, inherited: inherited, adopting: child, background: background,
-                                                    profile: profile, notice: notice, opener: opener, placementOwner: placementOwner, then: then)
+                                                    profile: profile, notice: notice, opener: opener, placementOwner: placementOwner,
+                                                    split: split, then: then)
     }
 
     /// Several tabs (close others, to the left, to the right) close in one
@@ -269,6 +270,7 @@ extension PaneController {
     /// and then calls its `finish`.
     func prepareClose(_ ids: [StripTabID]) -> PreparedTabClose? {
         guard !ids.isEmpty else { return nil }
+        for id in ids { services.closedTabs?.undoToasts.hiddenPages.lift(id.rawValue) } // a tab hidden while its page decided: this close's intent takes it out now
         var commands: [DaemonService.CloseRun] = []
         var surfaces: [SurfaceID] = []
         var keys: [String] = []

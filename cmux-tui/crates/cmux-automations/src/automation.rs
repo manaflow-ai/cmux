@@ -49,6 +49,58 @@ pub struct AutomationSpec {
     pub enabled: bool,
 }
 
+/// The home of an automation made by a store that was not told its machine.
+pub const LOCAL_HOME: &str = "mac:local";
+
+fn default_home() -> String {
+    LOCAL_HOME.to_string()
+}
+
+fn first_epoch() -> u64 {
+    1
+}
+
+/// A pending move (teleport) of an automation. While it is set the
+/// automation never fires here (docs/automations-teleport-teams.md, section 2).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Handoff {
+    /// `tp_` and 32 lowercase hex digits; a resumed move reuses it.
+    pub id: String,
+    /// The destination as given (`cloud`, `home`, `ssh:HOST[:DIR]`).
+    pub to: String,
+    /// The epoch the destination's copy gets (this one's plus one).
+    pub epoch: u64,
+    /// When the fence was written, in milliseconds.
+    pub at: i64,
+}
+
+/// Where an imported automation came from (the Cloud schema's `origin`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Origin {
+    /// The handoff id that brought it here.
+    pub handoff: String,
+    /// The source's home (`cloud`, `mac:<machine id>`).
+    pub from: String,
+    /// Its id at the source.
+    pub source_id: String,
+}
+
+/// What stays of an automation that moved away. It never fires; `list`
+/// shows it for 30 days.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Tombstone {
+    pub id: String,
+    pub name: String,
+    /// The destination (`cloud`, `ssh:HOST[:DIR]`).
+    pub moved_to: String,
+    /// The automation's id at the destination.
+    pub moved_id: String,
+    /// The destination copy's epoch.
+    pub epoch: u64,
+    /// When it moved, in milliseconds.
+    pub moved_at: i64,
+}
+
 /// A stored automation (`<root>/<id>/automation.json`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Automation {
@@ -64,9 +116,30 @@ pub struct Automation {
     pub timeout_seconds: u64,
     pub created_at: i64,
     pub updated_at: i64,
+    /// The one store that fires it: `cloud` or `mac:<machine id>`.
+    #[serde(default = "default_home")]
+    pub home: String,
+    /// 1 at create, one more on each teleport; the newer epoch wins.
+    #[serde(default = "first_epoch")]
+    pub epoch: u64,
+    /// The newest scheduled time this store handled (a run row, run or
+    /// skipped), in milliseconds.
+    #[serde(default)]
+    pub last_slot: Option<i64>,
+    /// A pending move; a fenced automation never fires.
+    #[serde(default)]
+    pub handoff: Option<Handoff>,
+    /// Set on an automation that arrived by teleport.
+    #[serde(default)]
+    pub origin: Option<Origin>,
 }
 
 impl Automation {
+    /// Whether a move is pending, so it must not fire.
+    pub fn fenced(&self) -> bool {
+        self.handoff.is_some()
+    }
+
     /// The editable fields, for an update that changes some of them.
     pub fn spec(&self) -> AutomationSpec {
         AutomationSpec {
@@ -99,6 +172,21 @@ pub(crate) fn base32(bytes: &[u8], len: usize) -> String {
         }
     }
     out
+}
+
+/// A fresh handoff id: `tp_` and 32 lowercase hex digits (the Chief teleport's shape).
+pub fn new_handoff_id() -> std::io::Result<String> {
+    let mut bytes = [0u8; 16];
+    std::fs::File::open("/dev/urandom")?.read_exact(&mut bytes)?;
+    Ok(format!("tp_{}", bytes.iter().map(|b| format!("{b:02x}")).collect::<String>()))
+}
+
+/// Whether `id` has the handoff id shape (`tp_` and 32 lowercase hex digits).
+pub fn is_handoff_id(id: &str) -> bool {
+    id.len() == 35
+        && id.strip_prefix("tp_").is_some_and(|hex| {
+            hex.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        })
 }
 
 /// A fresh `auto_` id: 20 base32 characters (100 bits) from the OS random source.

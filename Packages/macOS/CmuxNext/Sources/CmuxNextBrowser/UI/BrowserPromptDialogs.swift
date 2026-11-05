@@ -18,18 +18,21 @@ final class BrowserPromptDialogs {
         self.center = center
     }
 
-    func render(_ prompt: BrowserPrompt?, in view: NSView, bar: PromptBarView) {
+    /// Shows `prompt`: a dialog, or the prompt bar (`makeBar` makes it the first time one shows);
+    /// `shownBar` is the bar made so far, hidden when nothing asks.
+    func render(_ prompt: BrowserPrompt?, in view: NSView, shownBar: PromptBarView?, makeBar: () -> PromptBarView) {
         guard let prompt, let spec = Self.spec(for: prompt) else {
             dismissShown()
             if let prompt {
+                let bar = makeBar()
                 bar.show(prompt)
                 bar.isHidden = false
             } else {
-                bar.isHidden = true
+                shownBar?.isHidden = true
             }
             return
         }
-        bar.isHidden = true
+        shownBar?.isHidden = true
         if shown?.prompt == ObjectIdentifier(prompt) { return }
         dismissShown()
         guard view.window != nil, !view.isHiddenOrHasHiddenAncestor else { return }

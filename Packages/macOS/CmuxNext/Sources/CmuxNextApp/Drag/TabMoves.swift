@@ -1,5 +1,6 @@
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextHomeEngine
 import enum CmuxNextLayout.DockEdge
@@ -184,17 +185,11 @@ enum TabMoves {
         let beside = edge.isBand || width != nil || half != nil ? nil
             : services.newColumnWidth(nextTo: pane, movingFrom: services.locateTab(model: tab)?.1)
         let width = width ?? half ?? beside ?? 0.3
+        // A lone chat's dock shows in the input's turn (`tab-column-client-pane-v1`, ``DockColumnCommand``).
+        let move = MoveTabToColumnRequest(surface: surface, target: .pane(paneHandle), width: width, dock: pin, transaction: transaction)
+        let send = DockColumnCommand(move, respawn: respawn).start(on: daemon)
         services.registry.track(Task {
-            let ok = await daemon.request("move-tab-to-column") { connection -> Void in
-                if let respawn {
-                    let move = MoveTabToColumnRequest(surface: surface, target: .pane(paneHandle), width: width, dock: pin,
-                                                      transaction: transaction)
-                    try await MoveTabToColumnRespawnRequest(move, respawn: respawn).send(on: connection)
-                } else {
-                    _ = try await connection.moveTabToColumn(surface, target: .pane(paneHandle), width: width, dock: pin,
-                                                             transaction: transaction)
-                }
-            } != nil
+            let ok = await send()
             completion(ok)
             return ok ? nil : "move-tab-to-column failed (see the app log)"
         })

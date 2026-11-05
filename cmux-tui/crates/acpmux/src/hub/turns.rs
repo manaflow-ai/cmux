@@ -500,8 +500,18 @@ impl Hub {
             && running.as_ref().is_some_and(|t| t.persons)
             && !super::digest::inbox_digest::is_digest(opts.provenance.as_ref())
             && !super::subsession_guard::is_family_prompt(opts.provenance.as_ref());
+        // The person's own steer goes into any running turn, one another agent's message started
+        // too (Leo, 2026-11-05: "WHY THE FUCK ARE MY MESSAGES BEING QUEUED INSTEAD OF STEERING").
         let trigger = crate::prompt_provenance::is_trigger(opts.provenance.as_ref());
         let trigger_held = trigger || running.as_ref().is_some_and(|t| t.trigger);
+        if steer
+            && opts.steer_only
+            && opts.interrupt_turn.as_deref().is_some_and(|expected| {
+                running.as_ref().is_none_or(|turn| turn.turn_id != expected)
+            })
+        {
+            return Err(super::turn_cap::steer_unavailable(capped));
+        }
         let steer_now = steer
             && !trigger_held
             && session.steering.load(Ordering::SeqCst)
@@ -729,9 +739,17 @@ impl Hub {
         // A lane's report to a parent whose close began since `queue_slot` checked is refused
         // (`lane_reports.rs`). Checked once the turn is set: `kill` marks the close before it
         // clears the turn, so a close that began any time before this check is seen.
-        if super::queue::refuses_closing_run(session, run.provenance.as_ref()) {
+        // Nor does any parent take one once a shutdown began: no agent may start from then on
+        // (`shutdown.rs`), and the shutdown sets that before it ends the lane turns it cuts.
+        let refused = if super::queue::refuses_closing_run(session, run.provenance.as_ref()) {
+            Some(super::queue::closing_error())
+        } else if super::queue::is_lane_report(run.provenance.as_ref()) && self.shutting_down() {
+            Some(super::shutdown::shutting_down_error())
+        } else {
+            None
+        };
+        if let Some(e) = refused {
             *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = None;
-            let e = super::queue::closing_error();
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
             return Err(e);
@@ -799,6 +817,11 @@ impl Hub {
             {
                 m.delegator = Some(from);
             }
+            // One shared turn path applies the creation snapshot exactly once, including
+            // queued/CLI prompts. A settings edit never changes an already-created chat.
+            if !m.cmux_context_delivered && control != Control::Web {
+                crate::context_inventory::append_snapshot(m.cmux_context.as_deref(), &mut blocks);
+            }
             m.turn_count += 1;
         }
         // A turn on lane reports only reports nothing (`lane_reports.rs`).
@@ -818,7 +841,9 @@ impl Hub {
         // finishes later. Do not let the stale compaction flag cancel the
         // next, explicit prompt immediately.
         session.compacting.store(false, Ordering::SeqCst);
-        let msg = json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id});
+        // Its control and mobile origin go with it: a restart that finds its turn never started
+        // queues it again as it came (`unstarted_prompt.rs`).
+        let msg = json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str(), "cloudMobile": run.cloud_mobile});
         let msg = crate::prompt_provenance::marked(msg, provenance.as_ref());
         self.append_prompt(session, msg, &blocks, display_parts.as_ref());
         if trigger {
@@ -1006,6 +1031,8 @@ impl Hub {
         let _unsent = crate::agent::CutOnDrop(fence.as_ref());
         // Start title generation after the first prompt is written to the harness, while its
         // session-info title can still win before the cheap completion is spent.
+        let delivers_context = control != Control::Web
+            && blocks.iter().any(|b| b.pointer("/_meta/acpmux/contextSource").is_some());
         let mut result = super::steer_end::agent_prompt_hook(
             session,
             &child,
@@ -1014,9 +1041,17 @@ impl Hub {
             false,
             false,
             fence.as_ref(),
-            confirm_team_write,
+            confirm_team_write || delivers_context,
             None,
             || {
+                if delivers_context {
+                    session
+                        .meta
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .cmux_context_delivered = true;
+                    self.save_meta(session);
+                }
                 self.mark_team_messages(session, &team_messages);
                 if team_enabled {
                     self.mark_team_work(session, &team_prompt_ids);
@@ -1095,6 +1130,7 @@ impl Hub {
                 let kept = super::fallback_start::ConversationMark::of(session);
                 let turn = session.turn();
                 self.detach_child(session).await;
+                self.resume_before_turn();
                 *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = turn;
                 self.set_status(session, SessionStatus::Running);
                 {
@@ -1208,6 +1244,7 @@ impl Hub {
                     (Err(e2), _) => {
                         let turn = session.turn();
                         self.detach_child(session).await;
+                        self.resume_before_turn();
                         *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = turn;
                         self.set_status(session, SessionStatus::Running);
                         kept.restore(session);
@@ -1494,6 +1531,8 @@ impl Hub {
             if stopped_early.is_some() {
                 result = Ok(stopped_answer());
             }
+            // The turn's wrap-up answer, taken whatever the turn's end (`wrap_up_suggestion.rs`).
+            let wrap_up_answer = crate::wrap_up_suggestion::take(&session.id);
             match &result {
                 Ok(v) => {
                     self.note_reply_refusal(session);
@@ -1523,6 +1562,11 @@ impl Hub {
                         }
                     }
                     self.write_turn_result(session, msg, git);
+                    if status == "completed"
+                        && let Some(answer) = wrap_up_answer
+                    {
+                        self.offer_wrap_up_suggestion(session, &answer);
+                    }
                     // The chat works again: agent messages a failed turn held go in (`digest.rs`).
                     // Not while a person's Stop that came after this turn began holds them
                     // (`cancel.rs`): only a turn begun under that hold, or a resume, ends it.
@@ -2057,7 +2101,7 @@ impl Hub {
         let has_model_option = session
             .meta()
             .config_options
-            .as_ref()
+            .as_deref()
             .and_then(Value::as_array)
             .map(|opts| opts.iter().any(|o| o.get("id").and_then(Value::as_str) == Some("model")))
             .unwrap_or(false);
@@ -2065,7 +2109,7 @@ impl Hub {
             let meta = session.meta();
             let option = meta
                 .config_options
-                .as_ref()
+                .as_deref()
                 .and_then(Value::as_array)
                 .and_then(|opts| opts.iter().find(|o| o["id"] == "model"))
                 .unwrap();
@@ -2114,6 +2158,8 @@ impl Hub {
         };
         self.append(session, "mux", "renamed", json!({"from": old, "to": name}));
         self.save_meta_answered(session)?;
+        // Its running Claude Code takes the name too (`live_name.rs`).
+        self.rename_live_claude(session);
         Ok(())
     }
 
@@ -2260,6 +2306,7 @@ impl Hub {
                     host_seq: None,
                 }),
                 remote: None,
+                update_line: Default::default(),
             });
             drop(sessions);
         }

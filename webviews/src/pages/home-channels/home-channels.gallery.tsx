@@ -726,6 +726,10 @@ export default componentEntry<Props>({
         await ctx.waitFor(() => ctx.document.querySelector(".lg-run.done"));
       },
     },
+    "run-phone": {
+      note: "The Chief conversation on a phone, including its Work control.",
+      props: { width: 390, pane: "conversation", select: "c-chief", runs: "done" },
+    },
     "run-messages": {
       note: "Chief's tell and an agent report remain visible with the finished run folded.",
       props: { select: "c-chief", runs: "messages" },

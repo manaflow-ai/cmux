@@ -4,6 +4,7 @@
 // opacity at once (appearancePresets.ts), as one undoable step. Reset is a
 // menu: Restore How It Was (when Appearance first showed in this visit) or Reset to Defaults, each
 // confirmed inline and itself undoable.
+import { Button } from "../../../ui/Button";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../../ui/Menu";
 import { Tooltip } from "../../../ui/Tooltip";
@@ -60,7 +61,7 @@ export function AppearanceBar() {
               ? t("settingsPage.history.confirmRestore")
               : t("settingsPage.history.confirmDefaults")}
           </span>
-          <button
+          <Button
             type="button"
             className="button"
             data-confirm=""
@@ -73,10 +74,10 @@ export function AppearanceBar() {
             }
           >
             {pending === "opened" ? t("settingsPage.history.restore") : t("settingsPage.history.reset")}
-          </button>
-          <button type="button" className="button" data-cancel="" onClick={() => setPending(null)}>
+          </Button>
+          <Button type="button" className="button" data-cancel="" onClick={() => setPending(null)}>
             {t("settingsPage.history.cancel")}
-          </button>
+          </Button>
         </span>
       ) : (
         <>
@@ -107,8 +108,10 @@ export function AppearanceBar() {
             </MenuPopup>
           </Menu>
           <Tooltip /* tooltip-allow: names the step Undo takes back */ label={undoLabel} side="top">
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              icon
               className="icon-button appearance-bar-button"
               data-undo=""
               aria-label={undoLabel}
@@ -116,11 +119,13 @@ export function AppearanceBar() {
               onClick={() => void run(() => store.undoAppearance())}
             >
               <Icon name="undo" />
-            </button>
+            </Button>
           </Tooltip>
           <Tooltip /* tooltip-allow: names the step Redo puts back */ label={redoLabel} side="top">
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              icon
               className="icon-button appearance-bar-button"
               data-redo=""
               aria-label={redoLabel}
@@ -128,7 +133,7 @@ export function AppearanceBar() {
               onClick={() => void run(() => store.redoAppearance())}
             >
               <Icon name="redo" />
-            </button>
+            </Button>
           </Tooltip>
           <Menu>
             <MenuButton

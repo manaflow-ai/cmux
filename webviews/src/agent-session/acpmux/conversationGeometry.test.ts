@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { applyHeightChanges, geometryFromHeights } from "./conversationGeometry";
-import { placeRowsIndexed } from "./model";
+import { applyHeightChanges, geometryFromArrays, geometryFromHeights } from "./conversationGeometry";
 
 describe("indexed conversation geometry", () => {
   test("exposes prefix accessors without a materialized tops array", () => {
@@ -26,17 +25,20 @@ describe("indexed conversation geometry", () => {
     expect(after.totalHeight).toBe(5_121);
   });
 
-  test("placeRowsIndexed accepts a bounded changed-index batch", () => {
-    const estimate = geometryFromHeights([12, 12, 12, 12, 12]);
-    const placed = placeRowsIndexed(estimate, [
-      { index: 1, height: 20 },
-      { index: 3, height: 4 },
-    ]);
-    expect(placed.totalHeight).toBe(60);
-    expect(placed.topAt(2)).toBe(32);
-    expect(placed.topAt(4)).toBe(48);
-    expect(estimate.totalHeight).toBe(60);
-    expect(placed).not.toBe(estimate);
+  test("array geometry answers the same queries as indexed geometry", () => {
+    const heights = [12, 0, 12, 4, 0, 12];
+    const indexed = geometryFromHeights(heights);
+    const tops = Float64Array.from({ length: heights.length }, (_, index) => indexed.topAt(index));
+    const arrays = geometryFromArrays(tops, heights, indexed.totalHeight, 5);
+    for (let index = 0; index <= heights.length; index += 1) {
+      expect(arrays.topAt(index)).toBe(indexed.topAt(index) + 5);
+      expect(arrays.gapAt(index)).toBe(0);
+    }
+    for (const target of [-1, 0, 5, 11, 17, 29, 40, 45])
+      expect(arrays.upperBoundTop(target + 5)).toBe(indexed.upperBoundTop(target));
+    const seen: number[] = [];
+    arrays.scan(1, 4, (index, top) => void seen.push(index, top));
+    expect(seen).toEqual([1, 17, 2, 17, 3, 29]);
   });
 
   test("ignores invalid changes without shifting row identity", () => {

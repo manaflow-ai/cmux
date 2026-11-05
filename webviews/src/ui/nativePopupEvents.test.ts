@@ -54,4 +54,20 @@ describe("native popup event fence", () => {
     expect(fence.accepts({ ...search, editSequence: 4 })).toBe(false);
     expect(fence.accepts({ ...search, editSequence: 5 })).toBe(true);
   });
+
+  test("navigate asks for the next or previous rail tab only when the popup has a rail", () => {
+    const fence = new NativePopupEventFence();
+    const navigate = { type: "navigate", popupId: "popup", revision: 1, value: "next" } as const;
+    fence.update(model(1, false, "low"));
+    expect(fence.accepts(navigate)).toBe(false);
+    fence.update({
+      ...model(1, false, "low"),
+      railPlacement: "symbols",
+      rail: [{ id: "claude", kind: "action", label: "Claude", mark: "claude", checked: true }],
+    });
+    expect(fence.accepts(navigate)).toBe(true);
+    expect(fence.accepts({ ...navigate, value: "previous" })).toBe(true);
+    expect(fence.accepts({ ...navigate, value: "sideways" })).toBe(false);
+    expect(fence.accepts({ ...navigate, id: "claude" })).toBe(false);
+  });
 });

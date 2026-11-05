@@ -22,6 +22,8 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 SWIFT_TREE = "Packages/macOS/CmuxNext/Sources"
+# What this check reads. scripts/web_lint_prepush.py runs it alone when a push touches one (declared_inputs()).
+INPUTS = (f"{SWIFT_TREE}/**/*.swift",)
 
 ON_ACTION = re.compile(r"\bonAction\s*=\s*\{")
 OPENS_SETTINGS = re.compile(r"settingsWindow\s*\.\s*show\s*\(|perform\(\s*\"openSettings\"")

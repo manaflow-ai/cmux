@@ -93,6 +93,17 @@ export class GuestPrompts {
     return this.prompts.filter((prompt) => prompt.state === "sending");
   }
 
+  /** Retry an explicitly refused send with its original id and saved text. */
+  retry(clientId: string): void {
+    this.set(
+      this.prompts.map((prompt) =>
+        prompt.clientId === clientId && prompt.state === "refused"
+          ? { ...prompt, state: "sending", reason: undefined }
+          : prompt,
+      ),
+    );
+  }
+
   private set(next: GuestPrompt[]): void {
     const decided = next.filter((prompt) => !isOpen(prompt)).slice(-DECIDED_KEPT);
     this.prompts = next.filter((prompt) => isOpen(prompt) || decided.includes(prompt));

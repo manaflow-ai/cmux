@@ -2,7 +2,8 @@ public import CMUXAuthCore
 public import Foundation
 
 /// The cmux team API (`<apiBaseURL>/api/teams`): the signed-in user's teams
-/// with roles, one team's detail, create, rename and delete, and email invitations. Every request
+/// with roles, one team's detail, create, rename and delete, email invitations, and the
+/// invitations addressed to the user (list, accept, decline). Every request
 /// carries the native session pair (`Authorization: Bearer <access>` and
 /// `X-Stack-Refresh-Token: <refresh>`), as every other cmux API call does.
 /// Failures are ``CMUXTeamError``.
@@ -76,6 +77,28 @@ public struct CmuxTeamsAPI: Sendable {
         try await send("POST", ["api", "teams", teamID, "invitations"], body: InviteBody(emails: emails, role: role.rawValue))
     }
 
+    /// `GET /api/teams/invitations`: pending invitations to any of the user's verified emails,
+    /// newest first. A deleted team's invitation is left out by the server.
+    public func receivedInvitations() async throws -> [CMUXReceivedTeamInvitation] {
+        let reply: ReceivedReply = try await send("GET", ["api", "teams", "invitations"])
+        return reply.invitations
+    }
+
+    /// `POST /api/teams/invitations/:id/accept`: joins the team the invitation names. The verified
+    /// email is the proof; the server also makes the joined team the account's selected team.
+    ///
+    /// - Throws: ``CMUXTeamError``: `invitationInvalid` once it was answered, revoked or expired,
+    ///   `emailMismatch` when its address is not one of the user's verified emails, `seatLimit` when
+    ///   the team's plan has no seat left.
+    public func acceptInvitation(id: String) async throws -> CMUXTeamJoin {
+        try await send("POST", ["api", "teams", "invitations", id, "accept"])
+    }
+
+    /// `POST /api/teams/invitations/:id/decline`: declines an invitation addressed to the user.
+    public func declineInvitation(id: String) async throws {
+        _ = try await perform("POST", ["api", "teams", "invitations", id, "decline"], body: nil)
+    }
+
     private func send<Reply: Decodable>(_ method: String, _ path: [String], body: (any Encodable)? = nil) async throws -> Reply {
         let data = try await perform(method, path, body: body)
         do {
@@ -147,6 +170,10 @@ private struct TeamListResponse: Decodable {
 
     let teams: [Team]
     let selectedTeamId: String?
+}
+
+private struct ReceivedReply: Decodable {
+    let invitations: [CMUXReceivedTeamInvitation]
 }
 
 private struct ErrorReply: Decodable {

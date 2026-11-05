@@ -51,9 +51,7 @@ import Testing
             rail.layoutSubtreeIfNeeded()
             let layer = try #require(rail.layer)
             #expect(layer.cornerRadius == 2)
-            let bottom: CACornerMask = layer.contentsAreFlipped()
-                ? [.layerMinXMaxYCorner, .layerMaxXMaxYCorner] : [.layerMinXMinYCorner, .layerMaxXMinYCorner]
-            #expect(layer.maskedCorners == bottom)
+            #expect(layer.maskedCorners == SidebarGroupLineShape.corners, "both caps round, top and bottom")
             #expect(layer.masksToBounds)
             #expect(layer.bounds.height == 80)
             #expect(rail.railShape.frame.height >= 5000, "the body still covers the spring's previous presentation height")
@@ -92,13 +90,6 @@ import Testing
             let first = try #require(sidebar.list.rowViews[.workspace(SidebarGroupLineLayoutTests.members[0])]).frame
             #expect(rail.minY == min(header.frame.maxY + SidebarStyle.groupLineCut, max(header.frame.maxY, first.minY)))
         }
-    }
-
-    @Test func connectedShoulderHasAClippedJoin() {
-        let shape = SidebarGroupLineShape.connected(width: 4, height: 80)
-        #expect(shape.contains(CGPoint(x: 1, y: 0.1)))
-        #expect(!shape.contains(CGPoint(x: 3.9, y: 0.1)))
-        #expect(shape.contains(CGPoint(x: 3.9, y: 3)))
     }
 
     @Test(arguments: SidebarGroupHeaderStyle.allCases)

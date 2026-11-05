@@ -346,7 +346,7 @@ fn link_stop_waits_for_the_process_and_fails_for_a_link_that_does_not_end() {
     assert!(!alive(pid(&second)), "stop answered before the process was gone");
 }
 
-/// The link never binds its socket in a folder that other users may open.
+/// The link never binds its socket in a folder that other users may write.
 #[test]
 fn link_ensure_refuses_a_socket_folder_open_to_other_users() {
     use std::os::unix::fs::PermissionsExt;
@@ -356,7 +356,7 @@ fn link_ensure_refuses_a_socket_folder_open_to_other_users() {
     let uid = unsafe { libc::getuid() };
     let folder = base.root.join("run").join(format!("cmux-tui-{uid}"));
     std::fs::create_dir_all(&folder).unwrap();
-    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o775)).unwrap();
     let dir = app.state_dir();
     let out = app.cmux(&[
         "link",
@@ -370,6 +370,53 @@ fn link_ensure_refuses_a_socket_folder_open_to_other_users() {
     ]);
     assert!(!out.status.success(), "the link bound in an open folder");
     assert!(!app.registration().exists());
+}
+
+/// Writable by every user (757), not only the group (775): still refused, never tightened.
+#[test]
+fn link_ensure_refuses_a_socket_folder_others_can_write() {
+    use std::os::unix::fs::PermissionsExt;
+    let base = Scratch::new("permw");
+    let app = base.app("a");
+    // SAFETY: getuid has no preconditions.
+    let uid = unsafe { libc::getuid() };
+    let folder = base.root.join("run").join(format!("cmux-tui-{uid}"));
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o757)).unwrap();
+    let dir = app.state_dir();
+    let out = app.cmux(&[
+        "link",
+        "ensure",
+        "--state-dir",
+        dir.to_str().unwrap(),
+        "--install",
+        "inst_app_a",
+        "--port",
+        "0",
+    ]);
+    assert!(!out.status.success(), "the link bound in an open folder");
+    assert!(!app.registration().exists());
+    assert_eq!(std::fs::metadata(&folder).unwrap().permissions().mode() & 0o777, 0o757);
+}
+
+/// A folder of this user that others could read but not write (another process made it 755)
+/// is tightened to 0700 and used, not refused.
+#[test]
+fn link_ensure_tightens_its_own_readable_socket_folder() {
+    use std::os::unix::fs::PermissionsExt;
+    let base = Scratch::new("tight");
+    let app = base.app("a");
+    // SAFETY: getuid has no preconditions.
+    let uid = unsafe { libc::getuid() };
+    let folder = base.root.join("run").join(format!("cmux-tui-{uid}"));
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let started = app.ensure(&["--install", "inst_app_a", "--port", "0"]);
+    assert_eq!(started["status"], "started", "{started}");
+    let socket = PathBuf::from(started["socket"].as_str().unwrap());
+    let parent = socket.parent().unwrap();
+    assert_eq!(std::fs::metadata(parent).unwrap().permissions().mode() & 0o777, 0o700);
+    dial_answers(&app, &socket);
 }
 
 /// A bad install id (it would name archive files) is refused before

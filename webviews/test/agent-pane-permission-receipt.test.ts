@@ -4,8 +4,12 @@
 // with the turn. The transcript now keeps a one-line receipt where the ask was answered: "Allowed:
 // Run npm test", "Always allowed: …", "Denied: …", or "Not answered: …" for one the turn's end
 // cancelled. It comes from acpmux's log (`permission_request`, then its `permission_decision`), so
-// a reload shows it again. An ask a chat in its highest mode answered unasked (`permission_auto` with
-// `fullAccess`) leaves "Approved: … (native mode label)"; one a policy answered still leaves none. The page is the pane's dev entry with its browser host, talking
+// a reload shows it again. An approval (Allow, Always allow, or switching to the harness's highest
+// mode while the card is open) reads on the call it approved, "Approved" at its row's edge, never as
+// a line of its own; an ask the chat's Bypass permissions or Full access answered unasked
+// (`permission_auto` with `fullAccess`) draws nothing, nor does one a policy answered (Leo,
+// 2026-11-02, on a loose "Approved: cd /tmp; … (Bypass permissions)" line: "but what's going on
+// with these?"). The page is the pane's dev entry with its browser host, talking
 // JSON-RPC to a stand-in acpmux daemon that can push live events.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -80,6 +84,14 @@ await requireBrowserLane("agent-pane-permission-receipt.test.ts", async () => {
     { permissionId: "perm-test", outcome },
   ];
   const picked = (optionId: string) => decided({ outcome: "selected", optionId });
+  /// The approved call runs to its end. While it runs, and while it is the turn's latest finished
+  /// step, the live line names it (turns.ts `liftedStep`); its row, with its "Approved" mark, is
+  /// drawn once the turn moves past it, here the reply's first words (`answered`).
+  const ran: Step = [
+    "in",
+    "tool_call_update",
+    update({ sessionUpdate: "tool_call_update", toolCallId: "call-test", status: "completed", rawOutput: "ok" }),
+  ];
   // A mode change can approve an ask that was already waiting. Its auto record keeps the
   // original permission id, and the ordinary decision settles that same pending card.
   const approvedAfterSwitch = (fullAccess: string): Step => [
@@ -164,6 +176,8 @@ await requireBrowserLane("agent-pane-permission-receipt.test.ts", async () => {
     "agent_message_chunk",
     update({ sessionUpdate: "agent_message_chunk", messageId: "reply-1", content: { type: "text", text } }),
   ];
+  /// The turn moves past the call that ran: the live line lets go of it and its row is drawn.
+  const answered = chunk("Tests pass.");
   const missed = [asked[3]!, picked("allow_once"), chunk("Tests")].map((step, index) => record(LAG, step, 4 + index));
   const session = (sessionId: string) => ({
     sessionId,
@@ -228,6 +242,13 @@ await requireBrowserLane("agent-pane-permission-receipt.test.ts", async () => {
       .locator(".acpmux-scroll .acpmux-permission-record")
       .evaluateAll((nodes) => nodes.map((node) => (node as HTMLElement).innerText.replace(/\s+/g, " ").trim()));
   };
+  /// The tool rows that say "Approved", by their call id.
+  const approved = async (page: Page) => {
+    await receipts(page);
+    return page
+      .locator(".acpmux-scroll [data-tool-id]", { has: page.locator(".cv-command__approved") })
+      .evaluateAll((nodes) => nodes.map((node) => (node as HTMLElement).dataset.toolId));
+  };
   beforeAll(async () => {
     daemon = Bun.serve({
       port: 0,
@@ -272,70 +293,87 @@ await requireBrowserLane("agent-pane-permission-receipt.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  test("an answered ask leaves a receipt that says how it was answered", async () => {
+  test("an approved ask reads on its call; a denied or unanswered one leaves its receipt line", async () => {
+    for (const [chat, shown] of [
+      [ALLOWED, "Tests pass."],
+      [ALWAYS, "Tests pass, always."],
+    ] as const) {
+      const page = await open(chat, shown);
+      expect(await receipts(page)).toEqual([]);
+      expect(await approved(page)).toEqual(["call-test"]);
+      await page.close();
+    }
     for (const [chat, shown, receipt] of [
-      [ALLOWED, "Tests pass.", "Allowed: Run npm test"],
-      [ALWAYS, "Tests pass, always.", "Always allowed: Run npm test"],
       [DENIED, "Skipped the tests.", "Denied: Run npm test"],
       [CANCELLED, "Stopped.", "Not answered: Run npm test"],
     ] as const) {
       const page = await open(chat, shown);
       expect(await receipts(page)).toEqual([receipt]);
+      expect(await approved(page)).toEqual([]);
       await page.close();
     }
   });
 
-  test("an ask in each harness's highest mode keeps its native receipt label; policy answers none", async () => {
-    let page = await open(FULL, "Sheet made.");
-    expect(await receipts(page)).toEqual(["Approved: rm -rf f/* (Bypass permissions)"]);
-    await page.close();
-    page = await open(CODEX_FULL, "Codex sheet made.");
-    expect(await receipts(page)).toEqual(["Approved: rm -rf f/* (Full access)"]);
-    await page.close();
-    page = await open(POLICY, "Sheet made by policy.");
-    expect(await receipts(page)).toEqual([]);
-    await page.close();
+  test("an ask Bypass permissions, Full access or a policy answered unasked draws nothing", async () => {
+    for (const [chat, shown] of [
+      [FULL, "Sheet made."],
+      [CODEX_FULL, "Codex sheet made."],
+      [POLICY, "Sheet made by policy."],
+    ] as const) {
+      const page = await open(chat, shown);
+      expect(await receipts(page)).toEqual([]);
+      expect(await approved(page)).toEqual([]);
+      await page.close();
+    }
   });
 
-  test("answered live, the card goes and its receipt shows in the turn", async () => {
+  test("answered live, the card goes and its call says Approved once it ran", async () => {
     const page = await open(LIVE, "Check the build");
     await page.locator(".acpmux-permission-ask").waitFor({ timeout: 5_000 });
     expect(await receipts(page)).toEqual([]);
     push(picked("allow_once"));
-    await page.locator(".acpmux-permission-record").first().waitFor({ timeout: 5_000 });
+    push(ran);
+    push(answered);
+    await page.locator(".cv-command__approved").first().waitFor({ timeout: 5_000 });
     expect(await page.locator(".acpmux-permission-ask").count()).toBe(0);
-    expect(await receipts(page)).toEqual(["Allowed: Run npm test"]);
+    expect(await receipts(page)).toEqual([]);
+    expect(await approved(page)).toEqual(["call-test"]);
     await page.close();
   });
 
-  test("switching either harness to full access settles its live card with one native receipt", async () => {
-    for (const [chat, mode, label] of [
-      [SWITCH_LIVE, "bypassPermissions", "Bypass permissions"],
-      [CODEX_SWITCH_LIVE, "agent-full-access", "Full access"],
+  test("switching either harness to full access settles its live card as an approval on its call", async () => {
+    for (const [chat, mode] of [
+      [SWITCH_LIVE, "bypassPermissions"],
+      [CODEX_SWITCH_LIVE, "agent-full-access"],
     ] as const) {
       const page = await open(chat, "Check the build");
       await page.locator(".acpmux-permission-ask").waitFor({ timeout: 5_000 });
       push(approvedAfterSwitch(mode), chat);
       push(picked("allow_once"), chat);
       await page.locator(".acpmux-permission-ask").waitFor({ state: "detached", timeout: 5_000 });
-      expect(await receipts(page)).toEqual([`Approved: Run npm test (${label})`]);
+      push(ran, chat);
+      push(answered, chat);
+      await page.locator(".cv-command__approved").first().waitFor({ timeout: 5_000 });
+      expect(await receipts(page)).toEqual([]);
+      expect(await approved(page)).toEqual(["call-test"]);
       await page.close();
     }
   });
 
-  test("replaying a pending ask approved by a mode switch keeps no card or duplicate receipt", async () => {
-    for (const [chat, shown, label] of [
-      [SWITCHED, "Tests resumed in bypass.", "Bypass permissions"],
-      [CODEX_SWITCHED, "Tests resumed in full access.", "Full access"],
+  test("replaying a pending ask approved by a mode switch keeps no card, receipt line or second mark", async () => {
+    for (const [chat, shown] of [
+      [SWITCHED, "Tests resumed in bypass."],
+      [CODEX_SWITCHED, "Tests resumed in full access."],
     ] as const) {
       const page = await open(chat, shown);
       expect(await page.locator(".acpmux-permission-ask").count()).toBe(0);
-      expect(await receipts(page)).toEqual([`Approved: Run npm test (${label})`]);
+      expect(await receipts(page)).toEqual([]);
+      expect(await approved(page)).toEqual(["call-test"]);
       await page.close();
     }
   });
 
-  test("a resync that brings the answer keeps one receipt and the reply that streams after it whole", async () => {
+  test("a resync that brings the answer keeps one approval and the reply that streams after it whole", async () => {
     const page = await open(LAG, "Check the build");
     const send = (message: Record<string, unknown>) => {
       for (const ws of sockets) ws.send(JSON.stringify({ jsonrpc: "2.0", ...message }));
@@ -345,7 +383,10 @@ await requireBrowserLane("agent-pane-permission-receipt.test.ts", async () => {
     await page.getByText("Tests").first().waitFor({ timeout: 5_000 });
     send({ method: "_acpmux/event", params: record(LAG, chunk(" pass."), 7) });
     await page.getByText("Tests pass.").waitFor({ timeout: 5_000 });
-    expect(await receipts(page)).toEqual(["Allowed: Run npm test"]);
+    send({ method: "_acpmux/event", params: record(LAG, ran, 8) });
+    await page.locator(".cv-command__approved").first().waitFor({ timeout: 5_000 });
+    expect(await receipts(page)).toEqual([]);
+    expect(await approved(page)).toEqual(["call-test"]);
     await page.close();
   });
 });

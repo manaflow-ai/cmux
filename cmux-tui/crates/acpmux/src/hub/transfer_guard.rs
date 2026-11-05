@@ -178,6 +178,14 @@ pub(super) fn bundle_path_kind(path: &str) -> Option<bool> {
         {
             Some(true)
         }
+        ["native", "pi-session", ".pi", "agent", "sessions", dir, f]
+            if !dir.is_empty() && jsonl(f) =>
+        {
+            Some(true)
+        }
+        ["native", "opencode-export", f] if f.len() > ".json".len() && f.ends_with(".json") => {
+            Some(true)
+        }
         ["native", "codex-rollout", ".codex", "sessions", rest @ ..]
             if (1..=5).contains(&rest.len())
                 && rest.iter().all(|p| !p.is_empty())
@@ -342,6 +350,17 @@ impl Hub {
         meta.spawn_argv = None;
         meta.launch_digest = None;
         meta.tags.clear();
+        // The folders beside its own: each one under the move's roots, as its `cwd` is; any
+        // other is dropped (`additional_dirs.rs`), so a bundle never widens what it can see.
+        let mut dirs = Vec::new();
+        for d in std::mem::take(&mut meta.additional_directories) {
+            if let Some(c) = guard.folder(&d.to_string_lossy()).await
+                && !dirs.contains(&c)
+            {
+                dirs.push(c);
+            }
+        }
+        meta.additional_directories = super::additional_dirs::without_cwd(dirs, &meta.cwd);
         meta.remote_origin = true;
         if let Some(sid) = meta.agent_session_id.as_deref()
             && !plain_agent_session(sid)
@@ -399,7 +418,7 @@ impl Hub {
                 format!("mode {shown} does not ask before it acts for a {family} chat here"),
             ));
         }
-        let options = meta.config_options.as_ref().and_then(Value::as_array);
+        let options = meta.config_options.as_deref().and_then(Value::as_array);
         for o in options.into_iter().flatten() {
             let id = o.get("id").and_then(Value::as_str).unwrap_or("");
             let value = o.get("currentValue").and_then(Value::as_str);

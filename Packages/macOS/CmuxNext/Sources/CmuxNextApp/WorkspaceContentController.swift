@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAppCore
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextCompat
@@ -7,6 +8,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
 import CmuxNextPages
+import CmuxNextWakeups
 import CmuxNextWorkspaceRepair
 import Observation
 
@@ -25,12 +27,15 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// Layout plus the bottom screen bar; what the window shows.
     private(set) lazy var contentView = WorkspaceContentView(layoutView: layoutView, bar: screenBar.view)
     private(set) var emptyView: EmptyWorkspaceView?
+    /// The next stand-in pane's views (New Column, New Row, Cmd-D), made while this workspace shows and its layout is still, parked hidden in its layout.
+    private(set) lazy var paneSpare = IdleSpare(owner: "PaneSpare", on: services.mainWork) { [weak self] in self.map { $0.layoutView.parkingSpare(PaneController.Spare(services: $0.services), view: \.view) } }
+    private var paneSpareMotion: LayoutOverlaySyncObservation?
     private(set) lazy var screenBar = ScreenBarController(content: self)
     /// The workspace theme: only this content area, under the window's
     /// room theme.
     let themeScope = ThemeScope(level: .workspace)
     unowned let services: AppServices
-    unowned let state: WindowState
+    let state: WindowState  // strong: queued content work can run after WindowController.teardown let the state go (#34062)
     private(set) var handles = LayoutHandleMap()
     private(set) var panes: [LayoutPaneID: PaneController] = [:]
     private var retiredPanes: [LayoutPaneID: PaneController] = [:] // closed, kept for their teardown (retainContentView)
@@ -48,7 +53,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// plans/cmux-next/focus.md). Every focus change in this content goes
     /// through it.
     let focus: FocusCoordinator
-    var nextGestureTransaction: UInt64 = UInt64(Date().timeIntervalSince1970 * 1000) << 8
+    var gestureTransactions = GestureTransactionNumbers()
     /// The last key-turn pane create (Cmd-D's split, New Column, New Row) still sending: the next one sends after
     /// it, so one pressed on its stand-in names the daemon's pane (`createInKeysTurn`, `PaneHandlers.split`).
     var pendingCreate: ActionWork?
@@ -85,6 +90,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         isOffScreen = true
         attentionObservation?.cancel()
         setDrawsNothing(true)
+        paneSpare.isWanted = false // a spare made stays hidden in this hidden workspace: a switch moves no view out of the window
     }
 
     /// Shows this parked content again, in this frame: the tree changes it skipped while off screen
@@ -93,6 +99,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// (`PaneController.resume`), and the attention rings are read now and followed again.
     func unpark() {
         isParked = false
+        AfterFrameCommit().run { [weak self] in self?.refillPaneSpare() } // after the switch's frame
         comeOnScreen()
         setDrawsNothing(false)
         observeAttention()
@@ -139,6 +146,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         self.state = state
         focus = state.focus
         layoutModel.intentHandler = { [weak self] intent in self?.handle(intent) }
+        layoutModel.sendsNow = { [weak self] intent in self?.handles.sendsNow(intent) ?? false }
         _ = layoutView  // built here, then the bar and the content view, as before
         // A scroll the layout took is timed as the layout's (`key.scroll_frame target=layout`).
         layoutView.onScrollTaken = { [inputDispatch = services.inputDispatch] in inputDispatch.noteLayoutTookScroll() }
@@ -184,6 +192,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         settlingObservation?.cancel()
         canvasObservation?.cancel()
         screenBar.teardown()
+        (paneSpare.isWanted, paneSpareMotion) = (false, nil)
         for controller in Array(panes.values) + retiredPanes.values { controller.teardown() }
         (panes, retiredPanes) = ([:], [:])
         // A Home closed before its page came stops counting toward `.home`'s wait.
@@ -386,7 +395,9 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
 
     func makeContentView(for pane: LayoutPaneID) -> NSView {
         guard let handle = handles.panes[pane], let model = daemon.store.pane(handle) else { return NSView() }
-        let controller = PaneController(pane: model, daemon: daemon, layoutPaneID: pane, services: services, state: state, workspace: self)
+        let spare = ProvisionalPane.isStandIn(handle) ? paneSpare.take() : nil // a stand-in pane (a key's create) adopts the views made ahead
+        let controller = PaneController(pane: model, daemon: daemon, layoutPaneID: pane, services: services, state: state, workspace: self, spare: spare)
+        AfterFrameCommit().run { [weak self] in self?.refillPaneSpare() } // after the key's frame; a motion that started refills when it lands
         controller.view.toolbar = PaneToolbar(pane: controller) // the tab bar's hover "…" and pinned buttons
         controller.view.swapDrag = PaneSwapDrag(pane: controller)
         panes[pane] = controller
@@ -399,9 +410,20 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         // So does the App Store (S22: never a window of its own).
         if panes.count == 1, services.apps.isStoreWaiting { Task { [apps = services.apps] in apps.windowDidShowContent() } }
         // So does a link from another app that waited for a workspace made to hold it (#27897):
-        // the workspace shows before its first pane mounts.
+        // the workspace shows before its first pane mounts. And a Dock menu row picked with no window open.
         if panes.count == 1, !services.externalOpen.pending.isEmpty { Task { [open = services.externalOpen] in open.flush() } }
+        if panes.count == 1, services.dockMenu.isWaiting { Task { [dockMenu = services.dockMenu] in dockMenu.windowDidShowContent() } }
         return controller.view
+    }
+
+    /// Makes the next pane spare when this workspace shows and its layout is still: a layout motion's start stops a make
+    /// already queued (none runs in a spring frame), its landing asks again.
+    func refillPaneSpare() {
+        guard contentView.window != nil else { return paneSpare.isWanted = false } // torn down, or not shown yet
+        if paneSpareMotion == nil { paneSpareMotion = layoutView.observeLayoutMotion { [weak self] moving in
+            if moving { self?.paneSpare.isWanted = false } else { AfterFrameCommit().run { [weak self] in self?.refillPaneSpare() } } } }
+        paneSpare.isWanted = !isParked && !layoutView.isInLayoutMotion // shown and still
+        paneSpare.fill()
     }
 
     func holdsContentInMotion(for pane: LayoutPaneID) -> Bool {

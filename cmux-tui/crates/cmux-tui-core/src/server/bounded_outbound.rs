@@ -46,6 +46,9 @@ pub(super) struct BoundedOutboundState {
     pub(super) control_bytes: usize,
     pub(super) regular_bytes: usize,
     pub(super) closed: bool,
+    /// Lines taken for the socket, in the order the writer writes them (every queue): a command
+    /// that reads it before it reads state names the lines its client got before that read (#32408).
+    pub(super) lines_taken: u64,
 }
 
 pub(super) struct StreamOutboundUsage {
@@ -496,7 +499,20 @@ impl BoundedOutbound {
         }
     }
 
+    /// The lines taken for the socket so far (``BoundedOutboundState::lines_taken``).
+    pub(super) fn lines_taken(&self) -> u64 {
+        self.state.lock().recover_poison().lines_taken
+    }
+
     pub(super) fn pop_locked(state: &mut BoundedOutboundState) -> Option<OutboundItem> {
+        let item = Self::pop_item_locked(state);
+        if matches!(item, Some(OutboundItem::Text(_))) {
+            state.lines_taken += 1;
+        }
+        item
+    }
+
+    fn pop_item_locked(state: &mut BoundedOutboundState) -> Option<OutboundItem> {
         if let Some(message) = state.initial.pop_front() {
             Self::record_stream_pop(state, &message);
             return Some(OutboundItem::Text(message.text));
@@ -812,5 +828,9 @@ impl MessageSink for QueuedSink {
 
     fn close_after_control(&self) {
         self.outbound.close_after_control();
+    }
+
+    fn lines_written(&self) -> Option<u64> {
+        Some(self.outbound.lines_taken())
     }
 }

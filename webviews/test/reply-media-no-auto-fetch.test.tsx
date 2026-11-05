@@ -182,6 +182,18 @@ describe("R5: no automatic fetch", () => {
     await page.unmount();
   });
 
+  // A path names a different file in another chat (a remote one names its own machine's): a grant from
+  // one mount is never reused by the next without asking the host, which knows the chat it shows now.
+  test("a local video's grant is asked of the host again on every mount, never reused from another", async () => {
+    const first = await render("![clip](/tmp/project/clip.mp4)");
+    expect(srcs(first.calls, "media.load")).toEqual(["/tmp/project/clip.mp4"]);
+    expect(first.container.querySelector("video")?.getAttribute("src")).toBe(MEDIA);
+    await first.unmount();
+    const page = await render("![clip](/tmp/project/clip.mp4)");
+    expect(srcs(page.calls, "media.load")).toEqual(["/tmp/project/clip.mp4"]);
+    await page.unmount();
+  });
+
   test("never suppresses a previously cached remote player and offers no retry", async () => {
     const url = "https://media.example.com/now-disabled.mp4";
     const first = await render(url);

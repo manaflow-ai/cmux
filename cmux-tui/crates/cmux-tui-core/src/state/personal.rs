@@ -201,6 +201,10 @@ impl Mux {
         selectors: &crate::ResourceSelectors,
         change: PersonalChange,
     ) -> anyhow::Result<StateCommit> {
+        // A sidebar click (collapse, rename, move a group, place a
+        // workspace): its registry locks go next after the current holder,
+        // not behind every busy agent's write.
+        let _interactive = interactive_scope();
         let fingerprint = serde_json::json!({
             "operation": operation,
             "selectors": change.targets_workspace().then_some(selectors),

@@ -20,6 +20,9 @@ SOURCE = 'schemas/layout-grid/layout-grid.json'
 CSS_FILE = 'webviews/src/pages/shared/desktop.css'
 SWIFT_FILE = 'Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/LayoutGrid.swift'
 SETTLED = 'schemas/layout-grid/settled-spacing.json'
+# What this check reads. scripts/web_lint_prepush.py runs it alone when a push touches one (declared_inputs()).
+# A settled pin's own `file` is read too; every one is under webviews/, which the webviews check's triggers cover.
+INPUTS = (SOURCE, CSS_FILE, SWIFT_FILE, SETTLED)
 SETTLED_FIELDS = ('id', 'what', 'value', 'source', 'date', 'words', 'spec')
 # A file pin's comment sits on its line or at most this many lines above it.
 SETTLED_COMMENT_REACH = 3

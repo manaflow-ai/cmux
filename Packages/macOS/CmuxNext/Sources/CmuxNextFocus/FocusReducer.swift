@@ -1,10 +1,10 @@
 import CCmuxLayoutReducerFFI
-public import Foundation
+import Foundation
 
-/// The rules that stay JSON calls into `cmux-focus-core` over the app FFI:
-/// the per-key focus rules (`focus_type_ahead`, `focus_child_window_key`, one
-/// call per queued key or child-window key change, not per focus event) and the
-/// agent cursor visibility (`agent_cursor_visibility`, through `call(_:json:)`).
+/// The per-key focus rules that stay JSON calls into `cmux-focus-core`
+/// (`focus_type_ahead`, `focus_child_window_key`): one call per queued key or
+/// child-window key change, not per focus event. Agent cursor visibility uses
+/// the typed `cmux_agent_cursor_visibility` instead (it runs per motion frame).
 public nonisolated struct FocusReducer {
     public nonisolated init() {}
 
@@ -20,7 +20,7 @@ public nonisolated struct FocusReducer {
 
     /// One call with the request's JSON bytes as they are; the reply's JSON
     /// bytes, or nil when the operation refused the request.
-    public static func call(_ operation: String, json data: Data) -> Data? {
+    private static func call(_ operation: String, json data: Data) -> Data? {
         var capacity = initialCapacity
         for _ in 0..<2 {
             var output = [UInt8](repeating: 0, count: capacity)

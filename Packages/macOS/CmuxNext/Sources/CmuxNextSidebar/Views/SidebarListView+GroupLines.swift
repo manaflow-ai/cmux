@@ -39,7 +39,7 @@ extension SidebarListViewComponents {
 
 extension SidebarGroupLine {
     /// Every open group in `rows` with shown members: its line from its header to the last member row's bottom,
-    /// Chrome's shape (Leo 2026-10-19): 2 pt (`SidebarStyle.groupBarWidth`), flat ends, a cut
+    /// Chrome's shape (Leo 2026-10-19): 2 pt (`SidebarStyle.groupBarWidth`), one capsule (`SidebarGroupLineShape`), a cut
     /// (`SidebarStyle.groupLineCut`, never past the top of the row under the header) below the bar, or out of the bar's square corner when `joined` under the solid
     /// band (`joinsBar`); just left of the members' rows (`SidebarStyle.groupLineX`), so no row fill covers it
     /// (cx-q5jw: straight and unbroken, Edge style). `frame` places a row.
@@ -93,7 +93,7 @@ extension SidebarGroupLine {
             let x = layout == .inside ? max(bar, SidebarStyle.groupLineX(membersMinX: head.minX)) : bar
             return SidebarGroupLine(group: id, frame: CGRect(x: x, y: head.minY,
                                                              width: width, height: tail.maxY - head.minY),
-                                    color: colors[id]?.tint ?? .palette(row.groupColor ?? .grey), level: nested ? max(0, row.depth - 1) : 0)
+                                    color: colors[id]?.tint ?? row.groupColor.map(GroupTint.palette) ?? .none, level: nested ? max(0, row.depth - 1) : 0)
         }
         return soleLines + headers.compactMap { id, header in
             guard !header.isCollapsed, let end = last[id], end.y > header.y else { return nil }
@@ -112,7 +112,7 @@ extension SidebarGroupLine {
             let x = layout == .inside ? max(head.minX, insideRail)
                 : head.minX
             return SidebarGroupLine(group: id, frame: CGRect(x: x, y: top, width: width, height: bottom - top),
-                                    color: colors[id]?.tint ?? .palette(end.groupColor ?? .grey), level: nested ? header.depth : 0)
+                                    color: colors[id]?.tint ?? end.groupColor.map(GroupTint.palette) ?? .none, level: nested ? header.depth : 0)
         }
     }
 }

@@ -1,6 +1,5 @@
 import { composerPickerEntries } from "./composerPickerEntries";
-import React, { useCallback, useContext, useEffect, useId, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import React, { useCallback, useContext, useEffect, useRef, useState } from "react";
 import type { SignIn } from "./signIn";
 import { useChatAccounts } from "./chatAccounts";
 import type { QuickMenuExtras } from "./QuickModelMenu";
@@ -8,13 +7,15 @@ import { sessionModels } from "./modelCatalog";
 import { modelChipFallback } from "./agents";
 import {
   isDefaultChoice,
+  loadResolvedAlias,
   loadResolvedDefaults,
   modelIdName,
+  rememberResolvedAlias,
   rememberResolvedDefault,
   resolvedModel,
 } from "./defaultChoice";
 import { loadLastChips, rememberLastChips } from "./chipMemory";
-import type { AcpmuxSnapshot } from "./model";
+import type { AcpmuxSnapshot, AcpmuxUsageLimits } from "./model";
 import type { SpeedSection } from "./EffortPicker";
 import { pendingSpeed } from "./pendingSpeed";
 import { fastModeIsOn, nextFastModeValue } from "./fastModeState";
@@ -47,26 +48,30 @@ import type { PickerCatalog } from "./modelCatalogData";
 import { catalogProfiles } from "./pickerProfiles";
 import { continueTargets } from "./cmuxCommands";
 import { useModelCatalogState } from "./modelCatalogHost";
-import { backdropLayer } from "./backdropLayer";
-import { focusWithRing } from "../../ui/focusWithRing";
 import { AnchoredCard } from "../../ui/Tooltip";
 import { HOVER_INTENT } from "../../ui/hoverIntent";
 import { useHoverCard } from "./chips/useHoverCard";
 import { ContextCardBody } from "./ContextCard";
+import { PlanUsageCardBody } from "./PlanUsageCard";
+import { planUsedFraction } from "./usageLimits";
 import { contextBreakdown } from "./session-info/ContextSection";
 import { ContextMenu } from "../../ui/ContextMenu";
 import { useComposerSettings } from "./composerSettings";
 import { compactingUsage } from "./usageStats";
-import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
+import {
+  Menu,
+  MenuButton,
+  MenuGroup,
+  MenuItem,
+  MenuPopup,
+  MenuRadioGroup,
+  MenuRadioItem,
+  MenuSeparator,
+} from "../../ui/Menu";
+import { cx } from "../../ui/cx";
 import { registerPicker } from "./pickerOpeners";
-import { scrollActiveMenuRow } from "./scrollActiveMenuRow";
-import { useScrollEdges } from "./summary/scrollEdges";
-import { UI_ANCHOR_GAP, useUiAnchor } from "../../ui/anchor";
-import { useEscapingPopup } from "../../ui/popupHost";
-import { usePopupHost } from "../../ui/UiProvider";
-import { usePopoverTrigger } from "../../ui/popoverTrigger";
-import { isMousePress } from "../../ui/pressRelease";
-import { focusAfterEscape } from "../../ui/escapeFocus";
+import { experimentArm } from "../../experiments/experiment";
+import { contextRingLook } from "./contextRingLook.experiment";
 import {
   type ModeIconName,
   RECOMMENDED_BADGE,
@@ -320,6 +325,10 @@ export function ComposerPickers({
       ...(pickerCatalog?.harnesses.filter((entry) => entry.id === summary?.family) ?? []),
       ...(pickerCatalog?.harnesses ?? []),
     ].map((entry) => catalogRow(entry.models, id));
+  // A release is named by its exact catalog row, else read off its id ("claude-opus-5-5[1m]" keeps
+  // its wide-context name).
+  const releaseName = (id: string) =>
+    kinRows(id).find((row) => row?.id === id || row?.release === id)?.name ?? modelIdName(id, t);
   const ownRow = catalogRow(
     pickerCatalog?.harnesses.find((entry) => entry.acpmuxHarness === summary?.harness || entry.id === summary?.harness)
       ?.models,
@@ -503,7 +512,12 @@ export function ComposerPickers({
     fork?.to(picked);
   };
   const land = (pickedModel: string, pickedEffort?: string) => {
-    // Any new pick replaces a combo still waiting on its effort.
+    // Any new pick replaces a combo still waiting on its effort, but a second pick of the model that
+    // combo waits for (its Fast, its level, from a menu that stays open) keeps waiting with it.
+    const waiting =
+      pending.current?.model === pickedModel && pending.current.sessionId === summary?.sessionId
+        ? pending.current
+        : undefined;
     pending.current = undefined;
     const pickEffort = (value: string) => {
       if (presession && harness) setHeldPick({ harness, value });
@@ -517,6 +531,8 @@ export function ComposerPickers({
           : undefined;
       onModel(pickedModel);
       if (pickedEffort && presession) pickEffort(pickedEffort);
+    } else if (waiting && current !== pickedModel) {
+      pending.current = pickedEffort ? { ...waiting, effort: pickedEffort } : waiting;
     } else if (
       pickedEffort &&
       pickedEffort !== currentEffort &&
@@ -605,16 +621,23 @@ export function ComposerPickers({
   // harness's default last resolved to, else the model placeholder.
   // The model a New Tab starts a chat on `agent` with (newTabStart, newTabChipSnapshot): the last
   // pick here, else its profile's, else its first listed model, else the catalog's default.
-  const startingModel = (agent: string) => {
+  const startingId = (agent: string) => {
     const entry = pickerCatalog?.harnesses.find((candidate) => (candidate.acpmuxHarness ?? candidate.id) === agent);
     const asked = defaultModel(agent, snapshot.catalog, harnessProfiles, folder ?? summary?.cwd);
     const id = asked && !isDefaultChoice({ id: asked }) ? asked : entry?.defaultModel;
-    if (!id || isDefaultChoice({ id })) return undefined;
-    return (
+    return id && !isDefaultChoice({ id }) ? id : undefined;
+  };
+  const startingModel = (agent: string) => {
+    const entry = pickerCatalog?.harnesses.find((candidate) => (candidate.acpmuxHarness ?? candidate.id) === agent);
+    const id = startingId(agent);
+    if (!id) return undefined;
+    const name =
       entry?.models.find((choice) => choice.id === id)?.name ??
       models.find((choice) => choice.id === id)?.name ??
-      modelIdName(id, t)
-    );
+      modelIdName(id, t);
+    // An alias ("opus") is named as the release it last ran here ("Opus 5.5").
+    const release = isRelease(id) ? undefined : loadResolvedAlias(agent, id);
+    return release ? aliasNamedAsRelease(name, releaseName(release)) : name;
   };
   const defaulted = shown !== undefined && isDefaultChoice(model ?? { id: shown });
   // A harness still starting draws its last session's options, which name no model this chat runs.
@@ -690,12 +713,31 @@ export function ComposerPickers({
   // any harness, catalogModel), else the session's own name when that is more than its id, else a
   // name read off the id ("Opus 5.5").
   const ownName = model?.name && model.name !== model.id ? model.name : undefined;
-  const runningName = shown
+  const reportedName = shown
     ? // Only the exact row: "claude-opus-5-5[1m]" keeps its wide-context name (modelIdName).
       ((catalogModel?.id === shown || catalogModel?.release === shown ? catalogModel?.name : undefined) ??
       ownName ??
       modelIdName(shown, t))
     : undefined;
+  // An alias the harness names by its family alone ("opus" is "Opus" until Claude Code's own list
+  // answers) is named as the release it runs ("Opus 5.5"), never the bare family (Leo 2026-11-02:
+  // "WHY DOES IT ONLY SHOW OPUS"): the release the session's model option reports, else the one this
+  // harness's alias last ran here. A name that says more than the family ("Opus plan · Sonnet
+  // execute") stays.
+  const aliasRelease =
+    shown && !isRelease(shown) && !isDefaultChoice({ id: shown })
+      ? runningRelease && runningRelease !== shown
+        ? runningRelease
+        : harness
+          ? loadResolvedAlias(harness, shown)
+          : undefined
+      : undefined;
+  useEffect(() => {
+    if (harness && shown && aliasRelease && aliasRelease === runningRelease && !switching)
+      rememberResolvedAlias(harness, shown, aliasRelease);
+  }, [harness, shown, aliasRelease, runningRelease, switching]);
+  const runningName =
+    reportedName && aliasRelease ? aliasNamedAsRelease(reportedName, releaseName(aliasRelease)) : reportedName;
   // Named as a reported model is: only the exact catalog row, else a name read off the id.
   const listedName =
     listedModel &&
@@ -706,6 +748,9 @@ export function ComposerPickers({
     snapshot.catalog.find((entry) => entry.id === chipHarness),
     models,
   );
+  // The model the chip names before the session reports one: the model menu checks it.
+  const predictedModel =
+    shown === undefined || defaulted ? (starting && chipHarness ? startingId(chipHarness) : resolvedId) : undefined;
   const modelName =
     listedName ??
     (opensListed
@@ -978,7 +1023,7 @@ export function ComposerPickers({
   // narrow row ("Med"). Before the session reports, it names the held pick.
   const quickDetail = effortLabel ?? (awaiting ? (heldChoice?.name ?? pendingEffort) : undefined);
   const quickShort = effortLabel ? effortShort : awaiting ? heldShort : undefined;
-  const usage = compactingUsage(summary?.usage, summary?.usageStats);
+  const usage = compactingUsage(summary?.usage, summary?.usageStats, summary?.contextBreakdown);
   const usageNote =
     showContextUsage && usage && usage.size > 0
       ? t(PICKER_LABELS.context, { percent: Math.round(Math.min(1, Math.max(0, usage.used / usage.size)) * 100) })
@@ -993,6 +1038,7 @@ export function ComposerPickers({
           catalog={pickerEntries}
           harness={harness}
           model={shown}
+          {...(predictedModel ? { predictedModel } : {})}
           label={modelName ?? t(PICKER_LABELS.model)}
           sessionAuth={signIn?.sessionAuth}
           onSessionLogin={signIn?.loginSession}
@@ -1112,8 +1158,10 @@ export function ComposerPickers({
       )}
       {/* A custom harness's other settings: each config option no chip above owns, picked like the
           effort level. Codex's collaboration mode stays on its command/mode paths. */}
+      {/* A chat still opening, or starting another harness, carries its last session's options
+          (another chat's recap and suggestions switches), so Options waits for this chat's own. */}
       <AgentOptionsMenu
-        options={extraOptions}
+        options={opening || snapshot.switching?.phase === "starting" ? [] : extraOptions}
         managed={fullAccessManaged}
         managedReason={t(PICKER_LABELS.fullAccessManaged)}
         onPick={(configId, value) => onEffort(configId, value)}
@@ -1359,49 +1407,95 @@ export function isPlan(modeId: string): boolean {
 const TABBABLE =
   'a[href],button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex]:not([tabindex="-1"])';
 
+/// The context ring's looks (experiment `context-ring-look`), in the ring's 14-unit viewBox.
+const CONTEXT_RING_LOOKS: Record<
+  "track" | "arc" | "percent" | "fill-quiet",
+  { radius: number; width: number; trackOpacity: number; usedStroke: string; usedOpacity: number; roundEnds: boolean }
+> = {
+  // Shipped: the remaining share at half the used arc's ink, flat ends, so the circle is one gauge.
+  track: { radius: 6, width: 1.75, trackOpacity: 0.5, usedStroke: "currentColor", usedOpacity: 1, roundEnds: false },
+  arc: { radius: 6, width: 1.75, trackOpacity: 0.3, usedStroke: "currentColor", usedOpacity: 1, roundEnds: true },
+  percent: { radius: 6, width: 1.75, trackOpacity: 0.3, usedStroke: "currentColor", usedOpacity: 1, roundEnds: true },
+  "fill-quiet": {
+    radius: 5.5,
+    width: 2.75,
+    trackOpacity: 0.3,
+    usedStroke: "var(--agent-text)",
+    usedOpacity: 0.7,
+    roundEnds: false,
+  },
+};
+
 /// How much of the context window the session has used, as a neutral ring that fills. Resting the pointer
 /// on it, or focusing it, shows the context card with no click (ContextCard.tsx; Leo 2026-10-21,
 /// after Claude's and Codex's): the share and tokens used, the window as a stacked bar, and
 /// Details ›, which opens Session Info's Context section. A click pins the card until a press
 /// outside; Escape closes it however it opened. Tab from the ring moves into the card's buttons,
 /// and Tab past them goes on to what follows the ring. The ring itself never takes a hover pill
-/// (contextCard.css).
+/// (contextCard.css). With `plan` (`agentPane.composerRing` is "planUsage") and a limit the harness
+/// reported, the ring draws the plan window closest to its cap instead and its card is the plan
+/// usage popover (PlanUsageCard.tsx); with none reported it stays on the context, never a 0%.
 export function ContextRing({
   used,
   size,
   setup,
+  cacheExpiresAt,
+  now,
   breakdown: reported,
   onOpenDetails,
+  plan,
 }: {
   used?: number;
   size?: number;
   /// Tokens the agent took before the conversation; the card splits it out when known.
   setup?: number;
+  /// When the chat's prompt cache lapses (unix ms, from acpmux); the card counts down to it.
+  cacheExpiresAt?: number;
+  /// The clock the cache countdown reads (the gallery pins it).
+  now?: () => number;
   /// Claude Code's /context (`summary.contextBreakdown`): its categories replace the bar and parts.
   breakdown?: unknown;
   /// Opens Session Info at its Context section; the card shows Details › only with it.
   onOpenDetails?(): void;
+  /// The ring shows the account's plan usage: its limits (acpmux `usageLimits`) and the chat's
+  /// harness family, which names the usage page.
+  plan?: { limits?: AcpmuxUsageLimits; family?: string };
 }) {
   const t = useT();
+  const planFraction = plan ? planUsedFraction(plan.limits) : undefined;
+  const planShown = planFraction !== undefined;
   const hover = useHoverCard(HOVER_INTENT.tooltipDelay);
   const [pinned, setPinned] = useState(false);
   const wrapper = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const card = useRef<HTMLDivElement>(null);
-  const known = used !== undefined && size !== undefined && size > 0;
-  const fraction = known ? Math.min(1, Math.max(0, used / size)) : 0;
+  const contextKnown = used !== undefined && size !== undefined && size > 0;
+  const known = planShown || contextKnown;
+  const fraction = planShown
+    ? Math.min(1, Math.max(0, planFraction))
+    : contextKnown
+      ? Math.min(1, Math.max(0, used / size))
+      : 0;
   const percent = Math.round(fraction * 100);
-  const label = known ? t(PICKER_LABELS.context, { percent }) : t("context.title");
-  const breakdown = known ? contextBreakdown(reported) : undefined;
+  const label = planShown
+    ? t("planUsage.ringLabel", { percent })
+    : known
+      ? t(PICKER_LABELS.context, { percent })
+      : t("context.title");
+  const breakdown = contextKnown && !planShown ? contextBreakdown(reported) : undefined;
   const shown = known && (pinned || hover.open);
   const dismissHover = hover.dismiss;
   const closeCard = useCallback(() => {
     setPinned(false);
     dismissHover();
   }, [dismissHover]);
-  // As Claude desktop's: a 14 px ring, a faint track with the share used drawn over it as an arc
-  // from twelve o'clock (round ends), not a pie and not a spinner.
-  const arcRadius = 6;
+  // As Claude desktop's: a small ring with the share used drawn over its track as an arc from
+  // twelve o'clock; never a pie and never a spinner. Leo (2026-11-03) read the faint-track arc at 68%
+  // as a loading spinner, so the shipped look (`track`) draws the remaining share as a clearly visible
+  // track with flat arc ends: the whole circle reads as one gauge with no gap. The ring never animates.
+  const look = experimentArm(contextRingLook);
+  const ring = CONTEXT_RING_LOOKS[look];
+  const arcRadius = ring.radius;
   const arcCircumference = 2 * Math.PI * arcRadius;
   useEffect(() => {
     // Keep the automation path truthful too: before the first usage report the ring is
@@ -1495,9 +1589,14 @@ export function ContextRing({
         aria-haspopup="dialog"
         aria-expanded={shown}
         // Before the first usage report there is nothing to show: the ring keeps its place, off.
-        disabled={!known}
+        // aria-disabled, not disabled: a disabled button gets no contextmenu in WebKit, and its
+        // right-click (UsageRingMenu) must still hide it or switch it to plan usage (Leo
+        // 2026-11-04: "i want to be able to right click disable it"). The click stays inert.
+        aria-disabled={known ? undefined : true}
         {...hover.trigger}
-        onClick={() => setPinned((was) => !was)}
+        onClick={() => {
+          if (known) setPinned((was) => !was);
+        }}
         onKeyDown={(event) => {
           // Tab goes into the open card (it sits in a portal, out of the page's tab order).
           if (event.key !== "Tab" || event.shiftKey || !shown) return;
@@ -1510,48 +1609,63 @@ export function ContextRing({
       >
         <svg width={14} height={14} viewBox="0 0 14 14" aria-hidden="true" focusable="false">
           <circle
+            className="acpmux-context-track"
             cx="7"
             cy="7"
             r={arcRadius}
             fill="none"
             stroke="currentColor"
-            strokeOpacity={0.3}
-            strokeWidth={1.75}
+            strokeOpacity={ring.trackOpacity}
+            strokeWidth={ring.width}
           />
           {fraction > 0 && (
             <circle
+              className="acpmux-context-used"
               cx="7"
               cy="7"
               r={arcRadius}
               fill="none"
-              stroke="currentColor"
-              strokeWidth={1.75}
-              strokeLinecap={fraction >= 1 ? "butt" : "round"}
+              stroke={ring.usedStroke}
+              strokeOpacity={ring.usedOpacity}
+              strokeWidth={ring.width}
+              strokeLinecap={fraction >= 1 || !ring.roundEnds ? "butt" : "round"}
               strokeDasharray={`${arcCircumference * fraction} ${arcCircumference}`}
               transform="rotate(-90 7 7)"
             />
           )}
         </svg>
       </button>
+      {look === "percent" && known && (
+        <span className="acpmux-context-caption" aria-hidden="true">
+          {percent}%
+        </span>
+      )}
       <AnchoredCard
         anchor={shown ? trigger.current : null}
         // AnchoredCard makes it the shared glass hover card (ui-tooltip ui-card ui-glass).
-        className={`acpmux-context-card acpmux-context-pop${breakdown ? " acpmux-context-pop--breakdown" : " acpmux-context-pop--compact"}`}
+        className={`acpmux-context-card acpmux-context-pop${planShown ? " acpmux-plan-pop" : breakdown ? " acpmux-context-pop--breakdown" : " acpmux-context-pop--compact"}`}
         side="top"
         interactive
-        ariaLabel={t("context.title")}
+        ariaLabel={planShown ? t("planUsage.title") : t("context.title")}
         popupRef={card}
         hoverBridgeId={hover.card["data-cmux-hover-bridge"]}
         // On the card's outer element, so its padding counts as inside the card.
         onPointerEnter={hover.card.onPointerEnter}
         onPointerLeave={hover.card.onPointerLeave}
       >
-        {known && (
+        {planShown && (
+          <div onFocusCapture={hover.card.onFocusCapture} onBlurCapture={hover.card.onBlurCapture}>
+            <PlanUsageCardBody limits={plan?.limits} family={plan?.family} now={now} />
+          </div>
+        )}
+        {contextKnown && !planShown && (
           <div onFocusCapture={hover.card.onFocusCapture} onBlurCapture={hover.card.onBlurCapture}>
             <ContextCardBody
               used={used}
               size={size}
               setup={setup}
+              cacheExpiresAt={cacheExpiresAt}
+              now={now}
               breakdown={reported}
               onOpenDetails={
                 onOpenDetails &&
@@ -1592,10 +1706,8 @@ export function Picker({
   sections,
   align,
   warnUnrestricted = false,
-  returnFocus = true,
   heading,
   tooltip,
-  overBackdrop = false,
   onOpen,
 }: {
   label: string;
@@ -1604,269 +1716,129 @@ export function Picker({
   sections: Section[];
   align: "start" | "end";
   warnUnrestricted?: boolean;
-  /// An action menu hands focus to whatever its pick focuses, not back to the button.
-  returnFocus?: boolean;
-  /// A question over the choices, as an approval menu asks it.
   heading?: string;
-  /// What the menu holds, as the trigger's tooltip: only a trigger that draws an icon and no text
-  /// passes one (a picker showing its choice's name needs none).
   tooltip?: string;
-  /// Draws the menu outside every backdrop root around its button (backdropLayer), so its glass
-  /// frosts what is behind the composer instead of letting it show through sharp.
-  overBackdrop?: boolean;
-  /// Runs as the menu opens, before its rows draw (the + menu reads its recent commands again).
   onOpen?: () => void;
 }) {
-  const [open, setOpen] = useState(false);
-  // Where the menu draws when it must leave the composer's glass (overBackdrop): found on open.
-  const [layer, setLayer] = useState<HTMLElement | null>(null);
-  const [active, setActive] = useState(0);
-  const root = useRef<HTMLSpanElement>(null);
-  const trigger = useRef<HTMLButtonElement>(null);
-  const menu = useRef<HTMLDivElement | null>(null);
-  const menuId = useId();
-  const menuStyle = useUiAnchor(trigger, menu, open, { side: "above", align: "start" });
-  // No room above or below its button in the pane: past the window's edge (popupHost.ts).
-  const host = usePopupHost();
-  const [shown, setShown] = useState<HTMLDivElement | null>(null);
-  // Marks the menu's edges that rows scroll past (data-fade-top, data-fade-bottom); the composer's
-  // + styles them as the shared scroll-edge fade (styles.css). It stops when the menu unmounts.
-  const edges = useScrollEdges();
-  const attach = useCallback(
-    (node: HTMLDivElement | null) => {
-      menu.current = node;
-      edges(node);
-      if (host) setShown(node);
-    },
-    [host, edges],
-  );
-  useEscapingPopup(host, shown, () => trigger.current, {
-    side: "top",
-    align,
-    gap: UI_ANCHOR_GAP,
-    kind: "list",
-    active: ".acpmux-menu-active",
-  });
-  const rows = sections.flatMap((section, s) => section.choices.map((choice) => ({ section: s, choice })));
-  // A live update can shrink the list under the highlight.
-  const selected = Math.min(active, Math.max(rows.length - 1, 0));
-  useEffect(() => {
-    if (open && rows.length) scrollActiveMenuRow(menu.current, `${menuId}-${selected}`);
-  }, [open, rows.length, menuId, selected]);
-
-  useEffect(() => {
-    if (!open) return;
-    const away = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (!root.current?.contains(target) && !menu.current?.contains(target)) setOpen(false);
-    };
-    const blur = () => setOpen(false);
-    // In the capture phase, as Base UI's menus close: a press outside only closes the menu, and
-    // nothing under it sees the press (menuPressGuard.ts).
-    document.addEventListener("pointerdown", away, true);
-    window.addEventListener("blur", blur);
-    return () => {
-      document.removeEventListener("pointerdown", away, true);
-      window.removeEventListener("blur", blur);
-    };
-  }, [open]);
-
-  // A mouse press is opening it (cg-composer click polish): the focus it moves here is not drawn.
-  const byPointer = useRef(false);
-  const show = () => {
-    const current = rows.findIndex((row) => row.choice.id === sections[row.section].current);
-    setActive(Math.max(current, 0));
-    setLayer(overBackdrop ? backdropLayer(root.current) : null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const trigger = useRef<HTMLButtonElement | null>(null);
+  const open = useCallback(() => {
     onOpen?.();
-    setOpen(true);
-    // WebKit doesn't focus a clicked button; the keys must reach the menu, not the prompt. After a
-    // key was typed WebKit draws a programmatic focus as keyboard focus, so a press says it is not.
-    focusWithRing(trigger.current, byPointer.current ? { focusVisible: false } : undefined);
-  };
-  const showRef = useRef(show);
-  showRef.current = show;
-  // Like a click, which takes focus off the prompt first: that closes the slash menu and restores the draft.
-  useEffect(
-    () =>
-      registerPicker(label, () => {
-        if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-        showRef.current();
-      }),
-    [label],
+    setMenuOpen(true);
+  }, [onOpen]);
+  const onMenuOpenChange = useCallback(
+    (next: boolean) => {
+      if (next) open();
+      else setMenuOpen(false);
+    },
+    [open],
   );
-  const close = () => {
-    setOpen(false);
-    trigger.current?.focus();
-  };
-  const press = usePopoverTrigger(open, setOpen, show);
-  const pick = (index: number) => {
-    const row = rows[index];
-    if (!row) return;
-    if (sections[row.section].onPick(row.choice.id) === "keep") return;
-    if (returnFocus) close();
-    else setOpen(false);
-  };
-  const keyDown = (event: React.KeyboardEvent) => {
-    if (!open) {
-      if (event.key === "ArrowUp" || event.key === "ArrowDown") {
-        event.preventDefault();
-        show();
-      }
-      return;
-    }
-    if (event.key === "Escape") {
-      event.preventDefault();
-      event.stopPropagation();
-      setOpen(false);
-      // Back on the button with its ring, though a press opened the menu without one: the button
-      // already has the focus, so it takes it again (escapeFocus.ts).
-      trigger.current?.blur();
-      focusAfterEscape(trigger.current);
-    } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      event.preventDefault();
-      const step = event.key === "ArrowDown" ? 1 : -1;
-      if (rows.length > 0) setActive((selected + step + rows.length) % rows.length);
-    } else if (event.key === "Home" || event.key === "End") {
-      event.preventDefault();
-      if (rows.length > 0) setActive(event.key === "Home" ? 0 : rows.length - 1);
-    } else if (event.key === "Enter") {
-      event.preventDefault();
-      pick(selected);
-    }
-    // A button clicks on Space's keyup; pick there and cancel that click, or it would reopen the menu.
-    else if (event.key === " ") event.preventDefault();
-    else if (event.key === "Tab") setOpen(false);
-  };
-  const keyUp = (event: React.KeyboardEvent) => {
-    if (open && event.key === " ") {
-      event.preventDefault();
-      pick(selected);
-    }
-  };
+  useEffect(() => registerPicker(label, open), [label, open]);
 
-  let index = -1;
-  // Out of the backdrop root (overBackdrop): in a box-less wrapper that carries the picker's classes,
-  // so its rules (`.acpmux-composer-plus .acpmux-menu`) and its rows' selectors still reach the menu.
-  const placeMenu = (popup: React.ReactElement) =>
-    layer
-      ? createPortal(
-          <div className={`acpmux-picker-layer ${className}`} style={{ display: "contents" }}>
-            {popup}
-          </div>,
-          layer,
-        )
-      : popup;
   return (
-    <span
-      ref={root}
-      className={`acpmux-picker ${className}`}
-      style={{ position: "relative" }}
-      onBlur={(event) => {
-        if (open && !root.current?.contains(event.relatedTarget as Node | null)) setOpen(false);
+    <span className={cx("acpmux-picker", className)}>
+      <Menu open={menuOpen} onOpenChange={onMenuOpenChange}>
+        <MenuButton
+          buttonRef={trigger}
+          className="acpmux-picker-button"
+          label={label}
+          title={tooltip}
+          aria-haspopup="menu"
+          data-menu={label}
+        >
+          {button}
+        </MenuButton>
+        <MenuPopup
+          label={heading ?? label}
+          side="top"
+          align={align}
+          // Pointer closes return to the opener (the prompt). If an action deliberately focuses a
+          // different field, Menu's focusAfterClose detects that and leaves it there; keeping the
+          // shared policy here also preserves prompt focus when a native capture is cancelled.
+          finalFocus={undefined}
+          className={cx("acpmux-menu acpmux-picker-menu", className)}
+        >
+          {heading && (
+            <div className="acpmux-menu-heading" aria-hidden="true">
+              {heading}
+            </div>
+          )}
+          {sections.map((section, sectionIndex) => (
+            <React.Fragment key={`section-${sectionIndex}`}>
+              {sectionIndex > 0 && <MenuSeparator />}
+              <div className="acpmux-menu-section">
+                {section.title ? (
+                  <MenuGroup label={section.title}>
+                    {section.choices.map((choice) => (
+                      <PickerMenuItem
+                        key={choice.id}
+                        choice={choice}
+                        section={section}
+                        current={choice.id === section.current}
+                        warnUnrestricted={warnUnrestricted}
+                        close={() => setMenuOpen(false)}
+                      />
+                    ))}
+                  </MenuGroup>
+                ) : (
+                  section.choices.map((choice) => (
+                    <PickerMenuItem
+                      key={choice.id}
+                      choice={choice}
+                      section={section}
+                      current={choice.id === section.current}
+                      warnUnrestricted={warnUnrestricted}
+                      close={() => setMenuOpen(false)}
+                    />
+                  ))
+                )}
+              </div>
+            </React.Fragment>
+          ))}
+        </MenuPopup>
+      </Menu>
+    </span>
+  );
+}
+
+function PickerMenuItem({
+  choice,
+  section,
+  current,
+  warnUnrestricted,
+  close,
+}: {
+  choice: Choice;
+  section: Section;
+  current: boolean;
+  warnUnrestricted: boolean;
+  close(): void;
+}) {
+  return (
+    <MenuItem
+      closeOnClick={false}
+      data-value={choice.id}
+      className={cx(
+        "acpmux-menu-item",
+        warnUnrestricted && unrestricted(choice.id) ? "acpmux-unrestricted" : undefined,
+      )}
+      onSelect={() => {
+        if (section.onPick(choice.id) !== "keep") close();
       }}
     >
-      <button
-        ref={trigger}
-        type="button"
-        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-        role="combobox"
-        className="acpmux-picker-button"
-        data-menu={label}
-        aria-label={label}
-        // tooltip-allow: only an icon-only trigger (the composer's +) passes a tooltip.
-        title={tooltip}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-controls={open ? menuId : undefined}
-        aria-activedescendant={open && rows.length > 0 ? `${menuId}-${selected}` : undefined}
-        onKeyDown={keyDown}
-        onKeyUp={keyUp}
-        {...press}
-        onPointerDown={(event) => {
-          byPointer.current = isMousePress(event);
-          press.onPointerDown(event);
-          byPointer.current = false;
-        }}
-      >
-        {button}
-      </button>
-      {/* A native select cannot hold descriptions, sections or the pane's styling. */}
-      {open &&
-        placeMenu(
-          <div
-            ref={attach}
-            style={menuStyle}
-            className={`ui-popup ui-glass acpmux-menu acpmux-menu-${align}`}
-            data-side="above"
-          >
-            {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
-            <div id={menuId} role="listbox" aria-label={heading ?? label}>
-              {heading && (
-                <div className="acpmux-menu-heading" aria-hidden="true">
-                  {heading}
-                </div>
-              )}
-              {sections.map((section, s) => {
-                const titled = section.title && sections.length > 1;
-                return (
-                  <div
-                    key={s}
-                    className="acpmux-menu-section"
-                    // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-                    role="group"
-                    aria-labelledby={titled ? `${menuId}-group-${s}` : undefined}
-                    aria-label={titled ? undefined : label}
-                  >
-                    {titled && (
-                      <div className="acpmux-menu-header" id={`${menuId}-group-${s}`}>
-                        {section.title}
-                      </div>
-                    )}
-                    {section.choices.map((choice) => {
-                      index += 1;
-                      const at = index;
-                      const current = choice.id === section.current;
-                      return (
-                        <div
-                          key={choice.id}
-                          id={`${menuId}-${at}`}
-                          data-value={choice.id}
-                          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-                          role="option"
-                          tabIndex={-1}
-                          // `aria-selected` is the option's value; the combobox's
-                          // `aria-activedescendant` carries the keyboard highlight.
-                          aria-selected={section.current === undefined ? false : current}
-                          className={`acpmux-menu-item${at === selected ? " acpmux-menu-active" : ""}${warnUnrestricted && unrestricted(choice.id) ? " acpmux-unrestricted" : ""}`}
-                          onMouseMove={() => {
-                            if (at !== selected) setActive(at);
-                          }}
-                          onMouseDown={(event) => {
-                            event.preventDefault();
-                            pick(at);
-                          }}
-                        >
-                          {choice.icon}
-                          <span className="acpmux-menu-text">
-                            <span className="acpmux-menu-label">{choice.name}</span>
-                            {choice.description && (
-                              <span className="acpmux-menu-description" data-popup-detail="">
-                                {choice.description}
-                              </span>
-                            )}
-                          </span>
-                          {choice.hint && <kbd className="acpmux-menu-hint">{choice.hint}</kbd>}
-                          {current && <CheckIcon />}
-                        </div>
-                      );
-                    })}
-                  </div>
-                );
-              })}
-            </div>
-          </div>,
+      <span className="acpmux-menu-hit-area" aria-hidden="true" />
+      {choice.icon}
+      <span className="acpmux-menu-text">
+        <span className="acpmux-menu-label">{choice.name}</span>
+        {choice.description && (
+          <span className="acpmux-menu-description" data-popup-detail="">
+            {choice.description}
+          </span>
         )}
-    </span>
+      </span>
+      {choice.hint && <kbd className="acpmux-menu-hint">{choice.hint}</kbd>}
+      {current && <CheckIcon />}
+    </MenuItem>
   );
 }
 
@@ -2000,10 +1972,14 @@ export const ArrowUpIcon = () => (
     <path d="M8 12.9V3.4M3.9 7.5 8 3.4l4.1 4.1" />
   </Icon>
 );
-/** Steer's return glyph (↵): a prompt typed during a turn goes in now, as Codex and Claude draw it. */
+/** Send's return glyph (↵) in Claude's look, drawn in Claude Code desktop's proportions: a wider
+ *  bar, a taller stem and a fuller arrowhead with a tight corner (Leo 2026-11-02: "our send button i
+ *  think can be nicer lokoing ... compared to claude code"). At the composer's 18 px trailing glyph
+ *  its ink is about 13 × 12 px, Claude Code's. */
+export const RETURN_GLYPH_PATH = "M13.1 3.45v4.1a1.2 1.2 0 0 1-1.2 1.2H2.9M6.7 4.95 2.9 8.75l3.8 3.8";
 export const ReturnIcon = () => (
   <Icon>
-    <path d="M12.6 3.6v4.1a1.8 1.8 0 0 1-1.8 1.8H3.6M6.6 6.4 3.4 9.5l3.2 3.1" />
+    <path d={RETURN_GLYPH_PATH} />
   </Icon>
 );
 /** Stop: a plain outline square with the mic's stroke, Claude Code desktop's, never a disc. */
@@ -2122,6 +2098,23 @@ export function shortModelName(name: string, short?: string, harnessName?: strin
   if (!vendor || space <= 0) return undefined;
   const rest = name.slice(space + 1).trim();
   return rest && name.slice(0, space).toLowerCase() === vendor.toLowerCase() ? rest : undefined;
+}
+
+/// The name an alias draws once the release it runs is known: the release's (`release`, "Opus 5.5")
+/// when the alias's own name (`name`) is only that release's family ("Opus"), or the family and a
+/// variant ("Opus · 1M context" while it runs "Opus 5.5 · 1M context"). The alias's variant stays when
+/// the release's name has none ("Opus · 1M context" running "Opus 5.5" is "Opus 5.5 · 1M context").
+/// Any other name stays: it says more than the family ("Opus plan · Sonnet execute").
+export function aliasNamedAsRelease(name: string, release: string): string {
+  const family = modelFamily(release.replace(/^claude\s+/i, ""))?.toLowerCase();
+  const head = name
+    .split("·")[0]!
+    .trim()
+    .toLowerCase()
+    .replace(/^claude\s+/, "");
+  if (!family || head !== family) return name;
+  const variant = name.indexOf("·");
+  return variant > 0 && !release.includes("·") ? `${release} ${name.slice(variant).trim()}` : release;
 }
 
 /// A model's family for a narrow controls row: its name's first word ("Opus" of "Opus 5.5") when

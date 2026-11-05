@@ -6,7 +6,7 @@
 // once (a pull request's link is under Changes instead). Five rows show, then a whole-row Show more
 // (SessionInfoFold), as under Changes and Subagents.
 import { documentName, type Artifact } from "../conversation/artifactPreview";
-import { writtenArtifacts } from "../conversation/writtenArtifacts";
+import { latestWrittenArtifacts } from "../conversation/writtenArtifacts";
 import { chatDocuments } from "../conversation/artifactVersions";
 import { renderPages } from "../conversation/renderCall";
 import type { TurnFile } from "../diff";
@@ -64,9 +64,8 @@ export function outputArtifacts(rows: readonly AcpmuxRow[]): OutputArtifact[] {
       artifact,
     });
   }
-  const writes = new Map<string, Artifact>();
-  for (const artifact of writtenArtifacts(rows)) writes.set(artifact.path!, artifact);
-  for (const [path, artifact] of writes)
+  // Each file once, as its last completed write (not the last row that wrote it).
+  for (const [path, { artifact }] of latestWrittenArtifacts(rows))
     found.push({
       key: `file:${path}`,
       title: documentName(artifact) || path.split("/").pop(),

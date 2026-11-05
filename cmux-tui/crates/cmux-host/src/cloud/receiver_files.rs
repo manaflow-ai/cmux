@@ -170,16 +170,19 @@ fn checked_snapshot<H: Http>(
 ) -> Result<(ReceiverIdentity, super::receiver::ReceiverSnapshot), String> {
     let elapsed = cmux_link::elapsed::Elapsed::system().ok_or(UNAVAILABLE)?;
     let started = std::time::Instant::now();
-    let before = load(paths, instance)?;
+    // Missing or changed bound files (a rebind, a clone, a key replacement)
+    // refuse: they must revoke a retained policy, not ride on it.
+    let refused = super::receiver::REFUSED;
+    let before = load(paths, instance).map_err(|_| refused)?;
     if &before.bound != client.bound() || before.install_public_jwk != client.install_public_jwk() {
         client.clear_token();
-        return Err(UNAVAILABLE.into());
+        return Err(refused.into());
     }
     let snapshot =
         client.receiving_policy_with_elapsed(&before.wg_public, now_wall_ms, started, elapsed)?;
-    if before != load(paths, instance)? {
+    if before != load(paths, instance).map_err(|_| refused)? {
         client.clear_token();
-        return Err(UNAVAILABLE.into());
+        return Err(refused.into());
     }
     snapshot.time(std::time::Instant::now()).ok_or(UNAVAILABLE)?;
     Ok((before, snapshot))

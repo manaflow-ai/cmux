@@ -44,7 +44,7 @@ struct PageFactory {
     func appsWebPage(route: String?) -> PageWebView? {
         let confirming = appsStoreProvider()
         let native = AppPageNativeProvider(services: services, page: .apps)
-        let routes = [PageRoute(prefix: "cmux.apps.", provider: confirming), PageRoute(prefix: "cmux.app.", provider: native)]
+        let routes = [PageRoute(prefix: "cmux.apps.", provider: confirming), PageRoute(prefix: "cmux.app.", provider: native), AppsPanelsPageProvider.route(services.apps.client)]
         guard let page = PageWebView(descriptor: .apps, routes: routes, route: route, dynamicResources: AppsGlyphResource()) else { return nil }
         confirming.anchor = { [weak page] in page }
         native.anchor = { [weak page] in page }
@@ -155,14 +155,9 @@ struct PageFactory {
             return await services.cloudVmHost.set(id, on: on, reachable: services.settingsWindow.vmHostReach(id) == true)
         }
         let accounts = services.accounts.model
-        provider.accountsState = { (try? JSONValue.parse(JSONEncoder().encode(accounts.pageState))) ?? .null }
-        provider.accountsRun = { params in
-            guard let action = AccountsPageAction(field: { params[$0]?.stringValue }) else {
-                throw PageError.invalidParams("unknown accounts action")
-            }
-            if let error = await accounts.perform(action) { return ["error": .string(error)] }
-            return .object([:])
-        }
+        let github = services.accounts.github
+        provider.accountsState = { github.accountsPageState(accounts) }
+        provider.accountsRun = { params in try await github.runAccountsPage(params, accounts: accounts) }
         provider.agents = services.agentHarnesses
         let harnesses = SettingsHarnesses(
             environment: { [weak services] in services.flatMap(QuitAgents.environment) },
@@ -172,7 +167,8 @@ struct PageFactory {
                 return try await updates.runPage(params, context: context, registry: services.registry)
             },
             updateState: { [weak services] in services?.agentHarnesses.updates?.state ?? .array([]) },
-            refreshUpdates: { [weak services] in await services?.agentHarnesses.updates?.refresh() }
+            refreshUpdates: { [weak services] in await services?.agentHarnesses.updates?.refresh() },
+            unsupported: { AgentHarnessStrings.unsupported }
         )
         provider.harnessesState = { harnesses.state }
         provider.harnessesRun = { params, context in try await harnesses.run(params, context: context) }
@@ -295,6 +291,7 @@ struct PageFactory {
                                         ? nil : DaemonUpdateBoard.updateRefused
                                 })),
                       PageRoute(prefix: WebUpdatesPageProvider.prefix, provider: WebUpdatesPageProvider()),
+                      PageRoute(prefix: AppUpdatePageProvider.prefix, provider: AppUpdatePageProvider(updater: services.updater)),
                       // Chief > Voice input: the home.voiceInput tunable (DEV and NIGHTLY).
                       PageRoute(prefix: ChiefVoiceInputPageRoute.prefix, provider: ChiefVoiceInputPageRoute()),
                       // Settings > Menus: right-click menu arrangements (cmux.json contextMenus).

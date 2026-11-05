@@ -304,7 +304,9 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
     for (const [engineName, engine] of engines) {
       // A missing browser must be recorded as an incomplete sweep while the other
       // selected engine continues and contributes its evidence.
-      const selection = await launchSelectedEngines([engineName], () => engine.launch({ headless: true }));
+      const selection = await launchSelectedEngines([engineName], () =>
+        engine.launch({ headless: true, ...(engineName === "chromium" ? { channel: "chrome" } : {}) }),
+      );
       engineFailures.push(...selection.failures);
       const browser = selection.launched[0]?.value;
       if (!browser) continue;

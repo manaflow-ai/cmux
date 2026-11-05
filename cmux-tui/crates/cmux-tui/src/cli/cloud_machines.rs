@@ -57,7 +57,7 @@ pub(super) fn app_found() -> bool {
 /// so the whole read (connect included, and a reply that trickles in) ends
 /// by [`CLOUD_READ_TIMEOUT`]. A read still running then is left behind, and
 /// the command's exit ends it.
-fn read_by_deadline(socket: PathBuf) -> Result<Vec<Value>, String> {
+pub(super) fn read_by_deadline(socket: PathBuf) -> Result<Vec<Value>, String> {
     let (sender, receiver) = mpsc::channel();
     std::thread::Builder::new()
         .name("cmux-cloud-machines".into())

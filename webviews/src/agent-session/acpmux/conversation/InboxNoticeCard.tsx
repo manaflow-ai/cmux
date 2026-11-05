@@ -16,6 +16,7 @@
 import { useContext, useEffect, useId, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { DisclosureRow } from "../subagents/DisclosureRow";
+import { useMessageLineLook } from "./messageLineLook";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { mentionedRepository } from "../../../githubReferences";
 import { CardCopy } from "./CardCopy";
@@ -115,6 +116,10 @@ function InboxThreadLine({
   }, [holds, reveal]);
   // Several messages each say who sent them; one alone is under its sender's line already.
   const heads = (messages?.length ?? 0) > 1;
+  // Single (the default, messageLineLook.ts): the preview on the line after the sender; stacked (a
+  // gallery version), on its own line under it.
+  const lineLook = useMessageLineLook();
+  const preview = thread.preview || t("message.noText");
   return (
     <DisclosureRow
       className="cv-received cv-inbox__thread"
@@ -127,12 +132,15 @@ function InboxThreadLine({
       label={
         <>
           {thread.label && <span className="cv-inbox__label">{thread.label}</span>}
-          <span className="cv-received__preview" data-find-skip="">
-            {thread.preview || t("message.noText")}
-          </span>
+          {lineLook === "single" && (
+            <span className="cv-received__preview" data-find-skip="">
+              {preview}
+            </span>
+          )}
           {thread.count > 1 && <span className="cv-inbox__more">{t("tools.more", { n: thread.count - 1 })}</span>}
         </>
       }
+      below={lineLook === "stacked" && !open ? preview : undefined}
     >
       <CardCopy text={whole} />
       <div className="cv-received__text selectable">

@@ -178,19 +178,35 @@ TRUSTED_CHECKS_STAGE="$TRUSTED_HOOK_DIR/$CHECKS_VERSION.partial"
 rm -rf "$TRUSTED_CHECKS_STAGE"
 mkdir -p "$TRUSTED_CHECKS_STAGE"
 : > "$TRUSTED_CHECKS_STAGE/.in-use"
-while IFS= read -r -d '' checker; do
-    relative="${checker#scripts/cmux-next/}"
-    # lint/ holds the linters' configs; arch_rules/ holds the rule modules arch-ratchet.py loads from its
-    # own directory (without it the installed ratchet runs no layer gate).
-    case "$relative" in
-        */*) [[ "$relative" == lint/* || "$relative" == arch_rules/* ]] || continue ;;
-    esac
-    # Folders only below the stage: a stage that is gone fails this install (cp, the mv below) instead of coming
-    # back without its .in-use.
-    folder="$(dirname "$relative")"
-    [[ "$folder" == . ]] || (cd "$TRUSTED_CHECKS_STAGE" && mkdir -p "$folder")
-    cp -p "$checker" "$TRUSTED_CHECKS_STAGE/$relative"
-done < <(git ls-files -z scripts/cmux-next)
+# One python3 copies every checker: a mkdir and a cp per file forked about 2,600 times for 1,300 files, and on
+# a loaded Mac (load 100+, 2026-11-03) that took more than 300 s, so the land queue's install timed out on every
+# train and nothing landed for days. lint/ holds the linters' configs; arch_rules/ holds the rule modules
+# arch-ratchet.py loads from its own directory (without it the installed ratchet runs no layer gate). Folders are
+# made only below the stage (relative to its open folder): a stage that is gone fails this install instead of
+# coming back without its .in-use. A tracked file missing from the checkout fails it too, as cp did.
+COPY_CHECKERS='
+import os
+import shutil
+import sys
+
+stage, prefix = sys.argv[1], "scripts/cmux-next/"
+stage_fd = os.open(stage, os.O_RDONLY | os.O_DIRECTORY)
+for raw in sys.stdin.buffer.read().split(b"\0"):
+    if not raw:
+        continue
+    checker = os.fsdecode(raw)
+    relative = checker[len(prefix):]
+    if "/" in relative and not relative.startswith(("lint/", "arch_rules/")):
+        continue
+    parts = relative.split("/")[:-1]
+    for depth in range(1, len(parts) + 1):
+        try:
+            os.mkdir("/".join(parts[:depth]), dir_fd=stage_fd)
+        except FileExistsError:
+            pass
+    shutil.copy2(checker, os.path.join(stage, relative))
+'
+git ls-files -z scripts/cmux-next | "$PYTHON3_BIN" -I -c "$COPY_CHECKERS" "$TRUSTED_CHECKS_STAGE"
 # check-package-dependency-lists.py imports the Swift source masker from scripts/; the installed copy reads it here.
 if [[ -f scripts/swift_source_mask.py ]]; then
     cp -p scripts/swift_source_mask.py "$TRUSTED_CHECKS_STAGE/swift_source_mask.py"

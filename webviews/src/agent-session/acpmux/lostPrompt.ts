@@ -3,13 +3,8 @@
 // Debug Settings agentPane.debug.lostPromptReplay is off) sends it again, once, on the pane's next
 // connection with the same promptId, and acpmux runs a promptId at most once. So the pane does not
 // ask the person to read the chat's saved state and press Enter again: the sender waits for the
-// next connection and for the prompt to show there, and says "Not sent" only when it never does
-// (a prompt the host did not keep: too large, a chat on another machine). Leo, 2026-10-21: "why
-// does it say it's not responding?"
-
-/// The largest prompt the host's journal keeps (Swift `AgentPanePromptJournal.maximumParamsBytes`):
-/// a larger one is not sent again, so its sender says "Not sent" at once.
-export const JOURNAL_PARAMS_BYTES = 8 << 20;
+// next connection and for the prompt to show there, and says "Not sent" only when it never does.
+// Leo, 2026-10-21: "why does it say it's not responding?"
 
 /// How long a sender waits for the pane's next connection.
 export const LOST_PROMPT_CONNECT_MS = 30_000;

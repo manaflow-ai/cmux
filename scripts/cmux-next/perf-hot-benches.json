@@ -7,13 +7,13 @@
       "owner": "PL-daemon"
     },
     "feed-live-event": {
-      "what": "one Feed owner event while the Feed list is open: the mirror's sorted items, the list's sections and the changed rows",
+      "what": "one Feed owner event while the Feed list is open: FeedOrderedIndex.apply (binary search per moved id, one array move per inserted or removed row, for the list and the timeline) and the changed rows. FeedOrder.sortedNewest is not on this path: only FeedInboxGroups(items:) and tests call it; the live Inbox groups the ledger's ordered sections with no sort (FeedInboxGroups(sections:filter:now:)).",
       "bench": "CMUX_NEXT_FEED_BENCH (CmuxNextFeed/Views/FeedBench.swift) and scripts/cmux-next/feed-perf.py, 300 and 1500 items",
       "owner": "Feed"
     },
     "cef-host-input": {
       "what": "one input event forwarded to the Chromium host app (prototype, browserHost.helperPrototype): encode and one non-blocking write",
-      "bench": "scripts/cmux-next/chromium-host-bench.py (hop_us, ping_us)",
+      "bench": "scripts/cmux-next/chromium-host-bench.py (hop_us, ping_us); fleet entry scripts/measure/chromium-host-bench.sh",
       "owner": "PL-cef-helper"
     },
     "key-dispatch": {
@@ -92,9 +92,24 @@
       "owner": "Performance Lead (PL-instant)"
     },
     "chats-window-diff": {
-      "what": "one acpmux chats window message on the main actor: the window's keys and the changed rows (sidebar chat history; acpmux sorts, filters and pages)",
-      "bench": "ChatsWindowMainThreadTests (rows touched per change, 3,000-chat index) on the fleet, and the debug hang monitor (debug.hangs) on a many-chat load",
+      "what": "one acpmux chats window message on the main actor: AcpmuxChatWindows.apply walks the window's keys (20 for the sidebar history, 24 for New Tab cards, a palette page), never acpmux's index. acpmux holds the index (3,000 chats in the test) and sends only the window's changed rows.",
+      "bench": "ChatsWindowMainThreadTests (a 20-row window over a 3,000-chat index that stays in acpmux: one changed chat is one row in the message and the window's keys on main) on the fleet, and the debug hang monitor (debug.hangs) on a many-chat load",
       "owner": "Performance Lead"
+    },
+    "acpmux-wait-wake": {
+      "what": "one acpmux hub record seen by an open _acpmux/wait: the session filter and the streamed-chunk skip; a chunk never evaluates the wait's rows",
+      "bench": "cmux-tui-rust-check.sh test a_streamed_token_does_not_evaluate_an_open_wait (WAIT-STREAM line: evaluations per 500 tokens), then scripts/measure/acpmux-overhead.sh bench=daemon (STRESS token to client) on the fleet",
+      "owner": "PL-acpmux (HOT PATH AUDIT area F: hpa-stream)"
+    },
+    "home-stream-token": {
+      "what": "one streamed token of a Chief reply on the main thread: HomeLiveBook append, publishLive of that conversation, and each open Home view's store observation (whole-message views are not woken by a talk token)",
+      "bench": "HomeWholeMessageTokenCostTests (HOMETOKEN lines: ms per token, wakes and passes, 1 and 4 views, 2,000 messages) and HomeStreamingPerfTests (streaming mode), run on the fleet (package-test-lane.sh suite Packages/Shared/CmuxMessagesLab)",
+      "owner": "hpa-stream (HOT PATH AUDIT area F)"
+    },
+    "acpmux-token-fanout": {
+      "what": "one streamed token to one attached acpmux connection: the shared session/update line enqueued (one copy into the connection's queue); the line is built once per record",
+      "bench": "cmux-tui-rust-check.sh test a_streamed_tokens_line_is_built_once_for_every_attached_connection (FANOUT-ENCODE line), then scripts/measure/acpmux-overhead.sh bench=daemon (STRESS token to client, 2 clients) on the fleet",
+      "owner": "PL-acpmux (HOT PATH AUDIT area F: hpa-stream)"
     }
   }
 }

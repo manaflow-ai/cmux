@@ -4,7 +4,7 @@ import { ChevronRight } from "../conversation/icons";
 import { mcpTitleName } from "../conversation/mcpCalls";
 import { ShellBlock } from "../conversation/ShellBlock";
 import { toolIcon } from "../conversation/ToolRow";
-import { permissionDiffs } from "../direct";
+import { permissionDiffs, shellCommand } from "../direct";
 import { useT, type StringKey } from "../i18n";
 import { SHORTCUT_ACTIONS, useShortcut, withShortcut } from "../shortcuts";
 import { errorMessage } from "../transportErrors";
@@ -64,7 +64,7 @@ function askOf(item: PermissionGroupItem, fallback: string) {
   const paths = (Array.isArray(tool?.locations) ? tool.locations : [])
     .map((location) => text(record(location)?.path))
     .filter((path): path is string => path !== undefined);
-  const command = kind === "execute" ? text(input?.command) : undefined;
+  const command = kind === "execute" ? text(shellCommand(input)) : undefined;
   const path = paths[0] ?? text(input?.file_path) ?? text(input?.path);
   const named =
     kind === "execute"
@@ -135,7 +135,7 @@ function AskRow({
           aria-controls={open ? detailsId : undefined}
           onClick={() => setOpen((value) => !value)}
         >
-          <ChevronRight size={12} strokeWidth={1.4} className={`acpmux-ask-chevron${open ? " is-open" : ""}`} />
+          <ChevronRight size={12} className={`acpmux-ask-chevron${open ? " is-open" : ""}`} />
           <span className="acpmux-ask-icon" aria-hidden="true">
             {toolIcon(ask.kind)}
           </span>

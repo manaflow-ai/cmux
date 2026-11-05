@@ -27,6 +27,8 @@ export interface AcpmuxRequests {
   "_acpmux/tailnet/start": { params: unknown; result: unknown };
   "_acpmux/tailnet/state": { params: unknown; result: unknown };
   "_acpmux/status": { params: unknown; result: unknown };
+  "_acpmux/context": { params: unknown; result: unknown };
+  "_acpmux/context_override": { params: unknown; result: unknown };
   "agent-session-turn-prepare": { params: unknown; result: unknown };
   "agent-session-turn-abandon": { params: unknown; result: unknown };
   "trigger/chat.ensure": { params: unknown; result: unknown };
@@ -54,6 +56,7 @@ export interface AcpmuxRequests {
   "_acpmux/forum/announce": { params: unknown; result: unknown };
   "_acpmux/forum/rules": { params: unknown; result: unknown };
   "_acpmux/set_tools": { params: unknown; result: unknown };
+  "_acpmux/set_directories": { params: unknown; result: unknown };
   "_acpmux/mcp/reconnect": { params: unknown; result: unknown };
   "_acpmux/subagent_stop": { params: unknown; result: unknown };
   "_acpmux/subagent_transcript": { params: unknown; result: unknown };
@@ -74,6 +77,7 @@ export interface AcpmuxRequests {
   "_acpmux/step_now": { params: unknown; result: unknown };
   "_acpmux/steer_withdraw": { params: unknown; result: unknown };
   "_acpmux/agent_pair_resume": { params: unknown; result: unknown };
+  "_acpmux/agent_hold": { params: unknown; result: unknown };
   "_acpmux/retry": { params: RetryParams; result: RetryResult };
   "_acpmux/session/auth": { params: SessionAuthParams; result: SessionAuthResult };
   "_acpmux/process/list": { params: unknown; result: unknown };
@@ -109,6 +113,7 @@ export interface AcpmuxRequests {
   "_acpmux/team/read": { params: unknown; result: unknown };
   "_acpmux/team/ack": { params: unknown; result: unknown };
   "_acpmux/history": { params: unknown; result: unknown };
+  "_acpmux/session_search": { params: unknown; result: unknown };
   "_acpmux/complete": { params: unknown; result: unknown };
   "_acpmux/wait": { params: unknown; result: unknown };
   "_acpmux/watch_add": { params: unknown; result: unknown };
@@ -170,6 +175,8 @@ export interface AcpmuxRequests {
   "_acpmux/secret_request": { params: unknown; result: unknown };
   "_acpmux/secret_submit": { params: unknown; result: unknown };
   "_acpmux/secret_run": { params: unknown; result: unknown };
+  "_acpmux/mcp_connect_request": { params: unknown; result: unknown };
+  "_acpmux/mcp_connect_answer": { params: unknown; result: unknown };
   "_acpmux/chats": { params: unknown; result: unknown };
   "_acpmux/chats_watch": { params: unknown; result: unknown };
   "_acpmux/chat_open": { params: unknown; result: unknown };
@@ -229,6 +236,8 @@ export interface AcpmuxRequests {
   "_acpmux/route/test": { params: unknown; result: unknown };
   "_acpmux/route/default.set": { params: unknown; result: unknown };
   "_acpmux/chat/route.set": { params: unknown; result: unknown };
+  "_acpmux/accounts": { params: unknown; result: unknown };
+  "_acpmux/account/set": { params: unknown; result: unknown };
   "_acpmux/web_modes": { params: unknown; result: unknown };
   "_acpmux/web_token_rotate": { params: unknown; result: unknown };
   "_acpmux/reload_config": { params: unknown; result: unknown };
@@ -246,6 +255,7 @@ export interface AcpmuxRequests {
   "_acpmux/peer_reconnect": { params: unknown; result: unknown };
   "_acpmux/peer_remove": { params: unknown; result: unknown };
   "_acpmux/peer_snapshot": { params: unknown; result: unknown };
+  "_acpmux/peer_snapshots_clear": { params: unknown; result: unknown };
   "_acpmux/pair_ticket_new": { params: unknown; result: unknown };
   "_acpmux/pair_list": { params: unknown; result: unknown };
   "_acpmux/pair_revoke": { params: unknown; result: unknown };
@@ -255,6 +265,9 @@ export interface AcpmuxRequests {
   "_acpmux/machine_consent_get": { params: unknown; result: unknown };
   "_acpmux/machine_consent_refused": { params: unknown; result: unknown };
   "_acpmux/pair_redeem": { params: unknown; result: unknown };
+  "_acpmux/vault_pull": { params: unknown; result: unknown };
+  "_acpmux/vault_forget": { params: unknown; result: unknown };
+  "_acpmux/vault_status": { params: unknown; result: unknown };
   "_acpmux/turn_attestation": { params: unknown; result: unknown };
 }
 
@@ -328,6 +341,8 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/tailnet/start", kind: "request", acp: false, typed: false },
   { name: "_acpmux/tailnet/state", kind: "request", acp: false, typed: false },
   { name: "_acpmux/status", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/context", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/context_override", kind: "request", acp: false, typed: false },
   { name: "agent-session-turn-prepare", kind: "request", acp: false, typed: false },
   { name: "agent-session-turn-abandon", kind: "request", acp: false, typed: false },
   { name: "trigger/chat.ensure", kind: "request", acp: false, typed: false },
@@ -355,6 +370,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/forum/announce", kind: "request", acp: false, typed: false },
   { name: "_acpmux/forum/rules", kind: "request", acp: false, typed: false },
   { name: "_acpmux/set_tools", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/set_directories", kind: "request", acp: false, typed: false },
   { name: "_acpmux/mcp/reconnect", kind: "request", acp: false, typed: false },
   { name: "_acpmux/subagent_stop", kind: "request", acp: false, typed: false },
   { name: "_acpmux/subagent_transcript", kind: "request", acp: false, typed: false },
@@ -375,6 +391,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/step_now", kind: "request", acp: false, typed: false },
   { name: "_acpmux/steer_withdraw", kind: "request", acp: false, typed: false },
   { name: "_acpmux/agent_pair_resume", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/agent_hold", kind: "request", acp: false, typed: false },
   { name: "_acpmux/retry", kind: "request", acp: false, typed: true },
   { name: "_acpmux/session/auth", kind: "request", acp: false, typed: true },
   { name: "_acpmux/process/list", kind: "request", acp: false, typed: false },
@@ -411,6 +428,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/team/read", kind: "request", acp: false, typed: false },
   { name: "_acpmux/team/ack", kind: "request", acp: false, typed: false },
   { name: "_acpmux/history", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/session_search", kind: "request", acp: false, typed: false },
   { name: "_acpmux/complete", kind: "request", acp: false, typed: false },
   { name: "_acpmux/wait", kind: "request", acp: false, typed: false },
   { name: "_acpmux/watch_add", kind: "request", acp: false, typed: false },
@@ -472,6 +490,8 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/secret_request", kind: "request", acp: false, typed: false },
   { name: "_acpmux/secret_submit", kind: "request", acp: false, typed: false },
   { name: "_acpmux/secret_run", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/mcp_connect_request", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/mcp_connect_answer", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chats", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chats_watch", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chat_open", kind: "request", acp: false, typed: false },
@@ -534,6 +554,8 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/route/test", kind: "request", acp: false, typed: false },
   { name: "_acpmux/route/default.set", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chat/route.set", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/accounts", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/account/set", kind: "request", acp: false, typed: false },
   { name: "_acpmux/web_modes", kind: "request", acp: false, typed: false },
   { name: "_acpmux/web_token_rotate", kind: "request", acp: false, typed: false },
   { name: "_acpmux/reload_config", kind: "request", acp: false, typed: false },
@@ -551,6 +573,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/peer_reconnect", kind: "request", acp: false, typed: false },
   { name: "_acpmux/peer_remove", kind: "request", acp: false, typed: false },
   { name: "_acpmux/peer_snapshot", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/peer_snapshots_clear", kind: "request", acp: false, typed: false },
   { name: "_acpmux/pair_ticket_new", kind: "request", acp: false, typed: false },
   { name: "_acpmux/pair_list", kind: "request", acp: false, typed: false },
   { name: "_acpmux/pair_revoke", kind: "request", acp: false, typed: false },
@@ -560,6 +583,9 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/machine_consent_get", kind: "request", acp: false, typed: false },
   { name: "_acpmux/machine_consent_refused", kind: "request", acp: false, typed: false },
   { name: "_acpmux/pair_redeem", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/vault_pull", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/vault_forget", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/vault_status", kind: "request", acp: false, typed: false },
   { name: "_acpmux/turn_attestation", kind: "request", acp: false, typed: false },
   { name: "_acpmux/event", kind: "notification", acp: false, typed: true },
   { name: "_acpmux/message", kind: "notification", acp: false, typed: true },

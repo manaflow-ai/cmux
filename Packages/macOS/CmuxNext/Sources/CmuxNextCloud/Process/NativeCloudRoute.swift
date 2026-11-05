@@ -18,13 +18,15 @@ package actor NativeCloudRoute {
     /// never enter its environment or argv.
     package static func make(team: String, mesh: String? = nil, identity: MacInstallIdentity,
                              paths: CloudPaths, session: @escaping InstallAuthClient.SessionToken,
-                             deviceName: String, bundle: Bundle, directory: URL, home: URL) async throws -> Self {
+                             deviceName: String, bundle: Bundle, directory: URL, home: URL,
+                             temporaryDirectory: URL? = nil) async throws -> Self {
         let target = try await identity.nativeNetworkTarget(team: team, mesh: mesh)
         let enrollment = try NativeDeviceEnrollment(scope: target.scope, identity: identity, paths: paths,
                                                      native: NativeDeviceHTTPTransport(origin: target.origin), session: session,
                                                      name: deviceName)
         let publisher = try NativeCloudExecutable.Publisher.current()
         let child = NativeCloudLinkChild(bundleURL: bundle.bundleURL, publisher: publisher, directory: directory, home: home,
+                                         temporaryDirectory: temporaryDirectory,
                                          prepare: { try await enrollment.linkStartup() },
                                          reply: { try await enrollment.cloudBrokerReply($0) })
         return Self(enrollment: enrollment, child: child)

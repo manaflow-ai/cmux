@@ -25,12 +25,5 @@ extension WindowRootView {
     /// lays this view out, so the band and the strip after it move in step,
     /// a change mid-animation retargets from what is on screen, and Reduce
     /// Motion snaps.
-    var toolbarBandPresence: CGFloat { max(sidebarBandShare, collapsedBand.presence) }
-
-    /// The sidebar's on-screen share of its width.
-    var sidebarBandShare: CGFloat {
-        let width = sidebar.model.width
-        guard width > 0 else { return sidebar.model.isHidden ? 0 : 1 }
-        return min(1, max(0, sidebar.frame.width / width))
-    }
+    var toolbarBandPresence: CGFloat { max(sidebar.onScreenShare, collapsedBand.presence) }
 }

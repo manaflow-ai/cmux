@@ -24,7 +24,7 @@ Oracles (each a short name in the failure, `oracle:detail`):
   r3a         every shown terminal: grid == fitted grid == drawn grid == the daemon's screen size, and the grid
               fits the view's frame at the cell size (ext_window's grid_fits rule); the probe's `stty size` == the
               daemon's size (the PTY)
-  r3b         (cmux-ad 08:06Z) New Column (the action's key, Ctrl-Cmd-D) keeps every old column's width; Cmd-D and
+  r3b         (cmux-ad 08:06Z) New Column (the action's key, Ctrl-Cmd-X) keeps every old column's width; Cmd-D and
               Split Down split inside a column, and no OTHER column changes width. Columns are the topology's
               `column`, matched by their panes, with ext_smoke's width reading; exact within 0.01 pt, read until it
               holds for up to 3 s (a layout in flight is not a failure). New Column always starts its burst.
@@ -83,7 +83,7 @@ ACTIONS = {
     # and Split Down split inside a column, and no OTHER column changes width. `column`: adds a column; `inside`: a
     # split inside the focused pane's column.
     "split_right": {"key": "d", "mods": ["cmd"], "creates": "pane", "inside": True},  # Cmd-D
-    "new_column": {"key": "d", "mods": ["control", "cmd"], "creates": "pane", "column": True},  # Ctrl-Cmd-D
+    "new_column": {"key": "x", "mods": ["control", "cmd"], "creates": "pane", "column": True},  # Ctrl-Cmd-X
     "split_down": {"key": "d", "mods": ["cmd", "shift"], "creates": "pane", "inside": True},  # Cmd-Shift-D
     "new_terminal": {"key": "`", "mods": ["control"], "creates": "terminal"},     # Ctrl-`
     "open_url": {"special": True, "creates": "browser"},                          # Cmd-Shift-L, a URL, Return

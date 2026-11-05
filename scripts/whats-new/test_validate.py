@@ -58,6 +58,34 @@ class ValidateTests(unittest.TestCase):
     def test_good_nightly_fixture_passes(self):
         self.assertEqual(self.problems("good/1.0.0-nightly.42.json"), [])
 
+    def test_work_tracking_codes_and_filler_are_refused(self):
+        # Leo 2026-11-02, on What's New rows: "why is the what's new the 0 information density one".
+        cases = {
+            "P0 RESIZE KEYS K4: rows move one step": "a priority code",
+            "Size and scale (REOPEN-F7 part A2).": "a work-tracking code",
+            "Hidden terminals stay quiet (SF-5).": "a work-tracking code",
+            "Closing a pane keeps its terminal, part 1 of 2.": "a part of a split change",
+            "SWITCH FRAMES keep hidden terminals quiet.": "a work-stream name in capitals",
+        }
+        for text, what in cases.items():
+            with self.subTest(text=text):
+                document = nightly_document()
+                document["entries"][0]["summary"] = {"en": text}
+                self.assertMentions(validate.validate_document("1.0.0-nightly.42.json", document), what)
+        for field, text in (("title", "Fixes and improvements"), ("summary", "This build brings fixes and improvements.")):
+            with self.subTest(field=field):
+                document = nightly_document()
+                document["entries"][0][field] = {"en": text}
+                self.assertMentions(validate.validate_document("1.0.0-nightly.42.json", document), "is filler")
+        # Not codes: a key, a chip, an encoding, an acronym. The generic entry may say it.
+        document = nightly_document()
+        document["entries"][0]["summary"] = {"en": "Press F1 on M4 Pro Macs to open UTF-8 PR links."}
+        self.assertEqual(validate.validate_document("1.0.0-nightly.42.json", document), [])
+        document = nightly_document()
+        document["entries"][0].update(id="fixes-and-improvements", title={"en": "Fixes and improvements"},
+                                      summary={"en": "This build brings fixes and improvements."})
+        self.assertEqual(validate.validate_document("1.0.0-nightly.42.json", document), [])
+
     def test_internal_names_are_refused(self):
         problems = self.problems("bad/internal-names.json")
         self.assertMentions(problems, "a beads issue id", "an issue or PR number", "a commit SHA",

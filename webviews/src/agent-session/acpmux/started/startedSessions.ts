@@ -63,6 +63,10 @@ export type StartedSession = {
   retry?: RetryState;
   /// The harness it runs (`claude`, `codex`, a profile), whose mark its rows draw.
   harness?: string;
+  /// The chat's agent started it with its `start_session` tool (acpmux `startedBy`, hub/subsessions.rs):
+  /// one of the chat's own sub-sessions. A lane a coordinator dispatched (`sessions new`, `acpmux new`
+  /// from its shell, tagged `mux.parent`) has a lineage parent (`spawnedBy`) but no `startedBy`.
+  subsession?: boolean;
 };
 
 export function startedState(entry: AcpmuxSessionEntry): StartedState {
@@ -171,6 +175,7 @@ export function startedSessions(
         ...(doing && entry.doing && entry.doingTool ? { doingTool: entry.doingTool } : {}),
         ...(entry.retry ? { retry: entry.retry } : {}),
         ...(entry.harness ? { harness: entry.harness } : {}),
+        ...(entry.startedBy === chatId ? { subsession: true } : {}),
       };
     })
     .sort((a, b) => (a.createdAt ?? Infinity) - (b.createdAt ?? Infinity));

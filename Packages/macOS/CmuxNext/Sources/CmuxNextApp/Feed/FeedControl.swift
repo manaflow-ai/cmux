@@ -63,7 +63,7 @@ enum FeedControl {
         }, tab: { [weak services] session in
             guard let services else { return nil }
             return services.daemon.store.tab(agentSession: session, host: services.agentTabs.localHost)?.id
-        })
+        }, asks: CloudAskDialogs(services: services))
     }
 
     @MainActor

@@ -40,6 +40,7 @@ final class PendingWorkspaceRows {
     @ObservationIgnored var placing = false
     /// The workspaces whose slot `WindowManager.pendingPlacements` holds and has not sent (observed: a rows pass re-runs when one goes).
     private(set) var unsentSlots: Set<String> = []
+    let groupJoins = GroupJoinRows() // `agent.openSessionWorkspace --group`: out of the list until it lists in a group
 
     /// A create's row in its final look (`SidebarMapping.creatingRow`) under its key: Cmd-N's, and an agent's chat open.
     func add(creating id: String, window: String, machine: MachineID, name: String, opensPage: Bool, slot: WorkspaceSlot?, byDefault: NewWorkspaceDefaultSlot?, unpinned: Bool = false) { if unpinned { self.unpinned.insert(id); takenOver.insert(id) }; add(.init(id: id, window: window, machine: machine, face: SidebarMapping.shared.creatingRow(id: id, machine: machine, name: name, opensPage: opensPage), slot: slot, byDefault: byDefault), name: name) }
@@ -53,7 +54,7 @@ final class PendingWorkspaceRows {
     func remove(_ id: String) {
         rows.removeAll { $0.id == id }
         names[id] = nil
-        takenOver.remove(id); unpinned.remove(id)
+        takenOver.remove(id); unpinned.remove(id); groupJoins.release(id)
         redraws.run()
     }
 
@@ -95,38 +96,18 @@ final class PendingWorkspaceRows {
     /// does not place it yet (the document lists it last until its next projection): its own row drew at the end first.
     /// `doc`: the app's own sidebar document.
     func listing(_ listed: [SidebarRowSection], in window: String, machines: MachineRegistry, doc: SidebarDocument) -> [SidebarRowSection] {
-        Self.removing(ids(in: window) { id in
+        SidebarEdits.removing(ids(in: window) { id in
             guard let (workspace, daemon) = machines.workspace(id: id) else { return false }
             if workspace.isProvisional { return true }
             guard unsentSlots.contains(id) || doc.awaitsPlacement(workspace, session: daemon.store.registryID) else { return false }
             takenOver.insert(id)
             return true
-        }, from: listed)
+        }.union(doc.isActive ? groupJoins.hidden(in: listed) : []), from: listed)
     }
 
     /// The pending rows of `window` whose workspace the sidebar cannot draw at its slot yet (`unplaced`: Cmd-N's
     /// stand-in, or a workspace the sidebar document does not place yet): the sidebar lists the pending row for them.
     func ids(in window: String, unplaced: (String) -> Bool) -> Set<String> { Set(rows.filter { $0.window == window && unplaced($0.id) }.map(\.id)) }
-
-    /// `sections` without the workspace rows `ids` (their pending rows list instead, at their slot).
-    static func removing(_ ids: Set<String>, from sections: [SidebarRowSection]) -> [SidebarRowSection] {
-        guard !ids.isEmpty else { return sections }
-        return sections.map { section in
-            var section = section
-            section.nodes = section.nodes.compactMap { node in
-                switch node {
-                case let .workspace(workspace):
-                    return ids.contains(workspace.id.rawValue) ? nil : node
-                case var .group(group):
-                    group.workspaces.removeAll { ids.contains($0.id.rawValue) }
-                    return .group(group)
-                case .item:
-                    return node
-                }
-            }
-            return section
-        }
-    }
 
     func rows(in window: String) -> [Row] { rows.filter { $0.window == window } }
 

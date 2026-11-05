@@ -3,13 +3,19 @@
 // (`_acpmux/mcp/reconnect`, a Claude Code chat's), which asks for that server, reads Reconnecting…
 // while it waits and Try again after an error. Without it, "Needs reconnect" is plain text: no
 // button, nothing that looks clickable.
+// Every section in view (`setSessionInfoMore(true)`): the panel's compact default view is
+// session-info-compact-default.test.tsx's.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
-import { DEFAULT_SECTIONS, resetSessionInfoState } from "../src/agent-session/acpmux/session-info/sessionInfoState";
+import {
+  DEFAULT_SECTIONS,
+  resetSessionInfoState,
+  setSessionInfoMore,
+} from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import { chat } from "../src/gallery/fixtures/acpmux";
 
 let dom: JSDOM | undefined;
@@ -40,7 +46,10 @@ function installDom(): HTMLElement {
   return dom.window.document.getElementById("root")!;
 }
 
-beforeEach(() => resetSessionInfoState());
+beforeEach(() => {
+  resetSessionInfoState();
+  setSessionInfoMore(true);
+});
 
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());

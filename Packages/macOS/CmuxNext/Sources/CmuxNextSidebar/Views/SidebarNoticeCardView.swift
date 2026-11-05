@@ -10,8 +10,10 @@ import CmuxNextIcons
 /// two buttons (the call to action filled, the others quiet) with an
 /// optional shortcut beside them, and an x. Rows a notice does not use take
 /// no room. Hidden without a notice. It sits on the composer's surface
-/// (`CardSurfaceView`, Leo 2026-10-13), as every sidebar card does: the
-/// theme's text tint over the wallpaper, opaque under Reduce Transparency.
+/// (`CardSurfaceView`, Leo 2026-10-13), as every sidebar card does, its
+/// veil in the theme's glass tint (``CardSurfaceView/takesThemeTint``, as
+/// the Updated card's): opaque under Reduce Transparency. Leo 2026-11-03,
+/// on the Downloading Update card: "will this be themeed properly?"
 final class SidebarNoticeCardView: NSView {
     /// A button: the notice's id and the action's id.
     var onAction: ((String, String) -> Void)?
@@ -25,8 +27,9 @@ final class SidebarNoticeCardView: NSView {
     private var lineLabels: [ChromeLabel] = []
     private let icon = DecorativeImageView() // the card's title says what it is
     private let spinner = StatusIndicatorView.spinner()
-    private let track = CALayer()
-    private let bar = CALayer()
+    /// The progress row: the bar fills the track in the theme's accent.
+    let track = CALayer()
+    let bar = CALayer()
     private(set) var actionButtons: [SidebarUpdateButton] = []
     /// The action drawn as a switch (``SidebarNoticeCard/Action/isSwitch``), right of the buttons; nil until one shows.
     private(set) var actionSwitch: SidebarCardSwitch?
@@ -59,6 +62,7 @@ final class SidebarNoticeCardView: NSView {
         self.motionPolicy = motionPolicy
         super.init(frame: frame)
         wantsLayer = true
+        surface.takesThemeTint = true
         addSubview(surface)
         addSubview(content)
         for label in [eyebrowLabel, titleLabel, shortcutLabel] {
@@ -152,7 +156,13 @@ final class SidebarNoticeCardView: NSView {
         closeButton.label = notice.dismissLabel ?? ""
         dismissButton.isHidden = notice.dismissTitle == nil
         dismissButton.configure(title: notice.dismissTitle ?? "", help: notice.dismissLabel)
-        if previous?.actions != notice.actions { rebuildButtons(notice.actions) }
+        if previous?.actions != notice.actions {
+            rebuildButtons(notice.actions)
+            // New buttons under the pointer (Checking… turning into the found update's Update): a
+            // click meant for what was there must not press them, above all an Update that, with
+            // `updates.oneClickInstall`, restarts cmux. Keys and VoiceOver still press them.
+            actionButtons.forEach { $0.ignorePointer() }
+        }
         trailingButton.isHidden = notice.trailing == nil
         if let trailing = notice.trailing {
             trailingButton.setSymbol(trailing.symbol)
@@ -474,7 +484,8 @@ final class SidebarNoticeCardView: NSView {
             icon.contentTintColor = Palette.textSecondary
             icon.image = notice?.symbol.map { NSImage.icon(symbol: $0, size: .iconRowSize(forLabelPointSize: Typography.bodyEmphasized.pointSize)) }
             track.backgroundColor = Palette.hoverFill.cgColor
-            bar.backgroundColor = Palette.textSecondary.cgColor
+            // The bar is the theme's accent (the primary text with none chosen), never a fixed gray.
+            bar.backgroundColor = Palette.accentFill.cgColor
         }
     }
 

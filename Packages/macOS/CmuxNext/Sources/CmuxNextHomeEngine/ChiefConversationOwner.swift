@@ -58,10 +58,15 @@ public final class ChiefConversationOwner {
     /// values the owner needs to run the other Chiefs' brains
     /// (`brainsValue`). An owner that another build already started keeps
     /// its environment until it restarts.
-    static func ownerEnvironment(home: ChiefHome, process: [String: String], bundle: Bundle = .main) -> [String: String] {
+    ///
+    /// Off the main actor, and only when `server ensure` spawns an owner (``start(bundle:environment:)``):
+    /// `brainsValue` resolves acpmux, whose team-signature check reads the whole executable (2.86 s
+    /// on the main thread at launch, cmuxterm-hq#6338). A refused acpmux still gives no `acpmux_bin`.
+    @concurrent nonisolated static func ownerEnvironment(home: ChiefHome, process: [String: String],
+                                                         resources: URL?) async -> [String: String] {
         var environment = process
         environment["CMUX_TUI_CHIEF_TOOLS_SOCKET"] = home.muxHome.appendingPathComponent("optchat/tools.sock").path
-        environment["CMUX_TUI_CHIEF_BRAINS"] = brainsValue(home: home, process: process, bundle: bundle)
+        environment["CMUX_TUI_CHIEF_BRAINS"] = brainsValue(home: home, process: process, resources: resources)
         return environment
     }
 
@@ -81,9 +86,15 @@ public final class ChiefConversationOwner {
     public func start(bundle: Bundle = .main, environment: [String: String] = ProcessInfo.processInfo.environment) {
         guard runTask == nil else { return }
         let launcher: DaemonLauncher
+        let ownerHome = home
+        let resources = bundle.resourceURL
         do {
             launcher = try DaemonLauncher.forChief(session: home.session, stateDirectory: home.daemonStateDirectory,
-                                                   bundle: bundle, processEnvironment: Self.ownerEnvironment(home: home, process: environment, bundle: bundle))
+                                                   bundle: bundle, processEnvironment: environment,
+                                                   ownerEnvironment: {
+                                                       await Self.ownerEnvironment(home: ownerHome, process: environment,
+                                                                                   resources: resources)
+                                                   })
         } catch {
             lastError = String(describing: error)
             logger.error("chief owner: \(String(describing: error), privacy: .public)")

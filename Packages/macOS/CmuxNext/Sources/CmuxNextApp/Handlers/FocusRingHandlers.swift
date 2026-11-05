@@ -13,6 +13,8 @@ enum FocusRingHandlers {
                 return .bool(ring.enabled)
             }
         })
+        let design = context.design
+        ActionTargetTitles.setPaletteState("focusRing.toggle", in: registry) { design.focusRing.enabled }
         registry.bind("focusRing.style.ring", run: { _ in setStyle(.ring, context) })
         registry.bind("focusRing.style.glow", run: { _ in setStyle(.glow, context) })
         registry.bind("focusRing.singlePane.toggle", run: { _ in
@@ -21,6 +23,7 @@ enum FocusRingHandlers {
                 return .bool(ring.showsForSinglePane)
             }
         })
+        ActionTargetTitles.setPaletteState("focusRing.singlePane.toggle", in: registry) { design.focusRing.showsForSinglePane }
     }
 
     /// Choosing a style also turns the ring on.

@@ -11,8 +11,10 @@
 //!   deadline 1 h after the last accepted report; failures back off from
 //!   5 s to 10 min, `retry_after_ms` honored;
 //! - activity from the daemon's `subscribe-activity` stream (sessions =
-//!   attached clients + live agents), `activity` advertised only while the
-//!   stream is live;
+//!   attached clients + live agents) plus acpmux's sessions at work
+//!   (`acp_activity` socket lines, held 90 s unless renewed), `activity`
+//!   advertised only while the stream is live and `activity-turns` with it
+//!   only while acpmux's lines arrive;
 //! - resume: the supervisor's `Resumed` event (clock-set wake, id
 //!   confirmed) sends one report named `resume`.
 //!
@@ -21,27 +23,26 @@
 //! auth over the [`client::Http`] and [`client::Store`] traits), [`github`]
 //! (GitHub tokens for the machine's git and `gh` over the agent socket),
 //! [`github_repos`] (repository discovery through the platform connector),
+//! [`github_status`] (the person's connected GitHub account, no token),
 //! [`handoff`] (hand-off reports for the machine's agent sessions, over the
 //! same socket), `github_minter` (the thread that answers both off the poll
 //! loop),
 //! `role` (the Linux worker), [`trajectory`] (ACP chats kept in cmux
 //! Cloud and restored into a replacement machine, #25584),
-//! `trajectory_thread` (its thread), [`harness_login`] (one sign-in per
-//! person: a Claude or Codex login on one of their machines is kept for them
-//! and written on their next machine) and `harness_login_thread` (its
-//! thread).
+//! and `trajectory_thread` (its thread). A person's Claude or Codex login is
+//! never sent to a cmux server: it stays in the harness's own files on the
+//! machine, and their next machine gets it from their own machine's snapshot.
 
 #[cfg(target_os = "linux")]
 mod bootstrap_role;
 pub mod client;
+pub mod clone_mark;
 pub mod github;
 #[cfg(unix)]
 pub mod github_minter;
 pub mod github_repos;
+pub mod github_status;
 pub mod handoff;
-pub mod harness_login;
-#[cfg(unix)]
-pub mod harness_login_thread;
 pub mod private_bootstrap;
 pub mod receiver;
 #[cfg(target_os = "linux")]
@@ -50,6 +51,8 @@ pub mod receiver_agent;
 mod receiver_files;
 #[cfg(target_os = "linux")]
 mod receiver_lifecycle;
+#[cfg(unix)]
+pub mod relay;
 #[cfg(target_os = "linux")]
 pub mod role;
 pub mod sender;
@@ -63,8 +66,6 @@ pub mod wire;
 mod github_tests;
 #[cfg(all(test, unix))]
 mod handoff_tests;
-#[cfg(all(test, unix))]
-mod harness_login_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
@@ -72,6 +73,8 @@ mod trajectory_tests;
 
 #[cfg(test)]
 mod github_repos_tests;
+#[cfg(test)]
+mod github_status_tests;
 #[cfg(test)]
 mod receiver_client_tests;
 #[cfg(all(test, target_os = "linux"))]

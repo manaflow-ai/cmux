@@ -62,6 +62,12 @@ final class CloseUndoToasts {
     var pageDecidesClose: @MainActor (PaneController, StripTabID) -> Bool = CloseUndoToasts.livePageDecidesClose
     /// Tabs whose page decides a person's close now: a quick next Cmd-W skips them (``PageClosingTabs``).
     let pageClosing = PageClosingTabs()
+    /// Those tabs, out of their strip (and an emptied pane out of its window) while the page decides; a page that asks brings its tab back.
+    let hiddenPages = HiddenPageCloses<PaneController>(
+        hidden: { pane in pane.apply(pane.snapshot()); return pane.stripModel.tabs.isEmpty ? pane.showPaneClose() : nil },
+        lifted: { pane, close in pane.workspace?.layoutModel.cancelPaneClose(close) },
+        restored: { held, _, id in if let workspace = held.workspace, workspace.layoutModel.withdrawPaneClose(held.layoutPaneID) { workspace.applyCurrent() }; let pane = held.services.paneController(for: held.pane) ?? held; pane.apply(pane.snapshot()); pane.select(StripTabID(id)) }, // whichever close hid the pane
+        timedOut: { pane, id in pane.services.closedTabs?.undoToasts.pageClosing.end(id); pane.close([StripTabID(id)]) }) // the daemon's close: never asks
     /// Closes of several tabs waiting for their pages, so each stays one Reopen Closed step.
     let pageDecidedCloses = PageDecidedCloses<PaneController, PreparedTabClose>(
         prepare: { pane, ids in pane.prepareClose(ids) }, send: { PaneController.send($0, from: $1, userClose: $2) })
@@ -85,31 +91,9 @@ final class CloseUndoToasts {
     private(set) var recentDaemonItems: [(id: String, pane: String?, tabs: Int, matched: Bool)] = []
     /// The last reopen (`DaemonClosedHistory.reopen`): time to the daemon's
     /// reply and to the store holding the reopened objects (`debug.filepages`).
-    private(set) var lastReopen: ReopenTiming?
+    var lastReopen: ReopenTiming?
     /// Watches the last reopen's tabs arrive in the store; the next reopen cancels it.
     var reopenWatch: Task<Void, Never>?
-
-    struct ReopenTiming {
-        var id: String
-        var tabs: [String]
-        var reply: Duration
-        var applied: Duration?
-        var tabsInStoreAtApplied: Bool?
-        var tabsArrived: Duration?
-    }
-
-    func noteReopen(id: String, tabs: [String], reply: Duration) {
-        lastReopen = ReopenTiming(id: id, tabs: tabs, reply: reply)
-    }
-
-    func noteReopenApplied(_ applied: Duration, tabsInStore: Bool) {
-        lastReopen?.applied = applied
-        lastReopen?.tabsInStoreAtApplied = tabsInStore
-    }
-
-    func noteReopenTabsArrived(_ arrived: Duration) {
-        lastReopen?.tabsArrived = arrived
-    }
     private var observation: Task<Void, Never>?
     static let toastID = "tab-closed"
 
@@ -187,16 +171,24 @@ final class CloseUndoToasts {
                     + deciding.filter { part in !closing.contains { $0.pane === part.pane } }
                 undo.expectGroup(parts, costly: costly)
                 undo.pageDecidedCloses.begin(closing: closing.filter { !$0.ids.isEmpty }, deciding: deciding, userClose: user)
+                for part in deciding { undo.hidePages(part.ids, in: part.pane) }
                 return
             }
             closing = closing.filter { !$0.ids.isEmpty }
             undo?.expectGroup(closing, costly: costly)
             PaneController.close(closing)
+            for part in deciding { part.pane.services.closedTabs?.undoToasts.hidePages(part.ids, in: part.pane) } // they leave now too
         }
         TabCloseGuard.close(tabs, on: daemon, services: services, window: first.view.window, leaving: parts) { [weak services] asked, hidden in
             guard user, let undo = services?.closedTabs?.undoToasts else { hidden?.lift(); return closeAll(nil, false) }
             undo.decideFirst(tabs, on: daemon, asked: asked, window: first.view.window) { costly in hidden?.lift(); closeAll(undo, costly) }
         }
+    }
+
+    /// Tabs `ids` of `pane` whose page decides their close leave now, their pages alive (`hiddenPages`).
+    func hidePages(_ ids: [StripTabID], in pane: PaneController) {
+        let tabs = ids.compactMap { id in pane.tab(id).map { (id: id.rawValue, surface: $0.surface, asks: pane.services.cache.browsers[id.rawValue].map { PageClosingTabs.asksPerson($0.tab) }) } }
+        hiddenPages.hide(tabs, in: pane, store: pane.daemon.store)
     }
 
     /// `CloseToastRule`'s answer for `tabs`, read before their close runs: a

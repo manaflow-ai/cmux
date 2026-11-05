@@ -19,8 +19,21 @@ Stack's response bodies are never echoed (they hold account data), only status c
 
 `--grant-only EMAIL` instead gives one existing capture test account (an email matching
 GRANT_ONLY_EMAIL: `cmux-cloud-capture…@manaflow.dev`, such as the no-team owner account) the same operator plan
-grant and touches nothing else: no password, no seal, no bundle. Without it, a staging account whose
-record carries a plan that is not paid is restricted and gets no Cloud machines, the stub plan included.
+grant and a verified primary email, and touches nothing else: no password, no seal, no bundle. Without the plan, a
+staging account whose record carries a plan that is not paid is restricted and gets no Cloud machines, the stub
+plan included. Without the verified email, a team invitation sent to the account cannot be accepted (cmux web
+teams/received.ts answers email_mismatch), so HQ's team invite readback could never join it to a team. The account
+made above is created verified; this does the same for one made some other way.
+
+`--target journey` does the same for the Cloud journey's own staging account, sealed to this repository's
+cmux-next-vm-image-dev environment as CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD (TARGETS below).
+
+`--target production` makes the production test account (cmux-cloud-capture-prod@manaflow.dev) in the
+PRODUCTION Stack project, with the same plan grant, sealed to cmuxterm-hq's cloud-capture environment as
+CLOUD_PROBE_PRODUCTION_STACK_EMAIL and _PASSWORD: the hourly production Cloud chat probe signs in as it
+(cmuxterm-hq synthetic-probes.yml app-chat-production). It runs in environment cloud-vm-production, whose server
+key belongs to that project; each target names the one project it may touch. The run also prints the account's
+Stack user id (not a secret), which a GitHub OIDC session trust row pins (hq#7076).
 
 Runs in .github/workflows/cloud-capture-provision.yml (environment cloud-vm-staging). The bundle is
 stored with `python3 scripts/ci/sealed_secrets.py put BUNDLE`; docs/ci-sealed-secrets.md.
@@ -45,18 +58,48 @@ import sealed_secrets  # noqa: E402
 # The staging Stack project every DEV build signs in to (public: it ships in DEV builds). The server
 # key must belong to this project; any other project id refuses before a request is made.
 STAGING_PROJECT_ID = "454ecd03-1db2-4050-845e-4ce5b0cd9895"
+# The production Stack project the shipped app (cmux NIGHTLY and release) signs in to (public: it ships in every
+# release build; cmux environment cloud-vm-production's NEXT_PUBLIC_STACK_PROJECT_ID).
+PRODUCTION_PROJECT_ID = "9790718f-14cd-4f7e-824d-eaf527a82b82"
 STACK_API = "https://api.stack-auth.com/api/v1"
-EMAIL = "cmux-cloud-capture@manaflow.dev"
-DISPLAY_NAME = "cmux cloud capture"
 PLAN_KEY, PLAN = "cmuxVmPlan", "pro"
-# Where the credential goes: the capture environment of the team's private infrastructure repository.
-# A rotated GitHub key changes key_id; `put` then refuses the bundle and this pin is updated.
-TARGET_REPO = "manaflow-ai/cmuxterm-hq"
-TARGET_ENVIRONMENT = "cloud-capture"
-TARGET_KEY_ID = "3380204578043523366"
-TARGET_KEY = "jjGF/Nq5EeX9Ye2kCKwzDsZaAJETgKx/H8cQgQPv9AY="
-EMAIL_SECRET = "CLOUD_CAPTURE_STACK_EMAIL"
-PASSWORD_SECRET = "CLOUD_CAPTURE_STACK_PASSWORD"
+
+
+class Target:
+    """One staging test account and where its credential is sealed. A rotated GitHub key changes key_id;
+    `put` then refuses the bundle and the pin here is updated. GitHub gives both environments below the same
+    key_id with different key bytes (read from `.../environments/ENV/secrets/public-key` on 2026-11-04);
+    `put` checks both against the live key."""
+
+    def __init__(self, email, display_name, repo, environment, key_id, key, email_secret, password_secret,
+                 project=STAGING_PROJECT_ID):
+        self.email, self.display_name, self.project = email, display_name, project
+        self.repo, self.environment, self.key_id, self.key = repo, environment, key_id, key
+        self.email_secret, self.password_secret = email_secret, password_secret
+
+
+TARGETS = {
+    # The team's Cloud capture runs: the capture environment of the private infrastructure repository.
+    "capture": Target("cmux-cloud-capture@manaflow.dev", "cmux cloud capture", "manaflow-ai/cmuxterm-hq",
+                      "cloud-capture", "3380204578043523366", "jjGF/Nq5EeX9Ye2kCKwzDsZaAJETgKx/H8cQgQPv9AY=",
+                      "CLOUD_CAPTURE_STACK_EMAIL", "CLOUD_CAPTURE_STACK_PASSWORD"),
+    # The headless Cloud journey's staging smoke (backend.yml journey-staging) and cloud-chat-proof.yml: both run
+    # in this repository's cmux-next-vm-image-dev environment and read the staging pair as CMUX_DOGFOOD_STACK_*.
+    # Environment secrets take precedence over the repository's own pair (the production test account), so only
+    # jobs in that environment see this one.
+    "journey": Target("cmux-cloud-capture-journey@manaflow.dev", "cmux cloud journey", "manaflow-ai/cmux",
+                      "cmux-next-vm-image-dev", "3380204578043523366", "wOq7reXDAHystKwvJikDgeR+KKcU8k+s8gV/E0CHzVk=",
+                      "CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD"),
+    # The hourly production Cloud chat probe (cmuxterm-hq synthetic-probes.yml app-chat-production): the shipped
+    # NIGHTLY app signed in to production, `cmux cloud start-chat --wait`. The only target in the production project.
+    "production": Target("cmux-cloud-capture-prod@manaflow.dev", "cmux cloud probe (production)",
+                         "manaflow-ai/cmuxterm-hq", "cloud-capture", "3380204578043523366",
+                         "jjGF/Nq5EeX9Ye2kCKwzDsZaAJETgKx/H8cQgQPv9AY=",
+                         "CLOUD_PROBE_PRODUCTION_STACK_EMAIL", "CLOUD_PROBE_PRODUCTION_STACK_PASSWORD",
+                         project=PRODUCTION_PROJECT_ID),
+}
+CAPTURE = TARGETS["capture"]
+EMAIL = CAPTURE.email
 REQUEST_SECONDS = 30
 # The only accounts --grant-only touches: the staging capture test accounts, never a person's.
 GRANT_ONLY_EMAIL = re.compile(r"cmux-cloud-capture(-[a-z0-9]+)*@manaflow\.dev")
@@ -97,9 +140,9 @@ def http(method, url, headers, body, timeout=REQUEST_SECONDS):
 
 
 class Stack:
-    def __init__(self, project_id, server_key, client_key, transport=http):
-        if project_id != STAGING_PROJECT_ID:
-            raise ProvisionError("the Stack project is not the staging project; refusing to touch it")
+    def __init__(self, project_id, server_key, client_key, transport=http, expected_project=STAGING_PROJECT_ID):
+        if project_id != expected_project:
+            raise ProvisionError("the Stack project is not the target's project; refusing to touch it")
         if not server_key:
             raise ProvisionError("STACK_SECRET_SERVER_KEY is empty")
         if not client_key:
@@ -125,13 +168,13 @@ class Stack:
         matches = [u for u in items if isinstance(u, dict)
                    and str(u.get("primary_email") or "").lower() == email.lower()]
         if len(matches) > 1:
-            raise ProvisionError(f"{len(matches)} staging users have the capture email; refusing to pick one")
+            raise ProvisionError(f"{len(matches)} staging users have that email; refusing to pick one")
         return matches[0] if matches else None
 
-    def create(self, email, password):
+    def create(self, email, password, display_name=CAPTURE.display_name):
         user = self.server("POST", "/users", {
             "primary_email": email, "primary_email_verified": True, "primary_email_auth_enabled": True,
-            "password": password, "display_name": DISPLAY_NAME,
+            "password": password, "display_name": display_name,
             "client_read_only_metadata": {PLAN_KEY: PLAN}})
         if not user.get("id"):
             raise ProvisionError("Stack created the user but returned no id")
@@ -146,15 +189,19 @@ class Stack:
             "client_read_only_metadata": metadata})
 
     def grant(self, user):
-        """Sets only the operator plan grant, keeping the account's other metadata and its password."""
+        """Sets the operator plan grant and marks the primary email verified, keeping the account's other metadata
+        and its password."""
         metadata = user.get("client_read_only_metadata")
         metadata = dict(metadata) if isinstance(metadata, dict) else {}
         metadata[PLAN_KEY] = PLAN
-        self.server("PATCH", f"/users/{urllib.parse.quote(user['id'])}", {"client_read_only_metadata": metadata})
+        self.server("PATCH", f"/users/{urllib.parse.quote(user['id'])}",
+                    {"client_read_only_metadata": metadata, "primary_email_verified": True})
+
+    def read(self, user_id):
+        return self.server("GET", f"/users/{urllib.parse.quote(user_id)}")
 
     def plan(self, user_id):
-        user = self.server("GET", f"/users/{urllib.parse.quote(user_id)}")
-        metadata = user.get("client_read_only_metadata")
+        metadata = self.read(user_id).get("client_read_only_metadata")
         return metadata.get(PLAN_KEY) if isinstance(metadata, dict) else None
 
     def signs_in(self, email, password):
@@ -174,44 +221,56 @@ def new_password():
     return password
 
 
-def provision(stack, out, log=print, lib=None, key_id=TARGET_KEY_ID, key=TARGET_KEY, make_password=new_password):
-    """Find or create the account, rotate its password, check it, write the sealed bundle to OUT.
+def provision(stack, out, log=print, lib=None, key_id=None, key=None, make_password=new_password, target=CAPTURE):
+    """Find or create TARGET's account, rotate its password, check it, write the sealed bundle to OUT.
     Returns "created" or "rotated"."""
+    if stack.project_id != target.project:
+        raise ProvisionError("the Stack project is not the target's project; refusing to touch it")
+    key_id = target.key_id if key_id is None else key_id
+    key = target.key if key is None else key
+    email = target.email
     password = make_password()
     try:
-        user = stack.find(EMAIL)
+        user = stack.find(email)
         if user is None:
-            user = stack.create(EMAIL, password)
+            user = stack.create(email, password, target.display_name)
             action = "created"
         else:
             stack.rotate(user, password)
             action = "rotated"
         if stack.plan(user["id"]) != PLAN:
             raise ProvisionError(f"the account's {PLAN_KEY} did not read back as {PLAN!r}")
-        if not stack.signs_in(EMAIL, password):
+        if not stack.signs_in(email, password):
             raise ProvisionError("the new password did not sign in")
-        bundle = sealed_secrets.seal_bundle(TARGET_REPO, TARGET_ENVIRONMENT, key_id, key,
-                                            {EMAIL_SECRET: EMAIL, PASSWORD_SECRET: password}, lib)
+        bundle = sealed_secrets.seal_bundle(target.repo, target.environment, key_id, key,
+                                            {target.email_secret: email, target.password_secret: password}, lib)
     finally:
         # Python cannot wipe a str; dropping the only reference is what is possible. The process ends next.
         password = None  # noqa: F841
     sealed_secrets.write_bundle(out, bundle)
-    log(f"{action} the staging capture account (plan {PLAN}); sealed {EMAIL_SECRET} and {PASSWORD_SECRET} "
-        f"to {TARGET_REPO} environment {TARGET_ENVIRONMENT} (key_id {key_id})")
+    where = "production" if target.project == PRODUCTION_PROJECT_ID else "staging"
+    log(f"{action} the {where} test account {email}, Stack user id {user['id']} (plan {PLAN}); sealed "
+        f"{target.email_secret} and {target.password_secret} to {target.repo} environment {target.environment} "
+        f"(key_id {key_id})")
     return action
 
 
 def grant_only(stack, email, log=print):
-    """Gives the existing capture account EMAIL the operator plan grant; nothing else changes."""
+    """Gives the existing capture account EMAIL the operator plan grant and a verified email; nothing else changes."""
     if not GRANT_ONLY_EMAIL.fullmatch(email):
         raise ProvisionError("--grant-only takes only a staging capture test account's email")
     user = stack.find(email)
     if user is None:
         raise ProvisionError("no staging account has that email; --grant-only never creates one")
     stack.grant(user)
-    if stack.plan(user["id"]) != PLAN:
+    after = stack.read(user["id"])
+    metadata = after.get("client_read_only_metadata")
+    if (metadata.get(PLAN_KEY) if isinstance(metadata, dict) else None) != PLAN:
         raise ProvisionError(f"the account's {PLAN_KEY} did not read back as {PLAN!r}")
-    log(f"granted {PLAN_KEY} {PLAN!r} to the staging capture account; its password and other metadata are unchanged")
+    if after.get("primary_email_verified") is not True:
+        raise ProvisionError("the account's primary email did not read back as verified")
+    log(f"granted {PLAN_KEY} {PLAN!r} and a verified email to the staging capture account; its password and other "
+        "metadata are unchanged")
 
 
 def main(argv=None):
@@ -219,14 +278,19 @@ def main(argv=None):
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--out", help="where to write the sealed bundle (ciphertext only)")
     mode.add_argument("--grant-only", metavar="EMAIL", help="only grant the operator plan to this existing capture account")
+    parser.add_argument("--target", choices=sorted(TARGETS), default="capture",
+                        help="which test account to provision and where its credential is sealed")
     args = parser.parse_args(argv)
+    target = TARGETS[args.target]
     try:
+        if args.grant_only is not None and target.project != STAGING_PROJECT_ID:
+            raise ProvisionError("--grant-only touches only the staging capture test accounts")
         stack = Stack(os.environ.get("NEXT_PUBLIC_STACK_PROJECT_ID", ""), os.environ.get("STACK_SECRET_SERVER_KEY", ""),
-                      os.environ.get("NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY", ""))
+                      os.environ.get("NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY", ""), expected_project=target.project)
         if args.grant_only is not None:
             grant_only(stack, args.grant_only.strip().lower())
         else:
-            provision(stack, args.out)
+            provision(stack, args.out, target=target)
     except (ProvisionError, sealed_secrets.SealError) as error:
         print(f"::error::cloud capture provision: {error}", flush=True)
         return 1

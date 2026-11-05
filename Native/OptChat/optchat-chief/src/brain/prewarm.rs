@@ -31,7 +31,13 @@ impl Brain {
     /// The engine the next turn takes (engine.json over the defaults), and
     /// the harness engine.json named when acpmux does not have it (the
     /// default harness runs instead).
-    pub(super) fn next_engine(&self) -> (crate::engine::TurnEngine, Option<String>) {
+    pub(super) fn next_engine(
+        &self,
+    ) -> (
+        crate::engine::TurnEngine,
+        Option<String>,
+        crate::engine::EngineChoice,
+    ) {
         let s = &self.settings;
         let choice = s
             .engine_file
@@ -44,7 +50,7 @@ impl Brain {
         if !s.families.is_empty() && !s.families.contains_key(&engine.harness) {
             unknown = Some(std::mem::replace(&mut engine.harness, s.harness.clone()));
         }
-        (engine, unknown)
+        (engine, unknown, choice)
     }
 
     /// Hints the pool with the next turn session's harness profile (as the
@@ -67,7 +73,7 @@ impl Brain {
         {
             return;
         }
-        let (engine, _) = self.next_engine();
+        let (engine, _, _) = self.next_engine();
         let (cached, plain) = self.session_presets(self.family_of(&engine.harness));
         if cached.is_some() {
             // The pooled Claude Code reads its cache settings when it

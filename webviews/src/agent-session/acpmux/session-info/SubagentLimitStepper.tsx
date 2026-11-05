@@ -1,5 +1,5 @@
 // The Subagents card's running limit: how many of the chats this chat's agent started (its
-// sub-sessions) run a turn at once, "Running 8 / 16 max", with − and + beside it and "3 queued"
+// sub-sessions) run a turn at once, "Started chats: 8 of 16 at once" (never its own Agent subagents, which the line once seemed to count: Leo, 2026-11-02, "but what's going on with these?"), with − and + beside it and "3 queued"
 // while some wait for a free slot. Leo, 2026-10-21: "increase or decrease subagent amounts ad
 // hoc". − and + set the chat's own limit one lower or higher (1 to 1000) through
 // `_acpmux/subsession/limits`; the number moves at once and acpmux's answer, or its `limits`
@@ -24,7 +24,7 @@ const PLUS = "M12 5L12 19M5 12L19 12";
 
 function Glyph({ d }: { d: string }) {
   return (
-    <svg viewBox="0 0 24 24" width="11" height="11" aria-hidden="true" focusable="false">
+    <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" focusable="false">
       <path d={d} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
     </svg>
   );
@@ -145,7 +145,7 @@ export function SubagentLimitStepper({
   return (
     <div className="acpmux-subagent-limit">
       <span className="acpmux-subagent-limit__text">
-        {t("sessionInfo.subagents.limit.running", { running, max })}
+        {t("sessionInfo.subagents.limit.startedChats", { running, max })}
         {queued > 0 && (
           <span className="acpmux-subagent-limit__queued">
             {" · "}

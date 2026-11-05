@@ -38,7 +38,7 @@ public final class MotionClock {
     private lazy var client = FrameClient(owner: "Motion.clock", scheduler: { [weak self] in
         self?.window.map(FrameScheduler.forWindow) ?? .app
     }, settle: { [weak self] in self?.settleAll() }) { [weak self] tick in
-        self?.tick(tick.elapsed) ?? false
+        self?.tick(tick.frameElapsed) ?? false
     }
     /// The window whose scheduler the clock ticks on (nil: the app clock).
     private weak var window: NSWindow?

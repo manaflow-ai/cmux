@@ -11,10 +11,10 @@ import os
 
 /// Owns the tool window (Import from Browser, Computer Use setup), the
 /// browser-data import offer, the default-app registry and the imported
-/// data, and feeds imported history to the omnibar at launch. Nothing opens
-/// at launch (Lawrence 2026-10-09: a launch goes straight to the main
-/// window); the one-time classic migration only adds classic's workspaces
-/// to the restored windows (Lawrence 2026-10-19, classic-migration-DESIGN.md).
+/// data, and feeds imported history to the omnibar at launch. Fresh installs
+/// also show the history-import page; existing installations go straight to
+/// the main window. The one-time classic migration adds classic's workspaces
+/// to the restored windows (classic-migration-DESIGN.md).
 @MainActor
 final class OnboardingService {
     unowned let services: AppServices
@@ -133,7 +133,13 @@ final class OnboardingService {
     /// `importTarget` names the cmux browser profile they go into (the
     /// browser-data offer: into the tab's profile); without kinds the step
     /// makes one profile per source.
-    func show(step: OnboardingModel.Step, importKinds: Set<ImportDataKind>? = nil, importTarget: String? = nil) {
+    func show(step: OnboardingModel.Step, history: Bool = false, importKinds: Set<ImportDataKind>? = nil, importTarget: String? = nil) {
+        // The same single importData step hosts history as a web page. Browser import keeps
+        // its existing standalone tool; it is never substituted by the history action.
+        if step == .importData, history {
+            _ = services.registry.perform(ChiefMemoryImportHandlers.actionID, invocation: ActionInvocation(origin: .user))
+            return
+        }
         // `browser.import.enabled` off: the import window does not open, whoever asks.
         if step == .importData, !services.browserImportEnabled { return }
         presenter.show(step: step) { model, reused in
@@ -144,6 +150,25 @@ final class OnboardingService {
             }
         }
     }
+
+    /// First-run routing only, once per app channel (an upgrade is no first run). Never under showcase: its
+    /// scene captures are fresh homes, and the page over Home parks the workspace their seed fills.
+    func showHistoryAtFirstRun(isFirstRun: Bool, defaults: UserDefaults = .standard) {
+        let key = "home.firstRun.historyImportShown"
+        guard !services.environment.showcase, !defaults.bool(forKey: key) else { return }
+        if isFirstRun {
+            // On top: launch can replace its first Home pane. Consume only once shown. The
+            // mark tells the fresh-home launch smoke this page covers Home on purpose.
+            guard TopPages.show(.page(.importHistory), services: services) != nil else { return }
+            DebugTimings.markLaunch("first_run.history_import_shown")
+        }
+        defaults.set(true, forKey: key)
+    }
+
+    func historyImportFinished() {
+        UserDefaults.standard.set(true, forKey: HomeHostView.memoryOfferUsedKey)
+    }
+
 }
 
 extension SavingImportDestination {

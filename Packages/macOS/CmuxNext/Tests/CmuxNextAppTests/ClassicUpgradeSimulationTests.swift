@@ -305,6 +305,46 @@ struct ClassicUpgradeSimulationTests {
         await sim.shutdown()
     }
 
+    /// Each workspace the run makes reaches the app's store as exact deltas, never as a coarse `tree-changed`
+    /// that makes the store read the whole tree again (#32408). A 512-workspace upgrade took 577 full store
+    /// snapshots: the store's work per workspace grew with the session (its last 64 workspaces took about four
+    /// times as long as its first 64). Creating N workspaces must take no full snapshot: O(changed), not O(session).
+    /// A connection's first snapshot (its connect, once per connection, whatever the run makes) is counted apart.
+    @Test func theRunTakesNoFullSnapshotForTheWorkspacesItMakes() async throws {
+        let profile = ClassicUpgradeProfile.small
+        let mac = try ClassicUpgradeSimulator.Mac()
+        try mac.save(profile)
+        let before = try mac.classicDigest()
+        let sim = try ClassicUpgradeSimulator(mac: mac, tap: try DaemonCommandTap())
+        let launch = await sim.launch()
+        #expect(launch.failure == nil, "\(String(describing: launch.failure))")
+        let snapshots = try #require(launch.snapshots)
+        #expect(snapshots == 0, "\(snapshots) full store snapshots while the run made \(profile.expectedCount) workspaces")
+        await sim.settle()
+        try sim.verify(profile, classicBefore: before)
+        await sim.shutdown()
+    }
+
+    /// Each workspace the run makes is laid out from the app's store, never from a read of the daemon's whole tree
+    /// (#32408). The layout builder read `list-workspaces` two to four times for each workspace it filled, and that
+    /// reply holds every workspace: at 512 workspaces one read took about 0.4 s and every other request waited behind
+    /// it (the run's last 64 workspaces took seven times as long as its first 64). Laying out N workspaces must read
+    /// no whole tree: O(changed), not O(session).
+    @Test func theRunReadsNoWholeTreeForTheWorkspacesItMakes() async throws {
+        let profile = ClassicUpgradeProfile.small
+        let mac = try ClassicUpgradeSimulator.Mac()
+        try mac.save(profile)
+        let before = try mac.classicDigest()
+        let sim = try ClassicUpgradeSimulator(mac: mac, tap: try DaemonCommandTap())
+        let launch = await sim.launch()
+        #expect(launch.failure == nil, "\(String(describing: launch.failure))")
+        let reads = try #require(launch.treeReads)
+        #expect(reads == 0, "\(reads) whole-tree reads while the run made \(profile.expectedCount) workspaces")
+        await sim.settle()
+        try sim.verify(profile, classicBefore: before)
+        await sim.shutdown()
+    }
+
     /// Background workspaces come over parked: their tabs stay, their shells
     /// do not run (no PTY), and showing one starts its terminals in place.
     @Test func backgroundWorkspacesStartTheirTerminalsWhenFirstShown() async throws {

@@ -87,14 +87,25 @@ impl Hub {
             "native": [],
             "harness": harness,
         });
+        let mut copied = Vec::new();
         if !native.is_empty() {
             std::fs::create_dir_all(dir.join("native"))?;
-            let mut copied = Vec::new();
             for (label, src) in native {
                 if let Ok(rel) = crate::native::copy_into(&src, &dir.join("native"), &label) {
                     copied.push(json!({"label": label, "path": rel, "source": src}));
                 }
             }
+        }
+        // OpenCode keeps its sessions in a database: the session goes as its export. A failed
+        // export still moves the chat, which then resumes from this log only.
+        match crate::native::export_opencode(&meta, &dir.join("native")) {
+            Ok(Some(rel)) => {
+                copied.push(json!({"label": crate::native::OPENCODE_EXPORT, "path": rel}))
+            }
+            Ok(None) => {}
+            Err(e) => tracing::warn!(session = %meta.id, "opencode session not bundled: {e:#}"),
+        }
+        if !copied.is_empty() {
             manifest.set("native", Value::Array(copied));
         }
         std::fs::write(dir.join("manifest.json"), serde_json::to_string_pretty(&manifest)?)?;
@@ -236,13 +247,23 @@ impl Hub {
                 }
             }
         };
+        // OpenCode's session is imported into its own database, in the chat's folder here. One
+        // that fails leaves the chat to resume from its log, as a chat with no agent store does.
+        if let Err(e) = crate::native::import_opencode(bundle, &meta) {
+            tracing::warn!(session = %meta.id, "opencode session not imported: {e:#}");
+        }
         // Made once nothing can fail: a failed import leaves nothing in the child index.
         let session = self.make_session(meta.clone());
         // Its copied log may hold the source's move: unknown until its own `imported` receipt
         // is logged (`transfer_authority.rs`), so a failed receipt never reads as local.
         *session.transfer_authority.lock().unwrap_or_else(|e| e.into_inner()) = None;
         session.seq.store(last, Ordering::SeqCst);
-        session.meta.lock().unwrap().last_seq = last;
+        {
+            let mut meta = session.meta.lock().unwrap();
+            meta.last_seq = last;
+            // The copied log may end in transcript records: say it may have.
+            meta.transcript_seq = last;
+        }
         if live {
             self.restore_queue(&session);
             // The source's subagent retries stayed there: their prompts do not wait here.
@@ -776,13 +797,16 @@ impl Hub {
         files.sort();
         let mut last = 0;
         for f in files {
-            let text = std::fs::read_to_string(&f)
+            use std::io::BufRead as _;
+            let file = std::fs::File::open(&f)
                 .map_err(|e| anyhow::anyhow!("read {}: {e}", f.display()))?;
-            for (n, line) in text.lines().enumerate() {
+            // Bound memory to one record, including for multi-gigabyte event logs.
+            for (n, line) in std::io::BufReader::new(file).lines().enumerate() {
+                let line = line.map_err(|e| anyhow::anyhow!("read {}: {e}", f.display()))?;
                 if line.trim().is_empty() {
                     continue;
                 }
-                let mut rec: EventRecord = serde_json::from_str(line)
+                let mut rec: EventRecord = serde_json::from_str(&line)
                     .map_err(|e| anyhow::anyhow!("{} line {}: {e}", f.display(), n + 1))?;
                 if let Some(control) = control {
                     super::transfer_guard::guarded_record(&mut rec, control);

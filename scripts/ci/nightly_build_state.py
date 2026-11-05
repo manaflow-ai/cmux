@@ -24,7 +24,8 @@ The dedicated nightly-next builder is the one exception (Leo, 2026-10-27: "what 
 just dedicatd one, only, always, and it just incrementally... did the thing? clear its
 stuff, etc"). Its runner (`<host>-nightly-next` or glaeda's `<host>-glaeda-nightly-next`)
 runs only nightly-next's app build, so it keeps one DerivedData per identity and builds
-each new tip on it. An incremental build is a real compile of every changed file. It
+each new tip on it. Every runner of the dedicated nightly-only minis (`<host>-glaeda-nightly-only-K`) does
+the same through the Mac's host build root (below). An incremental build is a real compile of every changed file. It
 starts clean (CLEAN_REASONS) when:
 - the last build on it did not finish (no `mark-built` after `prepare`);
 - the key changed: the toolchain (Xcode, SDK, DEVELOPER_DIR) or a lockfile, toolchain
@@ -100,6 +101,17 @@ STRUCTURE_PATHS = re.compile(r'(^|/)(Package\.swift|[^/]+\.pbxproj|[^/]+\.xcconf
 # Top-level trees the Release app build never reads (no project or package in it references them), so
 # a change there leaves the kept DerivedData valid.
 OUTSIDE_APP_BUILD = ('Prototypes/',)
+# A Swift package's Tests/ tree holds its test targets and the support targets only they link
+# (tests/test_nightly_build_state.py checks every Package.swift for that). The Release build of the
+# app scheme compiles none of them, so an import or a structure line there leaves the kept
+# DerivedData valid: run 41570134320 compiled clean for 562 s on an import change in
+# Packages/Shared/CmuxMessagesLab/Tests/MessagesLabHomeTests/HomeAgentMessageAvatarTests.swift.
+PACKAGE_TESTS = re.compile(r'^Packages/[^/]+/[^/]+/Tests/')
+PACKAGE_TESTS_GLOB = ':(exclude,glob)Packages/*/*/Tests/**'
+
+
+def outside_app_build(name: str) -> bool:
+    return name.startswith(OUTSIDE_APP_BUILD) or PACKAGE_TESTS.match(name) is not None
 NOTICES_CACHE = 'notices-crates'
 NOTICES_CACHE_MAX_BYTES = 8 << 30
 
@@ -118,21 +130,20 @@ def nightly_only(runner: str) -> bool:
     return re.fullmatch(r'[a-zA-Z0-9._-]+-glaeda-nightly-only-[0-9]+', runner) is not None
 
 
-def dedicated(runner: str, builder: bool = False) -> bool:
-    """The dedicated nightly-next builder's runner (its hand-made or glaeda-managed name), or a nightly-only
-    runner the build reached through the warm builder label (`builder`, NIGHTLY_ONLY_BUILDER=true), which only
-    build-nightly-app asks for: one runner per mini carries it. The other nightly-only runners keep nothing,
-    so five per mini never hold five copies of this state. Without it the builder restored Swift packages
-    from R2 and built from empty DerivedData on every head (282 s and 1011 s, run 41340244486)."""
-    return re.fullmatch(r'[a-zA-Z0-9._-]+-nightly-next', runner) is not None or (builder and nightly_only(runner))
+def dedicated(runner: str) -> bool:
+    """The dedicated nightly-next builder's runner (its hand-made or glaeda-managed name), or any runner of the
+    nightly-only minis. Those took the warm path only through a builder label the picker offered after reading
+    the runners, and that read failed (HTTP 403, the routing App's spent budget) in four of six nightly-next runs
+    (41586556429, 41570134320, ...): each restored the compilation cache and Swift packages from R2 (280-320 s)
+    and compiled cold. Every nightly-only slot now builds in the Mac's one host build root
+    (app-host-build-root.sh, under a never-waited lock), so a mini still holds one kept DerivedData, whichever
+    slot builds; a slot keeps its own only after a build that overlapped another on the same Mac, and its next
+    host-root build deletes it (finish_host)."""
+    return re.fullmatch(r'[a-zA-Z0-9._-]+-nightly-next', runner) is not None or nightly_only(runner)
 
 
-def keeps_state(runner: str, builder: bool = False) -> bool:
-    return owned(runner) or dedicated(runner, builder)
-
-
-def builder_label() -> bool:
-    return os.environ.get('NIGHTLY_ONLY_BUILDER', '') == 'true'
+def keeps_state(runner: str) -> bool:
+    return owned(runner) or dedicated(runner)
 
 
 def git(workspace: Path, *args: str) -> str:
@@ -174,12 +185,12 @@ def structure_changed(workspace: Path, since: str) -> str | None:
     except subprocess.CalledProcessError:
         return None
     changed = next((name for name in names
-                    if STRUCTURE_PATHS.search(name) and not name.startswith(OUTSIDE_APP_BUILD)), '')
+                    if STRUCTURE_PATHS.search(name) and not outside_app_build(name)), '')
     if changed:
         return changed
     try:
         diff = git(workspace, 'diff', '-U0', '--no-renames', since, 'HEAD', '--', *IMPORT_SOURCES,
-                   *(f':(exclude){tree}' for tree in OUTSIDE_APP_BUILD))
+                   *(f':(exclude){tree}' for tree in OUTSIDE_APP_BUILD), PACKAGE_TESTS_GLOB)
     except subprocess.CalledProcessError:
         return None
     current = ''
@@ -266,11 +277,10 @@ def prepare_incremental(workspace: Path, runner_state: Path, identity: str, key:
 
 
 def mark_built(workspace: Path, home: Path, runner: str) -> bool:
-    """Record that the build prepared on this workspace finished, so the next one may build on it. A nightly-only
-    runner kept DerivedData only when prepare saw the builder label, so it needs no flag here: the link below
-    exists only then (the workflow step runs only when prepare chose a mode)."""
+    """Record that the build prepared on this workspace finished, so the next one may build on it (the workflow
+    step runs only when prepare chose a mode)."""
     derived = workspace / 'build-universal'
-    if not dedicated(runner, builder=nightly_only(runner)) or not derived.is_symlink():
+    if not dedicated(runner) or not derived.is_symlink():
         return False
     state_file = derived.resolve().parent / INCREMENTAL_STATE
     if (home / STATE_ROOT / runner).resolve() not in state_file.parents:
@@ -344,15 +354,15 @@ def notices_cache(home: Path, runner: str) -> Path:
     return cache
 
 
-def prepare(workspace: Path, home: Path, runner: str, track: str, toolchain: str, builder: bool = False) -> bool:
-    if not keeps_state(runner, builder) or track != 'nightly-next':
+def prepare(workspace: Path, home: Path, runner: str, track: str, toolchain: str) -> bool:
+    if not keeps_state(runner) or track != 'nightly-next':
         return False
     runner_state = home / STATE_ROOT / runner
     derived = workspace / 'build-universal'
     remove(derived)
     identity = hashlib.sha256(f'{workspace.resolve()}\n{toolchain}'.encode()).hexdigest()[:32]
     incremental = None
-    if dedicated(runner, builder):
+    if dedicated(runner):
         try:
             incremental = prepare_incremental(workspace, runner_state, identity, input_key(workspace, toolchain))
         except (OSError, ValueError, subprocess.CalledProcessError) as error:
@@ -473,15 +483,15 @@ def main(argv: list[str]) -> int:
     workspace = Path(os.environ.get('GITHUB_WORKSPACE', '.')).resolve()
     if len(argv) == 3 and argv[1] == 'prepare':
         runner = os.environ.get('RUNNER_NAME', '')
-        if keeps_state(runner, builder_label()) and argv[2] == 'nightly-next':
-            if prepare(workspace, Path.home(), runner, argv[2], toolchain_identity(), builder_label()):
+        if keeps_state(runner) and argv[2] == 'nightly-next':
+            if prepare(workspace, Path.home(), runner, argv[2], toolchain_identity()):
                 cache = notices_cache(Path.home(), runner)
                 print(f'NEXT third-party notices read crate sources kept in {cache}')
                 github_env = os.environ.get('GITHUB_ENV')
                 if github_env:
                     with open(github_env, 'a', encoding='utf-8') as env:
                         env.write(f'CMUX_NEXT_NOTICES_CACHE={cache}\n')
-                        if dedicated(runner, builder_label()):
+                        if dedicated(runner):
                             # The Release build step may take the host build root (app-host-build-root.sh).
                             env.write('CMUX_NIGHTLY_HOST_BUILD_ROOT=1\n')
         return 0

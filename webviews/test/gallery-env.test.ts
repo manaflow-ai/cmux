@@ -77,3 +77,18 @@ test("over a picture the page background is clear and the solid surface stays", 
   expect(tint).toBeGreaterThanOrEqual(0.52);
   expect(tint).toBeLessThanOrEqual(0.76);
 });
+
+// The load axis (frame/load.ts): web only, like the background; absent and `none` are an idle machine.
+test("a load reads and writes as its name, none as nothing", () => {
+  for (const load of ["busy", "saturated"] as const) {
+    const env = readEnv(new URLSearchParams(`load=${load}`));
+    expect(env.load).toBe(load);
+    expect(writeEnv(env).toString()).toBe(`load=${load}`);
+  }
+  for (const query of ["", "load=none", "load=max"]) {
+    const env = readEnv(new URLSearchParams(query));
+    expect(env.load).toBeUndefined();
+    expect(writeEnv(env).toString()).toBe("");
+  }
+  expect(writeEnv({ ...readEnv(new URLSearchParams()), load: "none" }).toString()).toBe("");
+});

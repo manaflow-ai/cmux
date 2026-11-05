@@ -18,8 +18,9 @@ struct PageFullscreenWholeScreenTests {
         let pane = try #require(content.panes.values.filter(\.isVisible).sorted { $0.paneKey < $1.paneKey }.dropFirst(index).first)
         let tab = MockBrowserEngine(kind: .webkit).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/watch")))
         let entry = fixture.services.cache.install(tab, for: "page-\(UUID().uuidString.prefix(6))")
-        entry.chrome.frame = pane.view.bounds
-        pane.view.addSubview(entry.chrome)
+        let chrome = pane.view.browserChrome.bind(entry.tab, state: entry.state)
+        chrome.frame = pane.view.bounds
+        pane.view.addSubview(chrome)
         fixture.frame()
         return (tab, pane)
     }

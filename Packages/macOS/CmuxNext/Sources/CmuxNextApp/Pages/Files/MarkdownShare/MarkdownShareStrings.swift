@@ -1,3 +1,4 @@
+import CmuxNextFiles
 import Foundation
 
 /// The Markdown omnibar's Share menu and repo chip strings (table `FilePages`).

@@ -10,10 +10,15 @@ import type { AcpmuxDirectClient } from "./direct";
 export type LoginAgent = "claude" | "codex";
 
 /// `_acpmux/agent_login/start`'s answer: the page to open, Codex's device code, whether the page
-/// gives a code to paste back (Claude), and when the login lapses.
+/// gives a code to paste back (Claude), and when the login lapses. `autoUrl` is Claude's automatic
+/// page, whose approve sends the code straight to Claude's own listener on the machine
+/// (`http://localhost:<callbackPort>/callback` there): opened in a tab whose localhost is that
+/// machine, it signs Claude in with no code to paste.
 export type LoginStart = {
   loginId: string;
   url: string;
+  autoUrl?: string;
+  callbackPort?: number;
   userCode?: string;
   needsCode: boolean;
   expiresAtMs?: number;
@@ -55,6 +60,23 @@ export function signInURL(raw: unknown): string | undefined {
   return SIGN_IN_HOSTS.has(url.hostname.toLowerCase()) ? url.toString() : undefined;
 }
 
+/// `browser.openIn`'s browser for Claude's automatic page: a Chromium tab of this app whose
+/// localhost is the chat's machine (AgentPaneSignInPage.swift).
+export const SIGN_IN_ON_MACHINE = "cmux-chat-machine";
+
+/// `raw` as Claude's automatic page (``LoginStart/autoUrl``): a ``signInURL`` whose one
+/// `redirect_uri` is exactly `http://localhost:<port>/callback`, and that port; else undefined.
+/// acpmux checks the same (`agent_login::parse::auto_url`), and so does the host before it opens it.
+export function autoSignIn(raw: unknown): { url: string; port: number } | undefined {
+  const url = signInURL(raw);
+  if (!url) return undefined;
+  const redirects = new URL(url).searchParams.getAll("redirect_uri");
+  if (redirects.length !== 1) return undefined;
+  const match = /^http:\/\/localhost:([1-9][0-9]{0,4})\/callback$/.exec(redirects[0]!);
+  const port = match ? Number(match[1]) : NaN;
+  return port >= 1 && port <= 65535 ? { url, port } : undefined;
+}
+
 /// The reason a login step's refusal names (`data.reason`), as the card's failure.
 export function loginFailure(error: unknown): LoginFailure {
   if (methodMissing(error)) return "unsupported";
@@ -92,9 +114,12 @@ function startOf(reply: unknown): LoginStart | undefined {
   if (typeof value.loginId !== "string" || !value.loginId) return undefined;
   const url = signInURL(value.url);
   if (!url) return undefined;
+  const auto = autoSignIn(value.autoUrl);
   return {
     loginId: value.loginId,
     url,
+    // Only when acpmux named the same port the page's redirect does.
+    ...(auto && value.callbackPort === auto.port ? { autoUrl: auto.url, callbackPort: auto.port } : {}),
     ...(typeof value.userCode === "string" && value.userCode ? { userCode: value.userCode } : {}),
     needsCode: value.needsCode === true,
     ...(typeof value.expiresAtMs === "number" ? { expiresAtMs: value.expiresAtMs } : {}),
@@ -118,10 +143,18 @@ export type CloudSignIn = {
   agent: LoginAgent;
   /// Starts the login on the machine. Throws a ``LoginFailure`` (as `{failure}`).
   start(): Promise<LoginStart>;
-  /// Opens the sign-in page as a link click in this pane does (spends the click's gesture, so only
-  /// from its own click: the Sign in click's gesture goes to the start).
+  /// Opens the sign-in page in a cmux browser tab. Right after `start` it needs no click of its own:
+  /// the host lets the start that took the Sign in click open its provider page once
+  /// (AgentPaneSignInPage.swift). Any later open spends its own click's gesture.
   open(url: string): void;
-  /// Finishes the login (Claude's pasted code; Codex waits for the approval). True when signed in.
+  /// Opens Claude's automatic page (``LoginStart/autoUrl``) in a Chromium tab whose localhost is the
+  /// chat's machine, in the person's own browser store (their claude.com sign-in stays): the approve's
+  /// redirect reaches Claude's listener there, cmux carrying only the bytes. Like ``open`` it may
+  /// spend the Sign in click's page credit. False when the host cannot (a WebKit default, a machine
+  /// without remote localhost, an older host): the card then opens ``LoginStart/url`` for a paste.
+  openOnMachine(url: string): Promise<boolean>;
+  /// Finishes the login (Claude's pasted code; Codex waits for the approval, and so does Claude with
+  /// no code after an automatic page). True when signed in.
   finish(loginId: string, code?: string): Promise<boolean>;
   /// Saves an API key for the agent on the machine. True when saved.
   apiKey(key: string): Promise<boolean>;
@@ -153,6 +186,8 @@ type LoginOptions = {
   supported: boolean;
   gesture: (intent: Record<string, unknown>) => Promise<string | undefined>;
   openURL: (url: string) => void;
+  /// The host's machine-bound open (``CloudSignIn/openOnMachine``); true when it opened.
+  openOnMachine?: (url: string) => Promise<boolean>;
   isCurrent: (sessionId: string) => boolean;
   currentClient: () => LoginClient | undefined;
 };
@@ -180,7 +215,8 @@ export function localApiKeyLogin(options: LoginOptions): CloudSignIn | undefined
 /// The agent's own login on the chat's machine, or undefined for a chat not connected, not Claude or
 /// Codex, or on an acpmux that does not advertise `agent_login`.
 function agentLogin(options: LoginOptions): CloudSignIn | undefined {
-  const { connected, sessionId, harness, supported, gesture, openURL, isCurrent, currentClient } = options;
+  const { connected, sessionId, harness, supported, gesture, openURL, openOnMachine, isCurrent, currentClient } =
+    options;
   const agent = agentKey(harness?.split("/").pop());
   if (!connected || !sessionId || !supported || (agent !== "claude" && agent !== "codex")) return undefined;
   const client = () => {
@@ -217,6 +253,11 @@ function agentLogin(options: LoginOptions): CloudSignIn | undefined {
     open: (url) => {
       const safe = signInURL(url);
       if (safe) openURL(safe);
+    },
+    openOnMachine: async (url) => {
+      const auto = autoSignIn(url);
+      if (!auto || !openOnMachine) return false;
+      return openOnMachine(auto.url).catch(() => false);
     },
     finish: (loginId, code) =>
       step(async () => {

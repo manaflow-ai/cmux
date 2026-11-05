@@ -16,7 +16,10 @@ import unittest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "scripts/ci/nightly_next_canary_mode.py"
+sys.path.insert(0, str(ROOT / "tests"))
+from nightly_workflow_text import nightly_text  # noqa: E402
+
+SCRIPT =ROOT / "scripts/ci/nightly_next_canary_mode.py"
 spec = importlib.util.spec_from_file_location("canary_mode", SCRIPT)
 mode = importlib.util.module_from_spec(spec)
 sys.modules["canary_mode"] = mode
@@ -115,7 +118,7 @@ class CliTests(unittest.TestCase):
 
 class WiringTests(unittest.TestCase):
     canary = (ROOT / ".github/workflows/nightly-next-canary.yml").read_text()
-    nightly = (ROOT / ".github/workflows/nightly.yml").read_text()
+    nightly = nightly_text()
 
     def test_post_publication_verifier_uses_the_compatibility_mode(self):
         self.assertIn("scripts/ci/nightly_next_canary_mode.py resolve", self.canary)

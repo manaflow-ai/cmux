@@ -170,7 +170,7 @@ public final class ChromiumHostSession {
         // The host reads these once Chromium is up; the wire holds them until then.
         connection.send(ChromiumHostFrame(.navigate, payload: Array(url.utf8)))
         if let geometry { connection.send(geometry.frame) }
-        if view.window?.firstResponder === view { connection.send(ChromiumHostFrame(.focus, v: [1])) }
+        if view.window?.firstResponder === view { connection.send(ChromiumHostFrame(.focus, v: .init(1))) }
         let launcher = launcher
         tasks = [
             Task { [weak self] in

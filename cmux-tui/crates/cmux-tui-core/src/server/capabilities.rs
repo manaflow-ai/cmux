@@ -55,6 +55,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     #[cfg(unix)]
     if mux.serves_agent_session_attach() {
         capabilities.push(AGENT_SESSION_ATTACH_CAPABILITY);
+        capabilities.push(agent_session_attach::AGENT_SESSION_CONTENT_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_PRESENCE_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_SETTINGS_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_LOGIN_CAPABILITY);
@@ -107,6 +108,10 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     }
     if crate::chief_brains::taken().is_some() {
         capabilities.push(chief_control::CAPABILITY);
+    }
+    #[cfg(unix)]
+    if crate::chief_brains::configured_home().is_some() || chief_inspect::tools_socket().is_some() {
+        capabilities.push(chief_work::CAPABILITY);
     }
     #[cfg(debug_assertions)]
     capabilities
@@ -196,8 +201,12 @@ pub fn build_capabilities() -> Vec<&'static str> {
     #[cfg(unix)]
     capabilities.retain(|capability| {
         *capability != crate::fs_ops::FS_CAPABILITY
+            && *capability != crate::fs_ops::FS_SYMLINK_CAPABILITY
+            && *capability != crate::fs_ops::FS_WRITE_DEFLATE_CAPABILITY
+            && *capability != crate::fs_ops::FS_WRITE_NOFOLLOW_CAPABILITY
             && *capability != crate::git_seed::GIT_SEED_CAPABILITY
             && *capability != crate::git_seed::GIT_SEED_EXPORT_CAPABILITY
+            && *capability != crate::blob_fetch::BLOB_FETCH_CAPABILITY
             && *capability != BROWSER_RUNTIME_CAPABILITY
     });
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
@@ -225,6 +234,7 @@ pub(super) fn advertised_capabilities(
         GUARDED_BROWSER_POINTER_CAPABILITY,
         VIEWPORT_SPLITS_CAPABILITY,
         VIEWPORT_COLUMN_RESIZE_CAPABILITY,
+        LAYOUT_SIZES_BATCH_CAPABILITY,
         DOCK_COLUMNS_CAPABILITY,
         LAYOUT_DELTA_CAPABILITY,
         EDGE_DOCKS_CAPABILITY,
@@ -301,6 +311,7 @@ pub(super) fn advertised_capabilities(
         TAB_SPLIT_RESPAWN_CAPABILITY,
         TAB_SPLIT_KEEP_FOCUS_CAPABILITY,
         TAB_COLUMN_RESPAWN_CAPABILITY,
+        TAB_COLUMN_CLIENT_PANE_CAPABILITY,
         NOTIFICATION_ACK_CAPABILITY,
         TAB_GROUPS_CAPABILITY,
         SAVED_TAB_GROUPS_CAPABILITY,
@@ -323,6 +334,7 @@ pub(super) fn advertised_capabilities(
         conversations::CONVERSATION_DRAFT_CAPABILITY,
         conversations::CONVERSATION_DRAFT_EVENTS_CAPABILITY,
         SUBSCRIBE_SCROLL_ON_ATTACH_CAPABILITY,
+        TREE_SELECTION_DELTAS_CAPABILITY,
         conversations::CONVERSATION_THREADS_CAPABILITY,
         conversations::CONVERSATION_THREAD_READ_CAPABILITY,
         conversations::CONVERSATION_TREE_CAPABILITY,
@@ -392,6 +404,7 @@ pub(super) fn advertised_capabilities(
         close_tabs_command::CLOSE_REASON_CAPABILITY,
         conversation_tabs_wire::CONVERSATION_TAB_TRANSACTION_CAPABILITY,
         conversation_tabs_wire::CONVERSATION_TAB_SPLIT_CAPABILITY,
+        frontend_browser_history::FRONTEND_BROWSER_TAB_SPLIT_CAPABILITY,
         crate::git_ops::CHECKPOINTS_CAPABILITY,
         crate::git_ops::FILES_SEARCH_CAPABILITY,
         crate::history_ops::CAPABILITY,
@@ -406,6 +419,7 @@ pub(super) fn advertised_capabilities(
         crate::request_origin::page_router_table::PAGE_ROUTER_CAPABILITY,
         crate::request_origin::page_router_table::PAGE_EVENTS_CAPABILITY,
         crate::browser_host::BROWSER_HOST_PROVIDER_CAPABILITY,
+        crate::remote_host::REMOTE_HOST_CAPABILITY,
         crate::mux::FRONTEND_BROWSER_ACTIVATE_CAPABILITY,
         crate::mux::FRONTEND_BROWSER_INSERT_AFTER_CAPABILITY,
         clipboard_read::CAPABILITY,
@@ -421,6 +435,8 @@ pub(super) fn advertised_capabilities(
     capabilities.extend(crate::fs_ops::advertised());
     #[cfg(unix)]
     capabilities.extend(crate::git_seed::advertised());
+    #[cfg(unix)]
+    capabilities.extend(crate::blob_fetch::advertised());
     #[cfg(unix)]
     capabilities.push(BROWSER_RUNTIME_CAPABILITY);
     capabilities

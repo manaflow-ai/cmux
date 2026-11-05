@@ -64,7 +64,9 @@ Write a small work ledger before starting parallel work:
 
 Give each branch and file set one owner. A review or measurement worker must not edit the same
 files as the implementation worker. Prefer a few independent slices with explicit boundaries over
-many tiny prompts. Name and tag sessions for the task, for example:
+many tiny prompts. Name and tag sessions for the task: the name is a short readable title of it,
+2-5 words, because people read it in the cmux sidebar; never an id or a counter (`cloud-item-14`,
+`optchat-sub-6b68ac4a-a26`). Ids, item numbers and bead ids go in a tag. For example:
 
 ```bash
 acpmux ensure mailbox-auth-review -m codex --cwd "$PWD"

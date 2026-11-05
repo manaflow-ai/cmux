@@ -9,7 +9,6 @@ import { childRows } from "../subagents/childRows";
 import type { PlayContext } from "../../../gallery/play";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { workedTurnRows } from "../workedTurn";
-import { TRANSCRIPT_FOOTER_GAP, TRANSCRIPT_RUN_GAP } from "../transcriptGrid";
 import { checkRunningLineLoops, hasCompleteRunningLineShimmer } from "./runningLineMotion";
 import { GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
 import {
@@ -377,14 +376,28 @@ const liveShellRows = (id: string, output: string) => [
   activity([tool("Read retryPolicy.ts", "read", "in_progress")], 0.5, { id: `${id}-read` }),
 ];
 
-/// Opens the one call's row (inside the turn's fold once it is done; a running turn shows it) and
-/// turns its Wrap lines off.
+/// Leaves `body`'s lines whole, each on its own row: output opens that way (blockWrap.ts), and a
+/// viewer who turned Wrap lines on is flipped back, so the variant draws the same state either way.
+const unwrap = (body: string, actions: string) => async (ctx: PlayContext) => {
+  if (ctx.document.querySelector(body)?.getAttribute("data-wrap") === "true")
+    await ctx.click({ selector: `${actions} button[aria-label="Wrap lines"]` });
+  await ctx.waitFor(() => ctx.document.querySelector(body)?.getAttribute("data-wrap") === "false");
+};
+
+/// Folds `body`'s long lines back under their start: what Wrap lines gives from the opening state.
+const wrapOn = (body: string, actions: string) => async (ctx: PlayContext) => {
+  if (ctx.document.querySelector(body)?.getAttribute("data-wrap") !== "true")
+    await ctx.click({ selector: `${actions} button[aria-label="Wrap lines"]` });
+  await ctx.waitFor(() => ctx.document.querySelector(body)?.getAttribute("data-wrap") === "true");
+};
+
+/// Opens the one call's row (inside the turn's fold once it is done; a running turn shows it) with
+/// its output's lines whole.
 const unwrapCall = (body: string, actions: string) => async (ctx: PlayContext) => {
   if (!ctx.document.querySelector(".cv-tool.is-toggle")) await openWorked(ctx);
   await ctx.click({ selector: ".cv-tool.is-toggle" });
   await ctx.waitFor(() => Boolean(ctx.document.querySelector(body)));
-  await ctx.click({ selector: `${actions} button[aria-label="Wrap lines"]` });
-  await ctx.waitFor(() => ctx.document.querySelector(body)?.getAttribute("data-wrap") === "false");
+  await unwrap(body, actions)(ctx);
 };
 
 const shellDisclosureChecks = {
@@ -826,18 +839,29 @@ const liveLineClear = async (ctx: PlayContext) => {
   const doc = ctx.document;
   await ctx.waitFor(() => doc.querySelector(".cv-worked.is-below .cv-thinking"));
   const words = doc.querySelector<HTMLElement>(".cv-worked.is-below .cv-thinking")!.getBoundingClientRect();
-  const over = [...doc.querySelectorAll(".cv-tool, .cv-md")]
-    .map((node) => ({ step: node.matches(".cv-tool"), bottom: node.getBoundingClientRect().bottom }))
+  const live = doc.querySelector<HTMLElement>(".cv-worked.is-below")!.getBoundingClientRect();
+  // Resolve through a box so both Interface Size and document zoom enter the same geometry.
+  const probe = doc.createElement("span");
+  probe.style.cssText = "position:absolute;visibility:hidden;width:0;height:var(--grid-gap-run)";
+  doc.body.append(probe);
+  const runGap = probe.getBoundingClientRect().height;
+  probe.style.height = "var(--grid-gap-footer)";
+  const footerGap = probe.getBoundingClientRect().height;
+  probe.remove();
+  // A stacked message row's first line under it (messageLineLook.ts) is the row's last line.
+  const over = [...doc.querySelectorAll(".cv-tool, .cv-msgline__preview, .cv-md")]
+    .map((node) => ({
+      step: node.matches(".cv-tool, .cv-msgline__preview"),
+      bottom: node.getBoundingClientRect().bottom,
+    }))
     .filter(({ bottom }) => bottom <= words.top + 1);
   if (!over.length) throw new Error("no tool row or reply draws over the live line");
   const nearest = over.reduce((a, b) => (b.bottom > a.bottom ? b : a));
-  const gap = words.top - nearest.bottom;
-  if (nearest.step && !(gap >= -0.5 && gap < TRANSCRIPT_RUN_GAP))
-    throw new Error(`the live line sits ${gap.toFixed(1)}px under the run over it, not flush as one more line of it`);
-  if (!nearest.step && !(gap >= TRANSCRIPT_FOOTER_GAP))
-    throw new Error(
-      `the live line sits ${gap.toFixed(1)}px under the reply over it, not ${TRANSCRIPT_FOOTER_GAP}px or more`,
-    );
+  const gap = live.top - nearest.bottom;
+  if (nearest.step && Math.abs(gap - runGap) > 0.5)
+    throw new Error(`the live line sits ${gap.toFixed(1)}px under the run over it, not the scaled ${runGap}px run gap`);
+  if (!nearest.step && gap < footerGap - 0.5)
+    throw new Error(`the live line sits ${gap.toFixed(1)}px under the reply over it, not ${footerGap}px or more`);
   const hint = doc.querySelector<HTMLElement>(".cv-worked.is-below .cv-command__bg");
   if (hint && getComputedStyle(hint).opacity !== "0")
     throw new Error("the ⌃B hint shows before the pointer is on the line");
@@ -1242,7 +1266,7 @@ const backgroundTurnRows = [
   summary(8.9, { status: "completed", durationMs: 3_000 }),
   row(BACKGROUND_TURN, 7, {
     id: backgroundTurnRowId("gallery-bg-quiet"),
-    background: { id: "gallery-bg-quiet", trigger: "task_notification", running: false, quiet: true },
+    background: { id: "gallery-bg-quiet", trigger: "task_notification", running: false, quiet: true, hasRows: true },
   }),
   activity(
     [tool("tail -n 5 out.log", "execute", "completed", { command: "tail -n 5 out.log", output: "12 passed" })],
@@ -1259,6 +1283,28 @@ const backgroundTurnRows = [
     4.9,
     { inBackground: "gallery-bg-loud" },
   ),
+];
+
+/// Turns the agent ran on its own with no rows of their own (Leo, 2026-11-03: "these background
+/// updates don't really expand out to anything? idk what those are even for"): their events only
+/// updated a call an earlier turn started. One that ended quiet draws nothing; one still running is
+/// a plain spinner line with no chevron, and no button, until a row of its own comes.
+const backgroundTurnEmptyRows = [
+  user("Run the migration tests", 9),
+  activity(
+    [tool("bun test migrations", "execute", "completed", { command: "bun test migrations", output: "14 passed" })],
+    8.95,
+  ),
+  assistant("The migration tests pass.", 8.9),
+  summary(8.9, { status: "completed", durationMs: 3_000 }),
+  row(BACKGROUND_TURN, 7, {
+    id: backgroundTurnRowId("gallery-bg-empty"),
+    background: { id: "gallery-bg-empty", trigger: "system", running: false, quiet: true },
+  }),
+  row(BACKGROUND_TURN, 5, {
+    id: backgroundTurnRowId("gallery-bg-waiting"),
+    background: { id: "gallery-bg-waiting", trigger: "system", running: true },
+  }),
 ];
 
 /// A long turn among turns opened by what the person never typed (incomingMessage.ts): a background
@@ -3522,8 +3568,21 @@ export default agentPaneEntry({
       ),
       play: async (ctx) => {
         await openSingleShell(ctx);
-        await ctx.click({ selector: '.cv-shell__actions button[aria-label="Wrap lines"]' });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-shell__body")?.getAttribute("data-wrap") === "false");
+        await unwrap(".cv-shell__body", ".cv-shell__actions")(ctx);
+      },
+    },
+    "shell-wrapped-long-line": {
+      note: "The same output after Wrap lines: each long row folds back under its start, so a table's columns no longer line up. Output opens aligned instead (blockWrap.ts); this is what the toggle gives.",
+      checks: shellDisclosureChecks,
+      snapshot: chat(
+        shellRows("gallery-shell-wrapped", "Print the retry log", "cat logs/retry.log", {
+          output: SHELL_LONG_LOG,
+          exitCode: 0,
+        }),
+      ),
+      play: async (ctx) => {
+        await openSingleShell(ctx);
+        await wrapOn(".cv-shell__body", ".cv-shell__actions")(ctx);
       },
     },
     "edit-long-line-code-cut": {
@@ -3543,8 +3602,7 @@ export default agentPaneEntry({
       ),
       play: async (ctx) => {
         await openSingleShell(ctx);
-        await ctx.click({ selector: '.cv-shell__actions button[aria-label="Wrap lines"]' });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-shell__body")?.getAttribute("data-wrap") === "false");
+        await unwrap(".cv-shell__body", ".cv-shell__actions")(ctx);
       },
     },
     "shell-live-unwrapped-long-line": {
@@ -3691,6 +3749,18 @@ export default agentPaneEntry({
         const line = { selector: `[data-row-id="${backgroundTurnRowId("gallery-bg-quiet")}"] .cv-background-turn` };
         await ctx.click(line);
         await ctx.waitFor(() => ctx.find(line).getAttribute("aria-expanded") === "true");
+      },
+    },
+    "background-turns-nothing-to-open": {
+      note: "Two turns the agent ran on its own whose events only updated rows that are not theirs. The quiet one that ended draws nothing (before: a Background update line whose chevron opened to nothing). The one still running is a plain spinner line, Background update, with no chevron and no button.",
+      snapshot: chat(backgroundTurnEmptyRows),
+      play: async (ctx) => {
+        if (ctx.document.querySelector(`[data-row-id="${backgroundTurnRowId("gallery-bg-empty")}"]`))
+          throw new Error("an ended background turn with nothing to open drew a line");
+        const line = { selector: `[data-row-id="${backgroundTurnRowId("gallery-bg-waiting")}"] .cv-background-turn` };
+        if (ctx.find(line).tagName === "BUTTON") throw new Error("a background line with nothing to open is a button");
+        if (ctx.find(line).querySelector(".cv-agent-activity__chevron"))
+          throw new Error("a background line with nothing to open has a chevron");
       },
     },
     "fold-no-blank-collapsed": {

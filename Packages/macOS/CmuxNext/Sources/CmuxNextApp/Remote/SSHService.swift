@@ -374,10 +374,10 @@ final class SSHService {
         let (probe, answer) = checked
         logger.info("update check for \(session.host.destination.description, privacy: .public): \(answer.need, privacy: .public) (\(answer.reason, privacy: .public))")
         guard answer.need == "older" else { session.updateOffered = false; return }
-        // The keyed restart's rule (cx-3r9mt, hq-a3 2026-10-15): by itself only on an idle machine;
-        // else the person decides (Update available, then Update).
-        guard await agentDaemonIdleForUpdate(session) else {
-            logger.info("update of \(session.host.destination.description, privacy: .public) offered: the machine is not idle")
+        // By itself also while agents run (the daemon update never waits for idle); a machine whose
+        // agent daemon holds another client's person key is left to the person (Update available).
+        guard await agentDaemonAllowsAutomaticUpdate(session) else {
+            logger.info("update of \(session.host.destination.description, privacy: .public) offered: another client holds its person key, or its agent daemon status is unreadable")
             session.updateOffered = true
             autoUpdated.done(tried)
             return

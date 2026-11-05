@@ -29,7 +29,13 @@ public nonisolated enum FeedTunables {
         "feed.rowHeight", section, "Row height", help: "Height of a one-line row (notices, inbox).",
         default: 30, range: 22...48, step: 1, unit: .points, code: "FeedTunables.rowHeight")
 
+    /// Chief Home's pinned Needs you section's look (``FeedNeedsYouStyle``).
+    public static let needsYouStyle = Tunable<FeedNeedsYouStyle>.choice(
+        "feed.needsYouStyle", section, "Needs you in Home",
+        help: "How Chief Home's pinned Needs you section shows the Feed's open requests: a row each with its answers at the end, the Feed's request cards, or one line with the count. Switches live.",
+        default: .rows, code: "FeedTunables.needsYouStyle")
+
     public static var all: [TunableDescriptor] {
-        [layout.descriptor, rowHeight.descriptor]
+        [layout.descriptor, rowHeight.descriptor, needsYouStyle.descriptor]
     }
 }

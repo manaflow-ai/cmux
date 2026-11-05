@@ -13,7 +13,16 @@ import type {
 } from "./types";
 import { subjectArea, type AreaKey } from "./areas";
 import type { UpdateHighlightItem, UpdateHighlights } from "./updateHighlights";
-import { openParens, readableChange, revertedSubject, shortTitle, tidyTitle, titleTail } from "./readableChange";
+import {
+  openParens,
+  plainLine,
+  readableChange,
+  revertedSubject,
+  shortTitle,
+  tidyTitle,
+  titleTail,
+  withoutWorkCodes,
+} from "./readableChange";
 
 export const CATEGORY_ORDER: readonly WhatsNewCategory[] = ["new", "improved", "fixed", "security"];
 
@@ -150,25 +159,53 @@ function pickHero(items: ReleaseItem[]): ReleaseItem | undefined {
 /** The item as a person reads it, or undefined for internal work. A machine-made line (a summary
     line, or a digest entry made from one) gets the commit rules; a human-written title only loses
     bead ids and the product's own label. A title an older pipeline cut with "…" is made whole from
-    the line it came from; a summary that repeats the title keeps only what it adds; a long title
-    with no summary ends at its first clause and the rest becomes the summary. */
+    the line it came from; a summary that repeats the title becomes the whole title; a long title
+    with no summary ends at its first clause and the rest becomes the summary only when the rest
+    reads as a sentence of its own.
+
+    Leo 2026-11-02, on a What's New page of rows like "Fixes and improvements / This build brings
+    fixes and improvements.", "Start the Native link in ad hoc builds / And name the check that
+    refuses it" and "P0 RESIZE F1 part 1 of 2 / Closing a pane no longer …": "the 0 information
+    density one". Every row says what changed: no filler row or line (GENERIC), no work-stream
+    codes (WORK_CODES), no line that is a piece of its title (isFragment) or the title again. */
 function readableItem(item: ReleaseItem, changes: ChangeItem[], machine: boolean): ReleaseItem | undefined {
   const clean = (text: string) => (machine ? readableChange(text).title : tidyTitle(text));
-  if (machine && readableChange(item.title).internal) return undefined;
-  let full = clean(item.title);
-  let itemSummary = item.summary;
+  let rawTitle = withoutWorkCodes(item.title);
+  let rawSummary = item.summary.includes("\n") ? item.summary : withoutWorkCodes(item.summary);
+  if (GENERIC_LINE.test(rawSummary.trim())) rawSummary = "";
+  // A title that was only codes ("P0 RESIZE F1 part 1 of 2") or filler: its summary says the change.
+  if ((!rawTitle || GENERIC_LINE.test(rawTitle)) && rawSummary && !rawSummary.includes("\n")) {
+    rawTitle = rawSummary.replace(/[\s.]+$/u, "");
+    rawSummary = "";
+  }
+  if (!rawTitle || GENERIC_LINE.test(rawTitle)) return undefined;
+  if (machine && readableChange(rawTitle).internal) return undefined;
+  let full = clean(rawTitle);
+  let itemSummary = rawSummary;
   // An older pipeline cut a long title inside its parentheses and made the rest the summary
-  // ("Routing follow-ups (trim recovered route" / "Prepared presets only, cap before split)."):
+  // ("Routing follow-ups (trim recovered route" / "Prepared presets only, cap before split)."),
+  // or at its first clause ("Bound the Feed" / "Its connect reads, Cloud chats and chat replay."):
   // the two read as the one line they were.
   const tail = itemSummary.trim();
-  if (openParens(full) > 0 && tail && !tail.includes("\n") && openParens(`${full} ${tail}`) === 0) {
+  if (tail && !tail.includes("\n") && openParens(full) > 0 && openParens(`${full} ${tail}`) === 0) {
     full = `${full}, ${uncapitalized(tail).replace(/[\s.]+$/u, "")}`;
+    itemSummary = "";
+  } else if (
+    machine &&
+    tail &&
+    !tail.includes("\n") &&
+    isFragment(tail) &&
+    // A line that says the title again is not its rest ("When you close a pane" / "When you close a
+    // pane, its terminal keeps running…"): the echo rule below makes it the title.
+    !echoKey(tail).startsWith(echoKey(full))
+  ) {
+    full = joinFragment(full, withoutWorkCodes(tail.replace(REF_TAIL, "")));
     itemSummary = "";
   }
   const stem = stemOf(full);
   const line = itemSummary && !itemSummary.includes("\n") ? clean(itemSummary) : "";
   // The summary repeats the title, maybe cut with "…" itself: the line the entry was made from.
-  const echoes = !!line && (stemOf(line).startsWith(stem) || stem.startsWith(stemOf(line)));
+  const echoes = !!line && (echoKey(line).startsWith(echoKey(full)) || echoKey(full).startsWith(echoKey(line)));
   const lineWhole = echoes && !line.endsWith("…");
   if (full.endsWith("…")) {
     const whole = lineWhole
@@ -179,15 +216,86 @@ function readableItem(item: ReleaseItem, changes: ChangeItem[], machine: boolean
     full = whole ?? full.slice(0, -1).trim();
     // The cut title may have dropped the words that mark the line internal ("… the Chief Dock squash").
     if (machine && readableChange(full).internal) return undefined;
+  } else if (lineWhole && echoKey(line).length > echoKey(full).length) {
+    // "The host pressure warning is off by default" / "Host pressure warning is off by default;
+    // turn it on from the Command Palette.": the summary is the whole line; it is the title.
+    full = line.replace(/[\s.]+$/u, "");
   }
-  let summary = !echoes ? itemSummary : lineWhole ? capitalized(titleTail(line, full)) : "";
+  let summary = echoes ? "" : itemSummary;
   let title = full;
   const short = shortTitle(full);
   if (short && short !== full && !distinctSummary(full, summary)) {
-    title = short;
-    summary = capitalized(titleTail(full, short));
+    const rest = capitalized(titleTail(full, short));
+    if (!isFragment(rest)) {
+      title = short;
+      summary = rest;
+    }
   }
-  return { ...item, title, summary: distinctSummary(title, summary) };
+  const category = machine && item.category === "improved" ? rowKind(title) : item.category;
+  return { ...item, category, title, summary: distinctSummary(title, summary) };
+}
+
+/** The filler a build with nothing to say published (release-notes.py GENERIC_ENTRY and the PR
+    description fallback): "Fixes and improvements", "This build brings fixes and improvements. …". */
+const GENERIC_LINE =
+  /^(?:fixes and improvements|this build brings fixes and improvements\b.*|maintenance and fixes)[.!]?$/iu;
+/** Whether a line is only the filler a build with nothing to say published (GENERIC_LINE). */
+export function isFiller(text: string): boolean {
+  return GENERIC_LINE.test(text.trim());
+}
+/** A pull request or bead reference at the end of a cut summary. */
+const REF_TAIL = /\s*\((?:[\w-]*#\d+|cx-[\w.]+)\)\s*$/u;
+/** Words that only continue a sentence: a line that starts with one is the rest of its title. */
+const JOINER =
+  /^(?:and|or|but|nor|so|its|their|his|her|which|that|who|whose|with|without|because|while|even|then|to|for|from|in|on|of|by|plus|via|after|before|when|if|unless|until|as|also|than|into|at)\b/iu;
+
+/** Whether `text` is a piece of a sentence rather than one: it starts lowercase, with a digit, a
+    parenthesis or a joining word ("And name the check that refuses it", "(alternates) to Cloud",
+    "8 under the run", "Its connect reads, …"), leaves a parenthesis unbalanced, or is under four
+    words with no closing period ("Size and scale"). */
+export function isFragment(text: string): boolean {
+  const t = text.trim();
+  if (!t) return false;
+  if (/^(?:macOS|iOS|iPadOS|iCloud|iPhone|iPad)\b/u.test(t)) return false;
+  if (/^[\p{Ll}\p{N}()[\]]/u.test(t) || JOINER.test(t)) return true;
+  let depth = 0;
+  for (const char of t) {
+    if (char === "(") depth++;
+    else if (char === ")" && --depth < 0) return true;
+  }
+  if (depth !== 0) return true;
+  return t.split(/\s+/u).length < 4 && !/[.!?。！？]$/u.test(t);
+}
+
+/** The title with the piece of it its summary carried put back: "Bound the Feed" and "Its connect
+    reads, Cloud chats and chat replay." read "Bound the Feed, its connect reads, Cloud chats and
+    chat replay"; a piece that opens a parenthesis follows a space. */
+function joinFragment(title: string, piece: string): string {
+  const rest = piece.trim().replace(/[\s.]+$/u, "");
+  if (!rest) return title;
+  // short_title cuts at "," or ";", or before " (", " so ", " because " or " while ".
+  return /^(?:\(|(?:so|because|while)\b)/iu.test(rest)
+    ? `${title} ${uncapitalized(rest)}`
+    : `${title}, ${uncapitalized(rest)}`;
+}
+
+/** The kind a machine line shows when the pipeline called it only "improved": a line that says what
+    no longer goes wrong is Fixed, one that adds something is New, so the rows do not all carry the
+    same arrow (Leo 2026-11-02: every row had the same icon). */
+export function rowKind(title: string): WhatsNewCategory {
+  if (
+    /^(?:fix|fixes|fixed|repair|stop|stops)\b|\b(?:no longer|never|again|instead of|at once|not|(?:has|have|shows?|draws?|gets?) no)\b/iu.test(
+      title,
+    )
+  )
+    return "fixed";
+  if (/^(?:add|adds|new|introduce|support|show|shows|star|let|lets|now|you can)\b/iu.test(title)) return "new";
+  return "improved";
+}
+
+/** A line as two lines compare when one repeats the other: case and a leading article aside. */
+function echoKey(text: string): string {
+  return stemOf(text).replace(/^(?:the|a|an)\s+/u, "");
 }
 
 /** The update card's and popup's items (`UpdateHighlights`, at most three) as the page reads them:
@@ -287,6 +395,11 @@ export function releaseView(notes: ReleaseNotes, language: string): ReleaseView 
   // an entry the validator refuses), then the summary lines no highlight already says. Each as a
   // person reads it; internal work is left out.
   const raw = changeItems(notes);
+  // A change the notes mark internal (release-notes.py tooling_only, backend plumbing) stays out of
+  // the curated rows too, even from a digest or summary line published before that flag.
+  const internal = new Set(
+    raw.filter((c) => c.internal).map((c) => titleKey(plainLine(readableChange(c.title).title) || c.title)),
+  );
   const items: ReleaseItem[] = [];
   const ids = new Set<string>();
   const seen = new Set<string>();
@@ -297,7 +410,7 @@ export function releaseView(notes: ReleaseNotes, language: string): ReleaseView 
     const readable = readableItem(item, raw, machine);
     if (!readable) return;
     const key = titleKey(readable.title);
-    if (seen.has(key)) return;
+    if (seen.has(key) || (machine && [...internal].some((k) => k === key || k.startsWith(`${key} `)))) return;
     ids.add(entryId(item.id));
     seen.add(key);
     items.push(readable);

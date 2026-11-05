@@ -14,18 +14,19 @@ extension KeyRouter {
     /// window and runs before the page, as Chrome's reserved keys do, unless it is typed with
     /// one of ``BrowserChordTable/pageEditingChords`` (see ``offersToPage(_:event:focus:facts:)``).
     nonisolated static let pageOwnableActions: Set<ActionID> = ["find", "findNext", "findPrevious", "useSelectionForFind"]
+    nonisolated static let opensBrowserActions: Set<ActionID> = ["openBrowser", "openBrowser.chromium", "openBrowser.webkit"]
 
-    /// Whether `candidate` waits for the page in `focus` instead of running first: a content
-    /// action, one of ``pageOwnableActions``, or any navigation action typed with one of
-    /// ``BrowserChordTable/pageEditingChords`` (Cmd-B is Bold in Google Docs and Gmail before it
-    /// is Toggle Sidebar), while a page that reports unhandled keys has the keyboard. The
-    /// DevTools chords keep running first; a Ghostty keybind never waits.
+    /// Whether `candidate` waits for the page in `focus` instead of running first: a content action, one of
+    /// ``pageOwnableActions``, or a navigation action typed with one of ``BrowserChordTable/pageEditingChords``
+    /// (Cmd-B is Bold in Docs before Toggle Sidebar) but ``opensBrowserActions`` (Shift-Cmd-L, like Chrome's Cmd-T:
+    /// https://github.com/manaflow-ai/cmux/issues/32789), while a page that reports unhandled keys has the keyboard.
     nonisolated static func offersToPage(_ candidate: Candidate, event: NSEvent, focus: FocusState, facts: Facts) -> Bool {
         guard facts.pageReportsUnhandledKeys, case .browserPage = focus.resolved, !focus.isBrowserFocusModeActive,
               case .registry = candidate.source, !devToolsActions.contains(candidate.id) else { return false }
         switch candidate.tier {
         case .content: return true
-        case .navigation: return pageOwnableActions.contains(candidate.id) || BrowserChordTable.isPageEditingChord(event)
+        case .navigation: return pageOwnableActions.contains(candidate.id)
+            || (!opensBrowserActions.contains(candidate.id) && BrowserChordTable.isPageEditingChord(event))
         case .system: return false
         }
     }

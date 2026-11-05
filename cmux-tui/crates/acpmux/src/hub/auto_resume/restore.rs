@@ -195,6 +195,28 @@ impl Hub {
         session.meta.lock().unwrap_or_else(|e| e.into_inner()).last_turn =
             Some(Value::Object(summary));
 
+        // A copied machine's first start (`clone_boot.rs`): the wait belongs to the machine it
+        // was copied from. Settle it here for good, so no later start of the copy restores it.
+        if let Some(from) = self.clone_of()
+            && (retry.is_some() || manual.is_some() || !has_retry_marker)
+        {
+            let prompt_id = retry
+                .as_ref()
+                .map(|r| json!(r.prompt_id))
+                .unwrap_or_else(|| last.msg.get("promptId").cloned().unwrap_or(Value::Null));
+            self.append(
+                session,
+                "mux",
+                "auto_resume_skipped",
+                json!({
+                    "turnId": turn_id, "promptId": prompt_id,
+                    "attempt": retry.as_ref().map(|r| r.attempt),
+                    "skipped": "clone_boot", "cloneOf": from,
+                }),
+            );
+            return;
+        }
+
         // Never substitute default retries for a config currently being changed. Wait for
         // the writer off this synchronous path, then reclaim restoration for this instance.
         let delays = match self.config.try_read() {

@@ -30,6 +30,8 @@ public final class FeedModel {
     /// The last refusal, for the panel's notice; cleared on the next send.
     public private(set) var lastReject: FeedReject?
     public private(set) var revision: UInt64 = 0
+    /// True once the owner sent its first snapshot: before that the lists are not yet known.
+    public private(set) var loaded = false
     public private(set) var user = ""
     public private(set) var device = ""
     /// What the panel chrome shows (the badge, whether the list is empty), stored and set only when
@@ -252,8 +254,22 @@ public final class FeedModel {
 
     /// Replaces the local reports projection after a durable mailbox read.
     /// This does not alter feed owner state or triage intents.
+    /// The most reports the basket shows (and the app keeps): the newest. The mailbox is
+    /// read from its start, and every report ever sent to this account stayed in memory
+    /// and became a row of the basket's stack view.
+    public static let reportsLimit = 200
+
     public func replaceReports(_ reports: [FeedReport]) {
-        self.reports = reports.sorted { $0.createdAt > $1.createdAt }
+        self.reports = Array(reports.sorted { $0.createdAt != $1.createdAt ? $0.createdAt > $1.createdAt : $0.id > $1.id }
+            .prefix(Self.reportsLimit))
+    }
+
+    /// Shows `rows` (the newest `reportsLimit`) and returns the ones shown, by id: the caller keeps
+    /// only those, so a mailbox read from its start never holds every report it ever had.
+    @discardableResult
+    public func replaceReports(_ rows: [String: FeedReport]) -> [String: FeedReport] {
+        replaceReports(Array(rows.values))
+        return Dictionary(uniqueKeysWithValues: reports.map { ($0.id, $0) })
     }
 
     // MARK: - Owner data
@@ -273,6 +289,7 @@ public final class FeedModel {
             confirmed = Dictionary(snapshot.items.map { ($0.id, $0) }) { _, last in last }
             touched.formUnion(confirmed.keys)
             connection = .connected
+            loaded = true
         case let .event(event):
             revision = max(revision, event.revision)
             switch event.change {

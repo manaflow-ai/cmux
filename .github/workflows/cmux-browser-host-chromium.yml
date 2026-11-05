@@ -52,15 +52,14 @@ jobs:
         with:
           engines: chromium
 
-      - name: Install pinned Playwright Chromium
+      # System Google Chrome, not Playwright's bundled Chromium (older than the CVE-2026-118306 fix).
+      - name: Install system Google Chrome
         working-directory: tests/browser-parity
-        env:
-          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/pw-browsers
         run: |
           set -euo pipefail
           npm ci --no-audit --no-fund
-          npx playwright install --with-deps chromium
-          path="$(node -e 'process.stdout.write(require("playwright").chromium.executablePath())')"
+          "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
+          path="$(command -v google-chrome-stable || command -v google-chrome || echo /opt/google/chrome/chrome)"
           test -x "$path"
           echo "CMUX_BROWSER_HOST_TEST_CHROME=$path" >> "$GITHUB_ENV"
           echo "Using Chromium at $path"

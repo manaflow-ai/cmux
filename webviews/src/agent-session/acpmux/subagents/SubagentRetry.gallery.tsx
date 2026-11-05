@@ -12,6 +12,7 @@ import type { Play } from "../../../gallery/play";
 import type { AcpmuxRow } from "../model";
 import type { RetryAffordance } from "./SubagentDoneLine";
 import type { Subagent } from "./subagentFold";
+import { failedLineLook } from "./failedLine.experiment";
 
 /** `base`: the line as the base draws it, with no Retry wired. */
 type Props = { lines: Subagent[]; affordance?: RetryAffordance; base?: boolean };
@@ -41,6 +42,34 @@ const capacity = { reason: "capacity", nextAt: Date.now() + 60_000 };
 const error = "503: no non-exhausted claude accounts available";
 const FAILED = [overview({ retryable: true, error }), relay({ retryable: true, error })];
 
+/// Leo's three failed lines (2026-11-03: "this ui is pretty awkward looking"): long tasks and one
+/// long API error, as the transcript drew them, all in red with Retry floating after the words.
+const API_ERROR =
+  "Agent terminated early due to an API error. The request timed out after 600s; retry with a smaller context.";
+const THREE = [
+  agent("Fix reply button", "Fix white-on-white reply button in the composer menu", {
+    retryable: true,
+    error: API_ERROR,
+    endedAt: minutesAgo(40 - 20.03),
+  }),
+  agent("Cloud transport", "Diagnose Cloud chat transport refusal on resume", {
+    retryable: true,
+    error: API_ERROR,
+    endedAt: minutesAgo(40 - 24.43),
+  }),
+  agent("Folder sync", "Speed up Cloud folder sync", {
+    retryable: true,
+    error: API_ERROR,
+    endedAt: minutesAgo(40 - 21.95),
+  }),
+];
+const MIXED = [
+  THREE[0]!,
+  overview({ retryable: true, retry: { attempt: 2, of: 4, ...capacity } }),
+  agent("Docs pass", "Tighten the running tray spec", { state: "completed", endedAt: minutesAgo(30) }),
+  relay({ retryable: true, retriedOut: { attempt: 4, of: 4, reason: "capacity" }, error }),
+];
+
 /** The ⋯ menu opens on the click (menus never fade in). */
 const openMenu: Play = async (ctx) => {
   await ctx.click({ selector: '[data-menu="subagent-done"]' });
@@ -54,7 +83,11 @@ export default componentEntry<Props>({
   pane: true,
   height: 200,
   widths: { narrow: 420, normal: 720, wide: 900 },
-  covers: ["agent-session/acpmux/subagents/SubagentDoneLine.tsx"],
+  covers: [
+    "agent-session/acpmux/subagents/SubagentDoneLine.tsx",
+    "agent-session/acpmux/subagents/failedLine.experiment.ts",
+  ],
+  experiment: { definition: failedLineLook, script: [{ name: "Leo's three failed lines", run: async () => {} }] },
   load: async () => {
     const { SubagentDoneLine, RetryAffordanceContext } = await import("./SubagentDoneLine");
     const { TurnActionsContext } = await import("../conversation/turnActions");
@@ -87,6 +120,32 @@ export default componentEntry<Props>({
   styles: () =>
     Promise.all([import("../styles.css"), import("../conversation/conversation.css"), import("./subagents.css")]),
   variants: {
+    "leo-three-failed": {
+      note: 'Leo\'s three failed lines (2026-11-03: "this ui is pretty awkward looking"). The pick: one quiet grid, mark | title | short reason | Retry | time on the same columns on every line, the title in plain text, red only on the mark.',
+      props: { lines: THREE },
+    },
+    "mixed-states": {
+      note: "A failed line, a retrying one, a finished one and one acpmux gave up on: only the failed lines take the grid; Retry and the time line up between them.",
+      props: { lines: MIXED },
+    },
+    "grid-long-cells": {
+      note: "The grid's growing cells: Ask parent to retry on a subagent acpmux cannot retry, and a run past an hour. Retry and the time grow instead of spilling into the next column.",
+      props: {
+        lines: [
+          THREE[0]!,
+          agent("Task worker", "Rebuild the nightly signing picker", {
+            error: API_ERROR,
+            endedAt: minutesAgo(40 - 20.5),
+          }),
+          agent("Long soak", "Soak the pause and resume path for an hour", {
+            retryable: true,
+            error: API_ERROR,
+            startedAt: minutesAgo(130),
+            endedAt: minutesAgo(40),
+          }),
+        ],
+      },
+    },
     before: {
       note: "Before: Leo's two rows as the base draws them, the failure in the danger color and no way to run them again but Restart on hover.",
       props: { lines: [overview({ retryable: true }), relay({ retryable: true })], base: true },

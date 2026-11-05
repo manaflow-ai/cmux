@@ -13,12 +13,12 @@ enum AgentHistoryPage {
             services.windowController(showing: pane)?.focus.send(.focusPane(pane.paneKey, source: .intent))
             return
         }
-        var page = NewTabPage.page(services, selected: pane.selectedTab, pane: pane)
+        var page = NewTabPage.page(services, selected: pane.selectedTab, pane: pane, paletteActions: false)
         let cwd = page.cwd
         page.history = true
         page.focusesField = false
         let handler = NewTabPage.handler(services, cwd: cwd) { _, _ in }
-        pane.openAgentTab(seed: nil, newTab: (page, handler))
+        if pane.openAgentTab(seed: nil, newTab: (page, handler)) { NewTabPage.fillPaletteActions(services) }
     }
 
     /// The strip title of tab `key` when it shows agent history, else nil.

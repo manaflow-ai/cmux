@@ -41,6 +41,7 @@ on:
       - scripts/cmux-next/test-cmux-page-path-cpp.sh
       - scripts/cmux-next/test-chromium-host-wire-cpp.sh
       - scripts/cmux-next/test-shim-file-dialog-cpp.sh
+      - scripts/cmux-next/test-shim-helper-signals-cpp.sh
       - scripts/cmux-next/lib/cxx.sh
       - tests/test_cmux_next_shim_cpp_linux.py
       - .github/workflows/cmux-next-shim-cpp.yml
@@ -67,6 +68,7 @@ on:
       - scripts/cmux-next/test-cmux-page-path-cpp.sh
       - scripts/cmux-next/test-chromium-host-wire-cpp.sh
       - scripts/cmux-next/test-shim-file-dialog-cpp.sh
+      - scripts/cmux-next/test-shim-helper-signals-cpp.sh
       - scripts/cmux-next/lib/cxx.sh
       - tests/test_cmux_next_shim_cpp_linux.py
       - .github/workflows/cmux-next-shim-cpp.yml
@@ -78,6 +80,10 @@ permissions:
 concurrency:
   group: cmux-next-shim-cpp-${{ github.ref }}
   cancel-in-progress: true
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
 
 jobs:
   shim-downloads-cpp:
@@ -130,3 +136,6 @@ jobs:
       - name: File chooser requests are answered once and cancelled with their browser
         if: ${{ !cancelled() }}
         run: ./scripts/cmux-next/test-shim-file-dialog-cpp.sh
+      - name: Helpers obey quit signals only from their browser
+        if: ${{ !cancelled() }}
+        run: ./scripts/cmux-next/test-shim-helper-signals-cpp.sh

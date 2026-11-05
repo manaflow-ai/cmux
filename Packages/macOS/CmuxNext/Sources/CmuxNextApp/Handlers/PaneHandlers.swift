@@ -258,5 +258,6 @@ enum PaneHandlers {
             let handle = pane.handle
             ctx.send("zoom-pane") { _ = try await $0.zoomPane(handle) }
         })
+        ActionTargetTitles.setPaletteState("toggleSplitZoom", in: registry) { ctx.services.windows.active?.focusedPane.map { p in p.workspace?.workspace.screens.contains { $0.zoomedPane == p.pane.handle } ?? false } ?? false }
     }
 }

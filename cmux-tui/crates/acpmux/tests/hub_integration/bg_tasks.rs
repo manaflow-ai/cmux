@@ -353,3 +353,126 @@ fn unread(path: &std::path::Path) -> Option<usize> {
     let r = unsafe { libc::ioctl(f.as_raw_fd(), libc::FIONREAD as _, &mut n) };
     (r == 0).then_some(n as usize)
 }
+
+/// The ends of background tasks that reached chat `id`: the prompts the daemon sent it
+/// (`hub/bg_notify.rs`), by their text.
+fn ends(hub: &Hub, id: &str) -> Vec<String> {
+    let events = hub.events(id, 0, 10_000).unwrap();
+    events
+        .iter()
+        .filter(|e| e.kind == "user_message")
+        .filter_map(|e| e.msg["text"].as_str())
+        .filter(|t| t.contains("Background command"))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// A task started with `notify` brings its end to its chat once: its summary line (the
+/// description names it), how it ended and its last lines; one without `notify` brings none.
+/// Every view carries the one-line summary and the status.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_task_with_notify_tells_its_chat_once_when_it_ends() {
+    let mut r = rig(PermissionPolicy::ApproveAll).await;
+    r.hub.set_bg_runner(runner(), acpmux::bg_run::SEGMENT);
+    let id = new_session(&mut r.c, "notified").await;
+    let quiet = json!({"sessionId": id, "command": "echo quiet; exit 0", "notify": false});
+    let quiet = r.c.request(method::MUX_BG_START, quiet).await.unwrap();
+    let quiet = quiet["id"].as_str().unwrap().to_owned();
+    let loud = json!({"sessionId": id, "command": "seq 1 30; exit 3",
+        "description": "count to thirty", "notify": true});
+    let task = r.c.request(method::MUX_BG_START, loud).await.unwrap();
+    assert_eq!((task["status"].as_str(), task["notify"].as_bool()), (Some("running"), Some(true)));
+    assert_eq!(task["summary"], "Background command running: count to thirty", "{task}");
+    let loud = task["id"].as_str().unwrap().to_owned();
+    r.until("the quiet task never ended", || state(&r, &id, &quiet) == "exited").await;
+    r.until("the task's end never reached its chat", || ends(&r.hub, &id).len() == 1).await;
+    let dir = acpmux::config::home().join("bg").join(&id);
+    r.until("the sent end was never marked", || {
+        acpmux::bg_run::notified_path(&dir, &loud).exists()
+    })
+    .await;
+    // Time for a second send or one for the quiet task, which must not come.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let ends = ends(&r.hub, &id);
+    assert_eq!(ends.len(), 1, "{ends:?}");
+    let end = &ends[0];
+    assert!(end.contains("Background command finished: count to thirty (exit 3)"), "{end}");
+    assert!(end.contains("\n30") && end.contains("\n11\n") && !end.contains("\n10\n"), "{end}");
+    assert!(!acpmux::bg_run::notified_path(&dir, &quiet).exists());
+    let list = r.hub.bg_list(&r.hub.resolve(&id).unwrap());
+    let statuses: Vec<_> = list["tasks"].as_array().unwrap().iter().map(|t| &t["status"]).collect();
+    assert_eq!(statuses, [&json!("ok"), &json!("failed")], "{list}");
+}
+
+/// Waits up to 20 s for `done`.
+async fn until_true(what: &str, done: impl Fn() -> bool) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    while !done() {
+        assert!(std::time::Instant::now() < deadline, "{what}");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+/// A task's end is sent once across daemon restarts: one that ended while no daemon ran is sent
+/// by the next one, and one already sent is not sent again.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_task_end_is_sent_once_across_a_restart() {
+    let dir = std::env::temp_dir().join(format!("acpmux-bg-notify-{}", uuid::Uuid::now_v7()));
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let profile = HarnessProfile {
+        kind: Default::default(),
+        argv: vec!["python3".into(), fake.into()],
+        env: BTreeMap::new(),
+        description: None,
+        fallback: None,
+        family: None,
+        models: vec![],
+        model: None,
+        effort: None,
+        policy: None,
+    };
+    let mut cfg = Config {
+        harnesses: BTreeMap::from([("fake".to_owned(), profile)]),
+        default_harness: Some("fake".into()),
+        ..Default::default()
+    };
+    cfg.store.mode = StoreMode::Local;
+    cfg.permission_policy = PermissionPolicy::ApproveAll;
+    let hub = Hub::new(cfg.clone(), acpmux::store::open(&cfg.store, &dir).unwrap());
+    hold_person_key(&hub);
+    hub.set_bg_runner(runner(), acpmux::bg_run::SEGMENT);
+    let mut c = connect(&hub).await;
+    let id = new_session(&mut c, "restarted").await;
+    let start = |command: &str| json!({"sessionId": id, "command": command, "notify": true});
+    let first = c.request(method::MUX_BG_START, start("echo first")).await.unwrap();
+    let first = first["id"].as_str().unwrap().to_owned();
+    let bg = acpmux::config::home().join("bg").join(&id);
+    until_true("the first end was never sent", || {
+        acpmux::bg_run::notified_path(&bg, &first).exists() && ends(&hub, &id).len() == 1
+    })
+    .await;
+    // The second ends while no daemon runs.
+    let second = c.request(method::MUX_BG_START, start("sleep 1; echo second")).await.unwrap();
+    let second = second["id"].as_str().unwrap().to_owned();
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+    until_true("the second task never ended", || {
+        acpmux::bg_run::read_record(&bg, &second).is_some_and(|r| r.ended_at.is_some())
+    })
+    .await;
+    let hub = Hub::new(cfg.clone(), acpmux::store::open(&cfg.store, &dir).unwrap());
+    until_true("the end that came while no daemon ran was never sent", || {
+        ends(&hub, &id).len() == 2
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let ends = ends(&hub, &id);
+    assert_eq!(ends.len(), 2, "{ends:?}");
+    assert!(ends[0].contains("echo first") && ends[1].contains("echo second"), "{ends:?}");
+    assert!(acpmux::bg_run::notified_path(&bg, &second).exists());
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}

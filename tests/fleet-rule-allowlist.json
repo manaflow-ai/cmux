@@ -1,5 +1,6 @@
 {
   "keychain": {
+    "plans/cmux-next/swift-logic-classes.tsv": {"count": 1, "reason": "safe: a plan table row that names SecItemCopyMatching in prose; it reads no keychain item"},
     "Native/OptChat/optchat-chief/src/toolpacks.rs": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): a tool pack's own keychain service"},
     "cmux-next-ios/scripts/testflight-build.sh": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): the App Store Connect credential (service asc)"},
     "workers/cmux-vm/cli/crates/cmux-vm/src/token.rs": {"count": 2, "reason": "safe: reads its own named item (not the fleet sudo item): the cmux VM agent token (service com.cmux.vm.agent-token)"},
@@ -12,7 +13,12 @@
     "scripts/ci/chief-first-turn-cost.sh": {"count": 1, "reason": "safe: checks whether the Claude Code-credentials item exists (no -w; the password is not read)"},
     "scripts/ci/macos-stubs/Security.tbd": {"count": 1, "reason": "safe: a linker text stub listing Security.framework's exported symbol names (_SecItemCopyMatching among them) so Linux CI can link; nothing runs a keychain read"},
     "scripts/cmux-next/browser-challenges-live.py": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): the app's own browser HTTP auth item"},
-    "scripts/measure/chief-import.sh": {"count": 1, "reason": "safe: checks whether the Claude Code-credentials item exists (no -w; the password is not read)"}
+    "scripts/measure/chief-import.sh": {"count": 1, "reason": "safe: checks whether the Claude Code-credentials item exists (no -w; the password is not read)"},
+    "cmux-tui/crates/acpmux/src/cli/host_vault.rs": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): Claude Code's credential (service Claude Code-credentials)"},
+    "cmux-tui/crates/acpmux/src/vault/store.rs": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): the acpmux vault's own service"},
+    "cmux-tui/crates/acpmux/src/vault/tests.rs": {"count": 1, "reason": "safe: a test comment describing what the vault's own read prints; reads nothing"},
+    "cmux-tui/crates/cmux-mcp-connect/src/screen.rs": {"count": 1, "reason": "safe: a deny-list entry the screen refuses in an agent's command; reads nothing"},
+    "plans/cmux-next/mcp-connect-DESIGN.md": {"count": 1, "reason": "safe: a threat-model row naming the command the design refuses; reads nothing"}
   },
   "pkill": {
     ".github/workflows/cmux-next-frame-pacing.yml": {"count": 1, "reason": "safe: the pattern is this job's own RUNNER_TEMP/frame-pacing path"},
@@ -107,7 +113,11 @@
     "web/scripts/dev-local.sh": {"count": 1, "reason": "safe: -P <recorded pid>, the children of the dev server this script started"},
     "web/services/vms/images/devbox/Dockerfile": {"count": 3, "reason": "safe: inside the image build, stops the work user's own boot processes in the container"},
     "web/services/vms/images/devbox/desktop/start-vnc.sh": {"count": 1, "reason": "safe: -USR1 -U <own uid> -x tint2 inside the devbox VM tells its own panel to reload (not a kill)"},
-    "web/services/vms/images/workUser.ts": {"count": 1, "reason": "safe: inside a devbox VM cmux owns, stops a renamed work user's processes before removing that user"}
+    "web/services/vms/images/workUser.ts": {"count": 1, "reason": "safe: inside a devbox VM cmux owns, stops a renamed work user's processes before removing that user"},
+    "Packages/macOS/CmuxNext/CEFShim/src/helper_main.mm": {"count": 2, "reason": "safe: comments naming pkill and killall as the stray signals the helper ignores; it signals nothing"},
+    "Packages/macOS/CmuxNext/CEFShim/src/helper_signal_policy.h": {"count": 2, "reason": "safe: comments naming pkill and killall as the stray signals the policy ignores; it signals nothing"},
+    "Packages/macOS/CmuxNext/CEFShim/tests/helper_signal_policy_test.cpp": {"count": 4, "reason": "safe: test comments and case names describing a stranger's pkill or killall; the test signals its own child only"},
+    "scripts/ci/signal-quit-probe.sh": {"count": 1, "reason": "safe: a usage comment comparing the probe's own SIGTERM to pkill -TERM; the probe signals only the app it launched"}
   },
   "big-red": {
     "Packages/macOS/CmuxNext/Sources/CmuxNextActions/DeepLink/DeepLink.swift": {"count": 1, "reason": "debt: sample host name in a doc comment, example or inline test; nothing depends on it. Use a neutral name (my-vm) when the file is next touched"},
@@ -120,12 +130,12 @@
     "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/AddMachineShotsTests.swift": {"count": 2, "reason": "debt: sample host name in a test fixture or mock; nothing connects to it. Use a neutral name (my-vm) when the file is next touched"},
     "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/AgentPeerSessionTests.swift": {"count": 1, "reason": "debt: sample host name in a test fixture or mock; nothing connects to it. Use a neutral name (my-vm) when the file is next touched"},
     "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/AgentSessionGroupJoinTests.swift": {"count": 5, "reason": "debt: sample host name in a test fixture or mock; nothing connects to it. Use a neutral name (my-vm) when the file is next touched"},
-    "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/HoverCardMachineColorTests.swift": {"count": 5, "reason": "debt: sample host name in a test fixture or mock; nothing connects to it. Use a neutral name (my-vm) when the file is next touched"},
     "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/MacNameTests.swift": {"count": 1, "reason": "debt: sample host name in a test fixture or mock; nothing connects to it. Use a neutral name (my-vm) when the file is next touched"},
     "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/RemoteMachinesSidebarTests.swift": {"count": 17, "reason": "debt: sample host name in a test fixture or mock; nothing connects to it. Use a neutral name (my-vm) when the file is next touched"},
     "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/TabMachineBadgeColorTests.swift": {"count": 2, "reason": "debt: sample host name in a test fixture or mock; nothing connects to it. Use a neutral name (my-vm) when the file is next touched"},
     "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ToastCopyTests.swift": {"count": 1, "reason": "debt: sample host name in a test fixture or mock; nothing connects to it. Use a neutral name (my-vm) when the file is next touched"},
     "Packages/macOS/CmuxNext/Tests/CmuxNextDesignTests/MachineColorTests.swift": {"count": 25, "reason": "debt: sample host name in a test fixture or mock; nothing connects to it. Use a neutral name (my-vm) when the file is next touched"},
+    "Packages/macOS/CmuxNext/Tests/CmuxNextDesignTests/MachineColorTextEveryThemeTests.swift": {"count": 1, "reason": "safe: a sample machine name in a test fixture, hashed to a colour; nothing connects to it"},
     "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/MachineColorsSettingTests.swift": {"count": 4, "reason": "debt: sample host name in a test fixture or mock; nothing connects to it. Use a neutral name (my-vm) when the file is next touched"},
     "cmux-tui/crates/acpmux/src/agent_link.rs": {"count": 6, "reason": "debt: sample host name in a doc comment, example or inline test; nothing depends on it. Use a neutral name (my-vm) when the file is next touched"},
     "cmux-tui/crates/acpmux/src/attach.rs": {"count": 1, "reason": "debt: sample host name in a doc comment, example or inline test; nothing depends on it. Use a neutral name (my-vm) when the file is next touched"},
@@ -154,6 +164,9 @@
     "webviews/src/pages/settings/components/HostSections.tsx": {"count": 1, "reason": "debt: sample host name in a doc comment, example or inline test; nothing depends on it. Use a neutral name (my-vm) when the file is next touched"},
     "webviews/src/pages/settings/hostSections.test.tsx": {"count": 3, "reason": "debt: sample host name in a test fixture or mock; nothing connects to it. Use a neutral name (my-vm) when the file is next touched"},
     "webviews/test/chief-views-page.test.tsx": {"count": 1, "reason": "debt: sample host name in a test fixture or mock; nothing connects to it. Use a neutral name (my-vm) when the file is next touched"},
-    "webviews/test/new-tab-widgets.test.tsx": {"count": 1, "reason": "debt: sample host name in a test fixture or mock; nothing connects to it. Use a neutral name (my-vm) when the file is next touched"}
+    "webviews/test/new-tab-widgets.test.tsx": {"count": 1, "reason": "debt: sample host name in a test fixture or mock; nothing connects to it. Use a neutral name (my-vm) when the file is next touched"},
+    "Native/OptChat/optchat-chief/src/chief_settings.rs": {"count": 1, "reason": "safe: sample agent id in an inline unit test of the trust check; nothing depends on the host"},
+    "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/GroupJoinHoldTests.swift": {"count": 4, "reason": "safe: sample machine id and name in a unit test's sidebar fixture; nothing depends on the host"},
+    "cmux-tui/crates/acpmux/src/opaque_agent_id.rs": {"count": 1, "reason": "safe: sample link text in an inline unit test of the opaque-id rewrite; nothing depends on the host"}
   }
 }

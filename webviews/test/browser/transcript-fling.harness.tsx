@@ -1,7 +1,8 @@
 // The chat's transcript as the agent pane lays it out (App.tsx), with the pane's debug API
 // (debug.ts) over it as the app installs it, so a test drives the same seed and fling the
 // frame pacing bench does (scripts/ci/frame-pacing/bench.sh).
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { VirtualTranscript } from "../../src/agent-session/acpmux/App";
 import { createAcpmuxDebug, type AcpmuxDebug } from "../../src/agent-session/acpmux/debug";
@@ -47,14 +48,59 @@ const olderRow: AcpmuxRow = {
   version: 1,
   at: 1,
 };
+// Mounting rich content can write layout from a child effect (code cards do this). Observe the
+// ordering in the real virtualizer, without adding a measurement seam to product code.
+let measureTrace: string[] = [];
+function BatchMeasureRow({ row }: { row: AcpmuxRow }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    ref.current!.style.height = `${Number(row.text)}px`;
+    measureTrace.push(`write:${row.id}`);
+  }, [row.id, row.version, row.text]);
+  return (
+    <div ref={ref} data-batch-height={row.text}>
+      Measured content
+    </div>
+  );
+}
+const batchRegistry = { "batch-measure": Object.assign(BatchMeasureRow, { measure: () => 4 }) };
+
 function Transcript() {
   const [rows, setRows] = useState<AcpmuxRow[]>([]);
   const [older, setOlder] = useState(false);
+  const [batch, setBatch] = useState(false);
+  (window as unknown as { __batchMeasure: (version: number) => string[] }).__batchMeasure = (version) => {
+    measureTrace = [];
+    const read = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+      const id = this.getAttribute("data-row-id");
+      if (id?.startsWith("batch-")) measureTrace.push(`${this.isConnected ? "read" : "stale"}:${id}`);
+      return read.call(this);
+    };
+    try {
+      flushSync(() => {
+        setBatch(true);
+        setRows(
+          Array.from({ length: version === 1 ? 12 : 11 }, (_, index) => ({
+            id: `batch-${index + (version === 1 ? 0 : 1)}`,
+            kind: "batch-measure",
+            version,
+            at: index,
+            text: String(12 + index + version * 3),
+          })),
+        );
+      });
+      return [...measureTrace];
+    } finally {
+      Element.prototype.getBoundingClientRect = read;
+    }
+  };
   (window as unknown as { __showOlder: (shown: boolean) => void }).__showOlder = setOlder;
   show = setRows;
   return (
     <VirtualTranscript
-      rows={turnView(older ? [olderRow, ...rows] : rows, new Set())}
+      rows={batch ? rows : turnView(older ? [olderRow, ...rows] : rows, new Set())}
+      registry={batch ? batchRegistry : undefined}
       sessionId="session-1"
       jumpButton
       onToggleActivity={() => {}}

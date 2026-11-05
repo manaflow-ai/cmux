@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// The folder a chat moves with: the git working copy that holds the chat's
@@ -8,6 +9,12 @@ public nonisolated struct CloudMoveFolder: Sendable, Equatable {
     public let root: String
     /// The chat's folder inside ``root``; empty for ``root`` itself.
     public let subpath: String
+
+    /// Whether `path` is an existing folder, read off the main thread before a copy starts.
+    @concurrent nonisolated public static func isFolder(_ path: String) async -> Bool {
+        var isFolder: ObjCBool = false
+        return FileManager.checked.fileExists(atPath: path, isDirectory: &isFolder) && isFolder.boolValue
+    }
 
     /// Nil for a relative folder, or one whose `..` parts climb above the disk's root.
     ///

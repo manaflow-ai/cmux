@@ -192,6 +192,43 @@ test("a lag notice reads the peer snapshot again, so a dropped disconnect is not
   }
 });
 
+test("a list_changed lag reads nothing again: the pager already laid the notices over the list", async () => {
+  const f = await fixture("local");
+  try {
+    const before = f.requests.length;
+    // acpmux sends this after a list reply a `session_changed` notice overtook; nothing was dropped.
+    for (let i = 0; i < 3; i++)
+      f.socket().onmessage?.({
+        data: JSON.stringify({
+          jsonrpc: "2.0",
+          method: "_acpmux/lagged",
+          params: { watch: true, dropped: 0, reason: "list_changed" },
+        }),
+      });
+    // A read of our own, answered after any read the lags started.
+    await f.readSnapshot();
+    expect(f.requests.slice(before)).toEqual(["_acpmux/peers"]);
+  } finally {
+    f.client.close();
+  }
+});
+
+test("a watch lag that dropped notices still reads the list and the peer snapshot again", async () => {
+  const f = await fixture("local");
+  try {
+    const before = f.requests.length;
+    f.socket().onmessage?.({
+      data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/lagged", params: { watch: true, dropped: 2 } }),
+    });
+    await f.readSnapshot();
+    const after = f.requests.slice(before);
+    expect(after).toContain("_acpmux/watch");
+    expect(after.filter((method) => method === "_acpmux/peers")).toHaveLength(2);
+  } finally {
+    f.client.close();
+  }
+});
+
 test("a restarting peer in the snapshot stays restarting, so the picker never offers it as ready", async () => {
   const { environmentReady, knownMachines } = await import("./environments");
   const f = await fixture("local");

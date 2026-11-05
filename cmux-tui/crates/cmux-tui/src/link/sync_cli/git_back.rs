@@ -18,7 +18,8 @@
 //! need from the quarantine, checking every object (`transfer.fsckObjects`),
 //! and the branch moves by compare-and-swap (`git update-ref NEW OLD`).
 
-use std::io::Write as _;
+use std::fs::File;
+use std::io::{Seek as _, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -28,10 +29,6 @@ use sha2::{Digest as _, Sha256};
 
 use super::remote::Remote;
 use super::{Manifest, names};
-
-/// Most bytes one object file or pack of the machine may have; streamed to
-/// disk, never held in memory.
-const MAX_OBJECT_BYTES: u64 = 4 << 30;
 
 /// The git state of a working copy, as a push records it and a pull
 /// compares it.
@@ -53,7 +50,10 @@ pub(super) fn base_of(folder: &Path) -> anyhow::Result<GitBase> {
         .map(|text| text.trim().to_string());
     let head = output(local(folder).args(["rev-parse", "-q", "--verify", "HEAD^{commit}"]))?
         .map(|text| text.trim().to_string());
-    let staged = digest(&checked(local(folder).args(["ls-files", "--stage", "-z"]))?);
+    let mut staged_file = tempfile::tempfile().context("cannot create staged index scratch")?;
+    checked_to_file(local(folder).args(["ls-files", "--stage", "-z"]), &staged_file)?;
+    staged_file.seek(SeekFrom::Start(0))?;
+    let staged = digest_reader(&mut staged_file)?;
     Ok(GitBase { head_ref, head, staged })
 }
 
@@ -119,19 +119,26 @@ pub(super) fn plan(
     quarantined(&quarantine, common_dir)?;
     copy_objects(remote, &remote_git, &quarantine, manifest)?;
     let vm_index = quarantine.join("machine-index");
-    if let Some(bytes) = remote.read(&format!("{remote_git}/index"))? {
-        std::fs::write(&vm_index, bytes)?;
+    let mut index = File::create(&vm_index)?;
+    let downloaded = remote.read_into(&format!("{remote_git}/index"), &mut index)?;
+    drop(index);
+    if downloaded.is_none() {
+        // Git treats an absent index as empty staging; a zero-byte index is invalid.
+        std::fs::remove_file(&vm_index)?;
     }
+    let staged_path = quarantine.join("machine-staged");
+    let staged_file = File::create(&staged_path)?;
     let vm_staged = quarantine_git(&quarantine)
         .env("GIT_INDEX_FILE", &vm_index)
         .args(["ls-files", "--stage", "-z"])
+        .stdout(Stdio::from(staged_file))
         .output()
         .context("cannot run git")?;
     if !vm_staged.status.success() {
         let why = "cmux can't read the machine's staged changes";
         return Ok(Err(vec![(".git/index".into(), why.into())]));
     }
-    let vm = GitBase { head_ref: vm_ref, head: vm_head, staged: digest(&vm_staged.stdout) };
+    let vm = GitBase { head_ref: vm_ref, head: vm_head, staged: digest_file(&staged_path)? };
     // An older push recorded no git state: only an unchanged machine is safe.
     let base = manifest.git.clone().unwrap_or_else(|| here.clone());
 
@@ -175,7 +182,7 @@ pub(super) fn plan(
             let why = "both this Mac and the machine changed what is staged";
             conflicts.push((".git/index".into(), why.into()));
         } else {
-            match staged_commit(&quarantine, &vm_staged.stdout)? {
+            match staged_commit(&quarantine, &staged_path)? {
                 Some(commit) => {
                     settled.staged = vm.staged;
                     staged = Some(commit);
@@ -401,9 +408,9 @@ fn copy_objects(
             }
             let target = quarantine.join("objects").join(&relative);
             std::fs::create_dir_all(target.parent().context("no parent")?)?;
-            let mut out = std::fs::File::create(&target)?;
+            let mut out = File::create(&target)?;
             let source = format!("{objects}/{relative}");
-            if remote.read_into(&source, &mut out, MAX_OBJECT_BYTES)?.is_none() {
+            if remote.read_into(&source, &mut out)?.is_none() {
                 drop(out);
                 std::fs::remove_file(&target)?;
                 continue;
@@ -426,22 +433,17 @@ fn is_hex(text: &str) -> bool {
 /// can't make one (unmerged entries, a missing object). The tree is built
 /// from the entries in a new index, never from the machine's index's own
 /// cached trees, which could name any tree.
-fn staged_commit(quarantine: &Path, entries: &[u8]) -> anyhow::Result<Option<String>> {
+fn staged_commit(quarantine: &Path, entries: &Path) -> anyhow::Result<Option<String>> {
     let index = quarantine.join("rebuilt-index");
     let _ = std::fs::remove_file(&index);
-    let mut child = quarantine_git(quarantine)
+    let built = quarantine_git(quarantine)
         .env("GIT_INDEX_FILE", &index)
         .args(["update-index", "-z", "--index-info"])
-        .stdin(Stdio::piped())
+        .stdin(Stdio::from(File::open(entries)?))
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .spawn()
+        .status()
         .context("cannot run git")?;
-    let mut stdin = child.stdin.take().context("no stdin")?;
-    let input = entries.to_vec();
-    let writer = std::thread::spawn(move || stdin.write_all(&input));
-    let built = child.wait().context("cannot run git")?;
-    let _ = writer.join();
     if !built.success() {
         return Ok(None);
     }
@@ -514,6 +516,22 @@ fn output(command: &mut Command) -> anyhow::Result<Option<String>> {
     }
 }
 
-fn digest(bytes: &[u8]) -> String {
-    Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect()
+fn digest_file(path: &Path) -> anyhow::Result<String> {
+    digest_reader(&mut File::open(path)?)
+}
+
+fn digest_reader(reader: &mut dyn std::io::Read) -> anyhow::Result<String> {
+    let mut hash = Sha256::new();
+    std::io::copy(reader, &mut hash)?;
+    Ok(hash.finalize().iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+/// Redirect large index output straight to disk; only diagnostics are captured.
+fn checked_to_file(command: &mut Command, file: &File) -> anyhow::Result<()> {
+    let output =
+        command.stdout(Stdio::from(file.try_clone()?)).output().context("cannot run git")?;
+    if !output.status.success() {
+        bail!("git: {}", String::from_utf8_lossy(&output.stderr).trim());
+    }
+    Ok(())
 }

@@ -365,7 +365,7 @@ export async function runLocal(args: { manifest: string; galleryDir: string; out
   await mkdir(args.outputDir, { recursive: true });
   const server = selected.some((item) => !/^https?:\/\//.test(item.path_or_url)) ? await serveDirectory(resolve(args.galleryDir)) : null;
   const browsers = new Map<Engine, Browser>();
-  const launch = async (engine: Engine): Promise<Browser> => browserTypes[engine].launch({ headless: true, timeout: 30_000 });
+  const launch = async (engine: Engine): Promise<Browser> => browserTypes[engine].launch({ headless: true, timeout: 30_000, ...(engine === "chromium" ? (process.env.CMUX_CHROME_HEADLESS_SHELL ? { executablePath: process.env.CMUX_CHROME_HEADLESS_SHELL } : { channel: "chrome" }) : {}) });
   const screenshotName = (item: MatrixCase, engine: Engine) => `${safeFilePart(item.id)}-${engine}.png`;
   const failedResult = (item: MatrixCase, engine: Engine, error: unknown): Record<string, unknown> => ({
     id: item.id,
@@ -497,8 +497,10 @@ async function runFreestyle(args: { manifest: string; galleryDir: string; output
       await vm.fs.writeTextFile(`${remoteRoot}/shard.json`, `${JSON.stringify(selected)}\n`, { mode: 0o644 });
       // Two steps, each under the 5-minute exec cap: the toolchain, then the shard's screenshots.
       // Each step's output is kept beside the run (shard-<n>.log) for a failed shard.
+      // Chromium runs as the system Google Chrome (channel "chrome"), never Playwright's bundled build.
+      const installNames = args.engines.map((engine) => (engine === "chromium" ? "chrome" : engine));
       const steps = [
-        `set -eu; cd ${shellQuote(remoteRoot)}; bun install --no-save; bunx playwright install --with-deps ${args.engines.join(" ")}`,
+        `set -eu; cd ${shellQuote(remoteRoot)}; bun install --no-save; CI=1 bunx playwright install --with-deps ${installNames.join(" ")}`,
         // `timeout` ends the step inside the exec cap, so a slow shard still reports its log.
         `set -eu; cd ${shellQuote(remoteRoot)}; CMUX_BROWSER_TESTS=1 CMUX_GALLERY_IN_VM=1 timeout 280 bun runner.ts --manifest shard.json --gallery-dir gallery --output-dir output --engines ${args.engines.join(",")} --threshold ${args.threshold} --case-timeout-ms ${args.caseTimeoutMs}`,
       ];

@@ -74,6 +74,22 @@ public final class DiffPageRuntime {
         }
     }
 
+    /// The grant and config of a tab that shows only `patch` (``DiffChatPatch``). No
+    /// sidecar reads it: the page fetches the patch file the grant lists. The grant's repository is
+    /// the session root itself, so its token names no folder of the person's.
+    public func prepare(chatPatch patch: DiffChatPatch) -> Task<DiffTabReady, any Error> {
+        let root = root
+        return Task {
+            let grant = try await Self.grant(root: root, repository: root.path)
+            if Task.isCancelled {
+                await Self.drop(grant)
+                throw CancellationError()
+            }
+            return DiffTabReady(grant: grant, config: DiffPageConfig.chatPatch(title: patch.title, token: grant.token, file: patch.file),
+                                turn: nil, chatPatch: patch)
+        }
+    }
+
     @concurrent private static func grant(root wanted: URL, repository: String) async throws -> DiffSessionGrant {
         let root: URL
         do {

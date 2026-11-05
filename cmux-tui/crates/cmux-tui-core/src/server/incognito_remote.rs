@@ -181,6 +181,11 @@ pub(super) struct Hidden {
 
 /// Whether `client` is a remote device's connection.
 pub(super) fn is_remote_device(mux: &Mux, client: u64) -> bool {
+    if mux.control_clients.input_lane.on() {
+        // The published facts, never the registry lock (R-DAEMON-STATE S1).
+        let facts = mux.control_clients.state.load().recover_poison();
+        return facts.clients.get(&client).is_some_and(|connection| connection.remote_device);
+    }
     let state = mux.control_clients.state.lock().recover_poison();
     state.clients.get(&client).is_some_and(|record| record.remote_device)
 }
@@ -648,7 +653,8 @@ impl EventFilter {
             event,
             crate::MuxEvent::TreeDelta(_)
                 | crate::MuxEvent::TreeChanged
-                | crate::MuxEvent::TreeSelectionChanged
+                | crate::MuxEvent::TreeSelectionChanged(_)
+                | crate::MuxEvent::WorkspacePresentationChanged(_)
                 | crate::MuxEvent::LayoutChanged(..)
         );
         if tree {

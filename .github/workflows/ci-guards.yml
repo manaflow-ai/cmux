@@ -28,6 +28,10 @@ on:
 permissions:
   contents: read
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
 jobs:
   workflow-guard-submodule-forward-only:
     name: workflow-guard-submodule-forward-only
@@ -162,6 +166,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_run_guards.py
 
+      - name: Validate push triggers name their branches
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_push_trigger_branches.py
+
       - name: Validate the CI timing readout
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_timing_readout.py
@@ -186,6 +194,14 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_pr_proof_section.py
 
+      - name: Validate the classic API auto-deploy guard
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_classic_api_guard.py
+
+      - name: Validate the classic-frozen guard
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_classic_frozen_guard.py
+
       - name: Validate the PR capture check
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_pr_capture_check.py
@@ -193,6 +209,25 @@ jobs:
       - name: Validate attachment admission caps
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_attachment_caps_guard.py
+
+      # No new size or count cap in the send path, as a shrink-only ratchet
+      # (tests/send-path-cap-allowlist.json).
+      - name: Validate send-path caps
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_send_path_caps.py
+
+      # No new hard timeout below 30 seconds in the app/daemon request paths;
+      # existing hits ratchet down in tests/short-timeout-allowlist.json.
+      - name: Validate short timeout ratchet
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_short_timeout_guard.py
+
+      # NEXT code adds no call to classic Cloud (/api/vm, /api/runs, a cmux.com
+      # or cmux-staging API base), as a shrink-only ratchet
+      # (tests/classic-cloud-route-allowlist.json).
+      - name: Validate NEXT adds no classic Cloud routes
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_classic_cloud_routes.py
 
       - name: Validate the PR perf section check
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -447,6 +482,10 @@ jobs:
             CMUX_TEST_REGISTRY_BASE_SHA="$(git rev-parse FETCH_HEAD)"
             args=(--base-sha "$CMUX_TEST_REGISTRY_BASE_SHA")
           fi
+          # A push only warns: the pull request that adds an unregistered test is the one that fails.
+          if [[ "${GITHUB_EVENT_NAME:-}" == push ]]; then
+            args+=(--warn-only)
+          fi
           python3 scripts/ci/validate_test_execution_registry.py "${args[@]+"${args[@]}"}"
 
       - name: Validate Python test execution registry blast radius
@@ -579,6 +618,12 @@ jobs:
       - name: Validate the machine join E2E harness
         if: ${{ !cancelled() && matrix.group == 'preflight-agent-chat' }}
         run: bun test scripts/cmux-next/machine-join-e2e.test.ts
+
+      # The machine vault E2E harness: cleanup, refusal, skip and leak paths (fake fetch and
+      # fake CLIs; no network, no secret).
+      - name: Validate the machine vault E2E harness
+        if: ${{ !cancelled() && matrix.group == 'preflight-agent-chat' }}
+        run: bun test scripts/cmux-next/machine-vault-e2e.test.ts
 
       - name: Set up Python 3.9 for nightly prune compatibility
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
@@ -1454,6 +1499,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_delivery_concurrency.py
 
+      - name: Validate an older nightly-next build yields its sign slot and the newest never does
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_sign_yield.py
+
       - name: Validate the nightly-next feed writers' R2 lease
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_r2_cas.py
@@ -1603,6 +1652,10 @@ jobs:
           python3 tests/test_nightly_build_state.py
           python3 tests/test_ensure_setup_node.py
 
+      - name: Validate no nightly job can be routed to Blacksmith
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_never_blacksmith.py
+
       # .github/nightly-step-coverage.json: every step only the nightly runs
       # names its pull-request dry run here or elsewhere, or a reviewed reason.
       - name: Validate every nightly step has a pull request counterpart
@@ -1741,6 +1794,14 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_identity.py
 
+      - name: Test the cmux NIGHTLY-identity notary probe of nightly-next
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_next_identity_probe.py
+
+      - name: Validate the rolling nightly-next DMG is the cmux NIGHTLY build
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_next_rolling_dmg_identity.py
+
       - name: Validate nightly signing admission and its shadow mode
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: |
@@ -1757,6 +1818,7 @@ jobs:
           python3 tests/test_ci_nightly_no_hosted_mac.py
           python3 tests/test_ci_runs_on_fallback.py
           python3 tests/test_ci_warm_sources.py
+          python3 tests/test_ci_checkout_lean.py
           python3 tests/test_ci_helper_prebuild_lifecycle.py
           python3 tests/test_ci_killpg_tolerates_eperm.py
 
@@ -1771,6 +1833,14 @@ jobs:
       - name: Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_ci_signing_owned_mac.py
+
+      - name: Validate every nightly job runs on our own Mac minis and the publishers hold the whole Mac
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_owned_minis_only.py
+
+      - name: Validate nightly-next signs and publishes on cmux15 first
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_signing_on_cmux15.py
 
       - name: Validate the nightly-next build takes an idle owned Mac or a moving Blacksmith label
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
@@ -1833,6 +1903,7 @@ jobs:
           python3 tests/test_release_signer_nightly.py
           python3 tests/test_dev_app_linux.py
           python3 tests/test_nightly_signer_jobs.py
+          python3 tests/test_hosted_queue_wait.py
           python3 tests/test_fetch_run_artifact.py
           python3 tests/test_signer_parity_compare.py
 
@@ -2136,9 +2207,48 @@ jobs:
           python3 tests/test_lint_stored_dispatch_work_items.py
           python3 scripts/lint-stored-dispatch-work-items.py
 
+  portable-placement:
+    name: portable light placement
+    needs:
+      - workflow-guard-submodule-forward-only
+      - workflow-guard-tests
+      - workflow-guard-history
+      - workflow-guard-cli-scripts
+      - workflow-guard-source-lints
+    if: ${{ always() && !cancelled() && vars.CI_PORTABLE_LIGHT_JOBS_OFF != '1' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    timeout-minutes: 4
+    permissions:
+      contents: read
+    outputs:
+      linux_runner: ${{ steps.place.outputs.linux_runner }}
+      linux_jobs: ${{ steps.place.outputs.linux_jobs }}
+      mini_runner: ${{ steps.place.outputs.mini_runner }}
+      mini_jobs: ${{ steps.place.outputs.mini_jobs }}
+      placed_attempt: ${{ github.run_attempt }}
+    steps:
+      - name: Check out the trusted placement script
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          sparse-checkout: scripts/ci
+          persist-credentials: false
+      - name: Place the portable report job
+        id: place
+        continue-on-error: true
+        env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          JOBS: guard-status
+          FLEET_LINUX: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.LINUX_RUNNER }}
+          REQUIRE_LIVE_CAPACITY: '1'
+          SIDE_LABEL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_LIGHT_LANE_RUNNER || vars.CI_SIDE_LANE_RUNNER }}
+        run: python3 scripts/ci/portable_job_placement.py
+
   guard-status:
     name: Guard status
     needs:
+      - portable-placement
       - workflow-guard-submodule-forward-only
       - workflow-guard-tests
       - workflow-guard-history
@@ -2146,10 +2256,9 @@ jobs:
       - workflow-guard-source-lints
     # Preserve the guard verdict after a failure, but do not start a rollup
     # after GitHub has cancelled the run.
-    if: ${{ !cancelled() }}
-    # A declared light job (.github/runners.json hosted_light_jobs): a rollup of the guard results,
-    # 2 s of work. Hosted Ubuntu on attempt 1, the reconciled Linux pool on a re-run (no secret).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
+    if: ${{ always() && !cancelled() }}
+    # Refresh portable capacity after the guard jobs finish, immediately before the rollup.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' guard-status ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' guard-status ') && needs.portable-placement.outputs.mini_runner || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     steps:
       - name: Check routed guard jobs

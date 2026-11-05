@@ -69,6 +69,26 @@ const rows = [
 const base = chat(rows, { title: "Release check", isWorking: true });
 /// The first two turns alone, finished: the chat's last footer is the second turn's.
 const finished = chat(rows.slice(0, 7), { title: "Release check", isWorking: false });
+/// A finished Claude chat whose last turn spoke, ran six commands and ended on them, with no reply
+/// after the run (Leo, 2026-11-02: "the latest copy buttons auto showing when the turn is done like
+/// chatgpt"): its row (Copy, Fork, Pin) shows at rest 8 under the run's last line, as under a reply.
+const workRows = [
+  ...rows.slice(0, 3),
+  user("Check what's installed and running.", 16),
+  assistant("I'll check the installed apps and what is running.", 15.9),
+  activity(
+    ["ls /Applications", "brew list", "ps aux", "lsof -i", "launchctl list", "uptime"].map((command) =>
+      tool(command, "execute", "completed", { command }),
+    ),
+    15.8,
+  ),
+  summary(15.5, { status: "completed", durationMs: 10_000, toolCount: 6 }),
+];
+const claudeChat = (chatRows: typeof rows) => {
+  const snapshot = chat(chatRows, { title: "Machine check", isWorking: false });
+  return { ...snapshot, summary: { ...snapshot.summary!, family: "claude" } };
+};
+const finishedWork = claudeChat(workRows);
 const snapshot = {
   ...base,
   sessions: [
@@ -93,6 +113,13 @@ const revealFooter: Play = async (ctx) => {
 const revealLastFooter: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-row--final-footer .cv-turn-action-group") !== null);
   await ctx.hover({ selector: ".acpmux-row--final-footer .cv-turn-action-group" });
+};
+
+/// The pointer on the finished chat's last Copy button: that button alone takes full ink and its pill.
+const pointCopy: Play = async (ctx) => {
+  const copy = ".acpmux-row--final-footer .cv-turn-action-group .cv-iconbtn";
+  await ctx.waitFor(() => ctx.document.querySelector(copy) !== null);
+  await ctx.hover({ selector: copy });
 };
 
 export default agentPaneEntry({
@@ -128,13 +155,22 @@ export default agentPaneEntry({
       play: revealFooter,
     },
     finished: {
-      note: "A finished chat at rest: its last reply's buttons are in sight with no pointer, the first glyph on the reply's left edge; the time waits for the pointer.",
+      note: "A finished chat at rest: its last reply's buttons are in sight with no pointer, Claude's 16 glyphs in 24 buttons in the muted footer ink, the first glyph on the reply's left edge; the time waits for the pointer (Leo, 2026-11-02, of the 20 glyphs in 32 buttons: \"WHY ARE THESE SO BIG\").",
       snapshot: finished,
+    },
+    "finished-work": {
+      note: "A finished Claude chat whose last turn ended on a run of six commands with no reply after it: the turn's row (Copy, Fork, Pin) shows at rest, its first glyph on the prose's left edge, 8 under the run's last line, the time waiting for the pointer.",
+      snapshot: finishedWork,
     },
     "finished-hover": {
       note: "The pointer on the finished chat's last reply: its exact time shows after the buttons, which do not move.",
       snapshot: finished,
       play: revealLastFooter,
+    },
+    "finished-button-hover": {
+      note: "The pointer on the last reply's Copy: that button alone takes full ink and its 24 pill; the others stay in the muted footer ink.",
+      snapshot: finished,
+      play: pointCopy,
     },
   },
 });

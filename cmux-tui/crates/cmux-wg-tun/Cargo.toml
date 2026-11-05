@@ -1,0 +1,29 @@
+[package]
+name = "cmux-wg-tun"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "WireGuard over a macOS utun fd for the opt-in cmux Cloud Tunnel system extension: boringtun with no TCP stack"
+
+[lints]
+workspace = true
+
+# staticlib: linked into the Cloud Tunnel system extension
+# (scripts/cmux-next/build-wg-tun.sh). rlib: the crate's own tests.
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+boringtun.workspace = true
+# WgConfig (the wg-quick parser the userspace hub uses) and TimerSchedule
+# (zero wakeups on an idle tunnel); smoltcp and the rest are dead-stripped.
+cmux-wg = { path = "../cmux-wg" }
+libc.workspace = true
+tokio.workspace = true
+x25519-dalek.workspace = true
+
+[dev-dependencies]
+base64.workspace = true
+getrandom.workspace = true

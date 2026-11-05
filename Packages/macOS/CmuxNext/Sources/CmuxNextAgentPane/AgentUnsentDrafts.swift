@@ -14,10 +14,6 @@ import CmuxNextCompat
 /// set aside, never replaced by an empty or a partial one.
 public final class AgentUnsentDrafts {
     public static let fileName = "agent-unsent-drafts.json"
-    /// A longer text is not kept (acpmux's own draft limit, `Hub::MAX_COMPOSER_DRAFT_CHARS`; the web's
-    /// composerDraft.ts `MAX_DRAFT_CHARS`, pinned equal by composer-draft-orderings.test.tsx).
-    public static let maximumCharacters = 1_000_000
-
     nonisolated private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.unsent-drafts")
     let file: URL?
     /// Saves leave the main thread: typing in a new chat saves every settled edit.
@@ -70,8 +66,11 @@ public final class AgentUnsentDrafts {
     }
 
     /// Keeps the typed text of `model`'s chat for the tab `key` names when it runs, until the chat
-    /// has a session. Call it after the tab's own `onSessionChange` is set.
+    /// has a session. Call it after the tab's own `onSessionChange` is set. It also hands the model
+    /// its tab (``AgentPaneModel/tabKey``), which what a pane keeps per view is kept by: every tab's
+    /// model is wired here, a spare's when a tab adopts it.
     public func wire(_ model: AgentPaneModel, key: @escaping () -> String) {
+        model.tabKey = { key() }
         model.onUnsentDraft = { [weak self] text in self?.typed(text, for: key()) }
         model.onNewChatLeftover = { [weak self] text in
             guard let self, let window = windowOfTab(key()) else { return }
@@ -143,21 +142,14 @@ public final class AgentUnsentDrafts {
             set(text, for: key)
             return
         }
-        // A merge past the limit is refused (`set`): the tab keeps what it had.
         set(Self.isBlank(text) ? kept : Self.merged(typed: text, kept: kept), for: key)
     }
 
     /// Keeps `text` as tab `key`'s draft; blank text forgets it (the tab's chat started or closed,
-    /// or its page cleared a draft it had). A text past ``maximumCharacters`` is refused, as acpmux
-    /// refuses one: the tab keeps the draft it had. Before (cmux#28204 review at b7cddbbf), it was
-    /// taken as no draft, so a merge past the limit removed the saved draft.
-    /// Returns false when the text was refused.
+    /// or its page cleared a draft it had). Draft text is written whole, with no user-facing size
+    /// ceiling. The return value remains true for compatibility with callers.
     @discardableResult
     public func set(_ text: String, for key: String) -> Bool {
-        guard text.unicodeScalars.count <= Self.maximumCharacters else {
-            Self.logger.error("unsent draft past the limit not kept; the previous one stays")
-            return false
-        }
         let value = Self.isBlank(text) ? nil : text
         guard drafts[key] != value else { return true }
         drafts[key] = value

@@ -8,6 +8,7 @@ import { useMemo } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { useToolRunLook } from "../toolRunLook";
+import { FailedCount } from "./FailedCount";
 import { ChevronRight, Envelope } from "./icons";
 import { messageRunSummary } from "./messageRuns";
 import { ToolLabel } from "./ToolVerb";
@@ -44,13 +45,9 @@ export function MessageRunLine({
           <span className="cv-tool__summary">
             <ToolLabel text={summary} />
           </span>
-          {run.failed > 0 && <span className="cv-tool__failed"> {t("tools.failedCount", { n: run.failed })}</span>}
+          <FailedCount n={run.failed} />
         </span>
-        <ChevronRight
-          size={14}
-          strokeWidth={1.2}
-          className={`cv-tool__chevron cv-rotor${expanded ? " is-open" : " is-hover"}`}
-        />
+        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${expanded ? " is-open" : " is-hover"}`} />
       </button>
     </div>
   );

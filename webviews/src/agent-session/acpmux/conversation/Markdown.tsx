@@ -20,13 +20,15 @@ import { renderFence } from "./renderCall";
 import { isRemoteMedia, RemoteMedia } from "../chips/ReplyMedia";
 import { CodeHandoff, PlainCode } from "./StreamingCode";
 import type { Reveal } from "./RevealedMarkdown";
-import { ArxivMark, FileDoc, GitHubMark, Globe, ImageIcon } from "./icons";
+import { ArxivMark, GitHubMark, Globe, ImageIcon } from "./icons";
+import { FileKindIcon } from "../chips/FileKindIcon";
 import { MathDisplay, MathInline } from "./Math";
 import { fenceStep } from "./fenceRule";
 import { closesFence, codeSpans, fenceOpening } from "../slashCommands";
 import { normalizeMath } from "./mathDelimiters";
 import { IncrementalMarkdown, type KeyedBlock } from "./incrementalMarkdown";
-import { linkedText, PathChip, UrlChip } from "../chips/LinkChips";
+import { linkedText, PathChip, SiblingFileChip, UrlChip } from "../chips/LinkChips";
+import { isBareFileName, ReplyFoldersContext, replyFolders } from "../chips/replyFolders";
 import { SoftBroken, softBreakNodes } from "./softBreaks";
 import { BareReferenceChip } from "../chips/BareReferenceChip";
 import { codePath, isTemplatePath, linkPath, pathName, textLinks } from "../chips/paths";
@@ -48,6 +50,8 @@ import { SkillWord } from "./SkillWord";
 import { entranceAllowed } from "../../shared/pageReveal";
 import { isAgentMotionOff } from "../../shared/motion";
 import { animateScroll } from "../threadMinimap/scrollMotion";
+import { SessionRefCode } from "./SessionRef";
+import { agentRef } from "./sessionRefs";
 import { JUMP_CURVE, jumpDuration } from "../threadMinimap/model";
 import { decorateTimes, splitTimeTokens, TimeHover } from "./timeHover";
 
@@ -485,8 +489,8 @@ export const linkIcon = (href: string) => {
   const kind = linkKind(href);
   if (kind === "github") return <GitHubMark size={14} className="cv-link__icon cv-link__icon--gh" />;
   if (kind === "citation") return <ArxivMark size={16} className="cv-link__icon" />;
-  if (kind === "file") return <FileDoc size={16} className="cv-link__icon" />;
-  return <Globe size={16} strokeWidth={1.1} className="cv-link__icon" />;
+  if (kind === "file") return <FileKindIcon path={href} className="cv-link__icon" />;
+  return <Globe size={16} className="cv-link__icon" />;
 };
 
 /// `src/app.ts:12` keeps its line in the chip's label (the chip opens the file).
@@ -672,6 +676,14 @@ function keptCode(raw: string, opts: InlineOptions): string {
   return kept ? (opts.codes![Number(kept[1])] ?? raw) : raw;
 }
 
+const NO_FOLDERS: readonly string[] = [];
+
+/// A link's label: inline Markdown, whose file names are its text, never chips of their own inside
+/// the link's chip.
+function linkLabel(source: string, opts: InlineOptions): ReactNode {
+  return <ReplyFoldersContext.Provider value={NO_FOLDERS}>{renderInline(source, opts)}</ReplyFoldersContext.Provider>;
+}
+
 /** Render inline Markdown (code, bold, italic, strikethrough, links, line breaks). */
 export function renderInline(source: string, outer: InlineOptions = {}): ReactNode[] {
   const refs: string[] = [];
@@ -690,13 +702,24 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
     if (named) out.push(<StartedSessionChip key={k++} mention={named} text={named.text} onOpen={opts.started!.open} />);
     else if (m[1]) {
       const path = codePath(inner);
+      const code = (
+        <code key={k++} className="cv-code">
+          <SoftBroken text={inner} />
+        </code>
+      );
+      // An agent link or a `HOST/NAME` (sessionRefs.ts): a link to the session when it is the
+      // reader's (Leo, 2026-11-03: "these links aren't clickable"); a name stays code until then.
+      const ref = path ? undefined : agentRef(inner);
       out.push(
-        path ? (
+        ref ? (
+          <SessionRefCode key={k++} text={inner} agentRef={ref} fallback={code} />
+        ) : path ? (
           <PathChip key={k++} path={path} written={inner} label={lineLabel(path, inner)} />
+        ) : isBareFileName(inner) ? (
+          // A file name with no folder: its chip when it is in a folder the reply names.
+          <SiblingFileChip key={k++} name={inner} fallback={code} />
         ) : (
-          <code key={k++} className="cv-code">
-            <SoftBroken text={inner} />
-          </code>
+          code
         ),
       );
     } else if (m[2]) out.push(<strong key={k++}>{renderInline(t.slice(2, -2), opts)}</strong>);
@@ -718,35 +741,34 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
       // a chip that opens the header's Needs you list on it, so the ask is never restated. With the
       // list off (not installed from the App Store) it draws as its text, like a link the pane will not open.
       const ask = href ? undefined : needsYouTarget(lm[2]);
-      if (ask && needsYouListOff()) out.push(<Fragment key={k++}>{renderInline(lm[1], labelOpts)}</Fragment>);
+      if (ask && needsYouListOff()) out.push(<Fragment key={k++}>{linkLabel(lm[1], labelOpts)}</Fragment>);
       else if (ask)
         out.push(
           <button key={k++} type="button" className="cv-link is-needs-you" onClick={() => openNeedsYou(ask)}>
             <span className="acpmux-needs-you-dot" aria-hidden="true" />
-            {renderInline(lm[1], labelOpts)}
+            {linkLabel(lm[1], labelOpts)}
           </button>,
         );
       else if (named)
         out.push(<StartedSessionChip key={k++} mention={named} text={lm[1]} onOpen={opts.started!.open} />);
-      else if (path) out.push(<PathChip key={k++} path={path} label={renderInline(lm[1], labelOpts)} />);
+      else if (path) out.push(<PathChip key={k++} path={path} label={linkLabel(lm[1], labelOpts)} />);
       else if (app)
         // A cmux app link: a plain anchor, so the click takes the host's link path (opened in the app).
         out.push(
           <a key={k++} className="cv-link is-app" href={app}>
-            {renderInline(lm[1], labelOpts)}
+            {linkLabel(lm[1], labelOpts)}
           </a>,
         );
       // A template (`${variant}.png`) names no file: its text.
-      else if (!href && isTemplatePath(lm[2]))
-        out.push(<Fragment key={k++}>{renderInline(lm[1], labelOpts)}</Fragment>);
+      else if (!href && isTemplatePath(lm[2])) out.push(<Fragment key={k++}>{linkLabel(lm[1], labelOpts)}</Fragment>);
       else if (linkKind(lm[2]) === "file")
         out.push(
           <span key={k++} className="cv-link is-file">
             {(opts.linkIcon ?? linkIcon)(lm[2])}
-            {renderInline(lm[1], labelOpts)}
+            {linkLabel(lm[1], labelOpts)}
           </span>,
         );
-      else if (!href) out.push(<Fragment key={k++}>{renderInline(lm[1], labelOpts)}</Fragment>);
+      else if (!href) out.push(<Fragment key={k++}>{linkLabel(lm[1], labelOpts)}</Fragment>);
       else
         out.push(
           <UrlChip
@@ -754,7 +776,7 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
             href={href}
             icon={linkKind(href) === "web" ? undefined : (opts.linkIcon ?? linkIcon)(href)}
           >
-            {renderInline(lm[1], labelOpts)}
+            {linkLabel(lm[1], labelOpts)}
           </UrlChip>,
         );
     } else if (m[6]) out.push(<br key={k++} />);
@@ -879,12 +901,12 @@ function InlineImage({ source, opts }: { source: string; opts: InlineOptions }) 
   const fallback = !href ? (
     <span className="cv-link is-image">
       <ImageIcon size={16} className="cv-link__icon" />
-      {renderInline(name, labelOpts)}
+      {linkLabel(name, labelOpts)}
     </span>
   ) : (
     <a className="cv-link is-image" href={href} rel="noreferrer">
       <ImageIcon size={16} className="cv-link__icon" />
-      {renderInline(name, labelOpts)}
+      {linkLabel(name, labelOpts)}
     </a>
   );
   // A file inside the session's folders, or a web image, loads through the host (D5).
@@ -938,6 +960,8 @@ function Block({
   code = "final",
   tail,
   trailing,
+  artifactIdentity,
+  artifactRevision,
 }: {
   block: MdBlock;
   opts: InlineOptions;
@@ -950,6 +974,8 @@ function Block({
   /** The reply's newest characters, which fade in at the end of this, its last block. */
   tail?: FreshTail;
   trailing?: ReactNode;
+  artifactIdentity?: string;
+  artifactRevision?: number;
 }): ReactNode {
   const motion = enter ? " cv-enter" : "";
   const inline = (text: string) => (
@@ -1012,6 +1038,8 @@ function Block({
             depth={depth}
             plain={code === "plain"}
             trailing={trailing}
+            artifactIdentity={artifactIdentity ? `${artifactIdentity}.q` : undefined}
+            artifactRevision={artifactRevision}
           />
         </blockquote>
       );
@@ -1041,6 +1069,8 @@ function Block({
                   depth={depth + 1}
                   plain={code === "plain"}
                   trailing={i === block.items.length - 1 ? trailing : undefined}
+                  artifactIdentity={artifactIdentity ? `${artifactIdentity}.i${i}` : undefined}
+                  artifactRevision={artifactRevision}
                 />
               )}
             </li>
@@ -1055,8 +1085,27 @@ function Block({
         </BlockTail>
       );
     case "code": {
-      if (code === "open") return <PlainCode code={block.code} lang={block.lang} open actions={trailing} />;
-      if (code === "plain") return <PlainCode code={block.code} lang={block.lang} actions={trailing} />;
+      if (code === "open")
+        return (
+          <PlainCode
+            code={block.code}
+            lang={block.lang}
+            actions={trailing}
+            artifactIdentity={artifactIdentity}
+            artifactRevision={artifactRevision}
+            open
+          />
+        );
+      if (code === "plain")
+        return (
+          <PlainCode
+            code={block.code}
+            lang={block.lang}
+            actions={trailing}
+            artifactIdentity={artifactIdentity}
+            artifactRevision={artifactRevision}
+          />
+        );
       // A diagram draws once its fence closes; a Mermaid source still streaming stays code.
       if (isChart(block.lang, block.code) && !(block.open && block.lang.toLowerCase() === "mermaid"))
         return <DiagramBlock lang={block.lang} code={block.code} actions={trailing} />;
@@ -1067,9 +1116,36 @@ function Block({
       // an open one stayed plain code above, so nothing renders mid-stream.
       const preview = block.open ? undefined : inlinePreviewKind(block.lang, block.code);
       if (preview)
-        return <InlinePreview key={block.code} kind={preview} code={block.code} lang={block.lang} actions={trailing} />;
-      if (code === "handoff") return <CodeHandoff code={block.code} lang={block.lang} actions={trailing} />;
-      return <CodeBlock code={block.code} lang={block.lang} actions={trailing} />;
+        return (
+          <InlinePreview
+            key={block.code}
+            kind={preview}
+            code={block.code}
+            lang={block.lang}
+            actions={trailing}
+            artifactIdentity={artifactIdentity}
+            artifactRevision={artifactRevision}
+          />
+        );
+      if (code === "handoff")
+        return (
+          <CodeHandoff
+            code={block.code}
+            lang={block.lang}
+            actions={trailing}
+            artifactIdentity={artifactIdentity}
+            artifactRevision={artifactRevision}
+          />
+        );
+      return (
+        <CodeBlock
+          code={block.code}
+          lang={block.lang}
+          actions={trailing}
+          artifactIdentity={artifactIdentity}
+          artifactRevision={artifactRevision}
+        />
+      );
     }
     case "math":
       return (
@@ -1115,12 +1191,16 @@ function Blocks({
   depth,
   plain = false,
   trailing,
+  artifactIdentity,
+  artifactRevision,
 }: {
   blocks: MdBlock[];
   opts: InlineOptions;
   depth: number;
   plain?: boolean;
   trailing?: ReactNode;
+  artifactIdentity?: string;
+  artifactRevision?: number;
 }) {
   return (
     <>
@@ -1132,6 +1212,8 @@ function Blocks({
             depth={depth}
             code={plain ? "plain" : undefined}
             trailing={i === blocks.length - 1 ? trailing : undefined}
+            artifactIdentity={artifactIdentity ? `${artifactIdentity}.${i}` : undefined}
+            artifactRevision={artifactRevision}
           />
         </Fragment>
       ))}
@@ -1142,12 +1224,43 @@ function Blocks({
 /// The newest revealed text of a streaming reply: its steps and the source suffix they cover.
 export type FreshTail = { steps: Reveal[]; text: string; now: number };
 
+/// The characters that can open or close inline Markdown (or break the line) in a fresh suffix.
+const FRESH_SYNTAX = /[*`_~[\]()$\\\n]/;
+
+/// Whether plain text appended to `prefix` draws as `prefix`'s own drawing followed by that text:
+/// nothing in `prefix` is left open for the text to join (an unpaired `**`, `` ` ``, `$` or `[`, a
+/// link's `](` with no `)` yet, or a trailing backslash). A plain `(` opens nothing, so text inside
+/// parentheses still fades. Conservative: an odd `_` inside a word also says no.
+function closedInline(prefix: string): boolean {
+  if (prefix.endsWith("\\")) return false;
+  const count = (char: string) => prefix.split(char).length - 1;
+  const link = prefix.lastIndexOf("](");
+  return (
+    ["*", "`", "_", "~", "$"].every((char) => count(char) % 2 === 0) &&
+    count("[") === count("]") &&
+    (link < 0 || prefix.indexOf(")", link) >= 0)
+  );
+}
+
 /// `text` with its newest characters in spans that fade in (`.cv-fresh`). Each span keeps its key
 /// and a negative animation delay, so a re-render never restarts its fade. Only plain trailing
-/// text fades by step; a suffix with Markdown syntax or a line break draws as usual.
+/// text fades by step: when the newest text has Markdown syntax or a line break in it, the plain
+/// words after the last of those still fade, as long as nothing before them is left open; else
+/// it draws as usual. Skipping the whole fade on any `(`, `` ` `` or line break left most replies
+/// with none (Leo, 2026-11-03: "hey even u have that text fading in! i want that...").
 function renderFresh(text: string, tail: FreshTail, opts: InlineOptions): ReactNode[] {
-  const fresh = tail.text.trimEnd();
-  if (!fresh || !text.endsWith(fresh) || /[*`_~[\]()$\\\n]/.test(fresh)) return renderInline(text, opts);
+  let fresh = tail.text.trimEnd();
+  if (!fresh || !text.endsWith(fresh)) return renderInline(text, opts);
+  if (FRESH_SYNTAX.test(fresh)) {
+    let last = fresh.length - 1;
+    while (last >= 0 && !FRESH_SYNTAX.test(fresh[last]!)) last -= 1;
+    fresh = fresh.slice(last + 1);
+    const prefix = text.slice(0, text.length - fresh.length);
+    if (!fresh.trim() || !closedInline(prefix)) return renderInline(text, opts);
+    // A closer at the prefix's end that a following word character (or `:`) would cancel (italic
+    // `_x_`/`*x*`, inline math `$x$`, a footnote `[^1]`) would draw for the fade and then flip.
+    if (/[*_$\]]$/.test(prefix) && /^[\w:]/.test(fresh)) return renderInline(text, opts);
+  }
   const out = renderInline(text.slice(0, text.length - fresh.length), opts);
   let end = fresh.length;
   const spans: ReactNode[] = [];
@@ -1181,6 +1294,8 @@ export type MarkdownProps = InlineOptions & {
   now?: number;
   /** Fences draw as plain lines, never a highlighted diff card (review comments inside a diff). */
   plainCode?: boolean;
+  artifactIdentity?: string;
+  artifactRevision?: number;
   /** Epoch timestamp of the message, used to date bare UTC clock times. */
   messageAt?: number;
 };
@@ -1199,6 +1314,8 @@ export function Markdown({
   now = 0,
   githubRepository,
   plainCode = false,
+  artifactIdentity,
+  artifactRevision,
   commits,
   thumbnails,
   messageAt,
@@ -1232,6 +1349,10 @@ export function Markdown({
   // The reveal clock can re-render a streaming reply while its source is unchanged. Keep the
   // full footnote scan on source changes instead of repeating it for each animation frame.
   const noteIds = useMemo(() => footnoteOrder(children).join(" "), [children]);
+  // The folders this reply's paths are in, joined so a streaming reply keeps the same value (and
+  // its memoized blocks) until a new folder arrives; its bare file names may be files there.
+  const folderKey = useMemo(() => replyFolders(children).join("\n"), [children]);
+  const folders = useMemo(() => (folderKey ? folderKey.split("\n") : []), [folderKey]);
   // The reply's data URL budget; only a reply longer than the budget can pass it.
   const budgetSource = children.length > MAX_REPLY_DATA_URLS ? children : "";
   const overBudget = useMemo(() => dataUrlsOverBudget(budgetSource), [budgetSource]);
@@ -1255,6 +1376,8 @@ export function Markdown({
   }, [commits, githubRepository, linkIcon, noteIds, notePrefix, overBudget, started, thumbnails, skills, commonmark]);
   // Fences this reply drew open: they hand over to the highlighted card once, when they close.
   const streamedFences = useRef(new Set<string>());
+  // A later token must not invalidate every completed code block's memoized props.
+  const artifactRevisions = useRef(new WeakMap<MdBlock, number | undefined>());
   const freshChars = fresh?.reduce((sum, step) => sum + step.count, 0) ?? 0;
   // Only a revealed reply (RevealedMarkdown passes `fresh`) fades its newest text in.
   const freshTail: FreshTail | undefined =
@@ -1266,6 +1389,7 @@ export function Markdown({
   // return, shared/pageReveal.ts). It still hands its code over like any live block.
   const away = streaming && !entranceAllowed();
   const draw = (entry: KeyedBlock, index: number) => {
+    if (!artifactRevisions.current.has(entry.block)) artifactRevisions.current.set(entry.block, artifactRevision);
     const live = !atMount.current!.has(entry.key);
     if (live && away) awayBlocks.current.add(entry.key);
     // The last block is a fence still arriving. Read from the parsed (safe) tail, not the raw
@@ -1284,6 +1408,8 @@ export function Markdown({
         code={open ? "open" : plainCode ? "plain" : live || streamedFences.current.has(entry.key) ? "handoff" : "final"}
         tail={index === blocks.length - 1 ? freshTail : undefined}
         trailing={index === trailingIndex ? trailing : undefined}
+        artifactIdentity={artifactIdentity ? `${artifactIdentity}\u0000${entry.key}` : undefined}
+        artifactRevision={artifactRevisions.current.get(entry.block)}
       />
     );
   };
@@ -1296,13 +1422,15 @@ export function Markdown({
   // Notes are displayed in reference order, which may differ from their source order.
   const trailingIndex = notes.at(-1)?.index ?? blocks.length - 1;
   return (
-    <div className={`cv-md selectable ${className}`}>
-      {blocks.map((entry, index) => (entry.block.type === "footnote" ? null : draw(entry, index)))}
-      {notes.length > 0 && (
-        <section className="cv-footnotes" role="doc-endnotes">
-          <ol>{notes.map(({ entry, index }) => draw(entry, index))}</ol>
-        </section>
-      )}
-    </div>
+    <ReplyFoldersContext.Provider value={folders}>
+      <div className={`cv-md selectable ${className}`}>
+        {blocks.map((entry, index) => (entry.block.type === "footnote" ? null : draw(entry, index)))}
+        {notes.length > 0 && (
+          <section className="cv-footnotes" role="doc-endnotes">
+            <ol>{notes.map(({ entry, index }) => draw(entry, index))}</ol>
+          </section>
+        )}
+      </div>
+    </ReplyFoldersContext.Provider>
   );
 }

@@ -1,7 +1,7 @@
 #if os(iOS)
 import AVFoundation
 import CmuxMobileDesign
-import CmuxMobileSupport
+import CmuxMobileRealtime
 import CmuxMobileTransport
 import PhotosUI
 import QuickLookThumbnailing
@@ -9,8 +9,8 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 /// The composer row (classic cmux iOS's terminal composer): a paperclip
-/// menu (Photo Library, Choose Files, Paste, Camera) and a mic in 40 pt glass
-/// circles, then the growing field in a rounded glass container with the send
+/// menu (Photo Library, Choose Files, Paste, Camera) and voice mode in 40 pt
+/// glass circles, then the growing field in a rounded glass container with the send
 /// circle inside it, riding the last line. Send delivers the draft as one
 /// paste plus Return (`ComposerSubmit`); Return in the field starts a new line.
 /// It sits below the key row, nearest the keyboard, and is open by default.
@@ -18,10 +18,7 @@ struct TerminalComposer: View {
     @Bindable var model: TerminalModel
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var showCamera = false
-    /// On-device dictation into the field (classic's controller, shared).
-    /// Owned here so it never outlives the composer: it stops on send, on
-    /// focus loss and when the composer goes away.
-    @State private var dictation = ComposerDictationController()
+    private let voice = AgentVoiceLauncher.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -63,7 +60,7 @@ struct TerminalComposer: View {
             GlassEffectContainer(spacing: 0) {
                 HStack(alignment: .bottom, spacing: 8) {
                     if model.attachmentsAvailable { attachMenu }
-                    micButton
+                    if let source = model.voiceSource, source.voiceAvailable, voice.isAvailable { voiceButton(source) }
                     fieldContainer
                 }
             }
@@ -77,17 +74,6 @@ struct TerminalComposer: View {
         }
         .animation(.smooth(duration: 0.3), value: model.attachments.count)
         .onChange(of: model.composerText) { _, _ in model.composerEdited() }
-        .onChange(of: model.composerFocused) { _, focused in
-            // The person moved on: keep what was said (a graceful stop), unless
-            // dictation's own field lock took the focus.
-            if !focused, !dictation.locksComposerField { dictation.stop() }
-        }
-        .onDisappear { dictation.cancel() }
-        // Closing the composer or Hide Toolbar only hides this view, so it
-        // never disappears: the mic stops here instead.
-        .onChange(of: model.composerPresented && !model.chromeHidden) { _, shown in
-            if !shown { dictation.cancel() }
-        }
         // Shown with a fade; gone at once when following starts (a Jump to
         // bottom tap: qa11 wt-fling-c, the row still drawn after the page
         // reached the bottom, and the card shrinking over 0.2 s moved the
@@ -140,24 +126,22 @@ struct TerminalComposer: View {
         .accessibilityIdentifier("terminal.composer.attach")
     }
 
-    /// The mic: on-device dictation into the field (classic). Listening, it
-    /// is a pulsing red filled mic and the field is locked so a typed edit is
-    /// never overwritten by the next result.
-    private var micButton: some View {
-        let listening = dictation.state.isListening
+    /// Voice mode on this terminal's agent (replaces classic's dictation
+    /// mic): its replies read aloud, the user's speech typed in as prompts.
+    /// Filled and moving while it runs here; a tap ends it.
+    private func voiceButton(_ source: any AgentVoiceSource) -> some View {
+        let active = voice.isActive(source.voiceSourceID)
         return Button {
-            dictation.toggle(existingText: model.composerText) { merged in
-                model.composerText = merged
-            }
+            voice.toggle(source)
         } label: {
-            ComposerCircleLabel(systemImage: listening ? "mic.fill" : "mic",
-                                foreground: listening ? AnyShapeStyle(Color.red) : AnyShapeStyle(Color.primary.opacity(0.78)))
-                .symbolEffect(.pulse, isActive: listening)
+            ComposerCircleLabel(systemImage: "waveform",
+                                foreground: active ? AnyShapeStyle(Color.cmuxMobileOnAccent) : AnyShapeStyle(Color.primary.opacity(0.78)),
+                                tint: active ? Color.cmuxMobileAccent : nil)
+                .symbolEffect(.variableColor.iterative, isActive: active)
         }
         .buttonStyle(.plain)
-        .disabled(!dictation.isAvailable)
-        .accessibilityLabel(listening ? "Stop dictation" : "Start dictation")
-        .accessibilityIdentifier("terminal.composer.mic")
+        .accessibilityLabel(active ? "End Voice Mode" : "Voice Mode")
+        .accessibilityIdentifier("terminal.composer.voice")
     }
 
     /// The field and its send circle share one rounded glass container; the
@@ -169,7 +153,7 @@ struct TerminalComposer: View {
                 placeholder: model.composerPlaceholder,
                 focusRequest: model.composerFocusRequest,
                 focusOnAppear: model.composerFocusOnAppear,
-                isDisabled: dictation.locksComposerField,
+                isDisabled: false,
                 onFocusChange: { isFocused in
                     model.composerFocused = isFocused
                     if isFocused { model.composerFocusOnAppear = false }
@@ -218,7 +202,6 @@ struct TerminalComposer: View {
         .disabled(model.isUploading || !canSend)
         .contextMenu {
             Button("Send without Return", systemImage: "arrow.up.to.line") {
-                dictation.cancel()
                 model.sendWithoutReturn()
             }
         }
@@ -226,10 +209,7 @@ struct TerminalComposer: View {
         .accessibilityIdentifier("terminal.composer.send")
     }
 
-    /// Dictation stops before a send, so the draft sent is the field's text
-    /// now and no late result writes into the cleared field (classic).
     private func send() {
-        dictation.cancel()
         model.send()
     }
 
@@ -337,13 +317,15 @@ struct TerminalComposer: View {
 struct ComposerCircleLabel: View {
     let systemImage: String
     var foreground = AnyShapeStyle(Color.primary.opacity(0.78))
+    /// On (voice mode running): glass tinted like the send circle.
+    var tint: Color?
 
     var body: some View {
         Image(systemName: systemImage)
             .font(.system(size: 15, weight: .semibold))
             .foregroundStyle(foreground)
             .frame(width: TerminalDockMetrics.control, height: TerminalDockMetrics.control)
-            .glassSurface(in: .circle)
+            .glassEffect(tint.map { .regular.tint($0).interactive() } ?? .regular.interactive(), in: .circle)
             .contentShape(.circle)
     }
 }

@@ -9,6 +9,9 @@ public struct ProvisionalPane: Sendable, Hashable {
     private static let handleBase: UInt64 = 1 << 62
     /// The lowest stand-in handle: a pane handle at or above it is a stand-in.
     static let firstHandle: UInt64 = handleBase
+
+    /// Whether `handle` is a stand-in's: a pane the daemon has not made, whose commands it refuses (`PaneNotReady`).
+    public static func isStandIn(_ handle: PaneID) -> Bool { handle.rawValue >= firstHandle }
     @MainActor private static var next: UInt64 = 0
 
     /// The provisional pane's handle in the store.

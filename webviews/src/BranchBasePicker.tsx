@@ -1,5 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useScrollEdges } from "./ui/scrollEdges";
+import "./ui/popupSurface.css";
 import { Icon } from "./icons";
 import type { DiffViewerLabelResolver, DiffViewerLabelKey } from "./labels";
 import type { DiffTransport } from "./diff/transport";
@@ -167,6 +169,7 @@ export function BranchBasePicker({
   transport?: DiffTransport | null;
 }) {
   const [open, setOpen] = useState(false);
+  const listEdges = useScrollEdges();
   const [query, setQuery] = useState("");
   const [groups, setGroups] = useState<BranchPickerGroup[] | null>(null);
   const [loadState, setLoadState] = useState<"idle" | "loading" | "error">("idle");
@@ -393,7 +396,7 @@ export function BranchBasePicker({
         ? createPortal(
             <div
               ref={popoverRef}
-              className="base-picker-popover"
+              className="base-picker-popover ui-popup ui-glass"
               // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
               role="dialog"
               aria-label={label("branchPickerOpen")}
@@ -424,8 +427,14 @@ export function BranchBasePicker({
               ) : null}
               {/* Searchable command-palette listbox; a native select/datalist cannot
               render grouped rows with secondaries, pills, and matched bolding. */}
-              {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
-              <div id={listboxId} className="base-picker-list" role="listbox" aria-label={label("branchPickerOpen")}>
+              <div
+                ref={listEdges}
+                id={listboxId}
+                className="base-picker-list ui-scroll-edge-fade"
+                // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+                role="listbox"
+                aria-label={label("branchPickerOpen")}
+              >
                 {loadState === "error" ? (
                   <div className="base-picker-status base-picker-status-error">{label("branchPickerLoadFailed")}</div>
                 ) : null}

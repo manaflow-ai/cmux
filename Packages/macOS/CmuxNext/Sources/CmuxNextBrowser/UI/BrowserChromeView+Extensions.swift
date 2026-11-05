@@ -31,14 +31,10 @@ extension BrowserChromeView {
     /// button when it is not shown).
     public func showExtensionItemMenu(_ id: String) { extensionToolbar.showItemMenu(id) }
 
-    /// Opens the Extensions menu (or `id`'s menu) on the next run-loop turn,
-    /// for callers that must return first (CLI, palette, debug socket). The
-    /// menu's tracking loop then runs in a run-loop callout, not inside a
-    /// main-queue job, so main-actor work (control calls) keeps running
-    /// while it is open.
-    /// The tab has the extension toolbar but the Extensions button is not
-    /// shown, so More offers the Extensions menu (cx-d0d.81). The button now
-    /// shows on every Chromium tab, so this holds only while it is unbound.
+    /// Opens the Extensions menu (or `id`'s menu) on the next run-loop turn, for callers that must return first
+    /// (CLI, palette, debug socket): its tracking loop runs in a run-loop callout, so main-actor work keeps running.
+    /// The tab has the extension toolbar but the Extensions button is not shown, so More offers the Extensions
+    /// menu (cx-d0d.81). The button now shows on every Chromium tab, so this holds only while it is unbound.
     public var offersExtensionsMenuInMore: Bool {
         extensionToolbar.host != nil && !extensionToolbar.isShowingExtensions
     }
@@ -74,10 +70,9 @@ extension BrowserChromeView {
         return extensionToolbar.menuController.report?.map { ($0.title, $0.identifier, $0.extensionID, $0.isEnabled) }
     }
 
-    /// Chooses an item of the open Extensions bubble or extension menu as a click would: a row
-    /// control (`run`, `pin`, `unpin`, `more`) of `extensionID`, `manage`, `close`, or an
-    /// extension menu operation (`options`, `remove`, `siteAccess`, `homePage`,
-    /// `manageExtension`, `webPermissions`, `pin`, `unpin`). False when no item matches.
+    /// Chooses an item of the open Extensions bubble or extension menu as a click would: a row control (`run`, `pin`,
+    /// `unpin`, `more`) of `extensionID`, `manage`, `close`, or an extension menu operation (`options`, `remove`,
+    /// `siteAccess`, `homePage`, `manageExtension`, `webPermissions`, `pin`, `unpin`). False when no item matches.
     public func chooseInExtensionsMenu(_ operation: String, extension extensionID: String?) -> Bool {
         if let menu = extensionToolbar.presentedMenu, let extensionID,
            let index = menu.items.firstIndex(where: { $0.identifier?.rawValue == "\(ExtensionsMenu.moreIdentifier(extensionID)).\(operation)" }) {
@@ -90,7 +85,7 @@ extension BrowserChromeView {
 
     /// Closes the open extension menu, else the Extensions bubble.
     public func dismissExtensionsMenu() {
-        if let menu = extensionToolbar.presentedMenu { menu.cancelTracking() } else { extensionToolbar.menuController.dismiss() }
+        if let menu = extensionToolbar.presentedMenu { menu.cancelTracking() } else { extensionToolbar.menuControllerIfMade?.dismiss() }
     }
 
     /// What the toolbar shows now (`debug.extensions.toolbar`).
@@ -125,8 +120,11 @@ extension BrowserChromeView {
     }
 
     public override func setFrameSize(_ newSize: NSSize) {
-        let widthChanged = newSize.width != frame.width
+        let widthChanged = newSize.width != frame.width, grew = frame.size == .zero && newSize != .zero
         super.setFrameSize(newSize)
+        // A relaunch's restored tab: its chrome made at zero and sized in the pass that shows it drew its toolbar empty
+        // for a frame (address bar and buttons at 0x0), then filled in. Its constraints are solved now, in that pass.
+        if grew, window != nil { layoutSubtreeIfNeeded() }
         guard widthChanged else { return }
         // A popup hangs off a toolbar button that moves or collapses now.
         extensionToolbar.hidePopups()
@@ -140,6 +138,7 @@ extension BrowserChromeView {
         else {
             updateColors()
             renderPrompt()
+            if frame.size != .zero, toolbar.frame.size == .zero { layoutSubtreeIfNeeded() } // sized before it had a window
         }
         headerBandReattachIfInstalled()
         syncPageOverlays()
@@ -157,6 +156,8 @@ extension BrowserChromeView {
     /// back into the window (R55). The pane re-pins its header band itself.
     public override func viewDidUnhide() {
         super.viewDidUnhide()
+        // Shown during its pane's key hold (a tab switch): it follows the pane from this frame (FRAME OWNER S3).
+        (superview as? PaneContentAreaView)?.followerDidShow()
         guard window != nil else { return }
         updateColors()
         renderPrompt()
@@ -167,7 +168,7 @@ extension BrowserChromeView {
     public func region(of view: NSView) -> Region? {
         guard view.isDescendant(of: self) else { return nil }
         if view.isDescendant(of: addressBar) { return .addressBar }
-        if view.isDescendant(of: findBar) { return .findBar }
+        if let findBar = pageBars.findBarIfMade, view.isDescendant(of: findBar) { return .findBar }
         if view.isDescendant(of: tab.contentView) { return .page }
         return .chrome
     }
@@ -191,19 +192,6 @@ extension BrowserChromeView {
             margin: OmnibarStyle.barMargin, preferredAddress: Metrics.tabMaxWidth,
             minimumAddress: BrowserMetrics.minimumAddressWidth
         )
-    }
-
-    /// Records finished loads for omnibar suggestions.
-    func recordHistory(_ state: BrowserTabState) {
-        guard let history, case .finished = state.phase, let url = state.url else { return }
-        if url != recordedURL {
-            recordedURL = url
-            recordedTitle = state.title
-            history.recordVisit(url: url, title: state.title, at: Date())
-        } else if let title = state.title, title != recordedTitle {
-            recordedTitle = title
-            history.updateTitle(title, for: url)
-        }
     }
 }
 
@@ -240,8 +228,5 @@ public struct BrowserToolbarReport: Equatable, Sendable {
 extension BrowserChromeView {
     /// The tab was restored showing `url` (relaunch, hibernation wake): its
     /// first load of that page is not recorded as a new visit.
-    public func markRestored(_ url: URL?) {
-        guard let url, recordedURL == nil else { return }
-        recordedURL = url
-    }
+    public func markRestored(_ url: URL?) { loads.markRestored(url) }
 }

@@ -205,16 +205,16 @@ pub(super) fn permission_note(id: &str, request: &Value, shown: bool) -> String 
     };
     let who = if shown {
         format!(
-            "Only the user can allow it, with the Allow button in {id}'s workspace; tell them in one line if it matters."
+            "Only the user can allow it, with the Allow button in Home or {id}'s workspace; tell them in one line if it matters."
         )
     } else {
         format!(
-            "Nobody can allow it: the app shows no working Allow button for {id}. The host denies it after {} s; a hidden local subagent's Allow button shows once control(action: \"show\", id: \"{id}\") opens its workspace.",
-            crate::approval::PERMISSION_WAIT.as_secs()
+            "No working local Allow button is confirmed yet for {id}. An eligible hidden local request appears in Home as an Allow/Deny card; any other opens its workspace, or control(action: \"show\", id: \"{id}\") does."
         )
     };
+    let deadline = crate::approval::PERMISSION_WAIT.as_secs();
     format!(
-        "[{id}] waits on a prompt: {title}{input}\nOptions: {options}\n{who} Deny it: control(action: \"answer\", id: \"{id}\", option: \"deny\"). Or steer it: control(action: \"interrupt\", id: \"{id}\", message: \"do this instead\")."
+        "[{id}] waits on a prompt: {title}{input}\nOptions: {options}\n{who} With neither a delivered Home card nor a local workspace, the host denies an unanswered request after {deadline} s. Deny it: control(action: \"answer\", id: \"{id}\", option: \"deny\"). Or steer it: control(action: \"interrupt\", id: \"{id}\", message: \"do this instead\")."
     )
 }
 
@@ -226,9 +226,6 @@ impl Brain {
         }
         if call.action == "cloud" {
             return self.control_cloud(call.peer.as_deref());
-        }
-        if call.action == "sessions" {
-            return self.control_sessions(call.n.unwrap_or(0));
         }
         if call.action == "status" && call.id.is_none() {
             return Ok(self.status_all());
@@ -548,7 +545,7 @@ impl Brain {
             out.push_str(&permission_note(
                 &sub.id,
                 &p.request,
-                Self::approval_shown(sub),
+                self.approval_shown(sub),
             ));
         }
         out
@@ -661,6 +658,7 @@ impl Brain {
         };
         match self.agents.respond_permission(&session, &p.id, answer) {
             Ok(()) => {
+                self.cancel_home_approval(id);
                 if let Some(sub) = self.state.sub_mut(id) {
                     sub.permission = None;
                 }
@@ -685,7 +683,7 @@ impl Brain {
                 // allow it, or, with no working button for it, it is denied
                 // so the subagent goes on.
                 (self.log)(&format!("allowing {id}'s prompt {}: {e}", p.id));
-                let shown = Self::approval_shown(sub);
+                let shown = self.approval_shown(sub);
                 let what = crate::approval::describe(
                     &crate::approval::tool_name(&p.request),
                     p.request.pointer("/toolCall/rawInput"),
@@ -694,13 +692,13 @@ impl Brain {
                     self.tell_person_once(
                         &p.id,
                         &format!(
-                            "{id} waits for your approval to {what}: use the Allow button in its workspace."
+                            "{id} waits for your approval to {what}: use the Allow button in Home or its workspace."
                         ),
                     );
                     return outcome(
                         "refused",
                         format!(
-                            "{id}'s prompt was not allowed: only the user can allow, with the Allow button in {id}'s workspace, and they were just told so in the chat. Do not try to allow it again; you may deny it or steer it: control(action: \"interrupt\", id: \"{id}\", message: \"...\")"
+                            "{id}'s prompt was not allowed: only the user can allow, with the Allow button in Home or {id}'s workspace, and they were just told so in the chat. Do not try to allow it again; you may deny it or steer it: control(action: \"interrupt\", id: \"{id}\", message: \"...\")"
                         ),
                     );
                 }
@@ -752,7 +750,7 @@ impl Brain {
     /// Posts `text` to the person in the main conversation, in the front
     /// desk's voice, once per `permission` (a model that relays the same
     /// "allow" again posts nothing more).
-    fn tell_person_once(&mut self, permission: &str, text: &str) {
+    pub(super) fn tell_person_once(&mut self, permission: &str, text: &str) {
         let Some(conversation) = self.state.conversation.clone() else {
             return;
         };
@@ -877,6 +875,7 @@ impl Brain {
             s.inbox.clear();
             s.after_stop = None;
         }
+        self.sign_ins.abandoned(id);
         self.save();
         // No longer at work: its slot frees now, not when its turn ends.
         self.start_queued();
@@ -1077,6 +1076,12 @@ impl Brain {
             json!({"id": agent, "site": request.site, "kind": request.kind}),
         );
         self.queue_urgent(request.note(agent));
+        // The person's part waits in the Feed's Needs you until it is done.
+        let session = self
+            .state
+            .sub(agent)
+            .and_then(|(_, s)| s.session_id.clone());
+        self.sign_ins.opened(agent, request, session.as_deref());
         Ok(format!(
             "outcome: done. Your Chief has it now, ahead of its other work: it opens {url} in Home's right pane, fills what it may, presses the passkey or security-key button so macOS shows Touch ID, and asks the user to touch the sensor. It tells you when {site} is signed in. Until then do the parts that need no sign-in; never read or type a password, and do not escalate {site} again.",
             url = request.url,
@@ -1335,7 +1340,10 @@ mod tests {
         assert!(note.starts_with("[a3] waits on a prompt: Bash: rm -rf build"));
         assert!(note.contains("allow_once (Allow), reject (Reject)"));
         assert!(note.contains("Only the user can allow it"));
-        assert!(permission_note("a3", &request, false).contains("Nobody can allow it"));
+        assert!(note.contains("With neither a delivered Home card nor a local workspace, the host denies an unanswered request after 120 s."));
+        let undelivered = permission_note("a3", &request, false);
+        assert!(undelivered.contains("No working local Allow button is confirmed yet"));
+        assert!(undelivered.contains("after 120 s."));
     }
 
     #[test]

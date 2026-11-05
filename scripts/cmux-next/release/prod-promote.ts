@@ -69,8 +69,8 @@ export const SOAK_MINUTES = 60
 export const SPACING_HOURS = 6
 export const STALE_HOURS = 24
 export const STALE_COMMITS = 20
-/** G7: production vars whose change spends money, sends messages or opens a service-binding surface; each new value needs an approval. */
-export const GUARDED_VAR = /^(INFERENCE_|AUTOMATION_CAP_|HOME_INVITES_SEND$|HOME_INVITES_TEXT$|CHIEF_BRAIN_|CHIEF_CREDITS_|CHIEF_RUN_TOKEN_CAP_USD$|CLOUD_PLAN_ENTITLEMENTS$|PLATFORM_MACHINES$)/
+/** G7: production vars whose change spends money, sends messages or opens a service-binding surface (PLATFORM_SURFACES: requests forwarded to cmux-platform); each new value needs an approval. */
+export const GUARDED_VAR = /^(INFERENCE_|AUTOMATION_CAP_|HOME_INVITES_SEND$|HOME_INVITES_TEXT$|CHIEF_BRAIN_|CHIEF_CREDITS_|CHIEF_RUN_TOKEN_CAP_USD$|CLOUD_PLAN_ENTITLEMENTS$|PLATFORM_MACHINES$|PLATFORM_SURFACES$)/
 
 export interface Approvals {
   /** Secrets production must have before any deploy (names). */
@@ -258,6 +258,8 @@ export const stagingRuns = async (limit = 30): Promise<Array<StagingRun>> => {
     const jobs = (await gh(`/actions/runs/${run.id}/jobs?per_page=100`)).jobs as Array<any>
     const job = jobs.find((j) => j.name === "deploy-staging")
     if (!job || job.conclusion === "skipped") continue
+    // A source-fenced stale run made no staging mutation and contributes no soak evidence.
+    if ((job.steps as Array<any>).some((s) => s.name === "Newer deployment inputs already queued; skip" && s.conclusion === "success")) continue
     const smoke = (job.steps as Array<any>).find((s) => String(s.name).startsWith("Smoke the API Worker"))
     // G1 proves the tests too: the run's test and migrations-push-guard jobs passed.
     const passed = (name: string) => jobs.some((j) => j.name === name && j.conclusion === "success")

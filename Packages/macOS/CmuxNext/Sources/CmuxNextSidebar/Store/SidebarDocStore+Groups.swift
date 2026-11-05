@@ -35,6 +35,16 @@ extension SidebarDocStore {
         }
     }
 
+    /// Stores how group `group` lists its workspaces (`extra.sort`; manual removes it), one undo step. The stored
+    /// order stays: `arrange` lists the members in the sort, and Manual lists the stored order again. A change
+    /// refused at once throws its message (`workspaceGroup.setSort` reports it).
+    public func setGroupSort(_ group: GroupID, _ sort: SidebarGroupSort) throws(SidebarDocSendRefusal) {
+        try sendChecked(ops: [["op": "group.update", "id": item(group: group), "patch": ["sort": sort.rawValue]]], title: GroupEditorStrings.sortUndo)
+    }
+
+    /// How group `group` lists its workspaces now: manual when the document holds no sort for it.
+    public func groupSort(_ group: GroupID) -> SidebarGroupSort { records.items[item(group: group)]?.sort ?? .manual }
+
     /// The document item of group `group` (`SidebarDocRecords.groupItem(personal:)`: `itm_g_<id>` for a personal
     /// group, the id itself for a group the document made or an item id); the id as it is when the document holds
     /// no such group (one just created, still in flight). An edit named by the personal id (`grp_…`) was refused

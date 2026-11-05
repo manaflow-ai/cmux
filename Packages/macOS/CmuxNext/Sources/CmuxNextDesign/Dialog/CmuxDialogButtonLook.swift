@@ -40,8 +40,10 @@ public nonisolated struct CmuxDialogButtonLook: Equatable, Sendable {
     /// The least contrast of every ink on every surface under it.
     public static let minimumContrast = 4.5
 
+    /// `quiet` draws a destructive button as red text with no fill at rest, a faint danger wash under the
+    /// pointer (``CmuxDialogSpec/Layout/safeDefault``: the choices a person should not reach for first).
     public init(role: CmuxDialogButton.Role, tokens: ThemeTokens, state: State = .rest, filledDestructive: Bool = true,
-                card: [ThemeRGB]? = nil) {
+                quiet: Bool = false, card: [ThemeRGB]? = nil) {
         let card = card ?? Self.cardSurfaces(tokens)
         // Hover and pressed move a solid fill toward the card a little, a translucent one up a step.
         let step = switch state { case .rest: 0.0; case .hover: 0.1; case .pressed: 0.2 }
@@ -51,6 +53,9 @@ public nonisolated struct CmuxDialogButtonLook: Equatable, Sendable {
         case .default:
             fill = tokens.accent.withAlpha(1).mixed(toward: card[0], step)
             ink = tokens.onAccent.withAlpha(1)
+        case .destructive where quiet:
+            fill = tokens.danger.withAlpha(step * 0.6)
+            ink = tokens.danger.withAlpha(1)
         case .destructive where filledDestructive:
             fill = tokens.danger.withAlpha(1).mixed(toward: card[0], step)
             ink = tokens.onAccent.withAlpha(1).contrast(with: fill) >= tokens.textPrimary.contrast(with: fill)

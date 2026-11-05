@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
+import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextLayout
 import CmuxNextSidebar

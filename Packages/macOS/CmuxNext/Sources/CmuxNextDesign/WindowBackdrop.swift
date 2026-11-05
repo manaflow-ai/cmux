@@ -46,6 +46,10 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
 
     /// Whether the window is opaque (no material).
     public var isOpaque: Bool { material == .opaque }
+    /// Whether a picture covers everything behind the window: see-through to the picture and its
+    /// veil only, never to the desktop or other windows (Window Glass's picture is itself
+    /// see-through). A reading page can then be clear (`--cmux-reading-background`).
+    public var hidesWhatIsBehind: Bool { selection != nil && !isOpaque && artOpacity >= 1 }
     /// Panes (and the views behind a surface) paint the background only in
     /// an opaque window. Over a material the root's tint is the one
     /// translucent sheet and every layer above it stays clear, so the

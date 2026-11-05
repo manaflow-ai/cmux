@@ -282,13 +282,16 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     }
 
     func pick(_ color: GroupColor) {
-        showChosen(.palette(color))
-        onColor?(.palette(color))
+        // The first dot is spoken "No color" (`GroupEditorStrings.colorName`): it clears the color, as the menu's ⊘ does,
+        // instead of storing a grey band.
+        let tint: GroupTint = color == .grey ? .none : .palette(color)
+        showChosen(tint)
+        onColor?(tint)
     }
 
-    /// The chosen ring: a palette dot, or the custom dot showing its color.
+    /// The chosen ring: a palette dot (the "No color" dot for no color), or the custom dot showing its color.
     private func showChosen(_ tint: GroupTint) {
-        for swatch in swatches { swatch.isChosen = tint == .palette(swatch.color) }
+        for swatch in swatches { swatch.isChosen = tint == .palette(swatch.color) || (tint.isNone && swatch.color == .grey) }
         if case .custom = tint { customSwatch.custom = tint } else { customSwatch.custom = nil }
         customSwatch.isChosen = customSwatch.custom != nil
     }

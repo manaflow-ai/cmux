@@ -6,7 +6,6 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
-import { effortLevel } from "./support/effortDropdown";
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, { had: boolean; value: unknown }>();
@@ -193,21 +192,18 @@ async function mount(
   };
 }
 
-/** The menu open last (a submenu opens over its menu): the newest element whose role is menu. */
+/** The open model menu: New Tab's has a harness rail, so the button opens the columns. */
 const popup = () => {
-  const menu = [...dom.window.document.querySelectorAll<HTMLElement>('[role="menu"]')].at(-1);
-  expect(menu, "an open menu").toBeDefined();
+  const menu = dom.window.document.querySelector<HTMLElement>(".acpmux-cols");
+  expect(menu ?? undefined, "an open menu").toBeDefined();
   return menu!;
 };
-/** That menu's own rows a click can pick: not a nested menu's, not a disabled one. */
+/** The rows a click can pick (models, levels, Fast), not a disabled one. */
 const items = () =>
-  [...popup().querySelectorAll<HTMLElement>('[role^="menuitem"]')].filter(
-    (row) =>
-      row.closest('[role="menu"]') === popup() &&
-      row.getAttribute("aria-disabled") !== "true" &&
-      !row.hasAttribute("disabled"),
+  [...popup().querySelectorAll<HTMLElement>('[role="option"], [role="radio"], [role="switch"]')].filter(
+    (row) => row.getAttribute("aria-disabled") !== "true",
   );
-const label = (item: Element) => item.querySelector(".acpmux-menu-label")?.textContent ?? "";
+const label = (item: Element) => item.querySelector(".acpmux-cols-name")?.textContent ?? "";
 /** Clicks the one enabled row named `name`; two rows of that name fail rather than pick either. */
 async function pick(name: string) {
   const matches = items().filter((entry) => label(entry) === name);
@@ -226,17 +222,18 @@ test("a classic New Tab starts its deferred chat before changing model", async (
   expect(chatCalls()).toEqual([
     { method: "chat.new", params: deferred },
     { method: "chat.model", params: { modelId: "claude-sonnet-5-5" } },
+    // The pick carries the chat's level (Medium) to the new model.
+    { method: "chat.new", params: deferred },
+    { method: "chat.effort", params: { configId: "effort", value: "medium" } },
   ]);
 });
 
 test("a classic New Tab holds its effort and Fast mode picks on a deferred chat", async () => {
   const { chatCalls } = await mount();
   await open();
-  const high = await effortLevel(popup().ownerDocument, "Opus 5.5 · High");
-  expect(high).not.toBeNull();
-  await act(async () => high!.click());
-  await open();
-  await pick("Fast mode");
+  // The columns stay open: the level, then Fast, each land as they are clicked.
+  await pick("High");
+  await pick("Fast");
   expect(chatCalls()).toEqual([
     { method: "chat.new", params: deferred },
     { method: "chat.effort", params: { configId: "effort", value: "high" } },
@@ -248,7 +245,7 @@ test("a classic New Tab holds its effort and Fast mode picks on a deferred chat"
 test("a fresh New Tab keeps catalog Fast mode in the model menu before a session reports options", async () => {
   const { chatCalls } = await mount({ noOptions: true });
   await open();
-  const fast = items().find((entry) => label(entry) === "Fast mode");
+  const fast = items().find((entry) => label(entry) === "Fast");
   expect(fast, "Fast mode row from the catalog").toBeDefined();
   await act(async () => fast!.click());
   expect(chatCalls()).toEqual([
@@ -265,7 +262,14 @@ test("a classic New Tab starts another harness and its model behind the page", a
   expect(chatCalls()).toEqual([
     {
       method: "chat.new",
-      params: { harness: "codex", model: "gpt-6-astra", cwd: "/tmp/classic-project", deferred: true },
+      // The pick carries the chat's level (Medium) to the other harness's model.
+      params: {
+        harness: "codex",
+        model: "gpt-6-astra",
+        options: { effort: "medium" },
+        cwd: "/tmp/classic-project",
+        deferred: true,
+      },
     },
   ]);
 });
@@ -277,6 +281,9 @@ test("a classic New Tab seeds its default harness before its first model pick", 
   expect(chatCalls()).toEqual([
     { method: "chat.new", params: deferred },
     { method: "chat.model", params: { modelId: "claude-sonnet-5-5" } },
+    // The pick carries the chat's level (Medium) to the new model.
+    { method: "chat.new", params: deferred },
+    { method: "chat.effort", params: { configId: "effort", value: "medium" } },
   ]);
 });
 
@@ -350,6 +357,9 @@ test("a classic model pick starts in the project selected on the page", async ()
   expect(chatCalls()).toEqual([
     { method: "chat.new", params: { ...deferred, cwd: "/Users/sample/other-project" } },
     { method: "chat.model", params: { modelId: "claude-sonnet-5-5" } },
+    // The pick carries the chat's level (Medium) to the new model.
+    { method: "chat.new", params: { ...deferred, cwd: "/Users/sample/other-project" } },
+    { method: "chat.effort", params: { configId: "effort", value: "medium" } },
   ]);
 });
 

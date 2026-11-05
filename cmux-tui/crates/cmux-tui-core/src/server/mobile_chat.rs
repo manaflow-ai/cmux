@@ -150,6 +150,9 @@ fn dispatch(
             request.insert("sessionId".into(), Value::String(session.clone()));
             // A history read is not the chat being shown (`server/view.rs`).
             request.insert("visible".into(), Value::Bool(false));
+            // Answers with the newest records rather than after a restarted daemon's log restore,
+            // which for a long chat outlasts `CALL_TIMEOUT` (`agent_session_attach.rs`).
+            request.insert("waitLogs".into(), Value::Bool(false));
             // Pages rather than failing on the response cap when the phone names no limit.
             request.insert("limit".into(), json!(DEFAULT_HISTORY_LIMIT));
             for (mobile, wire) in [
@@ -594,6 +597,17 @@ mod tests {
         assert_eq!(history["messages"][0]["text"], "hello");
         assert_eq!(history["messages"][1]["role"], "assistant");
         assert_eq!(history["messages"][1]["text"], "hi");
+    }
+
+    #[test]
+    fn history_answers_without_waiting_for_a_restarted_daemons_log_restore() {
+        let (seen, requests) = std::sync::mpsc::channel();
+        let (link, _dir) =
+            scripted_seen(vec![shown(), json!({"events": [], "nextSeq": 1})], None, Some(seen));
+        dispatch(&link, "mobile-chat-history", json!({"session_id":"s1"}), None, None, &none)
+            .unwrap();
+        let attach = requests.try_iter().find(|r| r["method"] == "_acpmux/attach").unwrap();
+        assert_eq!(attach["params"]["waitLogs"], json!(false), "{attach}");
     }
 
     #[test]

@@ -5,8 +5,10 @@ import { describe, expect, it } from "vitest"
 import { installAuthorityVersion, withInstallAuthority } from "../src/domains/user-authority.ts"
 import type { UserState } from "../src/domains/user.ts"
 import type { TeamState } from "../src/domains/team.ts"
-import { hostNetworkTarget } from "../src/host-network-target.ts"
+import { hostNetworkTarget, hostNetworkTargetOwner } from "../src/host-network-target.ts"
 import { vmReceiverPeers } from "../src/cloud-vm-receiver-peers.ts"
+import { vmApiConnection, vmApiOrigin } from "../src/cloud-vm-api-config.ts"
+import type { Env } from "../src/env.ts"
 import type { NetworkIdentityView } from "../src/user-do.ts"
 import { post, sessionToken } from "./cloud-bind-support.ts"
 import { installPublicPoint } from "../src/install-public-point.ts"
@@ -151,6 +153,7 @@ describe("TeamDO Native RPCs", () => {
     recheckCloudDial(e: string, p: Principal, permit: unknown): Promise<boolean>
     vmReceiverPeers(e: string, target: unknown): Promise<unknown>
     hostNetworkTarget(e: string, p: Principal, params: unknown): Promise<{ ok: boolean; code?: string }>
+    hostNetworkTargetOwner(e: string, p: Principal, params: unknown): Promise<{ ok: boolean; code?: string }>
   }
 
   it("answers nothing for a team this owner does not hold", async () => {
@@ -160,6 +163,7 @@ describe("TeamDO Native RPCs", () => {
     expect(await team.recheckCloudDial("team_00000000000000000077", p, {})).toBe(false)
     expect(await team.vmReceiverPeers("team_00000000000000000077", {})).toBeNull()
     expect(await team.hostNetworkTarget("team_00000000000000000077", p, {})).toMatchObject({ ok: false, code: "auth.forbidden" })
+    expect(await team.hostNetworkTargetOwner("team_00000000000000000077", p, {})).toMatchObject({ ok: false, code: "auth.forbidden" })
   })
 
   const state = { team: { id: TEAM, kind: "stack", display_name: "Team" }, members: { [p.user!]: { user: p.user!, role: "owner", display_name: "O" } }, hosts: {} } as unknown as TeamState
@@ -240,6 +244,37 @@ describe("TeamDO Native reads with live authority", () => {
   it("returns the team network target after a successful read", async () => {
     const w = await world()
     expect(await hostNetworkTarget(targetDeps(w), p, {})).toEqual({ ok: true, revision: "7", value: { team: TEAM, tenant: TENANT, project: "project", origin: ORIGIN, mesh: MESH, ipv4_cidr: "10.128.0.0/20" } })
+  })
+
+  /** The owner seam's deps: the VM API origin alone, with no service key and no HTTP client. */
+  const ownerDeps = (w: Awaited<ReturnType<typeof world>>, origin: () => string | null = () => ORIGIN) => {
+    const { connection: _connection, http: _http, ...rest } = targetDeps(w) as unknown as Record<string, unknown>
+    return { ...rest, origin } as never
+  }
+
+  it("verifies the owner without reading the mesh", async () => {
+    const w = await world()
+    expect(await hostNetworkTargetOwner(ownerDeps(w), p, {})).toEqual({ ok: true, revision: "7", value: { team: TEAM, tenant: TENANT, project: "project", origin: ORIGIN } })
+  })
+
+  it("verifies the owner with a VM API origin and no service key of its own", async () => {
+    const w = await world()
+    const e = { CLOUD_VM_API_ORIGIN: ORIGIN } as Env
+    expect(vmApiConnection(e)).toBeNull()
+    expect(await hostNetworkTargetOwner(ownerDeps(w, () => vmApiOrigin(e)), p, {})).toMatchObject({ ok: true, value: { origin: ORIGIN } })
+  })
+
+  it("answers unavailable with no VM API origin, and refuses when the origin changes during the reads", async () => {
+    const w = await world()
+    expect(await hostNetworkTargetOwner(ownerDeps(w, () => null), p, {})).toMatchObject({ ok: false, code: "owner.unreachable" })
+    let calls = 0
+    expect(await hostNetworkTargetOwner(ownerDeps(w, () => calls++ === 0 ? ORIGIN : "https://other.example.test"), p, {})).toMatchObject({ ok: false, code: "auth.forbidden" })
+  })
+
+  it("reads the VM API origin only as a bare https origin", () => {
+    expect(vmApiOrigin({ CLOUD_VM_API_ORIGIN: "https://vm.cmux.dev" })).toBe("https://vm.cmux.dev")
+    for (const bad of [undefined, "", "http://vm.cmux.dev", "https://vm.cmux.dev/", "https://vm.cmux.dev/v1", "https://u:p@vm.cmux.dev", "https://vm.cmux.dev?x=1", "not a url"])
+      expect(vmApiOrigin({ CLOUD_VM_API_ORIGIN: bad }), String(bad)).toBeNull()
   })
 
   it.each(["regrant", "rejoin", "leave"] as const)("refuses the target when the caller's %s happens during the mesh read", async (change) => {

@@ -14,7 +14,7 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
     private let container = WorkspaceTabHoverDocument()
     private let scrollView = NSScrollView()
     private let document = WorkspaceTabHoverDocument()
-    private var rowViews: [WorkspaceTabHoverCardRow] = []
+    private(set) var rowViews: [WorkspaceTabHoverCardRow] = []
     /// The kind groups' labels (`style.groupsByKind`), reused.
     private var groupLabels: [ChromeLabel] = []
     /// The tabs in the order the list shows them (grouped by kind when the style groups).
@@ -26,6 +26,8 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
     private var selectedIndex = 0
     private var showsKeyboardSelection = false
     var onSelect: ((TabID) -> Void)?
+    /// A row's ✕ was pressed: close that tab. Nil shows no ✕.
+    var onClose: ((TabID) -> Void)? { didSet { rowViews.forEach(wireClose) } }
 
     var reportedLines: [String] { rowViews.prefix(tabs.count).map(\.reportedLine) }
     override var isFlipped: Bool { true }
@@ -85,7 +87,12 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
 
     /// One pitch for every tab row (Lawrence msg 19245: "row spacing is uneven"); a group label is its own line.
     private var rowPitch: CGFloat { style.rowHeight + Metrics.space1 }
-    private var groupHeight: CGFloat { ceil(Typography.caption.ascender - Typography.caption.descender) + Metrics.space3 }
+    private var groupHeight: CGFloat {
+        let caption = Self.captionFont
+        return ceil(caption.ascender - caption.descender) + Metrics.space3
+    }
+    /// The kind labels' font: the card's caption at the sidebar's density and text size.
+    private static var captionFont: NSFont { Typography.system(.default, size: WorkspaceHoverCardView.tokens.captionSize, weight: .regular) }
 
     private func height(of items: [Item]) -> CGFloat {
         guard !items.isEmpty else { return 0 }
@@ -110,6 +117,16 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
         return NSSize(width: rows.max() ?? 0, height: listHeight)
     }
 
+    /// The row's ✕ closes its tab while the card has `onClose`; with none the row shows no ✕.
+    private func wireClose(_ row: WorkspaceTabHoverCardRow) {
+        guard onClose != nil else { row.onClose = nil; return }
+        row.onClose = { [weak self, weak row] in
+            guard let self, let row, let index = self.rowViews.firstIndex(where: { $0 === row }),
+                  index < self.tabs.count else { return }
+            self.onClose?(self.tabs[index].id)
+        }
+    }
+
     private func updateRows() {
         let count = tabs.count
         while rowViews.count < count {
@@ -121,6 +138,7 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
                 self.updateSelection()
                 self.onSelect?(self.tabs[index].id)
             }
+            wireClose(row)
             document.addSubview(row)
             rowViews.append(row)
         }
@@ -134,7 +152,7 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
         }
         while groupLabels.count < groups.count {
             let label = ChromeLabel(labelWithString: "")
-            label.font = Typography.caption
+            label.font = Self.captionFont
             document.addSubview(label)
             groupLabels.append(label)
         }

@@ -90,6 +90,9 @@ export function applyHostEvent(event: HostEvent): void {
   const bridge = window.cmuxAcpmuxBridge;
   const value = event.value as never;
   switch (event.kind) {
+    case "imessage.changed":
+      window.dispatchEvent(new Event("cmux-imessage-changed"));
+      return;
     case "sessionInfoHost":
       return setNativeSessionInfoHost(event.value);
     case "sessionInfoAction":

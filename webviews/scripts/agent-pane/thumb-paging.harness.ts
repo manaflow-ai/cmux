@@ -44,7 +44,7 @@ const browser = await (async () => {
     server.on("exit", (code) => reject(new Error(`dev server exited ${code}`)));
   });
   await warmDevServer(base, "/?mock");
-  return chromium.launch({ headless: true });
+  return chromium.launch({ channel: "chrome", headless: true });
 })();
 try {
   const page = await browser.newPage({ viewport: { width: 900, height: 760 } });

@@ -115,21 +115,28 @@ public struct PersonInputCheck: Sendable {
     /// root builds it with the ledger (`AppServices.personInput`) and hands it to every other person check
     /// (``PersonInputCheck``, each agent pane through ``AgentPaneShared``).
     public let sources: EventSourceProcesses
+    /// The app's one "Computer use can act as me" grant (``AgentPaneActAsMe``), which every agent pane judges
+    /// posted input by; its consent card reads the person's click with ``PersonInputCheck`` over `sources`.
+    public let actAsMe: AgentPaneActAsMe
     private var monitor: Any?
 
-    /// `sources`: the table the priming events fill (tests that pass none get their own).
-    public init(check: @escaping @MainActor (NSEvent) -> Bool, sources: EventSourceProcesses = EventSourceProcesses()) {
+    /// `sources`: the table the priming events fill (tests that pass none get their own); `actAsMe`: the
+    /// grant (tests get one of their own, off and kept in memory).
+    public init(check: @escaping @MainActor (NSEvent) -> Bool, sources: EventSourceProcesses = EventSourceProcesses(),
+                actAsMe: AgentPaneActAsMe = AgentPaneActAsMe()) {
         self.check = check
         self.sources = sources
+        self.actAsMe = actAsMe
     }
 
-    /// The ledger of ``PersonInputCheck`` over `sources` (`AppServices.personInput`).
+    /// The ledger of ``PersonInputCheck`` over `sources` (`AppServices.personInput`), with the app's grant.
     public convenience init(sources: EventSourceProcesses) {
         let check = PersonInputCheck(sources: sources)
-        self.init(check: { check.isPerson($0) }, sources: sources)
+        self.init(check: { check.isPerson($0) }, sources: sources, actAsMe: .app())
     }
 
     public func start() {
+        actAsMe.start(check: PersonInputCheck(sources: sources))
         guard monitor == nil else { return }
         monitor = NSEvent.addLocalMonitorForEvents(matching: Self.types.union(Self.primingTypes)) { [weak self] event in
             // AppKit calls a local monitor on the main thread; anywhere else, nothing is recorded, so no
@@ -142,6 +149,7 @@ public struct PersonInputCheck: Sendable {
     }
 
     public func stop() {
+        actAsMe.stop()
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
     }
@@ -154,6 +162,10 @@ public struct PersonInputCheck: Sendable {
             sources.prime(pid)
         }
     }
+
+    /// SECURITY: whether `event` is the person's own input, by the ledger's check (the app's ledger:
+    /// ``PersonInputCheck``, the strict HID-system check a consent prompt's Allow takes).
+    public func isPerson(_ event: NSEvent) -> Bool { check(event) }
 
     public func record(_ event: NSEvent) {
         last = (event.timestamp > 0 ? event.timestamp : ProcessInfo.processInfo.systemUptime, check(event))

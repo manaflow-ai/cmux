@@ -25,8 +25,9 @@ use serde_json::{Value, json};
 
 use super::host_steps::StepState;
 
-/// The platform the join line comes from until joining is on elsewhere.
-pub const DEV_ORIGIN: &str = "https://cmux-platform-development.debussy.workers.dev";
+/// The platform the join line comes from when the status names none: the
+/// join's own default hub.
+pub const JOIN_ORIGIN: &str = super::cloud_join::DEFAULT_HUB;
 /// A heartbeat older than this means the machine has dropped off the mesh
 /// (the hub's own limit, cmux#27079).
 pub const HEARTBEAT_WITHIN_MS: u64 = 90_000;
@@ -80,6 +81,9 @@ pub enum Service {
     Inactive { installed: bool },
     /// No systemd user session or launchctl here (a container).
     NoManager,
+    /// macOS with no one logged in at the screen: the LaunchAgent is installed and loads at the
+    /// next login there (no GUI domain to load it into now); the daemon runs in place until then.
+    AtNextLogin,
 }
 
 /// What `acpmux host join --status --json` said.
@@ -127,10 +131,10 @@ fn origin(facts: &Facts) -> String {
         Status::Json(v) => v["hubOrigin"]
             .as_str()
             .filter(bare)
-            .unwrap_or(DEV_ORIGIN)
+            .unwrap_or(JOIN_ORIGIN)
             .trim_end_matches('/')
             .to_owned(),
-        _ => DEV_ORIGIN.to_owned(),
+        _ => JOIN_ORIGIN.to_owned(),
     }
 }
 
@@ -249,6 +253,13 @@ fn service_step(facts: &Facts) -> JoinStep {
             "service",
             StepState::Warn,
             "no service manager here: the daemon runs only while something starts it",
+        ),
+        Service::AtNextLogin => JoinStep::new(
+            "service",
+            StepState::Warn,
+            format!(
+                "{what} is installed and loads at the next login at this Mac's screen (no one is logged in there now)"
+            ),
         ),
     }
 }
@@ -370,11 +381,57 @@ pub fn epoch_ms(value: &Value) -> Option<u64> {
             let n = n.as_u64()?;
             Some(if n < 100_000_000_000 { n.saturating_mul(1000) } else { n })
         }
+        // `host join --status` reports the stored heartbeat as epoch milliseconds in a string
+        // (`cloud_join::record_auth_result`); a number in text reads as the number does.
+        Value::String(text) if !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit()) => {
+            epoch_ms(&Value::Number(text.parse::<u64>().ok()?.into()))
+        }
         Value::String(text) => {
             cmux_chat_index::time::parse_rfc3339_ms(text).and_then(|ms| u64::try_from(ms).ok())
         }
         _ => None,
     }
+}
+
+/// How many times `--here` asks again for a first heartbeat, a second apart: a join restarts
+/// the daemon with its mesh relay and the doctor runs seconds later, before that daemon's first
+/// heartbeat may have reached the hub (its relay waits for the daemon's startup first).
+pub const FIRST_HEARTBEAT_POLLS: u32 = 10;
+const FIRST_HEARTBEAT_PAUSE: Duration = Duration::from_secs(1);
+
+/// Whether a join that is otherwise sound has had no heartbeat yet: a running daemon, a
+/// credential that is not revoked, `lastHeartbeat` reported as `null`, and a mesh relay that is
+/// not reported as off. Only then is a first heartbeat worth waiting for; a stale one, a
+/// revoked machine or a stopped daemon is checked as it is.
+pub fn awaits_first_heartbeat(facts: &Facts) -> bool {
+    let Status::Json(v) = &facts.status else { return false };
+    facts.daemon_running
+        && v["credentialPresent"].as_bool() == Some(true)
+        && v["revoked"].as_bool() != Some(true)
+        && v.get("lastHeartbeat").is_some_and(Value::is_null)
+        && v["meshRelayConfigured"].as_bool() != Some(false)
+}
+
+/// `facts` once the first heartbeat is in, or as they stand after at most `polls` more asks
+/// (`ask`, each after a `pause`): a daemon that never heartbeats still fails its step.
+pub fn wait_first_heartbeat(
+    mut facts: Facts,
+    polls: u32,
+    mut ask: impl FnMut() -> Status,
+    mut pause: impl FnMut(),
+) -> Facts {
+    for _ in 0..polls {
+        if !awaits_first_heartbeat(&facts) {
+            break;
+        }
+        pause();
+        match ask() {
+            status @ Status::Json(_) => facts.status = status,
+            // A status that stopped answering is checked as the last one that did.
+            _ => break,
+        }
+    }
+    facts
 }
 
 /// How the checklist prints.
@@ -536,15 +593,25 @@ fn systemd_service(home: &Path) -> Service {
 fn launchd_service(home: &Path) -> Service {
     // SAFETY: getuid has no preconditions.
     let uid = unsafe { libc::getuid() };
-    let job = format!("gui/{uid}/{LAUNCHD_LABEL}");
+    let domain = format!("gui/{uid}");
+    let job = format!("{domain}/{LAUNCHD_LABEL}");
+    let installed =
+        home.join("Library/LaunchAgents").join(format!("{LAUNCHD_LABEL}.plist")).is_file();
     match output(Path::new("launchctl"), &["print", &job]) {
         None => Service::NoManager,
         Some((0, _)) => Service::Active { linger: None },
         Some(_) => {
-            let plist = home.join("Library/LaunchAgents").join(format!("{LAUNCHD_LABEL}.plist"));
-            Service::Inactive { installed: plist.is_file() }
+            let gui_login =
+                matches!(output(Path::new("launchctl"), &["print", &domain]), Some((0, _)));
+            launchd_state(installed, gui_login)
         }
     }
+}
+
+/// A LaunchAgent that is not loaded: with no GUI domain (no one logged in at the screen) an
+/// installed one is waiting for the next login there, which nothing here can hasten.
+pub fn launchd_state(installed: bool, gui_login: bool) -> Service {
+    if installed && !gui_login { Service::AtNextLogin } else { Service::Inactive { installed } }
 }
 
 /// The local repairs for `facts`: reinstall a missing binary (the join script, no token),
@@ -620,7 +687,15 @@ pub fn run_here(fix: bool, print: Print, out: &mut dyn std::io::Write) -> i32 {
             .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
             .unwrap_or_default()
     };
-    let facts = probe();
+    let mut facts = probe();
+    if let Binary::Ok(binary) = facts.binary.clone() {
+        facts = wait_first_heartbeat(
+            facts,
+            FIRST_HEARTBEAT_POLLS,
+            || join_status(&binary),
+            || std::thread::sleep(FIRST_HEARTBEAT_PAUSE),
+        );
+    }
     let mut checked = steps(&facts, now());
     if fix && repair(&facts) {
         checked = mark_fixed(&checked, steps(&probe(), now()));

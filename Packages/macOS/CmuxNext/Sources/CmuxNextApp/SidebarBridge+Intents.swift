@@ -55,8 +55,9 @@ extension SidebarBridge {
             model.apply(intent)
             // A pick in this window's sidebar shows here, also a workspace another window lists.
             services.windows.show(workspaceID: id.rawValue, in: state, from: .thisWindow)
-        case let .selectTab(_, tab):
-            _ = services.revealTab(tab.rawValue)
+        case let .selectTab(_, tab): _ = services.revealTab(tab.rawValue)
+        // The tab strip's close for that tab, on whichever machine holds it (the palette's Close Tab).
+        case let .closeTab(_, tab): PaletteSourcesBridge.TabSource(services: services).closeTab(id: tab.rawValue)
         case .reorder(let ids, let position):
             // A pending edit, as on the personal path: each command's echo shows no step between.
             SidebarDaemonReorder.reorder(ids, to: position, in: model.sections, edit: rows.edits.add(intent), bridge: self)
@@ -65,8 +66,7 @@ extension SidebarBridge {
             guard let (workspace, daemon) = services.machines.workspace(id: id.rawValue), let key = workspace.key else { return }
             command("rename-workspace", on: daemon, for: intent, change: .renameWorkspace(key: key, name: name)) { c in _ = try await c.renameWorkspace(key, to: name) }
         case .close(let ids):
-            // The row's close button is an entrypoint of `closeWorkspace`,
-            // so it asks the same confirmation and ends the terminals too.
+            // The row's close button is an entrypoint of `closeWorkspace`, so it asks the same confirmation and ends the terminals too.
             // Several selected rows (Cmd-W, the row menu's Close, Delete) close as one batch.
             if ids.count > 1 { return WorkspaceSelectionClose.close(ids.map(\.rawValue), in: state, services) }
             for id in ids { services.registry.perform("closeWorkspace", invocation: ActionInvocation(closingRow: id.rawValue)) }
@@ -199,7 +199,7 @@ extension SidebarBridge {
         model.ungroupedFirst = !services.sidebarDoc.isActive && !usesMixedOrder
         let shownAt = services.sidebarDoc.store?.shownChanges
         var sections = Self.sections(services.machines, doc: services.sidebarDoc, members: services.windows.registry.members(of: state.id), profile: state.profileID,
-                                     hidesHome: Self.hidesHome(services.sidebarLayout.document), selection: state.selection,
+                                     hidesHome: services.sidebarLayout.document.hidesHome, selection: state.selection,
                                      newTabPages: Self.newTabPages(services.agentTabs, in: services.machines.local.store), muted: services.notifications.preferences.mutedWorkspaces,
                                      harnessIcons: { [weak services] in services?.harnessIconLookup ?? .none })
         sections = WorkspaceGroupConfigLook(config: services.settings?.snapshot.workspaceGroups ?? WorkspaceGroupConfig(), machines: services.machines)

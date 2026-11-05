@@ -11,6 +11,13 @@ impl Mux {
         self.subscribers.subscribe_config_reload()
     }
 
+    /// The events that can change which terminals are live (topology,
+    /// terminal registry, surface exits): the terminal reaper's filter, for
+    /// the owner's keepers watch (server/owner_keepers.rs).
+    pub(crate) fn subscribe_terminal_lifecycle(&self) -> MuxEventReceiver {
+        self.subscribers.subscribe_terminal_topology()
+    }
+
     /// Request one owner config reload and wait until the owner applies it.
     pub fn request_config_reload(&self) -> Result<(), ConfigReloadError> {
         const APPLY_TIMEOUT: Duration = Duration::from_secs(5);
@@ -72,7 +79,10 @@ impl Mux {
         // check again (terminal_respawn.rs). Free when none waits.
         if matches!(
             event,
-            MuxEvent::TreeChanged | MuxEvent::TreeSelectionChanged | MuxEvent::TreeDelta(_)
+            MuxEvent::TreeChanged
+                | MuxEvent::TreeSelectionChanged(_)
+                | MuxEvent::WorkspacePresentationChanged(_)
+                | MuxEvent::TreeDelta(_)
         ) {
             self.respawn_gate.wake_waiters();
         }
@@ -171,9 +181,12 @@ impl Mux {
         {
             hook(revision);
         }
+        let workspace = delta.workspace;
         self.emit(MuxEvent::TreeDelta(delta));
         if selection_resync {
-            self.emit(MuxEvent::TreeSelectionChanged);
+            // The selection a delta moves (the focused workspace, the pane's active tab) is in its
+            // workspace: a client that reads `selection-changed` applies it without a snapshot (#32408).
+            self.emit(MuxEvent::TreeSelectionChanged(Some(workspace)));
         }
     }
 

@@ -127,8 +127,8 @@ async fn a_dropped_file_is_saved_owner_only_and_named_by_its_path() {
     let second = assert_saved(&second, &session, "state.sqlite", b"b");
     assert_ne!(first, second);
     assert_eq!(std::fs::read(&first).unwrap(), binary);
-    // The largest file there is.
-    let largest = vec![7u8; MAX];
+    // A legacy caller can send beyond the old cap without a second full decoded buffer.
+    let largest = vec![7u8; 2 * MAX + 1];
     let reply = c.call(method::MUX_FILE_PUT, put(&session, "big.bin", &largest)).await;
     assert_saved(&reply, &session, "big.bin", &largest);
     // The app's pane connection saves one too.
@@ -138,7 +138,7 @@ async fn a_dropped_file_is_saved_owner_only_and_named_by_its_path() {
 }
 
 #[tokio::test]
-async fn a_bad_name_an_oversize_file_an_unknown_chat_and_the_web_are_refused() {
+async fn a_bad_name_malformed_data_an_unknown_chat_and_the_web_are_refused() {
     let hub = hub();
     let mut c = client(&hub, Origin::Local);
     let session = c.new_session("refusals").await;
@@ -146,8 +146,15 @@ async fn a_bad_name_an_oversize_file_an_unknown_chat_and_the_web_are_refused() {
         let reply = c.call(method::MUX_FILE_PUT, put(&session, name, b"x")).await;
         assert_eq!(reply["error"]["data"]["reason"], "filePut.name", "{name:?}: {reply}");
     }
-    let reply = c.call(method::MUX_FILE_PUT, put(&session, "big.bin", &vec![0u8; MAX + 1])).await;
-    assert_eq!(reply["error"]["data"]["reason"], "filePut.tooLarge", "{reply}");
+    for data in ["a", "!!!!", "eA==eA==", "eA=", "eA==!"] {
+        let reply = c
+            .call(
+                method::MUX_FILE_PUT,
+                json!({"sessionId": session, "fileName": "bad.bin", "data": data}),
+            )
+            .await;
+        assert!(reply.get("error").is_some(), "{reply}");
+    }
     let reply = c.call(method::MUX_FILE_PUT, put("no-such-chat", "a.txt", b"x")).await;
     assert!(reply.get("error").is_some(), "{reply}");
     let mut web = client(&hub, Origin::Web);
@@ -187,6 +194,7 @@ async fn a_purged_chat_loses_its_files_and_takes_no_more() {
 async fn transfer(src: &mut Client, dst: &mut Client, id: &str) {
     let begin = src.call("_acpmux/transfer_begin", json!({"sessionId": id})).await;
     let begin = begin["result"].clone();
+    let epoch = begin["epoch"].as_u64().unwrap_or(0);
     let received = dst.call("_acpmux/transfer_receive", json!({"manifest": begin})).await;
     let receive_id =
         received["result"]["receiveId"].as_str().unwrap_or_else(|| panic!("{received}"));
@@ -197,14 +205,14 @@ async fn transfer(src: &mut Client, dst: &mut Client, id: &str) {
             let part = src
                 .call(
                     "_acpmux/transfer_read",
-                    json!({"transferId": begin["transferId"], "path": path, "offset": offset, "limit": 1 << 16}),
+                    json!({"transferId": begin["transferId"], "path": path, "offset": offset, "limit": 1 << 16, "epoch": epoch}),
                 )
                 .await;
             let part = &part["result"];
             let wrote = dst
                 .call(
                     "_acpmux/transfer_write",
-                    json!({"receiveId": receive_id, "path": path, "offset": offset, "data": part["data"]}),
+                    json!({"receiveId": receive_id, "path": path, "offset": offset, "data": part["data"], "epoch": epoch}),
                 )
                 .await;
             assert!(wrote.get("error").is_none(), "{wrote}");
@@ -214,12 +222,13 @@ async fn transfer(src: &mut Client, dst: &mut Client, id: &str) {
             }
         }
     }
-    let finished = dst.call("_acpmux/transfer_finish", json!({"receiveId": receive_id})).await;
+    let finished =
+        dst.call("_acpmux/transfer_finish", json!({"receiveId": receive_id, "epoch": epoch})).await;
     assert_eq!(finished["result"]["sessionId"], id, "{finished}");
     let committed = src
         .call(
             "_acpmux/transfer_commit",
-            json!({"sessionId": id, "transferId": begin["transferId"], "to": {"sessionId": id}}),
+            json!({"sessionId": id, "transferId": begin["transferId"], "to": {"sessionId": id}, "epoch": epoch}),
         )
         .await;
     assert_eq!(committed["result"]["committed"], true, "{committed}");
@@ -279,9 +288,10 @@ async fn a_file_for_a_peers_chat_lands_on_the_peer() {
     let largest = vec![9u8; MAX];
     let reply = ca.call(method::MUX_FILE_PUT, put(&remote, "big.bin", &largest)).await;
     assert_saved(&reply, &remote, "big.bin", &largest);
-    // One past it is refused by A, never sent: the link and its chats stay up.
-    let reply = ca.call(method::MUX_FILE_PUT, put(&remote, "big.bin", &vec![0u8; MAX + 1])).await;
-    assert_eq!(reply["error"]["data"]["reason"], "filePut.tooLarge", "{reply}");
+    // More than an older peer's frame can carry is automatically split into chunks.
+    let bytes = vec![0x81u8; 2 * MAX + 1];
+    let reply = ca.call(method::MUX_FILE_PUT, put(&remote, "chunked.bin", &bytes)).await;
+    assert_saved(&reply, &remote, "chunked.bin", &bytes);
     let reply = ca.call(method::MUX_FILE_PUT, put(&remote, "after.txt", b"ok")).await;
     assert_saved(&reply, &remote, "after.txt", b"ok");
     assert_eq!(a.peers()[0]["connected"], true, "{:?}", a.peers());

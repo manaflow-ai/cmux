@@ -11,6 +11,8 @@ the tests is split by suite-name prefix, each level ending in a negated class so
 shard. Units are packed largest first into about twice as many shards as run at once. `run` runs the
 shards through swift-test-with-hang-sampler.sh, at most `width` at a time (from the runner's cores and memory),
 each with the same skips, prints each shard's log as one group when it ends, and fails when any shard failed.
+A shard that would start with less than SHARD_FLOOR_SECONDS left before the deadline is written to `--spill`
+instead, and `spilled` runs those in the next step, with a deadline of their own.
 """
 
 from __future__ import annotations
@@ -154,6 +156,12 @@ LOCKED = "database is locked"
 RAN = re.compile(r"^(?:[◇✔✘↪━] Test |Test Suite ')", re.M)
 # How long a shard may take to get its helper running before the next one starts anyway.
 START_SECONDS = 180
+# The least time a shard starts with. Each shard's hang limit was the time left to the pass's deadline, so one slow
+# shard left the next ones a 60 s limit and they were cut short, and a cut-short run is never a base red: in run
+# 41665450504 (width 1) shard 13 took 867 s, and shards 14 and 15 were killed at 60 s with 0 of their 447 finished
+# tests failed. 450 s is the p90 of the 28 shards that finished in that run and in tip run 41675021587 (32-867 s,
+# median 108 s). A shard with less than this left is spilled to the next step instead of started.
+SHARD_FLOOR_SECONDS = 450
 
 
 def starting(item: tuple) -> bool:
@@ -167,10 +175,14 @@ def starting(item: tuple) -> bool:
         return True
 
 
-def run(shards: list[dict], at_once: int, wrapper: str, extra: list[str], deadline: float) -> int:
+def run(shards: list[dict], at_once: int, wrapper: str, extra: list[str], deadline: float,
+        spill: Path | None = None) -> int:
     """Runs every shard, at most `at_once` at a time, largest first. Each shard's hang limit is the time left to
-    `deadline` when it starts; a shard with less than a minute left still starts, so its stacks are sampled."""
+    `deadline` when it starts. With SPILL, a shard with less than SHARD_FLOOR_SECONDS left is written there for the
+    `spilled` step instead of started; without it (the spilled step itself) a shard with less than a minute left
+    still starts, so its stacks are sampled."""
     pending = list(shards)
+    spilled: list[dict] = []
     running: list[tuple[dict, subprocess.Popen, Path, float]] = []
     failed: list[str] = []
     rows: list[str] = []
@@ -182,6 +194,11 @@ def run(shards: list[dict], at_once: int, wrapper: str, extra: list[str], deadli
             # The next shard starts once the last one's helper is running (or the last one ended).
             while pending and len(running) < at_once and not (running and starting(running[-1])):
                 shard = pending.pop(0)
+                if spill is not None and deadline - time.time() < SHARD_FLOOR_SECONDS:
+                    spilled.append(shard)
+                    print(f"{shard['name']} (~{shard['tests']} tests) has {max(0, int(deadline - time.time()))} s left, "
+                          f"under its {SHARD_FLOOR_SECONDS} s floor: it runs in the next step", flush=True)
+                    continue
                 log = Path(tmp) / f"{shard['name'].replace(' ', '-')}.log"
                 env = dict(os.environ, CMUX_NEXT_TEST_HANG_SECONDS=str(max(60, int(deadline - time.time()))))
                 skips = [arg for pattern in shard.get("skip", []) for arg in ("--skip", pattern)]
@@ -211,16 +228,43 @@ def run(shards: list[dict], at_once: int, wrapper: str, extra: list[str], deadli
                     failed.append(shard["name"])
                     print(f"::error title=cmux-next swift test shard red::{shard['name']} exited {proc.returncode}: "
                           f"{shard['filter']}", flush=True)
+    if spill is not None:
+        # Written even when empty, so the next step tells "nothing spilled" from "this step never got here".
+        spill.write_text(json.dumps({"width": at_once, "extra": extra, "shards": spilled,
+                                     "tree": os.environ.get("CMUX_NEXT_TUI_TREE_PATH", "")}, indent=2))
     if summary := os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(summary, "a", encoding="utf-8") as out:
             out.write(f"### Swift test shards ({at_once} at once)\n\n| shard | tests | seconds | exit |\n| --- | --- | --- | --- |\n")
-            out.write("\n".join(rows) + "\n\n")
+            out.write("\n".join(rows) + "\n")
+            out.write("".join(f"| {shard['name']} | {shard['tests']} | spilled | |\n" for shard in spilled) + "\n")
     return 1 if failed else 0
+
+
+def run_spilled(spill: Path, wrapper: str, deadline: float) -> int:
+    """Runs the shards SPILL lists with the broad pass's skips and same-tree path, no floor and no further spill. A
+    missing or unreadable file fails: the broad pass writes one whenever it ends, so its shards' verdicts are lost."""
+    try:
+        data = json.loads(spill.read_text())
+        shards, extra, at_once = data["shards"], data["extra"], int(data["width"])
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        print(f"::error title=cmux-next swift test spilled shards::cannot read {spill}: {error}", flush=True)
+        return 1
+    if not shards:
+        print("no shard was spilled: the broad pass ran every shard", flush=True)
+        return 0
+    if data.get("tree"):
+        os.environ["CMUX_NEXT_TUI_TREE_PATH"] = data["tree"]
+    print(f"{len(shards)} spilled shards, {at_once} at once", flush=True)
+    return run(shards, at_once, wrapper, extra, deadline)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
+    spilled = sub.add_parser("spilled", help="run the shards a run --spill pass had no time for")
+    spilled.add_argument("--from", dest="spill", type=Path, required=True)
+    spilled.add_argument("--wrapper", required=True)
+    spilled.add_argument("--deadline", type=float, required=True)
     for name in ("plan", "run"):
         p = sub.add_parser(name)
         p.add_argument("--package", type=Path, default=Path("Package.swift"))
@@ -229,12 +273,15 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--exclude", action="append", default=[], help="a test target a step of its own runs")
     sub.choices["run"].add_argument("--wrapper", required=True)
     sub.choices["run"].add_argument("--deadline", type=float, required=True, help="epoch seconds the pass must end by")
+    sub.choices["run"].add_argument("--spill", type=Path, help="write shards with under SHARD_FLOOR_SECONDS left here")
     sub.choices["run"].add_argument("extra", nargs=argparse.REMAINDER, help="-- then arguments every shard gets")
     sub.add_parser("width")
     args = parser.parse_args(argv)
     if args.command == "width":
         print(runner_width())
         return 0
+    if args.command == "spilled":
+        return run_spilled(args.spill, args.wrapper, args.deadline)
     at_once = runner_width()
     # The shard count stays at least SHARDS whatever the width: a process's windows pile up over its run, so a
     # bigger shard slows down (one process of ~6,300 tests fell from ~2,000 to ~100 tests a minute).
@@ -244,7 +291,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     extra = args.extra[1:] if args.extra[:1] == ["--"] else args.extra
     print(f"{len(shards)} shards, {at_once} at once", flush=True)
-    return run(shards, at_once, args.wrapper, extra, args.deadline)
+    return run(shards, at_once, args.wrapper, extra, args.deadline, args.spill)
 
 
 if __name__ == "__main__":

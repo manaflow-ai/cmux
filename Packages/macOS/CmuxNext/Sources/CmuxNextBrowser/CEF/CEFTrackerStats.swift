@@ -35,8 +35,19 @@ public nonisolated struct CEFTrackerStats: Equatable, Sendable {
     /// Page update requests a page answered with no post: nothing the fork reads had changed
     /// since its last read (`CEFHostView.pagesNeedUpdate`).
     public var geometrySkips = 0
+    /// Full page geometries worked out (`CEFHostGeometry`: ancestor walks for the rect, the visible rect and the clip
+    /// inputs, and the window's occluders), by page update requests and fork reads together.
+    public var geometryBuilds = 0
 
     public init() {}
+
+    /// The counters `debug.cef` reports as `tracker`, by key (milliseconds for the times). Per action = the change of
+    /// each counter over it (scripts/cmux-next/pane-perf-terminal.py --browser).
+    public var reportFields: [String: Double] {
+        ["clip_reads": Double(clipReads), "occlusion_reads": Double(occlusionReads), "clip_builds": Double(clipBuilds),
+         "clip_hits": Double(clipHits), "clip_ms": clipSeconds * 1_000, "geometry_posts": Double(geometryPosts),
+         "hosted_pages": Double(hostedPages), "hosting_refused": Double(hostingRefused), "geometry_skips": Double(geometrySkips)]
+    }
 
     /// Monotonic seconds for timing a read.
     static func now() -> Double {

@@ -40,6 +40,15 @@ struct UnsentDraftTests {
         withExtendedLifetime(drafts) {}
     }
 
+    @Test func aMultiMegabyteDraftComesBackAfterARelaunch() throws {
+        let directory = try Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: AgentUnsentDrafts.fileName), files = AgentPaneStateFiles()
+        let large = String(repeating: "x", count: 2 * 1024 * 1024)
+        AgentUnsentDrafts(file: file, files: files).set(large, for: "tab-large")
+        #expect(AgentUnsentDrafts(file: file, files: files).draft(for: "tab-large") == large)
+    }
+
     /// cmux#32276: a new chat whose tab opens another chat leaves its text (typed, and prompts held
     /// for a trust answer) in its window's one slot, on disk: a second leftover adds to it, the
     /// window's next new chat takes it once, and nothing sends it.
@@ -213,28 +222,18 @@ struct UnsentDraftTests {
         #expect(try Data(contentsOf: directory.appending(path: aside)) == readable)
     }
 
-    /// A text past the limit is refused, as acpmux refuses one: the saved draft stays, never nil.
-    @Test func aTextPastTheLimitKeepsTheSavedDraft() throws {
+    /// A draft larger than the former limit is retained and merged without loss.
+    @Test func aLargeTypedMergeKeepsTheSavedDraft() throws {
         let directory = try Self.directory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let file = directory.appending(path: AgentUnsentDrafts.fileName), files = AgentPaneStateFiles()
-        let saved = String(repeating: "s", count: AgentUnsentDrafts.maximumCharacters - 1)
+        let saved = String(repeating: "s", count: 2 * 1024 * 1024)
         AgentUnsentDrafts(file: file, files: files).set(saved, for: "tab-1")
 
         let drafts = AgentUnsentDrafts(file: file, files: files)
-        // Typed before the page was handed it: the merge is past the limit, so nothing changes.
         drafts.typed("x", for: "tab-1")
-        #expect(drafts.draft(for: "tab-1") == saved)
-        // The refused merge left the draft undelivered: the page's empty text (it has not been
-        // handed the draft yet) does not clear it.
-        drafts.typed("", for: "tab-1")
-        #expect(drafts.draft(for: "tab-1") == saved)
-        drafts.set(saved + "\n\nx", for: "tab-1")
-        #expect(AgentUnsentDrafts(file: file, files: files).draft(for: "tab-1") == saved)
-        // At the limit it is kept.
-        let atLimit = String(repeating: "s", count: AgentUnsentDrafts.maximumCharacters)
-        drafts.set(atLimit, for: "tab-1")
-        #expect(AgentUnsentDrafts(file: file, files: files).draft(for: "tab-1") == atLimit)
+        #expect(drafts.draft(for: "tab-1") == saved + "\n\nx")
+        #expect(AgentUnsentDrafts(file: file, files: files).draft(for: "tab-1") == saved + "\n\nx")
     }
 
     /// The merge keeps both texts once, and leaves a text that already holds the other as it is.

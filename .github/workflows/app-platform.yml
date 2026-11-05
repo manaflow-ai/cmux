@@ -4,8 +4,9 @@
 # first-party app runs its own tests as a fork with only the public SDK
 # (first-party-apps/fork-check.ts, docs/app-store-platonic-ideal.md 5; known gaps in
 # first-party-apps/fork-check-gaps.json). Bun only: no Cargo, no app build, about 2 s of tests.
-# Any pull request or push (feat-cmux-next included: changes land there by direct push) that
-# touches what the gate reads runs it; a lane can dispatch it on any pushed ref:
+# Any pull request, or a push to main or feat-cmux-next (changes land there by direct push), that
+# touches what the gate reads runs it. A push to a branch with no pull request starts nothing
+# (the 2026-10-27 push flood). A lane can dispatch it on any pushed ref:
 #   gh workflow run app-platform.yml --repo manaflow-ai/cmux --ref <branch>
 # Bun is pinned to the version the webviews and the fleet hosts use.
 
@@ -22,6 +23,7 @@ on:
       - scripts/cmux-next/sync-app-runtime.sh
       - .github/workflows/app-platform.yml
   push:
+    branches: [main, feat-cmux-next]
     paths:
       - cmux-tui/crates/cmux-app-host/**
       - samples/apps/**
@@ -38,6 +40,10 @@ permissions:
 concurrency:
   group: app-platform-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
 
 jobs:
   check:

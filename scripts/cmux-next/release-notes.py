@@ -79,7 +79,7 @@ INTERNAL_WORDS = re.compile(
     r"machine code|scene captures?|policy log|host log|force unwrap|store intent|property model|false positive|inventory|"
     r"boundary|on the wire|debug reports?|dom events?|keybind actions?|main actor|shims?|"
     r"consumers?|metrics|review fixes|base reds?|feat-cmux-next|compile fix(?:es)?|byte limit|"
-    r"fits the validator|validates? release headings|release[- ]notary|notes check)\b", re.I | re.A)
+    r"fits the validator|validates? release headings|release[- ]notary|notes check|ad hoc builds?|superseded runs?|counted as failing)\b", re.I | re.A)
 # Product names whose casing is not code ("MacOS": a title capitalized before LEADING_BRAND).
 BRANDS = re.compile(r"\b(?:[Mm]acOS|[Ii]OS|[Ii]PadOS|[Ii]Cloud|[Ii]Phone|[Ii]Pad|GitHub|YouTube|SwiftUI|WebKit|JavaScript|TypeScript|ChatGPT|OpenAI)\b")
 # Code-looking subjects (dotted names, snake_case, versioned ids, bead ids, backticks) are internal.
@@ -125,6 +125,23 @@ PRODUCT_WORDS = {"cmux", "next", "cmux-next", "cmuxnext"}
 REFS = re.compile(r"\s*\((?:[^()]*\bcx-[\w.]+[^()]*|[\w-]*#\d+|red|review)\)|\s*\((?:[^()]*\b)?cx-[\w.]*$"
                   r"|\s*\([au]\d+(?:\s*[,/]\s*[au]?\d+)*\)", re.I)
 
+# Internal work-stream codes no person can read (Leo 2026-11-02, "the 0 information density one", on
+# What's New rows like "P0 RESIZE KEYS K4: …", "… (SWITCH FRAMES SF-5 B)" and "P0 RESIZE F1 part 1 of
+# 2"): a leading priority code and its capitalized stream words, a parenthesis that holds a stream
+# code, and "part N of M" or "part A2". The same pattern as readableChange.ts WORK_CODES.
+WORK_CODES = re.compile(
+    r"^P[0-3](?:\s+[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*\b)+(?:\s+part\s+(?:\d+\s+of\s+\d+|[A-Z]?\d+[A-Z]?\d*))?\s*(?::\s*|$|(?=\())"
+    r"|\s*\((?=[^()]*\b(?:[A-Z]{2,}-)?[A-Z]{1,3}-?\d+[A-Z]?\d*\b)(?=[^()]*(?:\b[A-Z]{2,}\b[^()]*\b[A-Z]{2,}|\b[A-Z]{2,}-[A-Z]\d|\bpart\s))[^()]*\)"
+    r"|\s*\bpart\s+(?:\d+\s+of\s+\d+|[A-Z]\d+)\b", re.A)
+# "Cmux NEXT agent pane: …", "Cmux link sync push: …", "Cmux-tui + app: …" (readableChange.ts CMUX_AREA).
+CMUX_AREA = re.compile(r"^cmux(?:[- ]?next)?(?:[ -][\w-]+){0,3}(?:\s*\+\s*[\w-]+)?\s*:\s+(?=\S)", re.I | re.A)
+
+
+def without_work_codes(text):
+    """The text without its work-stream codes (WORK_CODES), spaces tidied (no space before a period)."""
+    return re.sub(r" ([.,;:!?])", r"\1", " ".join(WORK_CODES.sub(" ", text).split()))
+
+
 # A brand that starts lowercase keeps its casing at the start of a title: "macOS 26 …".
 LEADING_BRAND = re.compile(r"^(?:macOS|iOS|iPadOS|iCloud|iPhone|iPad)\b")
 
@@ -134,9 +151,36 @@ def capitalized(text):
     return text if LEADING_BRAND.match(text) else text[:1].upper() + text[1:]
 
 
+FIXED_WORDS = re.compile(r"\b(?:no longer|never|again|instead of|at once|not|(?:has|have|shows?|draws?|gets?) no)\b", re.I)
+# Words that only continue a sentence: a summary that starts with one is the rest of its title
+# (model.ts JOINER and isFragment).
+JOINER = re.compile(r"^(?:and|or|but|nor|so|its|their|his|her|which|that|who|whose|with|without|because|while|even|then|to|"
+                    r"for|from|in|on|of|by|plus|via|after|before|when|if|unless|until|as|also|than|into|at)\b", re.I)
+
+
+def is_fragment(text):
+    """Whether `text` is a piece of a sentence rather than one (model.ts isFragment): it starts
+    lowercase, with a digit, a parenthesis or a joining word, leaves a parenthesis unbalanced, or is
+    under four words with no closing period ("And name the check that refuses it", "8 under the run")."""
+    t = text.strip()
+    if not t or LEADING_BRAND.match(t):
+        return False
+    if t[0].islower() or t[0].isdigit() or t[0] in "()[]" or JOINER.match(t):
+        return True
+    depth = 0
+    for char in t:
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth < 0:
+                return True
+    return depth != 0 or (len(t.split()) < 4 and t[-1] not in ".!?。！？")
+
+
 def summary_entry(subject):
     """(group, title) for a user-facing commit subject, else None."""
-    text = " ".join(subject.split())
+    text = without_work_codes(subject)
     if not text or text.lower().startswith(("merge ", "revert ", "bead:")):
         return None
     group = "changed"
@@ -158,8 +202,8 @@ def summary_entry(subject):
         if any(INTERNAL_AREA_SHAPE.match(w) or w in INTERNAL_TYPES for w in words + scopes):
             return None
         text = label["rest"]
-    text = AREA_PREFIX.sub("", text)
-    text = REFS.sub("", text).strip(" .")
+    text = CMUX_AREA.sub("", AREA_PREFIX.sub("", text))
+    text = REFS.sub("", without_work_codes(text)).strip(" .")
     if (not text or INTERNAL_WORDS.search(text) or INTERNAL_BACKEND_WORDS.search(text)
             or CODE_LIKE.search(BRANDS.sub("", text))
             or TOOL_NAME.search(text) or PR_NUMBER.search(text) or SQUASH_REPAIR.search(text)):
@@ -167,6 +211,10 @@ def summary_entry(subject):
     if group == "changed" and re.match(r"^(add|adds|new|introduce|support|show)\b", text, re.I):
         group = "new"
     elif group == "changed" and re.match(r"^(fix|fixes|repair|stop|keep)\b", text, re.I):
+        group = "fixed"
+    elif group == "changed" and FIXED_WORDS.search(text):
+        # A line that says what no longer goes wrong is a fix, so the page's rows do not all carry
+        # the "improved" arrow (Leo 2026-11-02; model.ts rowKind).
         group = "fixed"
     # Whole: the page wraps a long line, and short_title gives the digest a title that fits.
     return group, capitalized(text)
@@ -281,7 +329,9 @@ def _plain_line(text):
 
 def pr_description(body, fallback=""):
     """Extract one plain-language sentence from a PR body, without headings or markup."""
-    fallback = _candidate_description(fallback) or ("Fixes and improvements." if fallback else "")
+    # No description beats "Fixes and improvements.": the page showed that line under a title that
+    # already said more (Leo 2026-11-02, "the 0 information density one").
+    fallback = _candidate_description(fallback)
     if not body:
         return fallback
     body = HTML_COMMENT.sub("", body.replace("\r", ""))
@@ -375,14 +425,18 @@ def summarize_changes(subjects, limit=SUMMARY_LIMIT, descriptions=None):
     seen, groups = set(), {"new": [], "fixed": [], "changed": []}
     for subject in subjects:
         entry = summary_entry(subject)
+        description = (descriptions or {}).get(subject, "")
+        bare = PR_SUFFIX.match(subject)
+        code_only = entry is None and bool(description) and not without_work_codes(bare["title"] if bare else subject)
+        if code_only:
+            # A subject that was only codes ("P0 RESIZE F1 part 1 of 2"): its description says the change.
+            entry = summary_entry(description.rstrip(". "))
         if entry is None or entry[1].lower() in seen:
             continue
         seen.add(entry[1].lower())
         line = {"group": entry[0], "title": entry[1]}
-        if descriptions:
-            description = descriptions.get(subject, "")
-            if _safe_description(description):
-                line["description"] = description
+        if description and not code_only and _safe_description(description):
+            line["description"] = description
         groups[entry[0]].append(line)
     # A fair share per group first (New 3, Fixed 3, Changed 2), then the rest in order.
     chosen = {g: groups[g][:n] for g, n in (("new", 3), ("fixed", 3), ("changed", 2))}
@@ -668,11 +722,17 @@ def summary_whats_new_digest(args, lines):
         # The summary says what the title leaves out, or repeats a title that is the whole line.
         full = " ".join(line["title"].split()).rstrip(". ")
         description = _validated_description(line.get("description", ""))
+        # What the title leaves out, when it reads as a sentence of its own; else the whole line
+        # ("Start the Native link in ad hoc builds" over "And name the check that refuses it" was a
+        # row whose line was a piece of its title, Leo 2026-11-02). The page reads a summary that
+        # repeats its title as the one whole title.
+        tail = title_tail(full, title) if title != full else ""
+        rest = full if not tail or is_fragment(tail) else tail
         if not description:
-            description = _validated_description(sentence(title_tail(full, title) if title != full else full))
+            description = _validated_description(sentence(rest))
         entry = {"id": f"summary-{index}", "category": categories[line["group"]],
                  "title": {"en": title},
-                 "summary": {"en": sentence(description or (title_tail(full, title) if title != full else full))},
+                 "summary": {"en": sentence(description or rest)},
                  "platforms": ["macos"], "audience": "all", "docs": "https://cmux.com/docs/changelog"}
         problems = validate.validate_document(f"{args.short}.json", {**document, "entries": [entry]})
         if problems:

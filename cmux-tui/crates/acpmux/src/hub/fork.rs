@@ -247,12 +247,12 @@ impl Hub {
             }
             // The list the parent's agent got at its start (`spawn.rs`).
             let all = child.all_tools.load(std::sync::atomic::Ordering::Relaxed);
-            let asked = child
-                .request(
-                    method::SESSION_FORK,
-                    json!({"sessionId": sid, "cwd": cwd, "mcpServers": crate::agent_tools::acp_servers_for(parent_meta.remote_origin, &fork_env, &id, all)}),
-                )
-                .await;
+            let mut fork_params = json!({"sessionId": sid, "cwd": cwd, "mcpServers": crate::agent_tools::acp_servers_for(parent_meta.remote_origin, &fork_env, &id, all)});
+            // The parent's folders, as its own start gave them (`additional_dirs.rs`).
+            if let Some(dirs) = super::additional_dirs::acp_value(&parent_meta) {
+                fork_params.set(super::additional_dirs::FIELD, dirs);
+            }
+            let asked = child.request(method::SESSION_FORK, fork_params).await;
             let working_now =
                 matches!(session.meta().status, SessionStatus::Running | SessionStatus::Waiting);
             match asked {
@@ -305,7 +305,17 @@ impl Hub {
         let name_given = name.is_some();
         let name = name.unwrap_or_else(|| self.unique_name(&format!("{}-fork", parent_meta.name)));
         let now = now_ms();
-        let meta = SessionMeta {
+        let fork_dirs =
+            super::additional_dirs::without_cwd(parent_meta.additional_directories.clone(), &cwd);
+        let cmux_context = if !parent_meta.remote_origin
+            && (empty || (matches!(made, Made::Fresh) && parent_meta.cmux_context.is_none()))
+        {
+            let cfg = self.config.read().await;
+            Some(crate::context_inventory::snapshot(&cfg, &cwd))
+        } else {
+            parent_meta.cmux_context.clone()
+        };
+        let mut meta = SessionMeta {
             schema: META_SCHEMA.into(),
             id: id.clone(),
             name,
@@ -318,6 +328,8 @@ impl Hub {
             preset: parent_meta.preset.clone(),
             model_request: parent_meta.model_request.clone(),
             cwd,
+            // A fork sees what its parent saw, but never its own folder twice.
+            additional_directories: fork_dirs,
             // A fork is a new chat. Its parent transcript is authorized through parent_id; it
             // must not inherit the parent's historical native session ids as its own.
             previous_agent_session_ids: Vec::new(),
@@ -332,6 +344,7 @@ impl Hub {
             created_at: now,
             updated_at: now,
             last_seq: 0,
+            transcript_seq: 0,
             parent_id: Some(session.id.clone()),
             fork_seq: if empty { None } else { Some(fork_seq) },
             fork_before: before.as_ref().map(|(_, b)| b.clone()),
@@ -353,10 +366,9 @@ impl Hub {
                 .modes
                 .clone()
                 .or_else(|| res.get("modes").cloned().filter(|v| !v.is_null())),
-            config_options: parent_meta
-                .config_options
-                .clone()
-                .or_else(|| res.get("configOptions").cloned().filter(|v| !v.is_null())),
+            config_options: parent_meta.config_options.clone().or_else(|| {
+                res.get("configOptions").cloned().filter(|v| !v.is_null()).map(Into::into)
+            }),
             models: parent_meta.models.clone(),
             permission_policy: parent_meta.permission_policy.clone(),
             policy_source: parent_meta.policy_source.clone(),
@@ -372,6 +384,12 @@ impl Hub {
             turn_count,
             usage: None,
             context_breakdown: None,
+            cmux_context,
+            cmux_preset_prompt: parent_meta.cmux_preset_prompt.clone(),
+            // Fresh reconstruction copies visible history only; hidden guidance must
+            // reach the new harness again. Native transcript forks already retain it.
+            cmux_context_delivered: !matches!(made, Made::Fresh | Made::Empty)
+                && parent_meta.cmux_context_delivered,
             // The account's limits, which the fork shares.
             usage_limits: parent_meta.usage_limits.clone(),
             available_commands: parent_meta.available_commands.clone(),
@@ -432,6 +450,11 @@ impl Hub {
             turn_cap_noticed: None,
             delegator: None,
         };
+        if empty && !meta.remote_origin {
+            let cfg = self.config.read().await;
+            meta.cmux_preset_prompt = crate::context_inventory::preset_override(&meta, &cfg);
+            meta.cmux_context = Some(crate::context_inventory::snapshot_session(&meta, &cfg));
+        }
         let new = self.make_session(meta);
         match made {
             Made::ClaudeResume => *new.fork_from.lock().unwrap() = Some(sid.clone()),

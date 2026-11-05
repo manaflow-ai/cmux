@@ -307,10 +307,10 @@ test("the saved environments are in Machines…, under This Mac; the main list i
   await click(environmentButton());
   await openMachines();
   const saved = rows().filter((item) => item.querySelector(".acpmux-env-saved"));
+  // "Web" is only a folder on this Mac: it is in the folder menu, not among the machines.
   expect(saved.map((item) => item.querySelector(".acpmux-menu-label")?.textContent)).toEqual([
     "Devbox API",
     "API worktree",
-    "Web",
   ]);
   // No header over them; This Mac is first and keeps ⌥⌘1.
   expect(doc().querySelectorAll(".acpmux-env-popover [data-section]")).toHaveLength(0);
@@ -330,7 +330,9 @@ test("a saved SSH environment names the strip and asks on its machine, in its fo
   expect(calls.filter((call) => call.method === "session.auth").at(-1)?.params).toEqual({
     target: { harness: "claude", host: "devbox", cwd: "/srv/api" },
   });
-  expect(environmentButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: Devbox API`);
+  expect(environmentButton()?.getAttribute("aria-label")).toBe(
+    `${t("composer.environment")}: ${t("composer.anotherMachine")} · Devbox API`,
+  );
   // The environment names where the chat starts: no folder control beside it.
   expect(folderButton()).toBeNull();
   await ask("tail the logs");
@@ -383,13 +385,13 @@ test("a refused worktree shows the host's reason, starts nothing and keeps the p
 test("picking a machine instead clears the saved environment", async () => {
   await mount();
   await openMachines();
-  await click(row("Web"));
+  await click(row("API worktree"));
   expect(folderButton()).toBeNull();
   await openMachines();
   // The machine rows: this computer is the only one a New Tab chat lists.
   const machine = rows().find((item) => item.querySelector(".acpmux-env-key"));
   await click(machine);
-  expect(environmentButton()?.getAttribute("aria-label")).not.toContain("Web");
+  expect(environmentButton()?.getAttribute("aria-label")).not.toContain("API worktree");
   expect(folderButton()).not.toBeNull();
 });
 
@@ -400,7 +402,9 @@ test("picking another machine acpmux lists starts the chat there", async () => {
   expect(calls.filter((call) => call.method === "session.auth").at(-1)?.params).toEqual({
     target: { harness: "claude", host: "devbox" },
   });
-  expect(environmentButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: devbox`);
+  expect(environmentButton()?.getAttribute("aria-label")).toBe(
+    `${t("composer.environment")}: ${t("composer.anotherMachine")} · devbox`,
+  );
   // The prompt takes the keyboard back, as after a folder pick.
   expect(doc().activeElement).toBe(host.querySelector(".nt-field [contenteditable]"));
   await ask("tail the logs");
@@ -451,7 +455,7 @@ test("a chat started on another machine with no folder there does not take this 
 test("a machine picked after a saved environment is where the chat starts", async () => {
   const calls = await mount();
   await openMachines();
-  await click(row("Web"));
+  await click(row("API worktree"));
   await openMachines();
   await click(row("devbox"));
   await ask("tail the logs");
@@ -483,7 +487,9 @@ test("Create environment saves where the page would start and picks it", async (
     environment: { name: "Sandbox", kind: "local", folder: API, worktree: true },
   });
   expect($(".acpmux-env-panel")).toBeNull();
-  expect(environmentButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: Sandbox`);
+  expect(environmentButton()?.getAttribute("aria-label")).toBe(
+    `${t("composer.environment")}: ${t("composer.thisMac")} · Sandbox`,
+  );
   // Picked: Edit environment opens it again, with Remove.
   await click(await moreItem(t("environment.edit")));
   expect($<HTMLInputElement>(".acpmux-env-panel input")?.value).toBe("Sandbox");
@@ -515,10 +521,38 @@ test("a draft keeps only its kind's fields", async () => {
   expect(savedEnvironmentReady({ name: "Mac", kind: "local", folder: "~/src/app" })).toBe(true);
 });
 
+/// A folder in the composer's folder menu.
+const pickFolderRow = async (cwd: string) => {
+  await click(folderButton());
+  const item = $(`.acpmux-location-row[title="${cwd}"]`);
+  expect(item, `no folder row for ${cwd}`).toBeTruthy();
+  await click(item!.closest<HTMLElement>('[role="option"]') ?? item);
+};
+
+test("a saved local environment that is only a folder is in the folder menu, not among the machines", async () => {
+  // Leo, 2026-11-03: "imo claude has kinda s***ty ways to deal with remote stuff. chatgpt's is
+  // better." Claude listed a saved Local environment that was only a folder as an environment of
+  // its own. Here it is that folder: This Mac stays the machine, and the folder menu picks it.
+  const calls = await mount();
+  await openMachines();
+  expect(row("Web")).toBeUndefined();
+  await click(environmentButton());
+  await pickFolderRow(APP);
+  expect(environmentButton()?.getAttribute("aria-label")).toBe(
+    `${t("composer.environment")}: ${t("composer.thisMac")}`,
+  );
+  expect(folderButton()).not.toBeNull();
+  // It is still the saved environment: Edit environment opens it.
+  await click(await moreItem(t("environment.edit")));
+  expect($<HTMLInputElement>(".acpmux-env-panel input")?.value).toBe("Web");
+  await click($$(".acpmux-env-panel button").find((button) => button.textContent === t("edited.cancel")));
+  await ask("run the tests");
+  expect(calls.find((call) => call.method === "chat.new")?.params).toMatchObject({ cwd: APP });
+});
+
 test("a saved local environment starts in its folder even when the tab already sits there", async () => {
   const calls = await mount({ tabCwd: APP });
-  await openMachines();
-  await click(row("Web"));
+  await pickFolderRow(APP);
   await ask("run the tests");
   expect(calls.find((call) => call.method === "workspace.useFolder")?.params).toEqual({ cwd: APP });
   expect(calls.find((call) => call.method === "chat.new")?.params).toMatchObject({ cwd: APP });

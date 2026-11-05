@@ -30,8 +30,11 @@ chats at the bottom of the sidebar. Open one to resume it.
 - **Docs link.** Link a page that exists: a cmux-next page is `https://cmux.com/docs/next/<slug>`, with
   a slug from `web/data/next-docs/pages.ts` (agents, cli, settings, ...), or a page under
   `web/app/[locale]/(landing)/docs/`. The validator checks only that it is an https URL.
-- **No internal words.** No bead ids, PR numbers, commit hashes, branch, lane or crate names. Use the
-  names people see in the app.
+- **No internal words.** No bead ids, PR numbers, commit hashes, branch, lane or crate names, and no
+  work-stream codes ("P0 RESIZE KEYS K4", "REOPEN-F7", "part 1 of 2"; `validate.py` rejects them). Use
+  the names people see in the app.
+- **The body adds to the title.** Never the title again, never the rest of its sentence ("And name the
+  check that refuses it"), never "Fixes and improvements".
 - **Never a commit subject.** "fix(sidebar): …" and "sidebar: …" are rejected.
 - **One change, one file.** Join small related changes into one entry, as Conductor does
   ("Sidebar sections collapse, and clearer feature errors").

@@ -15,6 +15,9 @@ pub(super) async fn steer(
         .and_then(Value::as_str)
         .ok_or_else(|| RpcError::invalid_params("briefId is required"))?;
     let row = brief_for(hub, conn, id)?;
+    if row.get("durable").and_then(Value::as_bool) == Some(true) {
+        return Err(RpcError::invalid_params("durable workflow briefs use scoped dispatch only"));
+    }
     let idempotency = params
         .get("idempotencyKey")
         .or_else(|| params.get("idempotency_key"))
@@ -96,6 +99,7 @@ fn shown(conn: &Conn, mut row: Value) -> Value {
 fn brief_for(hub: &Hub, conn: &Conn, id: &str) -> Result<Value, RpcError> {
     hub.briefs
         .get(id)
+        .filter(|row| workflow_dispatch::visible(conn, row))
         .filter(|row| conn.origin != Origin::Peer || peer_sees(hub, row))
         .map(|row| shown(conn, row))
         .ok_or_else(|| RpcError::not_found(format!("no brief {id:?}")))
@@ -113,7 +117,8 @@ pub(super) async fn list(
     let status = params.get("status").and_then(Value::as_str);
     let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(100) as usize;
     let wanted = |row: &Value| {
-        status.is_none_or(|want| row.get("status").and_then(Value::as_str) == Some(want))
+        workflow_dispatch::visible(conn, row)
+            && status.is_none_or(|want| row.get("status").and_then(Value::as_str) == Some(want))
     };
     // A peer daemon's connection is listed the briefs this host ran ([`peer_sees`]), newest first
     // as below, and no peer of this host is asked for theirs.
@@ -129,7 +134,8 @@ pub(super) async fn list(
             .collect();
         return Ok(json!({ "briefs": rows }));
     }
-    let mut rows = hub.briefs.list(status, limit);
+    let mut rows =
+        hub.briefs.matching(wanted).into_iter().rev().take(limit.clamp(1, 500)).collect::<Vec<_>>();
     // The peers at once, under one deadline: one by one, each with the request budget (600 s),
     // a stalled peer held the list for ten minutes. A peer left out is named, with why.
     let deadline = tokio::time::Instant::now() + PEERS_BUDGET;
@@ -153,7 +159,17 @@ pub(super) async fn list(
             }
         };
         for row in remote.get("briefs").and_then(Value::as_array).into_iter().flatten() {
+            if row.get("durable").and_then(Value::as_bool) == Some(true) {
+                continue;
+            }
             let Some(id) = row.get("briefId").and_then(Value::as_str) else { continue };
+            if hub
+                .briefs
+                .get(id)
+                .is_some_and(|local| local.get("durable").and_then(Value::as_bool) == Some(true))
+            {
+                continue;
+            }
             if let Some(local) = rows
                 .iter_mut()
                 .find(|candidate| candidate.get("briefId").and_then(Value::as_str) == Some(id))
@@ -187,6 +203,9 @@ pub(super) async fn report(
         .and_then(Value::as_str)
         .ok_or_else(|| RpcError::invalid_params("briefId is required"))?;
     let row = brief_for(hub, conn, id)?;
+    if row.get("durable").and_then(Value::as_bool) == Some(true) {
+        return Err(RpcError::invalid_params("durable workflow briefs use scoped dispatch only"));
+    }
     let key = params
         .get("idempotencyKey")
         .or_else(|| params.get("idempotency_key"))
@@ -403,6 +422,7 @@ pub(super) async fn tasks(
         .briefs
         .list(None, 500)
         .into_iter()
+        .filter(|row| workflow_dispatch::visible(conn, row))
         .filter(|row| from.is_none() || row["fromSession"].as_str() == from.as_deref())
         // A peer daemon's connection: the briefs this host ran ([`peer_sees`]).
         .filter(|row| conn.origin != Origin::Peer || peer_sees(hub, row))

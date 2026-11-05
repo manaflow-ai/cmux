@@ -55,6 +55,12 @@ public final class CmuxToastCenter {
         let serial = nextSerial
         nextSerial += 1
         let handle = CmuxToastHandle(serial: serial, toast: toast, center: self)
+        // A one-window toast ends its copy in every other window, and in this one too when it stays
+        // quiet below: a never-ending working toast is never left behind (``CmuxToast/oneWindow``).
+        if toast.oneWindow {
+            let quiet = isQuieted(toast)
+            for (other, entry) in entries where entry.handle.toast.id == toast.id && (quiet || entry.window !== window) { end(other, .replaced) }
+        }
         // The person closed this notice a moment ago: it does not come back yet.
         if isQuieted(toast) {
             handle.finish(.closed)
@@ -150,6 +156,12 @@ public final class CmuxToastCenter {
         guard let serial = serials.reversed().first(where: { entries[$0]?.handle.toast.id == id }) else { return false }
         closedByPerson(serial)
         return true
+    }
+
+    /// Ends the toast with `id` in every window (a run that ended with nothing to say, after its working
+    /// toast showed in a window no longer in front). Unlike the close button it quiets nothing.
+    public func close(id: String) {
+        for (serial, entry) in entries where entry.handle.toast.id == id { end(serial, .closed) }
     }
 
     /// The responder chain from `responder` has an undo manager that can undo.

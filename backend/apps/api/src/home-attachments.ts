@@ -150,7 +150,8 @@ type Caller = { readonly principal: Principal; readonly actor: string; readonly 
 
 /** Bearer -> principal with SSO policy and the install's grant; installs need `risk` in their grant. */
 export const callerOf = async (request: Request, env: Env, risk: "read" | "mutate-shared", admitted?: Principal): Promise<Caller | Fail> => {
-  // A self-hosted server (backend/apps/home-server) passes the principal its Tailscale admission built; the Worker never does.
+  // Internal callers pass a server-built principal (self-hosted admission or an admitted Chief
+  // reply). HTTP routes never take this value from a request; membership and quotas apply below.
   if (admitted) {
     const actor = homeConversation.actorOf(admitted)
     return actor && admitted.user ? { principal: admitted, actor, user: admitted.user } : { status: 403, code: "auth.forbidden", message: "no user" }

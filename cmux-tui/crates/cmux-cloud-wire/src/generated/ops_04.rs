@@ -4,6 +4,223 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_errors! {
+    /// The error codes conversation.import declares.
+    ConversationImportError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ConversationExists = "conversation_exists",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        ImportOutOfOrder = "import_out_of_order",
+        Importing = "importing",
+        InvalidConversationId = "invalid_conversation_id",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Finish an import: read cursors are clamped, normal ops open, each human gets one inbox entry.
+    ConversationImportCommitOp {
+        name: "conversation.import.commit",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: ConversationImportCommitParams,
+        result: HomeConversationCommit,
+        error: ConversationImportCommitError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ConversationImportCommitParams {
+    pub id: ConversationId,
+    pub last_seq: i64,
+}
+
+wire_errors! {
+    /// The error codes conversation.import.commit declares.
+    ConversationImportCommitError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        ImportOutOfOrder = "import_out_of_order",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Page the current members in join order (default 200, at most 1000); pass next as after for the next page. Works for every conversation; a large group's head carries only a roster.
+    ConversationMembersOp {
+        name: "conversation.members",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:ConversationDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: ConversationMembersParams,
+        result: ConversationMembersResult,
+        error: ConversationMembersError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ConversationMembersParams {
+    pub conversation: ConversationId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ConversationMembersResult {
+    pub members: Vec<HomeParticipant>,
+    pub member_count: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next: Option<i64>,
+}
+
+wire_errors! {
+    /// The error codes conversation.members declares.
+    ConversationMembersError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Change the chief wake policy, agent turn budget or history visibility (conversation owner).
+    ConversationSettingsSetOp {
+        name: "conversation.settings.set",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: ConversationSettingsSetParams,
+        result: HomeConversationCommit,
+        error: ConversationSettingsSetError,
+    }
+}
+
+wire_enum! {
+    ConversationSettingsSetParamsWakePolicy {
+        Auto = "auto",
+        Mentions = "mentions",
+        All = "all",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ConversationSettingsSetParamsAgentBudget {
+    pub turns: i64,
+    pub gap_ms: i64,
+}
+
+wire_enum! {
+    ConversationSettingsSetParamsHistoryVisible {
+        All = "all",
+        SinceJoin = "since_join",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ConversationSettingsSetParams {
+    pub conversation: ConversationId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wake_policy: Option<ConversationSettingsSetParamsWakePolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_budget: Option<ConversationSettingsSetParamsAgentBudget>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub history_visible: Option<ConversationSettingsSetParamsHistoryVisible>,
+}
+
+wire_errors! {
+    /// The error codes conversation.settings.set declares.
+    ConversationSettingsSetError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        InvalidSettings = "invalid_settings",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Read the conversation and its newest messages (history_visible since_join hides earlier ones).
+    ConversationSnapshotOp {
+        name: "conversation.snapshot",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:ConversationDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: ConversationSnapshotParams,
+        result: ConversationSnapshotResult,
+        error: ConversationSnapshotError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ConversationSnapshotParams {
+    pub conversation: ConversationId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tail: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ConversationSnapshotResult {
+    pub conversation: HomeConversationSummary,
+    pub messages: Vec<HomeMessage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub threads: Option<Vec<HomeThreadSummary>>,
+    pub revision: String,
+}
+
+wire_errors! {
+    /// The error codes conversation.snapshot declares.
+    ConversationSnapshotError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
 wire_op! {
     /// Read one thread: its root and the replies after after_seq (ascending, exact has_more), with the root's stats. A root that is unknown, is itself a reply, or is hidden by since_join is unknown_message.
     ConversationThreadOp {
@@ -685,221 +902,4 @@ pub struct FeedListResult {
     pub groups: Option<Vec<FeedListResultGroupsItem>>,
     pub next: Option<FeedItemId>,
     pub revision: String,
-}
-
-wire_errors! {
-    /// The error codes feed.list declares.
-    FeedListError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// Post a notice or a request to the user's feed. A request waits for one answer from the user (use feed.watch or --wait).
-    FeedPostOp {
-        name: "feed.post",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:FeedDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: FeedPostParams,
-        result: FeedPostResult,
-        error: FeedPostError,
-    }
-}
-
-wire_enum! {
-    FeedPostParamsType {
-        Notice = "notice",
-        Request = "request",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedPostParamsPoster {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub kind: Option<FeedPosterKind>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub label: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agent: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub harness: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedPostParams {
-    pub r#type: FeedPostParamsType,
-    pub kind: FeedKind,
-    pub title: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub body: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
-    pub prompt: Option<Value>,
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
-    pub answer_schema: Option<Value>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub priority: Option<FeedPriority>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub dedupe_key: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub thread: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub context: Option<FeedContext>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub attachments: Option<Vec<FeedAttachment>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub actions: Option<Vec<FeedAction>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub open: Option<FeedOpen>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub expires_in_ms: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub poster: Option<FeedPostParamsPoster>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedPostResult {
-    pub item: FeedItem,
-    pub deduped: bool,
-}
-
-wire_errors! {
-    /// The error codes feed.post declares.
-    FeedPostError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        FeedClosed = "feed.closed",
-        FeedFull = "feed.full",
-        FeedMoving = "feed.moving",
-        FeedRateLimited = "feed.rate_limited",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerMoved = "owner.moved",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Change the user's synced push rules.
-    FeedPrefsSetOp {
-        name: "feed.prefs.set",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:FeedDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: FeedPrefsSetParams,
-        result: FeedPrefsSetResult,
-        error: FeedPrefsSetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedPrefsSetParamsPushDelay {
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
-    pub urgent: Option<Option<i64>>,
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
-    pub high: Option<Option<i64>>,
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
-    pub normal: Option<Option<i64>>,
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
-    pub low: Option<Option<i64>>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedPrefsSetParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub push_enabled: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub push_delay: Option<FeedPrefsSetParamsPushDelay>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub push_skip_when_mac_active: Option<bool>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedPrefsSetResult {
-    pub prefs: FeedPrefs,
-}
-
-wire_errors! {
-    /// The error codes feed.prefs.set declares.
-    FeedPrefsSetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Mark items read (the user opened or acknowledged them): by ids, by a filter, or `all` unread items.
-    FeedReadOp {
-        name: "feed.read",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:FeedDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: FeedReadParams,
-        result: FeedReadResult,
-        error: FeedReadError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedReadParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub items: Option<Vec<FeedItemId>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub all: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub filter: Option<FeedFilter>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedReadResultItemsItem {
-    pub id: FeedItemId,
-    pub revision: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedReadResult {
-    pub items: Vec<FeedReadResultItemsItem>,
-}
-
-wire_errors! {
-    /// The error codes feed.read declares.
-    FeedReadError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        FeedClosed = "feed.closed",
-        FeedFull = "feed.full",
-        FeedMoving = "feed.moving",
-        FeedRateLimited = "feed.rate_limited",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerMoved = "owner.moved",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Report items the user saw in view (a client's visibility rule); seen items do not push.
-    FeedSeenOp {
-        name: "feed.seen",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:FeedDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: FeedSeenParams,
-        result: FeedSeenResult,
-        error: FeedSeenError,
-    }
 }

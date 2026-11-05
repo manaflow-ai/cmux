@@ -7,10 +7,17 @@ public import CmuxNextSettings
 /// daemon for the event sequence that covers every write it committed so
 /// far (writes the CLI sent to the daemon directly). The request then
 /// answers from the first published snapshot that reflects that sequence,
-/// within its deadline, so targets resolve against state that includes
-/// the caller's writes.
+/// within `limit`, so targets resolve against state that includes the
+/// caller's writes.
+///
+/// The daemon round trip has no wall clock (#32724): on a loaded Mac it
+/// answers late, and a deadline there failed requests on a healthy app and
+/// daemon. It waits while the daemon connection lives (the App's barrier asks
+/// with no deadline; the connection ends only when the daemon process is
+/// gone). `limit` counts from its answer. A barrier that fails says nothing ran
+/// (`unavailable`, `not_run`), which the CLI asks again for.
 extension ControlRouter {
-    func readBarrier(_ after: JSONValue, method: String, deadline: ContinuousClock.Instant) async throws -> ControlSnapshot {
+    func readBarrier(_ after: JSONValue, method: String, limit: Duration) async throws -> ControlSnapshot {
         let sequence: UInt64
         switch after {
         // `Double(UInt64.max)` rounds up to 2^64, which `UInt64` cannot hold;
@@ -23,21 +30,32 @@ extension ControlRouter {
         case .string("sync"):
             // Not registered yet (the socket serves before the App wires the
             // daemon): answering from the current snapshot would skip the sync.
-            guard let barrier = syncBarrier else {
-                throw ControlError(code: "unavailable", message: ControlStrings.text("control.error.syncBarrierUnavailable",
-                                                                                     "after: \"sync\" is not available yet; retry"))
+            guard let barrier = syncBarrier else { throw Self.syncBarrierNotRun() }
+            do {
+                sequence = try await barrier()
+            } catch {
+                throw Self.syncBarrierNotRun(cause: error)
             }
-            sequence = try await ControlDeadline.shared.run(method: method, deadline: deadline) { try await barrier() }
         default:
             throw ControlError.invalidParams(ControlStrings.text("control.error.afterShape",
                                                                  "after must be a sequence number from an earlier reply or \"sync\""))
         }
-        guard let snapshot = await snapshots.snapshot(reflecting: sequence, deadline: deadline) else {
+        guard let snapshot = await snapshots.snapshot(reflecting: sequence, deadline: .now + limit) else {
             var error = ControlError.timeout(method, after: .zero)
             error.data = ["method": .string(method), "after": JSONValue.number(Double(sequence)),
                           "sequence": JSONValue.number(Double(snapshots.current.topology.daemonSequence))]
             throw error
         }
         return snapshot
+    }
+
+    /// The barrier did not run (not registered yet, or the daemon connection ended before it
+    /// answered): nothing ran, so the caller may send the request again.
+    static func syncBarrierNotRun(cause: (any Error)? = nil) -> ControlError {
+        var data: [String: JSONValue] = ["not_run": true, "state": "not_run", "retry_after_ms": 200]
+        if let cause { data["cause"] = .string(String(describing: cause)) }
+        return ControlError(code: "unavailable",
+                            message: ControlStrings.text("control.error.syncBarrierUnavailable", "after: \"sync\" is not available yet; retry"),
+                            data: .object(data))
     }
 }

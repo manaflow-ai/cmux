@@ -26,7 +26,7 @@ struct QuitAlertContent: Equatable {
 
     var message: String { lines.joined(separator: "\n") }
 
-    /// "Quit cmux?": how many programs run, how many agents are working, and
+    /// "Quit cmux?": what each choice does, how many programs run, how many agents are working, and
     /// one line for incognito windows when relevant. With only incognito
     /// terminals (or a remembered end), it is the incognito close
     /// confirmation: Quit and Cancel.
@@ -41,8 +41,8 @@ struct QuitAlertContent: Equatable {
             return QuitAlertContent(title: ConfirmationStrings.quitIncognitoTitle, lines: [], buttons: [.quit, .cancel],
                                     showsSuppression: false)
         }
-        // Statuses only, no explanation of what quitting does.
-        var lines: [String] = []
+        // What each choice does to running sessions, then the statuses (Leo, 2026-11-03).
+        var lines = [QuitStrings.choicesExplained]
         if prompt.runningPrograms > 0 { lines.append(QuitStrings.programsRunning(prompt.runningPrograms)) }
         if prompt.agentsInTurn > 0 { lines.append(QuitStrings.agentsWorking(prompt.agentsInTurn)) }
         if !prompt.incognitoPrograms.isEmpty { lines.append(QuitStrings.incognitoCloses) }

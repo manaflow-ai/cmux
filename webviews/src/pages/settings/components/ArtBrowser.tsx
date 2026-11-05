@@ -2,6 +2,8 @@
 // (cmux.settings.art.search) for public-domain works; a click downloads one into the backgrounds
 // folder and sets it (cmux.settings.art.use). Thumbnails come from the host at museum/<key>.
 import { useState } from "react";
+import { Button } from "../../../ui/Button";
+import { Input } from "../../../ui/Input";
 import { useStore } from "../context";
 import type { MuseumArtResult } from "../ops";
 import { t } from "../strings";
@@ -41,7 +43,7 @@ export function ArtBrowser({ onClose }: { onClose: () => void }) {
           void search();
         }}
       >
-        <input
+        <Input
           className="field"
           type="search"
           aria-label={t("settingsWindow.artBrowser.search")}
@@ -49,12 +51,12 @@ export function ArtBrowser({ onClose }: { onClose: () => void }) {
           value={query}
           onChange={(event) => setQuery(event.target.value)}
         />
-        <button type="submit" className="button" disabled={status === "searching" || !query.trim()}>
+        <Button type="submit" className="button" disabled={status === "searching" || !query.trim()}>
           {t("settingsWindow.artBrowser.find")}
-        </button>
-        <button type="button" className="button" onClick={onClose}>
+        </Button>
+        <Button type="button" className="button" onClick={onClose}>
           {t("settingsWindow.artBrowser.close")}
-        </button>
+        </Button>
       </form>
       <p className="row-help">{t("settingsWindow.artBrowser.help")}</p>
       <output className="row-help">

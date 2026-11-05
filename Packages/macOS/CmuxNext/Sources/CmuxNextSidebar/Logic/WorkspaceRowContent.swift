@@ -68,6 +68,10 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public var machineLabel: String?
     /// The session tree (`sidebar.sessionTree`): 1 under the workspace whose agent started this one's.
     public var treeDepth = 0
+    /// The session tree: the parent's title, when this row's own title is the same name. The row reads
+    /// "Subagent of <parent>" instead of its parent's name again (Leo 2026-10-30: "the sidebar tab shouldn't
+    /// just be named claude sr2 coord if you can just say it's Subagent of sr2 coord").
+    public var subagentOf: String?
     /// The session tree: the Command-number that goes to the row (1 to 9), drawn as a keycap.
     public var keycap: Int?
     /// The session tree: the row's pull requests, a glyph and a count in their status color.
@@ -276,5 +280,13 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     static func nonEmpty(_ text: String?) -> String? {
         guard let text, !text.isEmpty else { return nil }
         return text
+    }
+}
+
+nonisolated extension WorkspaceRowContent {
+    /// Two titles name the same thing: equal once trimmed, ignoring case and diacritics; an empty title names nothing.
+    static func sameTitle(_ a: String, _ b: String) -> Bool {
+        let a = a.trimmingCharacters(in: .whitespacesAndNewlines), b = b.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !a.isEmpty && a.compare(b, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
     }
 }

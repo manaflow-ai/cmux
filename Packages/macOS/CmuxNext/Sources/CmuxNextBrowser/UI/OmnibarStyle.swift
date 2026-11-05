@@ -58,6 +58,9 @@ enum OmnibarStyle {
     /// Toolbar buttons: square, Helium's 28 pt at Standard (`kToolbarButtonHeight` 28),
     /// Chrome's 34 at Comfortable, by density (`OmnibarMetrics`).
     static var buttonSize: CGFloat { metrics.buttonSize }
+    /// The trailing buttons' gap to the pane's edge: More's center sits on the pane's trailing control
+    /// column, under the tab bar's ⋮ (`Metrics.paneTrailingControlCenter`, Lawrence msg 19627).
+    static var toolbarTrailingInset: CGFloat { max(0, Metrics.paneTrailingControlCenter - buttonSize / 2) }
     /// Toolbar buttons highlight in a rounded square on hover and press, Helium's
     /// `Emphasis::kHigh` (8; Chrome draws a circle, `kMaximum`).
     static var buttonCornerRadius: CGFloat { 8 }

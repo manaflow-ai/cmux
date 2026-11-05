@@ -4068,127 +4068,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Import Memories"
+            "value": "Bring your history"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "استيراد الذكريات"
+            "state": "translated",
+            "value": "أحضر سجلك"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Uvezi sjećanja"
+            "state": "translated",
+            "value": "Prenesite svoju historiju"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Importér minder"
+            "state": "translated",
+            "value": "Tag din historik med"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Erinnerungen importieren"
+            "state": "translated",
+            "value": "Bringe deinen Verlauf mit"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Importar recuerdos"
+            "state": "translated",
+            "value": "Trae tu historial"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Importer des souvenirs"
+            "state": "translated",
+            "value": "Importez votre historique"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Importa ricordi"
+            "state": "translated",
+            "value": "Porta la tua cronologia"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "メモリを読み込む"
+            "state": "translated",
+            "value": "履歴を引き継ぐ"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "នាំចូលការចងចាំ"
+            "state": "translated",
+            "value": "នាំយកប្រវត្តិរបស់អ្នក"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "기억 가져오기"
+            "state": "translated",
+            "value": "기록 가져오기"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Importer minner"
+            "state": "translated",
+            "value": "Ta med historikken din"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Importuj wspomnienia"
+            "state": "translated",
+            "value": "Przenieś swoją historię"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Importar memórias"
+            "state": "translated",
+            "value": "Traga seu histórico"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Импорт памяти"
+            "state": "translated",
+            "value": "Перенесите свою историю"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "นำเข้าความจำ"
+            "state": "translated",
+            "value": "นำประวัติของคุณมา"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Anıları İçe Aktar"
+            "state": "translated",
+            "value": "Geçmişinizi getirin"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Імпорт пам’яті"
+            "state": "translated",
+            "value": "Перенесіть свою історію"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Nhập ký ức"
+            "state": "translated",
+            "value": "Mang theo lịch sử của bạn"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "导入记忆"
+            "state": "translated",
+            "value": "带入你的历史记录"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "匯入記憶"
+            "state": "translated",
+            "value": "帶入你的歷史記錄"
           }
         }
       }

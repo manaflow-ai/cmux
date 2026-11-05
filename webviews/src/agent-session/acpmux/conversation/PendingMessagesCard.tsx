@@ -57,6 +57,25 @@ export function PendingMessagesCard({
   }, [holdsMatch, reveal]);
   if (!rows?.length) return null;
   const n = displayRows?.length ?? rows.length;
+  // One message waiting is that message's own line, never a group of one: "1 message from 1 session"
+  // over a row naming the same session said it twice (the coordinator, relaying Leo's capture).
+  const only = n === 1 ? (displayRows ?? rows)[0] : undefined;
+  if (only && only.incoming?.kind === "message")
+    return (
+      <div className="cv-pending cv-pending--one">
+        <div data-row-id={only.id} data-find-member="">
+          <FindReveal.Provider
+            value={
+              holdsMatch && reveal && (reveal.matchRowId === only.id || only.joined?.includes(reveal.matchRowId ?? ""))
+                ? { ...reveal, rowId: only.id }
+                : undefined
+            }
+          >
+            {renderMessage(only)}
+          </FindReveal.Provider>
+        </div>
+      </div>
+    );
   const countSources = flat ? bySender(displayRows ?? []) : sources;
   const names = countSources.map((group) => {
     const first = group.rows[0]!;

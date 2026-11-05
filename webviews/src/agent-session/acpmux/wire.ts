@@ -137,12 +137,20 @@ export class AcpWireLog {
     this.push({ dir: "out", kind: id === undefined ? "notification" : "request", method, id, ...this.body(logged) });
   }
 
-  /** A message acpmux sent. */
-  received(text: string): void {
+  /**
+   * A message acpmux sent. `parsed`: the frame as its receiver already parsed it (null when it is
+   * not a JSON object), so a frame is parsed once (HOT PATH AUDIT area F, row W2).
+   */
+  received(text: string, parsed?: Record<string, unknown> | null): void {
     let message: any;
-    try {
-      message = JSON.parse(text);
-    } catch {
+    if (parsed !== undefined) message = parsed;
+    else
+      try {
+        message = JSON.parse(text);
+      } catch {
+        message = null;
+      }
+    if (message === null || typeof message !== "object") {
       this.push({ dir: "in", kind: "invalid", ...this.body(text) });
       return;
     }

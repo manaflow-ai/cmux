@@ -115,6 +115,7 @@ fn a_parent_tag_the_daemon_never_answers_ends_at_the_deadline() {
 
 #[test]
 fn a_parent_reply_read_the_daemon_never_answers_ends_at_the_deadline() {
-    // The reply is read from the child's transcript.
-    assert_bounded("_acpmux/attach");
+    // The reply is read from the child's transcript, newest first through `_acpmux/events`
+    // (`cli::output::last_replies`: a one-shot read never attaches to the live stream).
+    assert_bounded("_acpmux/events");
 }

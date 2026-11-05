@@ -32,12 +32,14 @@ pub(super) struct NativeRoute {
     mesh: String,
     cidr: String,
     base: u32,
-    own: Ipv4Addr,
+    /// The device's own mesh address, when the provider has attached it yet (cmux-vm sends null until then).
+    own: Option<Ipv4Addr>,
     gateway: Gateway,
 }
 
-fn refused() -> io::Error {
-    io::Error::new(io::ErrorKind::PermissionDenied, "cloud.native.route_refused")
+/// `step` names the check, never a value: the app shows the message in `link_route`.
+fn refused(step: &str) -> io::Error {
+    io::Error::new(io::ErrorKind::PermissionDenied, format!("cloud.native.route_refused: {step}"))
 }
 
 impl NativeRoute {
@@ -48,45 +50,66 @@ impl NativeRoute {
         cidr: String,
         tunnel: Tunnel,
     ) -> io::Result<Self> {
-        let base = mesh_base(&cidr).ok_or_else(refused)?;
+        let base = mesh_base(&cidr).ok_or_else(|| refused("ipv4_cidr"))?;
         let own = tunnel
             .mesh_address
             .as_deref()
-            .and_then(|value| mesh_host(value, base))
-            .ok_or_else(refused)?;
+            .map(|value| {
+                mesh_host(value, base).ok_or_else(|| refused("meshAddress outside ipv4_cidr"))
+            })
+            .transpose()?;
+        // The provider sends a bare address or `/32` (the cmux-vm mesh agent reads both).
         let interface = tunnel
             .interface_address
             .strip_suffix("/32")
-            .and_then(|value| value.parse::<Ipv4Addr>().ok());
-        if tenant.is_empty()
-            || tenant.len() > 128
-            || !tenant.bytes().all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b))
-            || tunnel.mesh_id != mesh
-            || tunnel.device_id != device
-            || !super::native_broker::native_id(&mesh, "mesh_")
-            || !super::native_broker::native_id(device, "dev_")
-            || !super::native_broker::native_id(&tunnel.id, "tun_")
-            || !endpoint_host(&tunnel.endpoint_host)
-            || tunnel.endpoint_port == 0
-            || tunnel.mtu != 1280
-            || tunnel.persistent_keepalive_seconds != 25
-            || interface.is_none_or(|ip| {
-                !(ip.is_private()
-                    || (u32::from(ip) >> 22 == u32::from(Ipv4Addr::new(100, 64, 0, 0)) >> 22))
-                    || format!("{ip}/32") != tunnel.interface_address
-            })
-            || !STANDARD
-                .decode(&tunnel.server_public_key)
-                .is_ok_and(|bytes| bytes.len() == 32 && bytes.iter().any(|b| *b != 0))
-            || tunnel.allowed_ips.is_empty()
-            || tunnel.allowed_ips.len() > 32
-            || !tunnel.allowed_ips.contains(&cidr)
-            || tunnel
-                .allowed_ips
-                .iter()
-                .any(|value| value.len() > 128 || value.parse::<IpNetwork>().is_err())
-        {
-            return Err(refused());
+            .unwrap_or(tunnel.interface_address.as_str())
+            .parse::<Ipv4Addr>()
+            .ok();
+        let checks = [
+            (
+                "tenant",
+                tenant.is_empty()
+                    || tenant.len() > 128
+                    || !tenant.bytes().all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b)),
+            ),
+            ("meshId", tunnel.mesh_id != mesh || !super::native_broker::native_id(&mesh, "mesh_")),
+            (
+                "deviceId",
+                tunnel.device_id != device || !super::native_broker::native_id(device, "dev_"),
+            ),
+            ("id", !super::native_broker::native_id(&tunnel.id, "tun_")),
+            ("endpointHost", !endpoint_host(&tunnel.endpoint_host)),
+            ("endpointPort", tunnel.endpoint_port == 0),
+            ("mtu", tunnel.mtu != 1280),
+            ("persistentKeepaliveSeconds", tunnel.persistent_keepalive_seconds != 25),
+            (
+                "interfaceAddress",
+                interface.is_none_or(|ip| {
+                    !(ip.is_private()
+                        || (u32::from(ip) >> 22 == u32::from(Ipv4Addr::new(100, 64, 0, 0)) >> 22))
+                        || !(tunnel.interface_address == ip.to_string()
+                            || tunnel.interface_address == format!("{ip}/32"))
+                }),
+            ),
+            (
+                "serverPublicKey",
+                !STANDARD
+                    .decode(&tunnel.server_public_key)
+                    .is_ok_and(|bytes| bytes.len() == 32 && bytes.iter().any(|b| *b != 0)),
+            ),
+            (
+                "allowedIps",
+                tunnel.allowed_ips.is_empty()
+                    || tunnel.allowed_ips.len() > 32
+                    || tunnel
+                        .allowed_ips
+                        .iter()
+                        .any(|value| value.len() > 128 || value.parse::<IpNetwork>().is_err()),
+            ),
+            ("allowedIps lacks ipv4_cidr", !tunnel.allowed_ips.contains(&cidr)),
+        ];
+        if let Some((step, _)) = checks.iter().find(|(_, failed)| *failed) {
+            return Err(refused(step));
         }
         let endpoint = match tunnel.endpoint_host.parse::<IpAddr>() {
             Ok(IpAddr::V6(ip)) => format!("[{ip}]:{}", tunnel.endpoint_port),
@@ -96,7 +119,7 @@ impl NativeRoute {
             tunnel_id: tunnel.id,
             endpoint,
             server_public_key: tunnel.server_public_key,
-            client_address: tunnel.interface_address,
+            client_address: format!("{}/32", interface.ok_or_else(|| refused("interfaceAddress"))?),
             // The provider also returns its VPC IPv6 routes. Cloud VM routing here
             // needs only the owner-confirmed IPv4 mesh; no extra route is installed.
             allowed_ips: vec![cidr.clone()],
@@ -105,25 +128,25 @@ impl NativeRoute {
     }
 
     pub(super) fn for_vm(&self, info: &ConnectInfo) -> io::Result<CloudRoute> {
-        let network = info.network.as_ref().ok_or_else(refused)?;
+        let network = info.network.as_ref().ok_or_else(|| refused("vm network missing"))?;
         if network.tenant != self.tenant
             || network.mesh != self.mesh
             || network.ipv4_cidr != self.cidr
         {
-            return Err(refused());
+            return Err(refused("vm network scope"));
         }
         let address = network
             .ipv4
             .as_deref()
             .and_then(|value| mesh_host(value, self.base))
-            .filter(|ip| *ip != self.own)
-            .ok_or_else(refused)?;
+            .filter(|ip| Some(*ip) != self.own)
+            .ok_or_else(|| refused("vm ipv4"))?;
         let vpc = SocketAddr::new(IpAddr::V4(address), CLOUD_UDP_PORT);
         if info.peer.public_ipv6.is_some()
             || info.peer.vpc_endpoint.is_some_and(|supplied| supplied != vpc)
             || info.gateway.as_ref().is_some_and(|supplied| supplied != &self.gateway)
         {
-            return Err(refused());
+            return Err(refused("vm peer"));
         }
         Ok(CloudRoute::Tunnel { gateway: self.gateway.clone(), vpc })
     }

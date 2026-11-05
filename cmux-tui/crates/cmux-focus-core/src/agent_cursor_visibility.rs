@@ -4,7 +4,8 @@
 //! CURSOR-SHOW, CURSOR-SCREENS, 2026-10-04). The macOS app builds a
 //! [`Snapshot`] from its live models when an agent input event arrives (or
 //! a tracked target's layout changes) and asks [`resolve`] over the app FFI
-//! (`cmux_layout_reducer_json` operation `agent_cursor_visibility`).
+//! (the typed call `cmux_agent_cursor_visibility`; the JSON operation
+//! `agent_cursor_visibility` still answers, and its FFI test replays the vectors).
 //!
 //! Rects are points in one window's content view, flipped (origin top-left,
 //! y down). They follow `CGRect`'s rules: a negative size is standardized,
@@ -86,7 +87,8 @@ mod non_finite {
 }
 
 /// A rect in one window's content-view coordinates, flipped.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[repr(C)]
 pub struct Rect {
     #[serde(with = "non_finite")]
     pub x: f64,
@@ -329,49 +331,179 @@ pub enum Visibility {
 }
 
 /// Where the cursor for `target` draws in `snapshot`.
-pub fn resolve(target: &str, snapshot: &Snapshot) -> Visibility {
-    let Some(tab) = &snapshot.tab else {
-        return Visibility::NotDrawn { reason: NotDrawnReason::TabClosed };
+pub fn resolve<'a>(target: &'a str, snapshot: &'a Snapshot) -> Visibility {
+    let outcome = resolve_view::<Owned<'a>>(target, &Owned(snapshot));
+    // The rules name only windows they read, so every index is in range.
+    let window_id = |window: usize| snapshot.windows.get(window).map(|w| w.id.clone());
+    let not_in_any_window = Visibility::NotDrawn { reason: NotDrawnReason::NotInAnyWindow };
+    match outcome {
+        Outcome::Visible { window, viewport, clip, zoom, scale } => match window_id(window) {
+            Some(window) => Visibility::Visible { window, viewport, clip, zoom, scale },
+            None => not_in_any_window,
+        },
+        Outcome::Hidden { window, anchor, rect } => match window_id(window) {
+            Some(window) => Visibility::Hidden { window, anchor, rect },
+            None => not_in_any_window,
+        },
+        Outcome::NotDrawn { reason } => Visibility::NotDrawn { reason },
+    }
+}
+
+/// [`Visibility`] with the window as its index in the snapshot's windows.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Outcome {
+    Visible { window: usize, viewport: Rect, clip: Rect, zoom: f64, scale: f64 },
+    Hidden { window: usize, anchor: Anchor, rect: Rect },
+    NotDrawn { reason: NotDrawnReason },
+}
+
+/// One window's scalar facts, as the rules read them.
+#[derive(Clone, Copy, Debug)]
+pub struct WindowFacts<I> {
+    pub minimized: bool,
+    pub on_active_space: bool,
+    pub overlay: Rect,
+    pub shown_workspace: Option<I>,
+    pub sidebar_hidden: bool,
+}
+
+/// One pane's facts, as the rules read them.
+#[derive(Clone, Copy, Debug)]
+pub struct PaneFacts<I> {
+    pub frame: Option<Rect>,
+    pub clip: Option<Rect>,
+    pub selected_tab: Option<I>,
+    pub strip: Option<Rect>,
+    pub page: Option<Page>,
+}
+
+/// A snapshot as the rules read it. Ids are compared only for identity, so
+/// [`Snapshot`]'s strings and the app FFI's numbered ids (`u32`) read the
+/// same; the typed call borrows the caller's arrays and allocates nothing.
+pub trait SnapshotView {
+    type Id: PartialEq + Copy;
+    /// The target tab's workspace and pane; none when no tab has the target id.
+    fn tab(&self) -> Option<(Self::Id, Self::Id)>;
+    /// Windows, front to back.
+    fn window_count(&self) -> usize;
+    /// None for an index past [`Self::window_count`].
+    fn window(&self, window: usize) -> Option<WindowFacts<Self::Id>>;
+    /// Whether `window` lists `workspace` in its sidebar.
+    fn lists(&self, window: usize, workspace: Self::Id) -> bool;
+    /// The sidebar row anchor of `workspace` in `window`.
+    fn sidebar_row(&self, window: usize, workspace: Self::Id) -> Option<Rect>;
+    /// The first pane of `window` with id `pane`: a handle for [`Self::chip`] and its facts.
+    fn pane(&self, window: usize, pane: Self::Id) -> Option<(usize, PaneFacts<Self::Id>)>;
+    /// The chip anchor of `tab` in the pane `pane` (a handle from [`Self::pane`]).
+    fn chip(&self, window: usize, pane: usize, tab: Self::Id) -> Option<Rect>;
+}
+
+/// [`Snapshot`] as a [`SnapshotView`] with string ids.
+struct Owned<'s>(&'s Snapshot);
+
+impl<'s> SnapshotView for Owned<'s> {
+    type Id = &'s str;
+
+    fn tab(&self) -> Option<(&'s str, &'s str)> {
+        let snapshot: &'s Snapshot = self.0;
+        snapshot.tab.as_ref().map(|tab| (tab.workspace.as_str(), tab.pane.as_str()))
+    }
+
+    fn window_count(&self) -> usize {
+        self.0.windows.len()
+    }
+
+    fn window(&self, window: usize) -> Option<WindowFacts<&'s str>> {
+        let snapshot: &'s Snapshot = self.0;
+        let window = snapshot.windows.get(window)?;
+        Some(WindowFacts {
+            minimized: window.minimized,
+            on_active_space: window.on_active_space,
+            overlay: window.overlay,
+            shown_workspace: window.shown_workspace.as_deref(),
+            sidebar_hidden: window.sidebar_hidden,
+        })
+    }
+
+    fn lists(&self, window: usize, workspace: &'s str) -> bool {
+        self.0.windows.get(window).is_some_and(|window| {
+            window.listed_workspaces.iter().any(|listed| listed.as_str() == workspace)
+        })
+    }
+
+    fn sidebar_row(&self, window: usize, workspace: &'s str) -> Option<Rect> {
+        self.0.windows.get(window)?.sidebar_rows.get(workspace).copied()
+    }
+
+    fn pane(&self, window: usize, pane: &'s str) -> Option<(usize, PaneFacts<&'s str>)> {
+        let snapshot: &'s Snapshot = self.0;
+        let panes = &snapshot.windows.get(window)?.panes;
+        let (index, found) =
+            panes.iter().enumerate().find(|(_, candidate)| candidate.id == pane)?;
+        Some((
+            index,
+            PaneFacts {
+                frame: found.frame,
+                clip: found.clip,
+                selected_tab: found.selected_tab.as_deref(),
+                strip: found.strip,
+                page: found.page,
+            },
+        ))
+    }
+
+    fn chip(&self, window: usize, pane: usize, tab: &'s str) -> Option<Rect> {
+        self.0.windows.get(window)?.panes.get(pane)?.chips.get(tab).copied()
+    }
+}
+
+/// Where the cursor for `target` draws in `view`: the rules, once for every
+/// representation.
+pub fn resolve_view<V: SnapshotView>(target: V::Id, view: &V) -> Outcome {
+    let Some((workspace, pane_id)) = view.tab() else {
+        return Outcome::NotDrawn { reason: NotDrawnReason::TabClosed };
     };
     // The front-most window that shows the workspace, else one that lists it.
+    let count = view.window_count();
     let shows_workspace =
-        |w: &&Window| w.shown_workspace.as_deref() == Some(tab.workspace.as_str());
-    let Some(window) =
-        snapshot.windows.iter().find(shows_workspace).or_else(|| {
-            snapshot.windows.iter().find(|w| w.listed_workspaces.contains(&tab.workspace))
-        })
-    else {
-        return Visibility::NotDrawn { reason: NotDrawnReason::NotInAnyWindow };
+        |w: usize| view.window(w).is_some_and(|f| f.shown_workspace == Some(workspace));
+    let found = (0..count)
+        .find(|&w| shows_workspace(w))
+        .or_else(|| (0..count).find(|&w| view.lists(w, workspace)));
+    let Some((window, facts)) = found.and_then(|w| Some((w, view.window(w)?))) else {
+        return Outcome::NotDrawn { reason: NotDrawnReason::NotInAnyWindow };
     };
     // CURSOR-SCREENS: another display draws; minimized or another Space does not.
-    if window.minimized {
-        return Visibility::NotDrawn { reason: NotDrawnReason::Minimized };
+    if facts.minimized {
+        return Outcome::NotDrawn { reason: NotDrawnReason::Minimized };
     }
-    if !window.on_active_space {
-        return Visibility::NotDrawn { reason: NotDrawnReason::OtherSpace };
+    if !facts.on_active_space {
+        return Outcome::NotDrawn { reason: NotDrawnReason::OtherSpace };
     }
-    if window.shown_workspace.as_deref() != Some(tab.workspace.as_str()) {
-        return workspace_anchor(&tab.workspace, window);
+    if facts.shown_workspace != Some(workspace) {
+        return workspace_anchor(view, window, &facts, workspace);
     }
-    let pane = window.panes.iter().find(|p| p.id == tab.pane);
-    let Some((pane, frame, clip)) = pane.and_then(|p| Some((p, p.frame?, p.clip?))) else {
+    let pane = view.pane(window, pane_id);
+    let Some((pane, found, frame, clip)) =
+        pane.and_then(|(handle, found)| Some((handle, found, found.frame?, found.clip?)))
+    else {
         // The pane is not on the active screen of the workspace.
-        return hidden(&window.id, Anchor::WindowEdge, window_edge(&window.overlay));
+        return hidden(window, Anchor::WindowEdge, window_edge(&facts.overlay));
     };
     if !shows(&frame, &clip) {
-        return column_edge(&frame, &clip, &window.id);
+        return column_edge(&frame, &clip, window);
     }
-    let page = match (&pane.selected_tab, &pane.page) {
+    let page = match (found.selected_tab, found.page) {
         (Some(selected), Some(page)) if selected == target => page,
         // A background tab (or a selected page not laid out yet): its chip.
-        _ => return chip_anchor(target, pane, &clip, &window.id),
+        _ => return chip_anchor(view, window, pane, &found, target, &clip),
     };
     let viewport = page.viewport;
     if !shows(&viewport, &clip) {
-        return column_edge(&viewport, &clip, &window.id);
+        return column_edge(&viewport, &clip, window);
     }
-    Visibility::Visible {
-        window: window.id.clone(),
+    Outcome::Visible {
+        window,
         viewport: viewport.standardized(),
         clip: overlap(&viewport, &clip),
         zoom: page.zoom,
@@ -379,8 +511,8 @@ pub fn resolve(target: &str, snapshot: &Snapshot) -> Visibility {
     }
 }
 
-fn hidden(window: &str, anchor: Anchor, rect: Rect) -> Visibility {
-    Visibility::Hidden { window: window.to_owned(), anchor, rect: rect.standardized() }
+fn hidden(window: usize, anchor: Anchor, rect: Rect) -> Outcome {
+    Outcome::Hidden { window, anchor, rect: rect.standardized() }
 }
 
 /// The part of `rect` in `clip`; only called after [`shows`] said they meet.
@@ -389,26 +521,38 @@ fn overlap(rect: &Rect, clip: &Rect) -> Rect {
 }
 
 /// Another workspace of the window: its sidebar row, else the window edge.
-fn workspace_anchor(workspace: &str, window: &Window) -> Visibility {
-    match window.sidebar_rows.get(workspace) {
-        Some(row) if !window.sidebar_hidden => hidden(&window.id, Anchor::WorkspaceRow, *row),
-        _ => hidden(&window.id, Anchor::WindowEdge, window_edge(&window.overlay)),
+fn workspace_anchor<V: SnapshotView>(
+    view: &V,
+    window: usize,
+    facts: &WindowFacts<V::Id>,
+    workspace: V::Id,
+) -> Outcome {
+    match view.sidebar_row(window, workspace) {
+        Some(row) if !facts.sidebar_hidden => hidden(window, Anchor::WorkspaceRow, row),
+        _ => hidden(window, Anchor::WindowEdge, window_edge(&facts.overlay)),
     }
 }
 
-fn chip_anchor(target: &str, pane: &Pane, clip: &Rect, window: &str) -> Visibility {
-    if let Some(chip) = pane.chips.get(target).filter(|chip| shows(chip, clip)) {
-        return hidden(window, Anchor::TabChip, overlap(chip, clip));
+fn chip_anchor<V: SnapshotView>(
+    view: &V,
+    window: usize,
+    pane: usize,
+    found: &PaneFacts<V::Id>,
+    target: V::Id,
+    clip: &Rect,
+) -> Outcome {
+    if let Some(chip) = view.chip(window, pane, target).filter(|chip| shows(chip, clip)) {
+        return hidden(window, Anchor::TabChip, overlap(&chip, clip));
     }
-    if let Some(strip) = pane.strip.filter(|strip| shows(strip, clip)) {
+    if let Some(strip) = found.strip.filter(|strip| shows(strip, clip)) {
         return hidden(window, Anchor::TabStrip, overlap(&strip, clip));
     }
-    let frame = pane.frame.unwrap_or(*clip);
+    let frame = found.frame.unwrap_or(*clip);
     hidden(window, Anchor::TabStrip, overlap(&frame, clip))
 }
 
 /// The strip edge on the side `rect` left `clip` through.
-fn column_edge(rect: &Rect, clip: &Rect, window: &str) -> Visibility {
+fn column_edge(rect: &Rect, clip: &Rect, window: usize) -> Outcome {
     let t = EDGE_THICKNESS;
     let side = if rect.max_x() <= clip.min_x() + 0.5 {
         Edge::Leading

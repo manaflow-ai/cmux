@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextSettings
@@ -321,11 +322,28 @@ struct CloudMoveTests {
         }
     }
 
-    /// An agent's Move to Cloud (cmuxterm-hq#1874 slice 5): `cmux cloud move` from the chat's own
+    /// By default an agent's Move to Cloud moves its chat at once, with no card asking first (Leo, 2026-11-04:
+    /// "just auto/bypass permissions by default"): the person lets agents use Cloud without asking
+    /// (`cloud.agentsStartWithoutAsking`, on unless they turn it off).
+    @Test func anAgentsMoveMovesItsChatWithNoCardByDefault() async throws {
+        try await Self.withMove("moves") { move in
+            #expect(CloudAgentStartSetting().delegated(in: move.services.settings?.snapshot.root ?? .object([:])))
+            if let error = await move.runAsAgent() { Issue.record("the agent's move was refused: \(error.code) \(error.message)") }
+            let moved = try await move.read()
+            #expect(moved.calls.count == 2, "\(moved.calls)")
+            #expect(moved.machineTab?.agentSession?.session == "chat-on-vm", "the agent's move did not move the chat")
+            #expect(!moved.macStillHasTab)
+            let cards = await move.toolCards(waiting: false) ?? []
+            #expect(!cards.contains { Self.text($0, "state") == "ask" }, "the agent's move asked first: \(cards)")
+        }
+    }
+
+    /// With asking turned on, an agent's Move to Cloud (cmuxterm-hq#1874 slice 5): `cmux cloud move` from the chat's own
     /// agent moves nothing. It shows a card in that chat (Move, Not now, Always); a click that is no
     /// real gesture in the pane moves nothing either, and the person's Move runs the move above.
     @Test func anAgentsMoveAsksInItsChatAndOnlyThePersonsMoveMovesIt() async throws {
         try await Self.withMove("moves") { move in
+            try await CloudStartSessionTests.askingFirst(move.services)
             if let error = await move.runAsAgent() { Issue.record("the agent's ask was refused: \(error.code) \(error.message)") }
             let cards = try #require(await move.toolCards(), "the chat has no page")
             let card = try #require(cards.first, "no card in the chat")
@@ -353,6 +371,7 @@ struct CloudMoveTests {
         try await Self.withMove("moves") { move in
             let refused = await move.runAsAgent("cloud bring-back")
             #expect(refused?.message.contains(CloudMoveAskStrings.bringBackIsPersons) == true, "an agent's Bring Back Local was not refused as one: \(String(describing: refused?.message))")
+            try await CloudStartSessionTests.askingFirst(move.services)
             if let error = await move.runAsAgent() { Issue.record("the agent's ask was refused: \(error.code) \(error.message)") }
             let card = try #require(await move.toolCards()?.first, "no card in the chat")
             let id = try #require(Self.text(card, "id"))

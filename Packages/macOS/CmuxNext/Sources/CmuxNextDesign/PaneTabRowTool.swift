@@ -7,16 +7,19 @@ public nonisolated struct PaneTabRowMenuItem: Equatable, Sendable {
     public let enabled: Bool
     public let checked: Bool?
     public let role: String?
+    public let separatorBefore: Bool
     public let url: String?
     public let children: [PaneTabRowMenuItem]
 
     public init(id: String, label: String, enabled: Bool = true, checked: Bool? = nil,
-                role: String? = nil, children: [PaneTabRowMenuItem] = [], url: String? = nil) {
+                role: String? = nil, separatorBefore: Bool = false, children: [PaneTabRowMenuItem] = [],
+                url: String? = nil) {
         self.id = id
         self.label = label
         self.enabled = enabled
         self.checked = checked
         self.role = role
+        self.separatorBefore = separatorBefore
         self.url = url
         self.children = children
     }
@@ -32,9 +35,12 @@ public nonisolated struct PaneTabRowTool: Equatable, Sendable {
     public let text: String?
     public let badge: String?
     public let menu: [PaneTabRowMenuItem]
+    /// Rows shown by a right-click on this button, such as quick-action customization.
+    public let contextMenu: [PaneTabRowMenuItem]
 
     public init(id: String, symbol: String, label: String, enabled: Bool = true, toggled: Bool = false,
-                badge: String? = nil, menu: [PaneTabRowMenuItem] = [], text: String? = nil) {
+                badge: String? = nil, menu: [PaneTabRowMenuItem] = [], text: String? = nil,
+                contextMenu: [PaneTabRowMenuItem] = []) {
         self.id = id
         self.symbol = symbol
         self.label = label
@@ -43,5 +49,6 @@ public nonisolated struct PaneTabRowTool: Equatable, Sendable {
         self.text = text
         self.badge = badge
         self.menu = menu
+        self.contextMenu = contextMenu
     }
 }

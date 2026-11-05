@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 import os
 import shlex
+import signal
 import textwrap
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,6 +28,32 @@ _NO_FREEZES.close()
 os.environ["GH_MERGE_GREEN_FREEZE_ISSUES"] = _NO_FREEZES.name
 os.environ["GH_MERGE_GREEN_FREEZE_EVENTS"] = _NO_FREEZES.name
 os.environ["GH_MERGE_GREEN_TEST"] = "1"
+
+
+# Every gh-merge-green run is bounded: one that never ends (a fake gh whose list never ends, a check
+# that waits forever) fails its test instead of running on after the test process is gone. A run
+# leads its own process group, so the timeout ends gh-merge-green and everything it started, not only
+# the first process: a base_red_excuse.py it started ran on for a day at 9.4 GB once its test had died
+# (2026-11-03).
+RUN_TIMEOUT = 300
+
+
+def run(args, *, capture_output=False, text=False, env=None, cwd=None, check=False, timeout=RUN_TIMEOUT):
+    pipe = subprocess.PIPE if capture_output else None
+    with subprocess.Popen(args, stdout=pipe, stderr=pipe, text=text, env=env, cwd=cwd,
+                          start_new_session=True) as process:
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.communicate()
+            raise AssertionError(f"{args[0]} did not end within {timeout} s") from None
+        except BaseException:
+            os.killpg(process.pid, signal.SIGKILL)
+            raise
+    if check and process.returncode:
+        raise subprocess.CalledProcessError(process.returncode, args, stdout, stderr)
+    return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
 HEAD = "a" * 40
 MERGED_SHA = "d" * 40
 BASE = "b" * 40
@@ -284,7 +311,7 @@ class InstalledHelperRegression(unittest.TestCase):
             gh.write_text("#!/bin/sh\necho gh-called >&2\nexit 2\n")
             gh.chmod(0o755)
             for flag in ("--help", "-h"):
-                result = subprocess.run(
+                result = run(
                     [str(ROOT / "scripts/gh-merge-green"), flag],
                     env={**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"], "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1"},
                     capture_output=True,
@@ -315,7 +342,7 @@ class InstalledHelperRegression(unittest.TestCase):
                 "exit 2\n"
             )
             gh.chmod(0o755)
-            result = subprocess.run(
+            result = run(
                 [str(symlink), "manaflow-ai/cmux#42", "--main-fix", "--squash"],
                 cwd=directory,
                 env={
@@ -380,7 +407,7 @@ class InstalledHelperRegression(unittest.TestCase):
             "exit 2\n"
         )
         gh.chmod(0o755)
-        return subprocess.run(
+        return run(
             [str(ROOT / "scripts/gh-merge-green"), "manaflow-ai/cmux#42", *extra_args, "--squash"],
             env={**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"], "MERGE_MARKER": str(marker), "EVENT_LOG": str(event_log or Path(directory) / "events"), "MERGE_ARGS_LOG": str(Path(directory) / "merge-args"), "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1", **({"GH_MERGE_GREEN_NOW": now} if now else {})},
             capture_output=True,
@@ -438,7 +465,7 @@ class InstalledHelperRegression(unittest.TestCase):
                 "exit 2\n"
             )
             gh.chmod(0o755)
-            result = subprocess.run(
+            result = run(
                 [str(symlink), "manaflow-ai/cmux#42", "--main-fix", "--squash"],
                 cwd=directory,
                 env={
@@ -548,6 +575,15 @@ class InstalledHelperRegression(unittest.TestCase):
                                      extra_args=("--override", "the cmux-next swift test is red on the feat-cmux-next base for the same test"))
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists())
+
+    def test_a_startup_failure_cmux_next_run_is_no_result(self):
+        """A cmux-next run whose newest attempt ended in startup_failure ran nothing: no verdict, never green."""
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, cmux_next_runs=[("completed", "startup_failure", 3)])
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("startup_failure", result.stderr)
 
     def test_a_finished_cmux_next_run_merges(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -761,7 +797,7 @@ jobs:
             marker = Path(directory) / "merged"
             gh.write_text("#!/bin/sh\ncase \"$*\" in\n*'pr view'*) echo '{\"headRefOid\":\"" + HEAD + "\",\"baseRefName\":\"feat-cmux-next\",\"labels\":[]}';;\n*'pulls/42') echo '{\"state\":\"open\",\"head\":{\"sha\":\"" + HEAD + "\"},\"base\":{\"sha\":\"" + BASE + "\",\"ref\":\"feat-cmux-next\"}}';;\n*'pr merge'*) touch \"$MERGE_MARKER\";;\n*) echo '[]';;\nesac\n")
             gh.chmod(0o755)
-            result = subprocess.run([str(ROOT / "scripts/gh-merge-green"), "manaflow-ai/cmux#42", "--main-fix", "--squash"], env={**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"], "MERGE_MARKER": str(marker), "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1"}, capture_output=True, text=True)
+            result = run([str(ROOT / "scripts/gh-merge-green"), "manaflow-ai/cmux#42", "--main-fix", "--squash"], env={**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"], "MERGE_MARKER": str(marker), "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1"}, capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertFalse(marker.exists(), "the helper merged without any compile evidence")
 
@@ -803,7 +839,7 @@ jobs:
                 exit 2
             """))
             gh.chmod(0o755)
-            result = subprocess.run(
+            result = run(
                 [str(ROOT / "scripts/gh-merge-green"), "manaflow-ai/cmux#42", "--squash"],
                 env={**os.environ, "PATH": str(directory) + os.pathsep + os.environ["PATH"], "MERGE_MARKER": str(marker), "INCLUDE_CONFLICT": "0", "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1"},
                 capture_output=True,
@@ -813,7 +849,7 @@ jobs:
             self.assertTrue(marker.exists())
 
             marker.unlink()
-            result = subprocess.run(
+            result = run(
                 [str(ROOT / "scripts/gh-merge-green"), "manaflow-ai/cmux#42", "--squash"],
                 env={**os.environ, "PATH": str(directory) + os.pathsep + os.environ["PATH"], "MERGE_MARKER": str(marker), "INCLUDE_CONFLICT": "1", "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1"},
                 capture_output=True,
@@ -828,7 +864,7 @@ class WorkflowPresenceRegression(unittest.TestCase):
     """Repositories without the aggregate workflow use all exact-head verdicts."""
 
     def run_case(self, *, workflow=False, probe_status=404, checks=None, statuses=None, app_workflow=False, files=None, workflow_body=None,
-                 raw_content=None, app_workflow_body=None, extra_args=()):
+                 raw_content=None, app_workflow_body=None, extra_args=(), rest_checks_fail=False):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
             marker = directory / "merged"
@@ -836,7 +872,8 @@ class WorkflowPresenceRegression(unittest.TestCase):
             payload = {"head": HEAD, "workflow": workflow, "probe_status": probe_status,
                        "checks": checks if checks is not None else [{"id": 1, "name": "tests", "status": "completed", "conclusion": "success"}],
                        "statuses": statuses or [], "app_workflow": app_workflow, "files": files or [],
-                       "workflow_body": workflow_body, "raw_content": raw_content, "app_workflow_body": app_workflow_body}
+                       "workflow_body": workflow_body, "raw_content": raw_content, "app_workflow_body": app_workflow_body,
+                       "rest_checks_fail": rest_checks_fail}
             fixture = directory / "fixture.json"
             fixture.write_text(__import__("json").dumps(payload))
             gh = directory / "gh"
@@ -869,7 +906,22 @@ class WorkflowPresenceRegression(unittest.TestCase):
                 elif a[0] == 'api' and '--paginate' in a:
                     sys.exit(3)
                 elif a[0] == 'api' and any('/check-runs' in arg for arg in a):
-                    print(json.dumps({'total_count': len(x['checks']), 'check_runs': x['checks']}))
+                    if x.get('rest_checks_fail'):
+                        sys.exit(1)
+                    every = any('filter=all' in arg for arg in a)
+                    shown = [{k: v for k, v in c.items() if k != 'hidden_by_latest'} for c in x['checks']
+                             if every or not c.get('hidden_by_latest')]
+                    print(json.dumps({'total_count': len(shown), 'check_runs': shown}))
+                elif a[:2] == ['api', 'graphql'] and x.get('rest_checks_fail'):
+                    query = next(arg for arg in a if arg.startswith('query='))
+                    every = 'checkType:ALL' in query.replace(' ', '')
+                    runs = [{'databaseId': c['id'], 'name': c['name'], 'status': c['status'].upper(),
+                             'conclusion': (c.get('conclusion') or '').upper() or None}
+                            for c in x['checks'] if every or not c.get('hidden_by_latest')]
+                    print(json.dumps({'data': {'repository': {'object': {'checkSuites': {
+                        'pageInfo': {'hasNextPage': False},
+                        'nodes': [{'id': 'S1', 'app': {'slug': 'github-actions'},
+                                   'checkRuns': {'nodes': runs, 'pageInfo': {'hasNextPage': False}}}]}}}}}))
                 elif a[0] == 'api' and any('/statuses' in arg for arg in a):
                     print(json.dumps(x['statuses']))
                 elif a[0] == 'api' and any('/files' in arg for arg in a):
@@ -878,7 +930,7 @@ class WorkflowPresenceRegression(unittest.TestCase):
                     sys.exit(2)
                 """))
             gh.chmod(0o755)
-            result = subprocess.run([str(ROOT / 'scripts/gh-merge-green'), 'manaflow-ai/cmuxterm-hq#1254', *extra_args, '--squash'],
+            result = run([str(ROOT / 'scripts/gh-merge-green'), 'manaflow-ai/cmuxterm-hq#1254', *extra_args, '--squash'],
                 env={**os.environ, 'PATH': str(directory) + os.pathsep + os.environ['PATH'], 'FIXTURE': str(fixture), 'MERGE_MARKER': str(marker), 'QUERIES': str(queries), 'GH_MERGE_GREEN_NO_AUTO_UPDATE': '1'}, capture_output=True, text=True)
             return result, marker.exists(), queries.read_text()
 
@@ -927,6 +979,39 @@ class WorkflowPresenceRegression(unittest.TestCase):
             result, merged, _ = self.run_case(probe_status=code)
             self.assertNotEqual(result.returncode, 0)
             self.assertFalse(merged)
+
+    # cmux#35906 merged as 633d5e38 pinned at e1d1894a with its 'publish tree-addressed cmux-tui' red in run
+    # 41931705470 unexcused: two reruns ended in startup_failure with no jobs, and GitHub's default check-runs list
+    # (each suite's newest attempt only) dropped the red. An attempt that ran nothing is no result: a check reads as
+    # its last real attempt left it, over REST (filter=all) and over the GraphQL fallback (checkType:ALL) alike.
+    PUBLISH = "publish tree-addressed cmux-tui"
+
+    def test_a_red_under_startup_failure_reruns_still_refuses(self):
+        checks = [{"id": 1, "name": "tests", "status": "completed", "conclusion": "success"},
+                  {"id": 2, "name": self.PUBLISH, "status": "completed", "conclusion": "failure", "hidden_by_latest": True}]
+        for rest_checks_fail in (False, True):
+            with self.subTest(graphql=rest_checks_fail):
+                result, merged, _ = self.run_case(checks=checks, rest_checks_fail=rest_checks_fail)
+                self.assertNotEqual(result.returncode, 0, result.stderr)
+                self.assertFalse(merged)
+                self.assertIn(self.PUBLISH, result.stderr)
+
+    def test_a_red_then_a_real_green_rerun_merges(self):
+        checks = [{"id": 1, "name": "tests", "status": "completed", "conclusion": "success"},
+                  {"id": 2, "name": self.PUBLISH, "status": "completed", "conclusion": "failure", "hidden_by_latest": True},
+                  {"id": 3, "name": self.PUBLISH, "status": "completed", "conclusion": "success"}]
+        for rest_checks_fail in (False, True):
+            with self.subTest(graphql=rest_checks_fail):
+                result, merged, _ = self.run_case(checks=checks, rest_checks_fail=rest_checks_fail)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue(merged)
+
+    def test_a_startup_failure_alone_is_no_result_not_green(self):
+        # Its only attempt ran no jobs, so it created no check run: nothing reported, never a green.
+        result, merged, _ = self.run_case(checks=[])
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(merged)
+        self.assertIn("no checks have reported", result.stderr)
 
     def test_present_ci_workflow_still_requires_ci_status(self):
         result, merged, _ = self.run_case(workflow=True)
@@ -1084,7 +1169,7 @@ class HelperCheckoutUpdateRegression(unittest.TestCase):
             fake_gh = directory / "gh"
             fake_gh.write_text("#!/bin/sh\nexit 2\n")
             fake_gh.chmod(0o755)
-            result = subprocess.run(
+            result = run(
                 [str(ROOT / "scripts/gh-merge-green"), "manaflow-ai/cmux#42"],
                 env={**os.environ, "PATH": str(directory) + os.pathsep + os.environ["PATH"],
                      "CHECKOUT": str(checkout), "GIT_LOG": str(log), "MODE": mode,
@@ -1294,7 +1379,7 @@ class RetiredTokenRegression(unittest.TestCase):
             gh = Path(directory) / "gh"
             gh.write_text("#!/bin/sh\nexit 2\n")
             gh.chmod(0o755)
-            result = subprocess.run(
+            result = run(
                 [str(ROOT / "scripts/gh-merge-green"), "manaflow-ai/cmux#42", "--window-token"],
                 env={**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"], "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1"},
                 capture_output=True, text=True)
@@ -1339,7 +1424,7 @@ class MergedHeadChecksRegression(unittest.TestCase):
     )
 
     def git(self, *args, cwd):
-        return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
+        return run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
 
     def fixture(self, directory, pr_files, *, pr_script=None, base_files=None, base_script=None):
         directory = Path(directory)
@@ -1760,7 +1845,7 @@ class GhMergeGreenRestFallbackTests(unittest.TestCase):
                 "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1",
                 "GH_MERGE_GREEN_TEST": "1",
             })
-            result = subprocess.run(
+            result = run(
                 [str(helper), "example/repo#123", *merge_args],
                 cwd=ROOT,
                 env=env,

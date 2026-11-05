@@ -10,7 +10,7 @@ public nonisolated struct ChiefMemoryImportStrings {
     public static var productClaudeAI: String { "claude.ai" }
     public static var productExport: String { text("import.product.export", "a chat export") }
 
-    public static var title: String { text("import.title", "Import Memories") }
+    public static var title: String { text("import.title", "Bring your history") }
     public static var lead: String {
         text("import.lead", "Bring what Claude Code, Codex, ChatGPT or claude.ai already know about you into your Chief. It runs in the background and your Chief keeps answering.")
     }

@@ -38,6 +38,12 @@ enum IntentUndo: Equatable {
     /// The provisional screen shown in workspace `key`, and whether the workspace itself was the
     /// provisional one (inserted) rather than the daemon's.
     case createdWorkspace(key: WorkspaceKey, inserted: Bool)
+    /// What a dock's overlay changed (``ProvisionalDock``).
+    case dockTab(ProvisionalDock.Undo)
+    /// A creation whose stand-in tab the person closed while the creation goes on (a dock's fresh tab,
+    /// ``CancelledCreation/closeStandIn(_:in:)``): its overlay without the stand-in, then the daemon's fresh tab
+    /// hidden once the records hold it.
+    indirect case closedStandIn(overlay: IntentUndo?, hidden: HiddenTab?)
 }
 
 struct PendingIntent {
@@ -69,6 +75,10 @@ struct PendingIntent {
     /// The person closed what it creates before the daemon made it (``CancelledCreation``): it
     /// shows nothing, hides the daemon's tab or pane, and leaves once the records drop it.
     var closeWhenCreated = false
+    /// The person closed the stand-in tab this creation shows while the rest of it goes on (a dock's fresh tab:
+    /// the chat still docks). The stand-in shows no more, and the daemon's fresh tab is hidden and closed once the
+    /// records hold it; it leaves once they drop it (``CancelledCreation/closeStandIn(_:in:)``).
+    var standInClosed = false
     /// The daemon's surface was handed to the close (``DaemonCreations/onClose(_:)``).
     var closeRequested = false
     /// The surface the creation's reply named (a split's; a create's is `createdSurface`).
@@ -169,7 +179,7 @@ struct IntentLog {
                 continue
             }
             // A cancelled creation stays while the records hold what it made, snapshot or not.
-            if !snapshot || entry.closeWhenCreated, awaiting(entry) {
+            if !snapshot || entry.closeWhenCreated || entry.standInClosed, awaiting(entry) {
                 entry.awaitsRecords = true
                 kept.append(entry)
             } else {
@@ -232,6 +242,11 @@ struct IntentLog {
         return true
     }
 
+    /// False when `transaction` is not pending or its stand-in was closed already.
+    mutating func markStandInClosed(_ transaction: ClientTransactionID) -> Bool {
+        entries.modifyFirst(where: { $0.transaction == transaction && !$0.standInClosed }, { $0.standInClosed = true })
+    }
+
     mutating func noteCloseRequested(_ transaction: ClientTransactionID) {
         entries.modifyFirst(where: { $0.transaction == transaction }) {
             $0.closeRequested = true
@@ -248,8 +263,7 @@ struct IntentLog {
     /// The daemon reported the pane under public id `paneID`: the split that mints it saw its pane.
     mutating func noteDaemonPane(_ paneID: String) {
         entries.modifyFirst(where: { entry in
-            guard case .splitPane(_, _, _, let provisional) = entry.kind else { return false }
-            return provisional.paneID == paneID
+            entry.kind.provisionalPane?.paneID == paneID
         }) { $0.daemonPaneSeen = true }
     }
 

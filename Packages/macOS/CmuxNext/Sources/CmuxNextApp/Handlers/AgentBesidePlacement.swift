@@ -191,7 +191,7 @@ enum AgentBesidePlacement {
             defer { finish() }
             let source = controller ?? services.paneController(for: anchor)
             let measured = source.map { LinkOpener.rightColumn(beside: $0) } ?? RightColumnPlacement.Column()
-            let kind: RightColumnPlacement.Kind? = tab.kind == .browser ? .browser : (tab.kind == .pty ? .terminal : nil)
+            let kind = RightColumnPlacement.Kind(opening: tab.kind, document: tab.page == InternalPageID.diff.rawValue)
             let decision = RightColumnPlacement.decide(measured, opening: kind)
             let destination: PaneController? = {
                 guard case .tab(let id) = decision, let id else { return nil }
@@ -256,6 +256,21 @@ enum AgentBesidePlacement {
 }
 
 extension AgentBesidePlacement {
+    /// `invocation` placed beside the chat `pane` shows, as the chat header's Changes is, when it is not already: a
+    /// viewer opened on a chat by the shortcut, the palette, the File menu or `cmux` never becomes a tab beside the
+    /// chat in its pane (Leo, 2026-11-04: "it should go along with the right side split logic").
+    @MainActor static func besideChat(_ invocation: ActionInvocation, in pane: PaneController) -> ActionInvocation {
+        guard !invocation.besideCaller, showsChat(pane) else { return invocation }
+        var beside = invocation
+        (beside.besideCaller, beside.newColumnBeside, beside.besideTakesFocus) = (true, true, invocation.allowsViewChange)
+        return beside
+    }
+
+    /// Whether `pane` shows an agent chat (its selected tab), or is the chat dock's own pane: what opens from it goes on its right.
+    @MainActor static func showsChat(_ pane: PaneController) -> Bool {
+        pane.selectedTab.map { ChatColumnPlacement.isChat($0, services: pane.services) } == true || ChatColumnPlacement.keepsNewTabPage(in: pane)
+    }
+
     /// A person's click (``ActionInvocation/besideTakesFocus``): the focus goes to `surface`'s tab once
     /// it lands (once it left pane `awayFrom`, a tab made there and moved), unless they acted after
     /// `generation`; the close that empties its pane gives the focus back to pane `chat` (``LinkOpener/returnPane(closing:in:emptiesPane:)``).
@@ -291,7 +306,7 @@ extension PaneController {
     /// Selects `surface`'s tab in this pane once the store reports it, and
     /// moves no keyboard focus: an agent's tab opened beside its chat.
     func selectWhenReportedKeepingFocus(surface: SurfaceID) {
-        pendingSelectSurface = surface
+        pendingSelect.surface = surface
         apply(snapshot())
     }
 }

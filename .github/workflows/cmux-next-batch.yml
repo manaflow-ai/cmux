@@ -75,6 +75,10 @@ on:
 permissions:
   contents: read
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
 jobs:
   debounce:
     if: ${{ github.event_name != 'workflow_dispatch' && github.repository_owner == 'manaflow-ai' && vars.CMUX_NEXT_BATCH_ENABLED == '1' && (github.event_name == 'push' || (github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.event.pull_request.head.ref, 'next-batch/'))) }}
@@ -135,6 +139,10 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
           filter: blob:none
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
 
       # The sticky report lives in an HQ issue. The routing App may not be
       # installed there; then the report stays in this job's summary.
@@ -230,7 +238,13 @@ jobs:
           ref: ${{ github.sha }}
           path: .next-batch-tools
           persist-credentials: false
-          sparse-checkout: scripts/cmux-next/regenerate-swift-exports.sh
+          # The script and what it sources (lib/warm-swiftpm.sh and its scripts/ci helpers), so a
+          # stack from before the library still regenerates.
+          sparse-checkout: |
+            scripts/cmux-next/regenerate-swift-exports.sh
+            scripts/cmux-next/lib/warm-swiftpm.sh
+            scripts/ci/swift-test-debug-info.sh
+            scripts/ci/swiftpm-binary-module-guard.sh
           sparse-checkout-cone-mode: false
 
       - name: Regenerate the Swift exports

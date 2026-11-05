@@ -68,6 +68,10 @@ fn dispatch_command(
         Command::ChiefInspect(_) => {
             anyhow::bail!("chief-inspect requires the asynchronous request path")
         }
+        Command::ChiefWork { chief } => {
+            drop(chief);
+            anyhow::bail!("chief-work requires the asynchronous request path")
+        }
         Command::PasteImage {
             surface,
             terminal_id,
@@ -96,6 +100,18 @@ fn dispatch_command(
         | Command::DeleteTerminalCommands(_)) => command_history::handle(mux, client, command),
         Command::ServerStats { include } => cmd_server::server_stats(mux, client, include),
         Command::BrowserHostProvider => cmd_browser::browser_host_provider(mux, client),
+        Command::RemoteHostStatus => remote_host_command::status(mux, client),
+        Command::RemoteHostCall { method, params } => {
+            remote_host_command::call(mux, client, &method, params)
+        }
+        Command::RemoteHostConfig { computer_use, screen_sharing, headless } => {
+            remote_host_command::config(
+                mux,
+                client,
+                json!({"computer_use": computer_use, "screen_sharing": screen_sharing, "headless": headless}),
+            )
+        }
+        Command::RemoteHostApp => remote_host_command::app(mux, client),
         Command::Identify { machine_metadata, revisions } => {
             cmd_server::identify(mux, machine_metadata, revisions)
         }
@@ -206,7 +222,7 @@ fn dispatch_command(
         Command::ReloadConfig => cmd_server::reload_config(mux),
         Command::SetWindowTitle { title } => cmd_server::set_window_title(mux, title),
         Command::ClearWindowTitle => cmd_server::clear_window_title(mux),
-        Command::ListWorkspaces => cmd_workspaces::list_workspaces(mux),
+        Command::ListWorkspaces => cmd_workspaces::list_workspaces(mux, writer.lines_written()),
         Command::GetFrontendProjection { frontend, scope, subject_key } => {
             cmd_frontend::get_frontend_projection(mux, frontend, scope, subject_key)
         }
@@ -451,6 +467,9 @@ fn dispatch_command(
         }
         Command::SetViewportPaneWidth { pane, width, transaction } => {
             cmd_panes::set_viewport_pane_width(mux, client, actor, pane, width, transaction)
+        }
+        Command::SetLayoutSizes { values, transaction } => {
+            cmd_panes::set_layout_sizes(mux, client, actor, values, transaction)
         }
         Command::SetColumnDock { pane, dock, edge, mode, role, permanent, pinned, transaction } => {
             cmd_panes::set_column_dock(

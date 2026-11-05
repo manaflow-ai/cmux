@@ -34,6 +34,10 @@ concurrency:
   group: gallery-health-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
 jobs:
   health:
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
@@ -55,6 +59,10 @@ jobs:
         with:
           fetch-depth: 0
           filter: blob:none
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
           persist-credentials: false
 
       - name: Resolve the head and the merge
@@ -125,6 +133,16 @@ jobs:
             echo 'ids=' >> "$GITHUB_OUTPUT"
           fi
 
+      # GITHUB_ENV takes effect in the next step: resolve the browser before either head or base
+      # renders, so both use the same executable instead of comparing Chrome with headless-shell.
+      - name: Setup gallery browser
+        if: ${{ steps.entries.outputs.all == 'true' || steps.entries.outputs.ids != '' }}
+        working-directory: scripts/gallery-matrix
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile
+          "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
+
       # A red here is judged state by state against the base in the next step, so the step goes on.
       - name: Render the gallery and judge it
         id: render
@@ -145,8 +163,6 @@ jobs:
           fi
           CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery" bun run gallery:build
           cd "$GITHUB_WORKSPACE/scripts/gallery-matrix"
-          bun install --frozen-lockfile
-          ./node_modules/.bin/playwright install --with-deps --only-shell chromium
           bun health.ts --manifest "$RUNNER_TEMP/manifest.json" --gallery-dir "$RUNNER_TEMP/gallery" \
             --output-dir "$RUNNER_TEMP/health" --shard-count 8 --shard-index "$SHARD"
 

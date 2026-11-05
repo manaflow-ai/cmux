@@ -218,6 +218,24 @@ import os
         #expect(pane.held == nil)
     }
 
+    /// Issue #32493: a frame refused for its size reported `no_frame` once the pane asked again (the frame was taken by
+    /// the first ask), so `debug.timings` hid the real cause of an empty pane at reopen. The first reason stays.
+    @Test func aFrameRefusedForItsSizeReportsSizeWhenThePaneAsksAgain() async throws {
+        let reveal = LaunchReveal(deadline: .seconds(60))
+        let pane = Pane(reveal: reveal)
+        defer { pane.close() }
+        let surface = pane.session.surfaceView.bounds.size
+        let directory = try await Self.saved(["tab-1": Self.frame(NSSize(width: surface.width + 160, height: surface.height), scale: pane.window.backingScaleFactor)])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let frames = await Self.launch(directory)
+        #expect(!frames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal))
+        #expect(frames.launchPanes["tab-1"]?.missed == "size")
+        // The pane asks again (its selection settles, or its surface comes after a show ahead).
+        #expect(!frames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal))
+        #expect(frames.launchPanes["tab-1"]?.missed == "size",
+                "the second ask replaced the reason: \(frames.launchPanes["tab-1"]?.missed ?? "nil") hides why the pane was empty")
+    }
+
     /// A pane's content held for launch whose terminal has no surface yet (the scheduler keeps it for a later frame).
     @MainActor struct WaitingPane {
         let window: NSWindow

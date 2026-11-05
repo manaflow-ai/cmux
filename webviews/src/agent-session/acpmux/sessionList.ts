@@ -64,6 +64,11 @@ export type AcpmuxSessionEntry = {
   reportsTo?: string;
   /** Started by a Chief (its `mux.parent` tag, `optchat-chief:<home>`): the Chief manages it. */
   chiefChild?: true;
+  /** The Chief home that started it (its `mux.parent` tag's value), when a Chief did. */
+  chiefHome?: string;
+  /** A Chief's own turn session: the home whose chats it starts (`mux.children`) and that Chief's
+   *  participant id (`cmux.chief.participant`, optchat-chief acpmux.rs), as the sidebar reads them. */
+  chiefTurn?: { home: string; participant: string };
   /** A sub-session's name among its parent's (acpmux `shortName`, "tests"). */
   shortName?: string;
   /** What it is doing (acpmux `lane.state`): working, waiting on the person, failed, lost or idle. */
@@ -185,6 +190,20 @@ function tagValue(tags: unknown, tag: string): string | undefined {
  *  `optchat-chief` or `optchat-chief:<home id>`. */
 const CHIEF_PARENT_TAG = "mux.parent";
 
+/** The tags a Chief puts on its own turn session (cmux_chief::rules::CHILDREN_TAG, optchat-chief
+ *  acpmux.rs CHIEF_PARTICIPANT_TAG). */
+const CHIEF_CHILDREN_TAG = "mux.children";
+const CHIEF_PARTICIPANT_TAG = "cmux.chief.participant";
+
+/** A Chief turn session's home and participant id, from its tags. */
+function chiefTurn(tags: unknown): { home: string; participant: string } | undefined {
+  const home = tagValue(tags, CHIEF_CHILDREN_TAG);
+  const participant = tagValue(tags, CHIEF_PARTICIPANT_TAG);
+  return home && participant && /^optchat-chief(?::|$)/.test(home) && /^agent_[A-Za-z0-9_-]{1,58}$/.test(participant)
+    ? { home, participant }
+    : undefined;
+}
+
 /** Whether acpmux's tags say a Chief started the session. */
 function chiefParent(tags: unknown): boolean {
   if (typeof tags !== "object" || tags === null || Array.isArray(tags)) return false;
@@ -240,6 +259,7 @@ export type SessionMark = "input" | "running" | "error" | "unread" | undefined;
 /** Cuts acpmux's session summary down to the fields the pane uses. */
 export function sessionEntry(session: Record<string, any> & { sessionId: string }): AcpmuxSessionEntry {
   const pending = Number(session.pendingPermissions ?? 0);
+  const turn = chiefTurn(session.tags);
   return {
     sessionId: session.sessionId,
     displayTitle: sessionTitle(session),
@@ -274,7 +294,11 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     spawnedBy: text(session.spawnedBy),
     startedBy: text(session.startedBy),
     reportsTo: tagValue(session.tags, REPORTS_TO_TAG),
-    ...(chiefParent(session.tags) && { chiefChild: true as const }),
+    ...(chiefParent(session.tags) && {
+      chiefChild: true as const,
+      chiefHome: tagValue(session.tags, CHIEF_PARENT_TAG),
+    }),
+    ...(turn && { chiefTurn: turn }),
     shortName: text(session.shortName),
     lane: LANES.includes(session.lane?.state) ? session.lane.state : undefined,
     queued: Number(session.queued) > 0 ? Number(session.queued) : undefined,
@@ -365,6 +389,26 @@ function pullRequest(value: any): SessionPullRequest | undefined {
   };
 }
 
+/// A raw id where a name should be: a session or thread UUID ("01a18a35-b1e8-7951-ba2f-…"), Claude's
+/// `<session>/<tool call>` or a bare `toolu_…` call id. Never a title the person reads.
+export function isRawId(text: string): boolean {
+  const value = text.trim();
+  return (
+    /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}(?:\/.*)?$/iu.test(value) || /(?:^|\/)toolu_[0-9A-Za-z]+$/u.test(value)
+  );
+}
+
+/// A session name that reads as an id or a counter, not a task (acpmux `session_name::opaque_reason`,
+/// AgentTurnStates.swift `isOpaqueName`): a Chief's machine name (`optchat-sub-6b68ac4a-a26`), a
+/// trailing counter (`cloud-item-14`) or a hex run of 6 or more with a digit (`dispatch-019a3f2e`).
+/// The chat's title reads instead (Leo 2026-11-02: "that's the agents naming them like that").
+export function isOpaqueName(bare: string): boolean {
+  if (bare.startsWith("optchat-")) return true;
+  const parts = bare.split(/[-_.]/u).filter(Boolean);
+  if (parts.length > 1 && /^\d+$/u.test(parts[parts.length - 1]!)) return true;
+  return parts.some((part) => part.length >= 6 && /^[0-9a-f]+$/iu.test(part) && /\d/u.test(part));
+}
+
 /**
  * The title (the agent's title, else the first prompt) when the name was generated (`codex`,
  * `codex-3`, `codex-fork`, after the harness profile or its family), else the name the user gave. A generated
@@ -379,7 +423,13 @@ export function sessionTitle(
   // acpmux names a session `agent` or `agent-N`, and a fork `<name>-fork`, also made unique with `-N`.
   const generatedFrom = (agent: string | undefined) =>
     !!agent && bare.startsWith(agent) && /^(?:-(?:fork|\d+))*$/.test(bare.slice(agent.length));
-  if (name && !generatedFrom(session.harness) && !generatedFrom(session.family)) return name;
+  // A name that is only a raw id (the session's own UUID) is no name: the title reads instead.
+  if (name && !generatedFrom(session.harness) && !generatedFrom(session.family) && !isRawId(bare)) {
+    // A name that reads as an id or a counter (`cloud-item-14`) yields to the chat's title, and
+    // still beats "New chat" while it has none.
+    if (!isOpaqueName(bare)) return name;
+    return session.title?.trim() || session.lastPrompt?.trim() || name;
+  }
   return session.title?.trim() || session.lastPrompt?.trim() || t("sidebar.newChat");
 }
 

@@ -32,34 +32,42 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 GUARDED: dict[str, tuple[str, ...]] = {
     "ci.yml": ("full-ci", "dev-build"),
     "cmux-vm.yml": ("cmux-vm-breaking-change-ok",),
+    # Cheap one-step checks, but each label event still queued a runner on a saturated pool: bots set
+    # and clear risk, hold and landing labels on hundreds of open pull requests.
+    "merge-freeze.yml": ("freeze-ok",),
+    "pr-capture-check.yml": ("media-tour", "media-tour-mac"),
+    "pr-perf-section-check.yml": ("perf", "performance"),
 }
+
+# GUARDED workflows whose label events arrive as pull_request_target.
+TARGET_EVENT: set[str] = {"merge-freeze.yml"}
 
 # Jobs of a GUARDED workflow that run on every label event, and why.
 UNGUARDED_JOBS: dict[tuple[str, str], str] = {
     ("ci.yml", "ci-status"): "a skipped ci-status newer than a red or pending one would read as passing to a "
     "newest-by-name merge gate (gh-merge-green); pull requests into feat-cmux-next skip it, label events too",
+    ("merge-freeze.yml", "expire"): "runs only on its schedule and on dispatch, never on a pull request event",
 }
 
 # Label-triggered workflows that may run on any label, and why.
 REACTS: dict[str, str] = {
     "backend-migrations.yml": "plans migrations (cheap); applies only on backend:apply-migrations",
+    "classic-frozen-guard.yml": "one cheap Linux step; a skipped run newer than a failing one would read as "
+    "passing, and only the classic-migration label it judges may let a frozen change through",
     "cmux-next-batch.yml": "debounce only; hold and landing labels change batch eligibility",
     "cmux-next-media.yml": "labeled-only; its jobs already run only for media-tour / no-media-tour",
     "cmux-next-motion-golden.yml": "its job already runs only when motion-golden is the label added",
-    "merge-freeze.yml": "one-step freeze check that reads freeze-ok",
-    "pr-capture-check.yml": "one-step policy check that reads opt-out labels",
-    "pr-perf-section-check.yml": "one-step policy check that reads labels",
     "risk-tier.yml": "the risk tier check itself: it must react to risk:* labels",
 }
 
 
-def guard(labels: tuple[str, ...]) -> str:
+def guard(labels: tuple[str, ...], event: str = "pull_request") -> str:
     """The job-level condition: false only for a label event of a label not in `labels`."""
     if len(labels) == 1:
         other = f"github.event.label.name != '{labels[0]}'"
     else:
         other = f"!contains(fromJSON('{json.dumps(list(labels), separators=(',', ':'))}'), github.event.label.name)"
-    return ("!(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && "
+    return (f"!(github.event_name == '{event}' && github.event.pull_request.base.ref == 'feat-cmux-next' && "
             "(github.event.action == 'labeled' || "
             f"github.event.action == 'unlabeled') && {other})")
 
@@ -79,13 +87,30 @@ def evaluate(expr: str, event: dict) -> bool:
 
 
 NOT_ON_PULL_REQUEST = re.compile(r"^(!cancelled\(\) && )?github\.event_name == '(workflow_dispatch|push)' &&")
+# On a pull_request event github.ref is refs/pull/N/merge, never a branch, so a job gated first on a branch ref
+# never runs there. Not so for pull_request_target, whose github.ref is the base branch.
+ON_BRANCH_REF = re.compile(r"^(!cancelled\(\) && )?github\.ref == 'refs/heads/[^']+' &&")
 STATUS_FUNCTION = re.compile(r"\b(always|cancelled|failure)\(\)")
 
 
-def reachable_by_label_event(body: dict, condition: str) -> bool:
+def top_level_or(condition: str) -> bool:
+    """Whether CONDITION has an || outside parentheses (then its first && term does not gate all of it)."""
+    depth = 0
+    for index, char in enumerate(condition):
+        depth += char == "("
+        depth -= char == ")"
+        if depth == 0 and condition.startswith("||", index):
+            return True
+    return False
+
+
+def reachable_by_label_event(body: dict, condition: str, event: str = "pull_request") -> bool:
     """Whether a label event could start this job without the guard: a job that needs others and calls no
-    status function skips with them, and one gated on push or dispatch never runs on a pull request."""
+    status function skips with them, one gated on push or dispatch never runs on a pull request, and nor
+    does one gated on a branch ref (pull_request only)."""
     if NOT_ON_PULL_REQUEST.match(condition):
+        return False
+    if event == "pull_request" and ON_BRANCH_REF.match(" ".join(condition.split())) and not top_level_or(condition):
         return False
     return not body.get("needs") or bool(STATUS_FUNCTION.search(condition))
 
@@ -122,7 +147,9 @@ def main() -> int:
         if not path.exists():
             continue
         doc = yaml.safe_load(path.read_text(encoding="utf-8"))
-        expected = guard(labels)
+        event_name = "pull_request_target" if name in TARGET_EVENT else "pull_request"
+        expected = guard(labels, event_name)
+        isolated = f"{expected[2:-1]} && format('-label-{{0}}', github.run_id)"
         for job, body in (doc.get("jobs") or {}).items():
             condition = str((body or {}).get("if") or "")
             text = condition.strip()
@@ -133,25 +160,27 @@ def main() -> int:
                     failures.append(f"{name} job {job} must run on every label event: "
                                     f"{UNGUARDED_JOBS[(name, job)]}")
                 continue
-            if not reachable_by_label_event(body or {}, text):
+            if not reachable_by_label_event(body or {}, text, event_name):
                 continue
             if not (text == expected or text.endswith(f") && {expected}")):
                 failures.append(f"{name} job {job}: its if does not end with the label guard {expected}")
+            job_group = str(((body or {}).get("concurrency") or {}).get("group") or "")
+            if job_group and isolated not in job_group:
+                failures.append(f"{name} job {job}: its concurrency group does not isolate other label events")
         group = str((doc.get("concurrency") or {}).get("group") or "")
-        isolated = f"{expected[2:-1]} && format('-label-{{0}}', github.run_id)"
-        if isolated not in group:
+        if doc.get("concurrency") and isolated not in group:
             failures.append(f"{name}: its concurrency group does not isolate other label events ({isolated})")
 
         cases = [
-            ({"event_name": "pull_request", "action": "synchronize"}, True),
-            ({"event_name": "pull_request", "action": "opened"}, True),
+            ({"event_name": event_name, "action": "synchronize"}, True),
+            ({"event_name": event_name, "action": "opened"}, True),
             ({"event_name": "push"}, True),
-            ({"event_name": "pull_request", "action": "labeled", "label": "risk:high"}, False),
-            ({"event_name": "pull_request", "action": "unlabeled", "label": "risk:normal"}, False),
-            ({"event_name": "pull_request", "action": "labeled", "label": "ready-to-land"}, False),
+            ({"event_name": event_name, "action": "labeled", "label": "risk:high"}, False),
+            ({"event_name": event_name, "action": "unlabeled", "label": "risk:normal"}, False),
+            ({"event_name": event_name, "action": "labeled", "label": "ready-to-land"}, False),
             # Other bases keep re-running: main's required checks must not be superseded by a skip.
-            ({"event_name": "pull_request", "action": "labeled", "label": "risk:high", "base": "main"}, True),
-        ] + [({"event_name": "pull_request", "action": action, "label": label}, True)
+            ({"event_name": event_name, "action": "labeled", "label": "risk:high", "base": "main"}, True),
+        ] + [({"event_name": event_name, "action": action, "label": label}, True)
              for label in labels for action in ("labeled", "unlabeled")]
         for event, want in cases:
             if evaluate(expected, event) is not want:

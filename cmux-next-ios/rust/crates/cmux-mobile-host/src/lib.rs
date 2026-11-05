@@ -25,6 +25,7 @@ pub mod localhost;
 pub mod mailbox;
 pub mod mailbox_apply;
 pub mod media_session;
+pub mod needs_you;
 pub mod netwatch;
 pub mod notify;
 pub mod notify_content;

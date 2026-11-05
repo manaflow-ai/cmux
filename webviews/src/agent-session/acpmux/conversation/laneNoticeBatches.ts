@@ -1,4 +1,4 @@
-import { LANE_NOTICE_BATCH, type AcpmuxRow } from "../model";
+import { isLineRow, LANE_NOTICE_BATCH, type AcpmuxRow } from "../model";
 import { inboxText, type InboxNotice } from "./inboxNotice";
 import { laneNotice, type LaneNotice, type LaneNoticeKind, type LaneNoticeThread } from "./laneReport";
 type LaneNoticeVerdict = NonNullable<LaneNotice["verdict"]>;
@@ -205,6 +205,74 @@ function projectedBatch(row: AcpmuxRow, children: readonly AcpmuxRow[]): AcpmuxR
   return result;
 }
 
+/// The messages a drawn row adds to a turn's "Received N messages" row, or undefined for a row
+/// that ends it (Leo, 2026-11-02, on "3 inbox threads <names>", "Received 2 messages" and "2 inbox
+/// threads <names>" stacked in one turn: "can't we simply just display most of these as recieved x
+/// messages and all of them get revealed then we can expand the messages"): a delivered inbox batch
+/// (its messages, one row each) and another agent's delivered received line. A lane report, a
+/// person's message and one that still waits stay rows of their own.
+function receivedMessages(row: AcpmuxRow): readonly AcpmuxRow[] | undefined {
+  const batch = row.laneNoticeBatch;
+  if (row.kind === LANE_NOTICE_BATCH)
+    return batch?.kind === "inbox" && batch.rows.length && deliveryPhase(batch.rows[0]!) === "delivered"
+      ? batch.rows
+      : undefined;
+  if (row.kind !== "user" || row.incoming?.kind !== "message" || !isLineRow(row)) return undefined;
+  if (row.queuedMessage || deliveryPhase(row) === "waiting" || row.incoming.message.fromPerson) return undefined;
+  // An inbox delivery's sender may be named "inbox"; any other notice (a lane report) is its own row.
+  if (!row.inboxDelivery && noticeOf(row)) return undefined;
+  return [row];
+}
+
+/// Whether a transcript row, before the display projection, draws in a "Received N messages" row:
+/// an inbox notice, or another agent's delivered message that is no lane report (messageRuns.ts
+/// leaves a run of these to that row).
+export function joinsReceivedRow(row: AcpmuxRow): boolean {
+  if (row.kind !== "user" || !isLineRow(row) || row.queuedMessage || deliveryPhase(row) === "waiting") return false;
+  if (row.incoming?.kind === "inbox") return true;
+  if (row.incoming?.kind !== "message" || row.incoming.message.fromPerson) return false;
+  return (noticeOf(row)?.kind ?? "inbox") === "inbox";
+}
+
+const receivedRuns = new WeakMap<AcpmuxRow, { parts: readonly AcpmuxRow[]; row: AcpmuxRow }>();
+
+/// One "Received N messages" row for drawn rows next to each other that each carry received
+/// messages (`receivedMessages`), the one made before while they are the same rows: an inbox batch
+/// (LaneNoticeBatch.tsx) of every message, under the first part's id when that is a batch.
+function receivedRun(parts: readonly AcpmuxRow[]): AcpmuxRow {
+  const first = parts[0]!;
+  const held = receivedRuns.get(first);
+  if (held && held.parts.length === parts.length && held.parts.every((part, i) => part === parts[i])) return held.row;
+  const rows = parts.flatMap((part) => receivedMessages(part) ?? []);
+  const id = first.kind === LANE_NOTICE_BATCH ? first.id : `received:${first.id}`;
+  const threads = new Map<string, { id: string; sender: string }>();
+  for (const member of rows) {
+    const message = member.incoming?.kind === "message" ? member.incoming.message : undefined;
+    const thread = message?.threadId ?? member.id;
+    if (message) threads.set(thread, { id: thread, sender: message.name });
+  }
+  // Find reaches every part and message through it (chatFind.ts).
+  const joined = new Set<string>();
+  for (const part of [...parts, ...rows]) for (const key of [part.id, ...(part.joined ?? [])]) joined.add(key);
+  joined.delete(id);
+  const row: AcpmuxRow = {
+    ...first,
+    id,
+    kind: LANE_NOTICE_BATCH,
+    incoming: undefined,
+    inboxDelivery: undefined,
+    inboxThread: undefined,
+    inboxQueue: undefined,
+    version: ++version,
+    text: rows.map((member) => member.text ?? "").join("\n"),
+    joined: [...joined],
+    inboxDeliveryBatch: true,
+    laneNoticeBatch: { kind: "inbox", verdicts: {}, rows, threads: [...threads.values()] },
+  };
+  receivedRuns.set(first, { parts, row });
+  return row;
+}
+
 /** Display-only projection: every leaf shares one duplicate context, including leaves inside
  * batches. Source rows keep their turn and queue identity. A batch keeps its one quiet fold, but
  * its children are flat received rows; no harness wrapper is passed to the message renderer.
@@ -238,7 +306,10 @@ function projectAllInboxRows(rows: readonly AcpmuxRow[], foldNotices: boolean): 
     }
   };
   collect(rows);
-  if (!hasInbox) {
+  // Two received lines next to each other gather into one row even with no notice among them.
+  const gathersLines =
+    foldNotices && !hasInbox && rows.some((row, i) => i > 0 && receivedMessages(row) && receivedMessages(rows[i - 1]!));
+  if (!hasInbox && !gathersLines) {
     cache.set(rows, { rows, offsets: rows.map((_, i) => i).concat(rows.length) });
     return rows;
   }
@@ -257,13 +328,14 @@ function projectAllInboxRows(rows: readonly AcpmuxRow[], foldNotices: boolean): 
   const offsets: number[] = [];
   const project = (members: readonly AcpmuxRow[], insideInbox = false): AcpmuxRow[] => {
     const out: AcpmuxRow[] = [];
-    for (const row of members) {
-      if (!insideInbox) offsets.push(out.length);
+    const push = (row: AcpmuxRow) => {
       if (row.laneNoticeBatch?.kind === "inbox") {
         const children = project(row.laneNoticeBatch.rows, true);
-        if (insideInbox) out.push(...children);
+        // A batch of one message is that message's own line: a head over a lone row names its
+        // sender twice.
+        if (insideInbox || children.length === 1) out.push(...children);
         else if (children.length) out.push(projectedBatch(row, children));
-        continue;
+        return;
       }
       const notice = noticeOf(row);
       if (notice?.kind === "inbox") {
@@ -275,7 +347,40 @@ function projectAllInboxRows(rows: readonly AcpmuxRow[], foldNotices: boolean): 
       } else {
         out.push(row);
       }
+    };
+    // Drawn rows next to each other that carry received messages, from `out[run.at]` on, and the
+    // offset of the source row that began them: one row (`receivedRun`) once a row that ends them
+    // comes. That row is the first source row's; the rest draw nothing of their own.
+    let run: { at: number; offset: number } | undefined;
+    const endRun = () => {
+      if (run && out.length - run.at > 1) {
+        const parts = out.splice(run.at);
+        out.push(receivedRun(parts));
+        for (let at = run.offset + 1; at < offsets.length; at += 1) offsets[at] = run.at + 1;
+      }
+      run = undefined;
+    };
+    const gathers = foldNotices && !insideInbox;
+    for (const row of members) {
+      if (!insideInbox) offsets.push(out.length);
+      if (!gathers) {
+        push(row);
+        continue;
+      }
+      const from = out.length;
+      push(row);
+      if (out.length === from) continue;
+      if (out.length === from + 1 && receivedMessages(out[from]!)) {
+        run ??= { at: from, offset: offsets.length - 1 };
+        continue;
+      }
+      // A row that ends the run: the run draws first, then this row.
+      const drawn = out.splice(from);
+      endRun();
+      offsets[offsets.length - 1] = out.length;
+      out.push(...drawn);
     }
+    if (gathers) endRun();
     return out;
   };
   const out = project(rows);
@@ -302,13 +407,17 @@ export function projectInboxRows(
   if (!previous || !held || reusedRows > Math.min(rows.length, previous.length)) return projectAllInboxRows(rows, true);
   const relevant = (row: AcpmuxRow) =>
     row.laneNoticeBatch !== undefined || row.incoming?.kind === "message" || row.incoming?.kind === "inbox";
-  const oldMessages: { row: AcpmuxRow; index: number }[] = [];
+  // A message right after another (`next`) draws in one "Received N messages" row with it
+  // (`receivedRun`): the same messages next to the same neighbours reuse their rows.
+  const oldMessages: { row: AcpmuxRow; index: number; next: boolean }[] = [];
   for (let i = reusedRows; i < previous.length; i += 1)
-    if (relevant(previous[i]!)) oldMessages.push({ row: previous[i]!, index: i });
+    if (relevant(previous[i]!))
+      oldMessages.push({ row: previous[i]!, index: i, next: i > 0 && relevant(previous[i - 1]!) });
   let at = 0;
   for (let i = reusedRows; i < rows.length; i += 1) {
     if (!relevant(rows[i]!)) continue;
-    if (oldMessages[at++]?.row !== rows[i]) return projectAllInboxRows(rows, true);
+    const old = oldMessages[at++];
+    if (old?.row !== rows[i] || old.next !== (i > 0 && relevant(rows[i - 1]!))) return projectAllInboxRows(rows, true);
   }
   if (at !== oldMessages.length) return projectAllInboxRows(rows, true);
   const projected = held.rows.slice(0, held.offsets[reusedRows]);

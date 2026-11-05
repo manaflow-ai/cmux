@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBrowser
 import CmuxNextCompat
+import CmuxNextDesign
 import CmuxNextPages
 import Foundation
 import os
@@ -38,15 +39,15 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         didSet { listen() }
     }
 
-    var resources: (@MainActor (URL) async -> PageChromiumResponse)? {
+    var resources: (@MainActor (URL, String?) async -> PageChromiumResponse)? {
         didSet {
             guard let resources else {
                 tab.pageResources = nil
                 return
             }
-            tab.pageResources = { url in
-                let answer = await resources(url)
-                return CEFPageResponse(status: answer.status, mimeType: answer.mimeType, body: answer.body)
+            tab.pageResources = { url, range in
+                let answer = await resources(url, range)
+                return CEFPageResponse(status: answer.status, mimeType: answer.mimeType, body: answer.body, rangeHeaders: answer.rangeHeaders)
             }
         }
     }
@@ -81,6 +82,35 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
     func devTools(_ method: String, params: [String: any Sendable]) async throws -> String {
         try await tab.devTools(method: method, params: params)
     }
+
+    func devTools(_ method: String, params: [String: any Sendable], timeout: Duration) async throws -> String {
+        try await tab.devTools(method: method, params: params, timeout: timeout)
+    }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    func debugPress(at point: NSPoint) -> Bool {
+        let host = contentView
+        guard point.x.isFinite, point.y.isFinite, let window = host.window,
+              !host.isHiddenOrHasHiddenAncestor else { return false }
+        let local = NSPoint(x: point.x, y: host.isFlipped ? point.y : host.bounds.height - point.y)
+        guard host.bounds.contains(local) else { return false }
+        let screen = window.convertPoint(toScreen: host.convert(local, to: nil))
+        guard let page = WindowOverlayHost.frontPageWindow(at: screen, in: window) else { return false }
+        let location = page.convertPoint(fromScreen: screen)
+        let now = ProcessInfo.processInfo.systemUptime
+        guard let down = NSEvent.mouseEvent(with: .leftMouseDown, location: location, modifierFlags: [], timestamp: now,
+                                            windowNumber: page.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1),
+              let up = NSEvent.mouseEvent(with: .leftMouseUp, location: location, modifierFlags: [], timestamp: now + 0.001,
+                                          windowNumber: page.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 0) else { return false }
+        // Giving this app's page the key does not activate the app. The queued events then take
+        // the normal native path, including CEFLinkClickTracker's local input monitor.
+        page.makeKey()
+        SyntheticInput.register([down, up])
+        NSApp.postEvent(down, atStart: false)
+        NSApp.postEvent(up, atStart: false)
+        return true
+    }
+    #endif
 
     func load(_ url: URL) { tab.load(url) }
 

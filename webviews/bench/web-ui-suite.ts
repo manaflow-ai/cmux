@@ -16,7 +16,7 @@ import { PERF_ROW_MARK, type PerfRow } from "./perfRow";
 
 type Bench = { name: string; file: string; args: string[]; env?: Record<string, string>; timeoutMs: number };
 
-/// Short arguments; the timeouts sum to 25 minutes, under perf-cron.py's 30-minute cap on the suite.
+/// Short arguments; the timeouts sum to 29.5 minutes, under perf-cron.py's 30-minute cap on the suite.
 /// Not here: thread-minimap-frame-cost (an A/B check of the VS Code Minimap against its own 1 ms budget,
 /// which exits non-zero by design when over it; its rail frame cost is covered by thread-rail-jump),
 /// diff-stream (the diff-viewer part already runs it) and thread-rail-drag (an adapter, not a bench).
@@ -29,15 +29,26 @@ export const BENCHES: readonly Bench[] = [
     args: ["500", "500", "3"],
     timeoutMs: 120_000,
   },
-  { name: "chat-open", file: "chat-open.bench.ts", args: ["3", "300"], timeoutMs: 300_000 },
-  { name: "chat-switch", file: "chat-switch.bench.ts", args: ["3", "300"], timeoutMs: 300_000 },
+  { name: "chat-open", file: "chat-open.bench.ts", args: ["3", "300"], timeoutMs: 255_000 },
+  { name: "chat-switch", file: "chat-switch.bench.ts", args: ["3", "300"], timeoutMs: 255_000 },
   {
     name: "transcript-scroll-frame",
     file: "transcript-scroll-frame.bench.ts",
     args: ["3000", "2"],
     timeoutMs: 240_000,
   },
-  { name: "thread-rail-jump", file: "thread-rail-jump.bench.ts", args: ["1000", "5"], timeoutMs: 300_000 },
+  { name: "thread-rail-jump", file: "thread-rail-jump.bench.ts", args: ["1000", "5"], timeoutMs: 150_000 },
+  { name: "ui-stability", file: "ui-stability.bench.ts", args: ["2"], timeoutMs: 240_000 },
+  // A turn that ends while the reader is scrolled up: CLS, the anchor's drift and rows folded away.
+  {
+    name: "transcript-turn-end-shift",
+    file: "transcript-turn-end-shift.bench.ts",
+    args: ["2"],
+    timeoutMs: 120_000,
+  },
+  // Recorded and generated acpmux logs played into the pane at top speed: shift on open and while streaming, work per
+  // token as rows grow (its slope), long tasks, heap and idle CPU.
+  { name: "transcript-replay", file: "transcript-replay.bench.ts", args: ["--turns", "600"], timeoutMs: 150_000 },
 ];
 
 export type Failure = { bench: string; why: string; tail: string[] };
@@ -59,10 +70,20 @@ export function parseRows(stdout: string): { rows: PerfRow[]; bad: string[] } {
   return { rows, bad };
 }
 
+/// How far over its target a row is (pure): p95 / target; a row with a target of 0 (a count or a shift that should
+/// be none) is infinitely over when above it and at 0 when on it; -1 for a row without a target.
+export function overTarget(row: PerfRow): number {
+  if (row.target === undefined) return -1;
+  if (row.target === 0) return row.p95 > 0 ? Number.POSITIVE_INFINITY : 0;
+  return row.p95 / row.target;
+}
+
 /// Slowest first (pure): rows with a target by p95 / target, highest first, then rows without one by p95.
 export function slowestFirst(rows: readonly PerfRow[]): PerfRow[] {
-  const ratio = (row: PerfRow) => (row.target ? row.p95 / row.target : -1);
-  return [...rows].sort((a, b) => ratio(b) - ratio(a) || b.p95 - a.p95);
+  return [...rows].sort((a, b) => {
+    const [ra, rb] = [overTarget(a), overTarget(b)];
+    return (ra === rb ? 0 : rb > ra ? 1 : -1) || b.p95 - a.p95;
+  });
 }
 
 async function run(bench: Bench) {
@@ -134,8 +155,8 @@ async function main() {
   console.log("web-ui-suite: slowest first (p95 / target)");
   for (const row of sorted)
     console.log(
-      `  ${row.target ? `${((row.p95 / row.target) * 100).toFixed(0).padStart(4)} %` : "     -"}  ${row.name}  ` +
-        `p95 ${row.p95} ${row.unit ?? "ms"}${row.target ? ` (target ${row.target})` : ""}`,
+      `  ${row.target === undefined ? "     -" : overTarget(row) === Number.POSITIVE_INFINITY ? "  over" : `${(overTarget(row) * 100).toFixed(0).padStart(4)} %`}  ${row.name}  ` +
+        `p95 ${row.p95} ${row.unit ?? "ms"}${row.target === undefined ? "" : ` (target ${row.target})`}`,
     );
   const report = { rows: sorted, benches, failed };
   const out = flag("--out");

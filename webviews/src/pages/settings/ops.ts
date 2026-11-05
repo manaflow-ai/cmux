@@ -235,6 +235,8 @@ export type HostLists = {
   import_suggestions?: unknown;
   /** Updates > Web UI: the web UI served between app updates; null unless the bundle takes them (NIGHTLY). */
   web_updates?: WebUpdatesState | null;
+  /** Updates > App Update: the app update's status, a download's progress and the buttons; every text localized by the host. */
+  app_update?: AppUpdateState | null;
   /** Settings > Chief > Voice input: the Debug toggle home.voiceInput; null where it does not exist (Release). */
   voice_input?: { on: boolean } | null;
   /** Settings > Menus: every right-click menu's rows and the person's arrangement of it. */
@@ -298,6 +300,8 @@ export type IPhoneHostState = {
   allowed: boolean;
   status_title: string;
   status: string;
+  /** The Sign In button's title while the status says to sign in; null (or absent from an older host) otherwise. */
+  sign_in?: string | null;
   /** `off`, `unavailable`, `connecting`, `online` or `waiting`. */
   phase: string;
   account_title: string;
@@ -349,6 +353,24 @@ export type ComputerUsePhase =
   | "failed"
   | "ready"
   | "version_mismatch";
+
+/**
+ * Updates > App Update (the app's UpdaterService): what the update does now, whether or not the
+ * person asked (a background download and its failure show here; the sidebar shows only the staged
+ * update's Restart to Update). `progress` is 0...1, null while unmeasured, absent with no bar.
+ * Every text is the host's.
+ */
+export type AppUpdateState = {
+  title: string;
+  phase: string;
+  status: string;
+  detail: string | null;
+  progress?: number | null;
+  actions: { id: AppUpdateAction; title: string; prominent: boolean }[];
+};
+
+/** A button of the App Update card (Swift `SettingsUpdateAction`). */
+export type AppUpdateAction = "check" | "update" | "cancel_download" | "retry" | "install";
 
 /** A web update the app keeps: its commit and when that commit landed (unix seconds). */
 export type WebUpdateVersion = { commit: string; committed_at: number };
@@ -491,10 +513,46 @@ export type AccountsTeamList = {
   empty: string | null;
   create: AccountsTeamForm | null;
   notice: { kind: "success" | "neutral" | "danger" | "attention"; text: string } | null;
+  /** Invitations to the person; null when there are none. */
+  received: AccountsReceivedInvitations | null;
+};
+
+/** One invitation addressed to the person: `accept` runs `team.accept`, `decline` runs
+ * `team.decline`, each with the invitation's id as `team`. */
+export type AccountsReceivedInvitation = {
+  id: string;
+  team: string;
+  detail: string;
+  expires: string | null;
+  accept: AccountsButton;
+  decline: AccountsButton;
+};
+
+/** Invitations to You: the teams that invited one of the person's verified emails. */
+export type AccountsReceivedInvitations = {
+  title: string;
+  rows: AccountsReceivedInvitation[];
+  error: string | null;
 };
 
 /** The Accounts part as the host draws it (texts already localized by the app). */
+export type GitHubConnectionState = {
+  title: string;
+  detail: string;
+  busy: boolean;
+  connect: string;
+  disconnect: string;
+  confirm: string;
+  cancel: string;
+  refresh: string;
+  canConnect: boolean;
+  connections: Array<{ id: string; account: string; status: string; permissions: string[]; canDisconnect: boolean }>;
+  /** The Sign In button's title while nobody is signed in to cmux; null (or absent from an older host) otherwise. */
+  signIn?: string | null;
+};
+
 export type AccountsState = {
+  github?: GitHubConnectionState;
   teams: AccountsTeams | null;
   /** Older hosts omit it. */
   teamList?: AccountsTeamList | null;
@@ -620,6 +678,28 @@ export type HarnessRow = {
   autoUpdate?: boolean;
   /** What auto-update last did for it. */
   lastAutoUpdate?: { ok: boolean; detail: string } | null;
+  /** When acpmux last checked it (ms since the epoch); the card shows the newest as "Checked 5m ago". */
+  checkedAt?: number | null;
+};
+
+/** One provider account routing may use (acpmux `_acpmux/accounts`): the CLI's own login (`builtin`)
+ * or an account added in a shadow home. Folders arrive under `~`; actions name the id only. */
+export type ProviderAccount = {
+  id: string;
+  family: "codex" | "claude" | string;
+  name: string;
+  /** Its own login folder; null is the CLI's default (`defaultHome`). */
+  home: string | null;
+  defaultHome?: string | null;
+  /** The folder whose settings and chats a shadow home shares. */
+  shadowOf: string | null;
+  signedIn: boolean;
+  plan: string | null;
+  /** Shown on this local Settings page only. */
+  email: string | null;
+  /** Routing may move chats onto it. */
+  enabled: boolean;
+  builtin: boolean;
 };
 
 /** The Harnesses part: acpmux's harnesses (the host reads `_acpmux/harnesses`). */
@@ -628,6 +708,8 @@ export type HarnessesState = {
   /** `unavailable`: no acpmux in this app; `unreachable`: its daemon did not answer. */
   problem: "unavailable" | "unreachable" | null;
   harnesses: HarnessRow[];
+  /** acpmux's provider accounts; null or absent from a daemon without `_acpmux/accounts`. */
+  accounts?: ProviderAccount[] | null;
   /** Receipts and terminal observations from the captured update owner. */
   jobs?: Array<{
     machine: string;
@@ -659,11 +741,18 @@ export type HarnessesRun = {
     | "updateAll"
     | "autoUpdate"
     | "resumeUpdate"
-    | "dismissUpdate";
+    | "dismissUpdate"
+    | "accountEnable"
+    | "accountAdd"
+    | "accountSignIn";
   id?: string;
+  /** With `accountEnable` and `accountSignIn`: a listed account id. */
+  account?: string;
+  /** With `accountAdd`: the provider family that gets a new shadow-home account. */
+  family?: string;
   /** With `resumeUpdate` and `dismissUpdate`: the retained intent key, not a new operation id. */
   intent?: string;
-  /** With `autoUpdate`: turn it on or off for `id`. */
+  /** With `autoUpdate` (for `id`) and `accountEnable` (for `account`): turn it on or off. */
   on?: boolean;
   /** With `refresh`: the daemon checks every harness again (after an update). */
   recheck?: boolean;
@@ -1002,6 +1091,8 @@ export type SettingsOps = {
   "cmux.settings.server.pair": [Record<string, never>, Record<string, never>];
   /** A phone's pairing request: Allow or Don't Allow (the person's own gesture only). */
   "cmux.settings.mobile.answer_pair": [{ id: string; allow: boolean }, Record<string, never>];
+  /** Native: Updates > App Update's buttons (Restart to Update only on the person's own click); the host lists follow. */
+  "cmux.settings.app_update.run": [{ action: AppUpdateAction }, Record<string, never>];
   /** Native: Updates > Web UI's Check Now (updates.web.check); the host lists follow the check. */
   "cmux.settings.web_updates.check": [Record<string, never>, Record<string, never>];
   /** Native: Updates > Web UI's Roll Back (updates.web.rollback), from the next safe point. */
@@ -1195,6 +1286,8 @@ export const settingsPageActions = [
   "palette.computerUse.screenRecording",
   "import.card",
   "importFromBrowser",
+  // Settings > Mobile's Sign In, where the iPhone card says to sign in (msg 3790).
+  "palette.auth.signIn",
 ] as const;
 
 export type SettingsPageAction = (typeof settingsPageActions)[number];

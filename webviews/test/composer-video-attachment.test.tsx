@@ -167,7 +167,11 @@ try {
     // Its × still removes it.
     expect(tile.querySelector(".acpmux-attachment-remove")).not.toBeNull();
 
+    // A click asks the host for the file's streamed URL; one it will not grant plays in Quick Look.
     await act(async () => play.click());
+    expect(calls.at(-1)?.method).toBe("media.load");
+    expect(calls.at(-1)?.params).toEqual({ src: PATH });
+    await act(async () => calls.at(-1)!.answer(undefined));
     expect(calls.at(-1)?.method).toBe("video.quickLook");
     expect(calls.at(-1)?.params).toEqual({ src: PATH });
     // Read once: a later render asks nothing again.
@@ -190,6 +194,8 @@ try {
     expectUnreadVideoTile();
     // A click still plays it from its path.
     await act(async () => (host.querySelector(".acpmux-attachment-video-open") as HTMLElement).click());
+    expect(calls.at(-1)?.method).toBe("media.load");
+    await act(async () => calls.at(-1)!.answer(undefined));
     expect(calls.at(-1)?.method).toBe("video.quickLook");
     expect(calls.at(-1)?.params).toEqual({ src: PATH });
   });
@@ -537,6 +543,41 @@ try {
     await render([video()]);
     await act(async () => calls[0]!.answer(INFO));
     expect(calls.map((call) => call.method)).toEqual(["video.info", "video.transcript"]);
+  });
+  // Leo, 2026-11-02: "this i can't play a video preview inside cmux next? i feel like i should be able to".
+  test("a click on a video's ▶ plays it in the pane: the player opens with controls on the host's streamed URL and plays", async () => {
+    const path = "/Users/dev/Desktop/Screen Recording 2026-11-02 at 23.40.00.mov";
+    const src = "cmux-agent://pane/__media/0123456789abcdef.mov";
+    const played: HTMLMediaElement[] = [];
+    const proto = dom.window.HTMLMediaElement.prototype;
+    const original = proto.play;
+    proto.play = function (this: HTMLMediaElement) {
+      played.push(this);
+      return Promise.resolve();
+    };
+    try {
+      await render([{ ...linkAttachment(path, false), mimeType: "video/quicktime", size: 9_000_000_000 }]);
+      await act(async () => calls[0]!.answer(INFO));
+      await act(async () => calls.at(-1)!.answer(SPEECH));
+      const play = host.querySelector(".acpmux-attachment-video-open") as HTMLElement;
+      await act(async () => play.click());
+      expect(calls.at(-1)?.method).toBe("media.load");
+      expect(calls.at(-1)?.params).toEqual({ src: path });
+      await act(async () => calls.at(-1)!.answer({ src }));
+      const player = dom.window.document.querySelector<HTMLVideoElement>(".acpmux-image-viewer video");
+      expect(player).not.toBeNull();
+      expect(player!.getAttribute("src")).toBe(src);
+      expect(player!.hasAttribute("controls")).toBe(true);
+      expect(player!.muted).toBe(false);
+      expect(played).toEqual([player!]);
+      // Quick Look is not asked: the pane plays it.
+      expect(calls.some((call) => call.method === "video.quickLook")).toBe(false);
+      // The tile keeps its poster and length behind the player.
+      expect(host.querySelector(".acpmux-attachment-video img")?.getAttribute("src")).toBe(POSTER);
+      expect(host.querySelector(".acpmux-attachment-video-length")?.textContent).toBe("0:42");
+    } finally {
+      proto.play = original;
+    }
   });
 } finally {
   afterAll(() => {

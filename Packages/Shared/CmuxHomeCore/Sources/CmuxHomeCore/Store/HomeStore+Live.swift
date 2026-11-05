@@ -45,15 +45,28 @@ extension HomeStore {
         if changed { publishLive(conversation) }
     }
 
-    /// After the live or draft book changed for `conversation`: `live`, `drafts` and that
-    /// conversation's `streams` take the books' values (each assigned only when it changed, so an
-    /// unchanged one wakes no observer).
+    /// After the live or draft book changed for `conversation`: that conversation's `live`,
+    /// `streams` and `runShapes`, and `drafts`, take the books' values (each assigned only when it
+    /// changed, so an unchanged one wakes no observer). Every change to either book is to one
+    /// conversation, so the others are left as they are: a token costs its own conversation's
+    /// reply, not every running reply of every conversation.
+    // perf-hot: 0.1ms home-stream-token (every streamed token of a Chief reply)
     func publishLive(_ conversation: ConversationID) {
-        let shown = liveBook.shown
-        if live != shown { live = shown }
+        let run = liveBook.shown(in: conversation)
+        if live[conversation] != run { live[conversation] = run }
+        // The list's rows change only when the run moves between the model and a tool (O(1) per token).
+        let inTool = run?.activity?.isTool == true
+        if toolRuns.contains(conversation) != inTool {
+            if inTool { toolRuns.insert(conversation) } else { toolRuns.remove(conversation) }
+            rebuildRows()
+        }
         if drafts != draftBook.live { drafts = draftBook.live }
         let rows = streamRows(conversation)
         if streams[conversation, default: []] != rows { streams[conversation] = rows.isEmpty ? nil : rows }
+        let shape = HomeRunShape(run: run, streams: rows)
+        // Compared as stored: no run is no entry (an empty shape over none would wake every view).
+        let stored = shape.isEmpty ? nil : shape
+        if runShapes[conversation] != stored { runShapes[conversation] = stored }
     }
 
     /// Every running reply of `conversation` in begin order: the Chief live runs, then a reply
@@ -71,6 +84,9 @@ extension HomeStore {
 
     /// The running Chief run `id` shows (`live`), nil when none.
     public func liveRun(in id: ConversationID) -> HomeLiveRun? { live[id] }
+
+    /// What a whole-message view of `id` draws of its running replies (``runShapes``).
+    public func runShape(in id: ConversationID) -> HomeRunShape { runShapes[id] ?? HomeRunShape() }
 
     /// Who shows typing dots in `id`: the owner's typing frames, plus the author of a run still
     /// running there. One rule for every view: typing frames do not outlive a connection

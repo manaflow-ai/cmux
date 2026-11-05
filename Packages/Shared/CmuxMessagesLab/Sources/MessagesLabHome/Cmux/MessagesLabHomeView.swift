@@ -11,6 +11,15 @@ import CmuxHomeRender
 public final class MessagesLabHomeView: NSView {
     let controller: ChatController
     let projection: HomeProjection
+    /// The app supplies its existing person-input classifier; an unconfigured view grants nothing.
+    public var isPersonApprovalEvent: (NSEvent) -> Bool {
+        get { projection.isPersonApprovalEvent }
+        set { projection.isPersonApprovalEvent = newValue }
+    }
+    public var approvals: (any HomeApprovalDeciding)? {
+        get { projection.approvals }
+        set { projection.approvals = newValue }
+    }
     private var warmed = false
     private var appliedComposerSpellChecking: Bool?
     /// The palette generation this view's rows were last refreshed for (applyTheme).
@@ -40,6 +49,7 @@ public final class MessagesLabHomeView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         addSubview(controller.host)
+        HomeApprovalRowProvider.install()
         projection.start()
         // Reduce Motion changes (the system setting or the host's pin) still or restart the loops
         // already running (MessagesLabHomeView+Motion.swift).
@@ -265,6 +275,13 @@ public final class MessagesLabHomeView: NSView {
         set { controller.onAppLink = newValue }
     }
 
+    /// cmux: a click on an agent's pill in an agents row: the host opens that agent's chat (the agent's
+    /// id, `a12`). Nil: a click on the row opens and closes its messages.
+    public var onAgentPill: ((String) -> Void)? {
+        get { controller.onAgentPill }
+        set { controller.onAgentPill = newValue }
+    }
+
     /// cmux: the pointer moved over the transcript, in screen coordinates (nil: it left). The
     /// host's hover cards for link chips follow it (``linkChip(atScreenPoint:)``).
     public var onPointerMoved: ((CGPoint?) -> Void)? {
@@ -324,6 +341,19 @@ public final class MessagesLabHomeView: NSView {
     /// The header views a click on which runs ``onNamePill``: the pill and the avatar.
     public var namePillToggles: [NSView] { [controller.host.paneHeader.pill, controller.host.paneHeader.avatar] }
 
+    /// cmux: room kept clear above the oldest message, in this view's points (Home's pinned Needs you
+    /// section under the header): scrolled to its top, the transcript rests its first row below it.
+    /// 0: none.
+    public var rowsTopClearance: CGFloat {
+        get { controller.host.extraRowsTop }
+        set {
+            let next = newValue.isFinite ? max(0, newValue) : 0
+            guard next != controller.host.extraRowsTop else { return }
+            controller.host.extraRowsTop = next
+            controller.host.needsLayout = true
+        }
+    }
+
     /// cmux: controls at the header's top right (Home's panel toggles), on the avatar's line.
     /// They get their own clicks; the header's empty space still drags the window. Sized by its
     /// `intrinsicContentSize`; hidden in a pane too narrow to keep it clear of the avatar. Nil: none.
@@ -334,6 +364,13 @@ public final class MessagesLabHomeView: NSView {
             // With no header the rows' top follows the accessory (`HostView.bareRowsTop`).
             controller.host.needsLayout = true
         }
+    }
+
+    /// cmux: a small control right after the header's name pill, on its line (Home's Chief location
+    /// chip); it takes its own clicks. Sized by its `intrinsicContentSize`. Nil: none.
+    public var headerPillAccessory: NSView? {
+        get { controller.host.paneHeader.pillAccessory }
+        set { controller.host.paneHeader.pillAccessory = newValue }
     }
 
     /// cmux: who else has the conversation open, as faces beside the header's name pill (chat

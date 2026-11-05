@@ -63,6 +63,8 @@ impl Harness {
         fs::create_dir_all(home.join(".local/state/cmux/remote/sessions/cloud/auth")).unwrap();
         fs::write(home.join(".local/state/cmux/remote/sessions/cloud/auth/identity.json"), "{}")
             .unwrap();
+        fs::write(home.join(".local/state/cmux/remote/sessions/cloud/lifecycle-fence.json"), "{}")
+            .unwrap();
         let bin = dir.path().join("bin/cmux-tui");
         fs::create_dir_all(bin.parent().unwrap()).unwrap();
         let daemon_log = dir.path().join("daemon.log");
@@ -291,7 +293,9 @@ fn agent_binds_parks_adopts_and_restarts() {
     let spawn = index(&l, write, "spawn-daemon");
     index(&l, spawn, "rekey id=vm-a");
     assert_eq!(fs::read_to_string(h.at("/etc/cmux/daemon-instance-id")).unwrap(), "vm-a\n");
-    assert!(!h.home.join(".local/state/cmux/remote/sessions/cloud/auth").exists());
+    // The whole session goes, lifecycle fence included: a fence left
+    // without `auth/` makes the session host refuse to start.
+    assert!(!h.home.join(".local/state/cmux/remote/sessions/cloud").exists());
     wait_until("rekey job", || h.at("/etc/machine-id").is_file());
     wait_until("daemon argv", || {
         fs::read_to_string(&h.daemon_log).unwrap_or_default().contains("server start")
@@ -510,4 +514,11 @@ fn receiver_root_privileged_host_run_activates_native_bootstrap() {
         terminate(&mut agent);
     }
     println!("ROOT_BOUNDARY_EXECUTED native_host_run_activation");
+}
+
+/// `cloud clone-mark` writes acpmux's marker where acpmux reads it: `clone-boot` in the work
+/// user's `~/.acpmux` (#33140). The path comes from `role::acpmux_home`, not a literal root.
+#[test]
+fn clone_mark_writes_in_the_work_users_acpmux_home() {
+    assert_eq!(cmux_host::cloud::clone_mark::marker(), "/home/cmux/.acpmux/clone-boot");
 }

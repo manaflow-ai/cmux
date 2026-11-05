@@ -72,6 +72,20 @@ test("after a relaunch each pane shows its own state again", async () => {
   expect((await page("chat-right")).sessionInfoState()).toMatchObject({ open: true, width: 400 });
 });
 
+test("iMessage reveals Connect once across remounts, new panes and relaunches", async () => {
+  const first = await page("chat-first");
+  expect(first.claimSessionInfoIMessageReveal()).toBe(true);
+  first.setSessionInfoSection("connectors", true);
+  first.setSessionInfoSection("connectors", false);
+  expect(first.claimSessionInfoIMessageReveal()).toBe(false);
+  const relaunched = await page("chat-first");
+  expect(relaunched.claimSessionInfoIMessageReveal()).toBe(false);
+  expect(relaunched.sessionInfoState().sections.connectors).toBe(false);
+  const next = await page("chat-next");
+  expect(next.claimSessionInfoIMessageReveal()).toBe(false);
+  expect(next.sessionInfoState().sections.connectors).toBe(false);
+});
+
 test("Sources View all persists with the pane's chat", async () => {
   const left = await page("chat-left");
   left.setSessionInfoSourcesAll(true);

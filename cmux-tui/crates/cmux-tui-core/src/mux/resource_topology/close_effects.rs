@@ -489,7 +489,7 @@ impl Mux {
         }
         self.emit(MuxEvent::TreeChanged);
         if effects.selection_resync {
-            self.emit(MuxEvent::TreeSelectionChanged);
+            self.emit(MuxEvent::TreeSelectionChanged(None));
         }
         for screen in effects.changed_screens {
             self.emit_layout_changed(screen, None);
@@ -631,7 +631,7 @@ impl Mux {
             ResourceCloseTreePublication::PendingSnapshot => {
                 self.emit(MuxEvent::TreeChanged);
                 if effects.selection_resync {
-                    self.emit(MuxEvent::TreeSelectionChanged);
+                    self.emit(MuxEvent::TreeSelectionChanged(None));
                 }
             }
             ResourceCloseTreePublication::Published => {}

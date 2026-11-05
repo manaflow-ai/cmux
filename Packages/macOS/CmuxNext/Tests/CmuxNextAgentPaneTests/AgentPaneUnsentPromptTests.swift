@@ -280,4 +280,19 @@ struct AgentPaneUnsentPromptTests {
         await Self.barrier(pane, id: 2)
         #expect(Self.prompts(daemon, peer: 0).isEmpty)
     }
+
+    @Test func aLargePromptAndMoreThan64PendingPromptsSurviveTheJournal() throws {
+        let url = Self.journalURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let journal = AgentPanePromptJournal(url: url)
+        let owner = UUID()
+        for index in 0..<65 {
+            #expect(journal.record(.init(daemon: "daemon", sessionId: "s-1", promptId: "p-\(index)", params: "{}", at: Date()), owner: owner))
+        }
+        let large = String(repeating: "x", count: 9 * 1024 * 1024)
+        #expect(journal.record(.init(daemon: "daemon", sessionId: "s-1", promptId: "large", params: large, at: Date()), owner: owner))
+        #expect(journal.entries().count == 66)
+        #expect(journal.entries().last?.params.utf8.count == 9 * 1024 * 1024)
+        #expect(AgentPanePromptJournal(url: url).entries().count == 66)
+    }
 }

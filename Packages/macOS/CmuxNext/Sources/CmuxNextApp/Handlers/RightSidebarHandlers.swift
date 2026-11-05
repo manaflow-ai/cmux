@@ -9,6 +9,7 @@ enum RightSidebarHandlers {
         registry.bind("toggleRightSidebar", run: { _ in
             try window(context).toggleRightSidebar()
         })
+        ActionTargetTitles.setPaletteState("toggleRightSidebar", in: registry) { context.activeWindow?.rightSidebar.isVisible == true }
         registry.bind("focusRightSidebar", run: { invocation in
             let controller = try window(context)
             guard controller.showRightSidebar(focus: invocation.allowsViewChange) else { throw ActionFailure.needsAppCapability("right-sidebar") }

@@ -461,3 +461,7 @@
   outline: 1.5px solid var(--agent-text);
   outline-offset: -1.5px;
 }
+/* The agent's suggested next prompt in italics (experiment `prompt-suggestion-look`, arm italic). */
+.acpmux-composer-prompt.is-suggestion-italic .acpmux-md-placeholder {
+  font-style: italic;
+}

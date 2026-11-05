@@ -61,4 +61,34 @@ struct GroupNoChosenColorTests {
         let band = TabGroupBandCell(color: .palette(.red))
         #expect(Self.alpha(band.lineLayer.backgroundColor) > 0, "a picked color keeps its underline")
     }
+    /// Leo 2026-11-02, on a group nobody colored whose header drew a solid bar in the theme's own color: "THE
+    /// GROUP COLOUR SOMEHOW BEING THE THEME COLOUR???" / "IT'S USELESS". No color draws no bar, chip or wash
+    /// (an opaque sidebarBackground bar was the theme color over the translucent sidebar), and the editor's
+    /// "No color" dot clears the color instead of storing a grey band.
+    @Test func noColorHeaderDrawsNoBarAndNoColorDotClears() throws {
+        #expect(GroupTint.none.headerChip.fill.alpha == 0, "no bar")
+        #expect(GroupTint.none.headerChip(themed: true).fill.alpha == 0, "no themed bar")
+        #expect(GroupTint.none.headerChip(themed: false).fill.alpha == 0)
+        #expect(GroupTint.none.headerWash(themed: true).alpha == 0, "no wash")
+        #expect(GroupTint.none.headerWash(themed: false).alpha == 0)
+        #expect(GroupTint.palette(.blue).headerChip.fill.alpha == 1, "a picked color keeps its bar")
+
+        let header = GroupHeaderRowView(key: .group(GroupID("grp_none")))
+        header.frame = NSRect(x: 0, y: 0, width: 240, height: 24)
+        let group = CmuxNextSidebar.SidebarGroup(id: GroupID("grp_none"), name: "cosmic-gray", custom: "none", workspaces: [])
+        let row = SidebarRow(key: .group(group.id), y: 0, height: 24, section: .pinned, group: group.id, siblingIndex: 0,
+                             parentIndex: nil, isLastInGroup: false, isCollapsed: false, childCount: 0, groupColor: nil)
+        header.configure(group, row: row, animated: false)
+        header.updateLayer()
+        #expect(Self.alpha(header.pill.backgroundColor) == 0, "an uncolored header paints no bar at rest")
+
+        let editor = SidebarGroupEditorPanel()
+        var picked: GroupTint?
+        editor.onColor = { picked = $0 }
+        editor.pick(.grey)
+        #expect(picked == GroupTint.none, "the No color dot clears the color")
+        #expect(try #require(editor.swatches.first { $0.color == .grey }).isChosen)
+        editor.pick(.green)
+        #expect(picked == .palette(.green))
+    }
 }

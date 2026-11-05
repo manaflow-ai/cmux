@@ -23,7 +23,8 @@ final class SidebarUpdateCardView: NSView {
     /// The Hide button or a menu item: the card's id and the action's id.
     var onCloseAction: ((String, String) -> Void)?
     private(set) var card: SidebarUpdateCard?
-    /// The composer's surface, under everything else.
+    /// The cards' surface, under everything else, its veil in the theme's glass tint (as the
+    /// Updated and notice cards'; Leo 2026-11-03: "will this be themeed properly?").
     let surface = CardSurfaceView()
     private let titleLabel = ChromeLabel(labelWithString: "")
     /// The short version and build date.
@@ -112,6 +113,7 @@ final class SidebarUpdateCardView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
+        surface.takesThemeTint = true
         addSubview(surface)
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.maximumNumberOfLines = 1
@@ -153,6 +155,11 @@ final class SidebarUpdateCardView: NSView {
             return
         }
         if highlights == nil { highlights = surfaces?.island(.ready) }
+        // The card just took the slot (the download's notice card turns into it in place, the
+        // Restart button where the Download or Cancel button was): a click meant for the card it
+        // replaced must not restart cmux (Leo 2026-11-04: "i only clicked the "download" button
+        // and it allegedly "updated" but i didnt restart the app/get a prompt to?").
+        if previous == nil || !wasShowing || previous?.detail != card.detail { button.ignorePointer() }
         // Restart to Update becoming Installing… crossfades instead of popping.
         if let previous, wasShowing, previous.title != card.title || previous.detail != card.detail
             || previous.buttonTitle != card.buttonTitle || previous.isEnabled != card.isEnabled {
@@ -180,8 +187,9 @@ final class SidebarUpdateCardView: NSView {
     // MARK: Geometry
 
     /// Compact (Leo 2026-10-19): a 10 pt inset, the detail right under the
-    /// title, and 8 pt between the rows.
+    /// title. 6 pt between the rows (Leo 2026-11-03: "stretched out wasted space"; it was 8).
     private static var padding: CGFloat { Metrics.space2 + Metrics.space1 / 2 }
+    private static var rowGap: CGFloat { Metrics.space1 + Metrics.space1 / 2 }
     private static var titleFont: NSFont { Typography.bodyEmphasized }
 
     private static var captionHeight: CGFloat { ceil(Typography.caption.boundingRectForFont.height) }
@@ -191,8 +199,8 @@ final class SidebarUpdateCardView: NSView {
     static func height(for card: SidebarUpdateCard) -> CGFloat {
         let title = ceil(titleFont.boundingRectForFont.height)
         let detail = card.detail == nil ? 0 : Metrics.space1 / 2 + captionHeight
-        return ceil(padding + title + detail + Metrics.space2
-            + SidebarUpdateToggle.height + Metrics.space2 + SidebarUpdateButton.height + padding)
+        return ceil(padding + title + detail + rowGap
+            + SidebarUpdateToggle.height + rowGap + SidebarUpdateButton.height + padding)
     }
 
     override func layout() {
@@ -215,8 +223,8 @@ final class SidebarUpdateCardView: NSView {
             detailLabel.frame = NSRect(x: pad, y: y, width: width, height: caption)
             y += caption
         }
-        toggle.frame = NSRect(x: pad, y: y + Metrics.space2, width: width, height: SidebarUpdateToggle.height)
-        button.frame = NSRect(x: pad, y: toggle.frame.maxY + Metrics.space2, width: width, height: SidebarUpdateButton.height)
+        toggle.frame = NSRect(x: pad, y: y + Self.rowGap, width: width, height: SidebarUpdateToggle.height)
+        button.frame = NSRect(x: pad, y: toggle.frame.maxY + Self.rowGap, width: width, height: SidebarUpdateButton.height)
         presence.didLayout()
     }
 

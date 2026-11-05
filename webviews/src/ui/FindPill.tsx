@@ -3,7 +3,7 @@
 // terminal's and the browser's (findPill.css carries FindPillMetrics' numbers). It only draws and
 // reports; its surface owns the search. Enter and Cmd-G step to the next match, Shift-Enter and
 // Shift-Cmd-G to the previous one, Escape closes; an IME composition keeps its own keys.
-import type { KeyboardEvent, ReactNode, Ref } from "react";
+import type { KeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode, Ref } from "react";
 import "./findPill.css";
 
 /** The icons a pill draws, from the host's icon set (the native pill's four). */
@@ -59,6 +59,21 @@ export type FindPillProps = {
   className?: string;
 };
 
+function markPress(event: ReactPointerEvent<HTMLButtonElement>) {
+  event.currentTarget.dataset.pressActive = "true";
+}
+
+function clearPress(event: ReactPointerEvent<HTMLButtonElement>) {
+  delete event.currentTarget.dataset.pressActive;
+}
+
+const pressFeedback = {
+  onPointerDown: markPress,
+  onPointerUp: clearPress,
+  onPointerCancel: clearPress,
+  onPointerLeave: clearPress,
+};
+
 export function FindPill(props: FindPillProps) {
   const { labels, icon, ids } = props;
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -81,6 +96,7 @@ export function FindPill(props: FindPillProps) {
     <button
       type="button"
       className="find-pill__button find-pill__toggle"
+      {...pressFeedback}
       aria-label={replace.labels.toggle}
       title={replace.labels.toggle}
       aria-expanded={replace.open}
@@ -123,6 +139,7 @@ export function FindPill(props: FindPillProps) {
           <button
             type="button"
             className="find-pill__button find-pill__button--text"
+            {...pressFeedback}
             aria-label={labels.matchCase}
             aria-pressed={props.matchCase ? "true" : "false"}
             onClick={() => props.onMatchCaseChange?.(!props.matchCase)}
@@ -135,6 +152,7 @@ export function FindPill(props: FindPillProps) {
       <button
         type="button"
         className="find-pill__button"
+        {...pressFeedback}
         aria-label={labels.previous}
         title={`${labels.previous} (⇧↩)`}
         disabled={!props.canStep}
@@ -145,6 +163,7 @@ export function FindPill(props: FindPillProps) {
       <button
         type="button"
         className="find-pill__button"
+        {...pressFeedback}
         aria-label={labels.next}
         title={`${labels.next} (↩)`}
         disabled={!props.canStep}
@@ -155,6 +174,7 @@ export function FindPill(props: FindPillProps) {
       <button
         type="button"
         className="find-pill__button"
+        {...pressFeedback}
         aria-label={labels.close}
         title={`${labels.close} (Esc)`}
         onClick={props.onClose}
@@ -204,6 +224,7 @@ export function FindPill(props: FindPillProps) {
               <button
                 type="button"
                 className="find-pill__button find-pill__button--text find-pill__replace-one"
+                {...pressFeedback}
                 disabled={!props.canStep}
                 onClick={replace.onReplace}
               >
@@ -212,6 +233,7 @@ export function FindPill(props: FindPillProps) {
               <button
                 type="button"
                 className="find-pill__button find-pill__button--text find-pill__replace-all"
+                {...pressFeedback}
                 disabled={!props.canStep}
                 onClick={replace.onReplaceAll}
               >

@@ -16,7 +16,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Instant;
 use tungstenite::handshake::server::{ErrorResponse, Request, Response};
 
-const OWNER_TOKEN: &str = "owner-access-token";
+pub(in crate::server) const OWNER_TOKEN: &str = "owner-access-token";
 type DeleteGate = Arc<(Mutex<bool>, Condvar)>;
 
 /// What the fake room saw, in order.
@@ -73,15 +73,15 @@ struct Shared {
     hello: Mutex<Vec<Value>>,
 }
 
-struct FakeRoom {
-    url: String,
+pub(in crate::server) struct FakeRoom {
+    pub(in crate::server) url: String,
     shared: Arc<Shared>,
     seen: Receiver<Seen>,
     buffer: RefCell<VecDeque<Seen>>,
 }
 
 impl FakeRoom {
-    fn start(puts: &[u16]) -> Self {
+    pub(in crate::server) fn start(puts: &[u16]) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         let shared = Arc::new(Shared::default());
@@ -145,7 +145,7 @@ impl FakeRoom {
     }
 
     /// The next `method` request: its path, bearer and body.
-    fn request(&self, method: &str) -> (String, String, Value) {
+    pub(in crate::server) fn request(&self, method: &str) -> (String, String, Value) {
         let wanted = |s: &Seen| matches!(s, Seen::Request { method: m, .. } if m == method);
         match self.take(method, wanted) {
             Seen::Request { path, bearer, body, .. } => (path, bearer, body),
@@ -435,6 +435,46 @@ fn a_provisioned_share_answers_hello_with_its_guests_and_redeems_through_the_dae
     let (again, bearer) = room.host();
     assert_eq!(bearer, "host-token-1");
     assert_eq!(room.frame(again), json!({"v": 1, "t": "guests", "active": [guest]}));
+}
+
+#[test]
+fn an_account_redeem_answers_the_invitees_role_and_nothing_else_about_the_account() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, _mux, surface, mut owner) = bridged("room-invite-role", &room);
+    let share = create(&mut owner, surface)["data"].clone();
+    let id = share["share_id"].clone();
+    for (account, role) in [("vera@example.com", "view"), ("tom@example.com", "talk")] {
+        let reply = owner.request(json!({"cmd":"agent-session-share-invite", "share_id":id,
+            "account":account, "role":role}));
+        assert_eq!(reply["ok"], true, "{reply}");
+    }
+    let (conn, _) = room.host();
+    assert_eq!(room.frame(conn)["t"], "guests");
+    let invited = |request: &str, attempt: &str, account: &str| {
+        json!({"v": 1, "t": "redeem", "request_id": request, "attempt_id": attempt,
+            "account": account, "name": "Vera"})
+    };
+    // The room learns the invitee's role (so a view invitee's page has no composer), and
+    // nothing else about the account: no account, no email, no name.
+    room.send(invited("r1", "attempt-1", "vera@example.com"));
+    let redeemed = room.frame(conn);
+    let guest = redeemed["guest_id"].clone();
+    assert!(guest.is_string(), "{redeemed}");
+    assert_eq!(
+        redeemed,
+        json!({"v": 1, "t": "redeemed", "request_id": "r1", "guest_id": guest, "role": "view"})
+    );
+    // A lost reply's retry names the same guest and role.
+    room.send(invited("r2", "attempt-1", "vera@example.com"));
+    let again = room.frame(conn);
+    assert_eq!((again["guest_id"].clone(), again["role"].clone()), (guest, json!("view")));
+    room.send(invited("r3", "attempt-2", "tom@example.com"));
+    assert_eq!(room.frame(conn)["role"], "talk");
+    // A link guest's answer is as before: no role (the room reads none as a link guest).
+    room.send(redeem("r4", "attempt-3", &share["secret"]));
+    let link = room.frame(conn);
+    assert!(link["guest_id"].is_string(), "{link}");
+    assert!(link.get("role").is_none(), "{link}");
 }
 
 #[test]
@@ -784,6 +824,7 @@ fn restart_resumes_roomless_pending_deletes_at_expiry_and_frees_capacity() {
                 room: None,
                 pending_room_ops: vec![json!({"op": "delete"})],
                 guests: Vec::new(),
+                invitees: Vec::new(),
             }));
             Ok(((), true))
         })
@@ -1159,6 +1200,7 @@ fn a_restart_reopens_the_host_socket_of_an_active_bridged_share() {
                 room: Some(json!({"url": room.url, "host_token": "kept-host-token"})),
                 pending_room_ops: Vec::new(),
                 guests: Vec::new(),
+                invitees: Vec::new(),
             });
             Ok(((), true))
         })
@@ -1197,6 +1239,7 @@ fn a_kick_of_an_ended_share_holds_no_capacity_and_goes_with_its_delete() {
                 room: Some(json!({"url": room.url, "host_token": "t"})),
                 pending_room_ops: vec![json!({"op": "kick", "guest_id": "g"})],
                 guests: Vec::new(),
+                invitees: Vec::new(),
             }));
             Ok(((), false))
         })
@@ -2038,4 +2081,18 @@ fn share_room_names_the_room_and_its_owner_api() {
     );
     assert!(shares(&mux).bridge.configure(Some("http://127.0.0.1:9"), fast()));
     assert_eq!(ask(&mut owner), json!({"room": "http://127.0.0.1:9", "owner_api": null}));
+}
+
+/// A room answer the shares file could not keep at its reserved size is refused: a host token
+/// past its bound or one JSON would escape, and a room origin past its bound.
+#[test]
+fn a_host_token_or_room_the_shares_file_cannot_keep_is_refused() {
+    assert!(valid_host_token(&"a".repeat(MAX_HOST_TOKEN_BYTES)));
+    assert!(valid_host_token("host-token-1"));
+    let long = "a".repeat(MAX_HOST_TOKEN_BYTES + 1);
+    for bad in ["", "a\"b", "a\\b", "a b", "a\u{e9}", long.as_str()] {
+        assert!(!valid_host_token(bad), "{bad}");
+    }
+    assert!(origin("https://room.example.com").is_some());
+    assert!(origin(&format!("https://{}.com", "a".repeat(MAX_ROOM_URL_BYTES))).is_none());
 }

@@ -533,6 +533,12 @@ nonisolated final class SandboxDeadline<T: Sendable>: Sendable {
     private let state = Mutex(State())
 
     static func race(_ bound: Duration, _ work: @escaping @Sendable () async throws -> T) async throws -> T {
+        try await race(bound, timeout: { CloudAPIError.timedOut("/api/runs") }, work)
+    }
+
+    /// ``race(_:_:)`` with the error the bound throws (`timeout`): a Cloud link step names itself.
+    static func race(_ bound: Duration, timeout: @escaping @Sendable () -> any Error,
+                     _ work: @escaping @Sendable () async throws -> T) async throws -> T {
         let gate = SandboxDeadline<T>()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -548,7 +554,7 @@ nonisolated final class SandboxDeadline<T: Sendable>: Sendable {
                 let timer = Task {
                     // wakeup-allow: one-shot deadline for a sandbox run (stops at the bound or the answer)
                     try? await Task.sleep(for: bound)
-                    gate.finish(.failure(CloudAPIError.timedOut("/api/runs")))
+                    gate.finish(.failure(timeout()))
                 }
                 gate.onFinish { job.cancel(); timer.cancel() }
             }

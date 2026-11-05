@@ -71,6 +71,44 @@ class Replay26346(unittest.TestCase):
         self.assertIn("crashed (signal 6)", json.loads(done.stdout)["reasons"][0])
 
 
+def objc_line(path="Sources/A.swift", line=12, member="viewDidMove", cls="NSView", sel="viewDidMove"):
+    return (f"objc-selectors: {path}:{line}: super.{member} ({cls} call:{sel}/0): probe needed; "
+            "run scripts/cmux-next/check-objc-selectors.py --probe --write on a Mac and commit table.json")
+
+
+class CrashClassRuleLines(unittest.TestCase):
+    # cmux#33113 added an unprobed `super` call; the rule printed this line and the job had no test name to match.
+    def test_the_line_is_a_named_failure_keyed_by_rule_site_and_selector(self):
+        found = reds.read(log(objc_line()))
+        self.assertEqual(found.failed, {"objc-selectors Sources/A.swift:12 super.viewDidMove (NSView call:viewDidMove/0)"})
+        self.assertTrue(reds.is_test_red(found))
+
+    def test_the_same_diagnostic_on_head_and_base_is_a_base_red(self):
+        verdict = reds.classify(log(objc_line()), log(objc_line()))
+        self.assertFalse(verdict.own, verdict.reasons)
+        self.assertEqual(len(verdict.shared), 1)
+
+    def test_error_annotation_prefix_and_timestamp_still_match(self):
+        verdict = reds.classify(log("##[error]" + objc_line()), log(objc_line()))
+        self.assertFalse(verdict.own, verdict.reasons)
+
+    def test_a_different_file_line_or_selector_is_the_heads_own(self):
+        for other in (objc_line(path="Sources/B.swift"), objc_line(line=13),
+                      objc_line(member="mouseDown", sel="mouseDown")):
+            with self.subTest(other=other):
+                verdict = reds.classify(log(other), log(objc_line()))
+                self.assertTrue(verdict.own)
+                self.assertIn("pass or do not run", " ".join(verdict.reasons))
+
+    def test_no_base_log_excuses_nothing(self):
+        self.assertTrue(reds.classify(log(objc_line()), None).own)
+
+    def test_the_cef_contract_rule_is_keyed_by_its_detail(self):
+        line = "cef-objc-contract: NSApp foo:: verdict 'x' (review it: a, b)"
+        self.assertFalse(reds.classify(log(line), log(line)).own)
+        self.assertTrue(reds.classify(log(line), log(line.replace("foo", "bar"))).own)
+
+
 class KnownIssueSuiteCompletion(unittest.TestCase):
     # Reduced from the #27127 comparison: a completed ClassicUpgradeSimulationTests suite
     # was treated as unfinished even though its known-issue test and run summary were read.
@@ -250,6 +288,85 @@ class PerTest(unittest.TestCase):
         self.assertTrue(verdict.own)
         self.assertIn("pass or do not run on the base: c()", verdict.reasons[0])
 
+    def test_display_named_swift_testing_reds_are_compared_by_name(self):
+        # PR 35296's shard 2: `@Test("…")` names print quoted, with no `()`.
+        shared = '✘ Test "A capped plan shows used/limit" recorded an issue at X.swift:25:9: Expectation failed'
+        param = ('✘ Test "Hovering shows help" recorded an issue with 2 arguments activeCount → 1, help → "x" '
+                 'at X.swift:1:2: Expectation failed')
+        self.assertEqual(reds.read(log(shared, param, SUMMARY)).failed,
+                         {'"A capped plan shows used/limit"', '"Hovering shows help"'})
+        self.assertFalse(reds.classify(log(shared, SUMMARY), log(shared, SUMMARY)).own)
+        new = log(shared, '✘ Test "Another" recorded an issue at X.swift:3:4: Expectation failed', SUMMARY)
+        self.assertIn('"Another"', reds.classify(new, log(shared, SUMMARY)).reasons[0])
+
+    def test_two_suites_same_display_name_are_not_one_test(self):
+        # A `@Test("...")` name prints with no suite, and suites interleave (three were open at once in
+        # tests/fixtures/test_reds/26346-head-run-40620080851.log), so the suite cannot be read from the
+        # ✘ line. The issue's file can: a display name whose head and base failures record their issues in
+        # files that do not overlap is two tests, not one red (cmux#35902).
+        head = log('✘ Test "shows the plan" recorded an issue at CloudPlanTests.swift:25:9: Expectation failed',
+                   '✘ Test "shows the plan" failed after 0.1 seconds with 1 issue.', SUMMARY)
+        base = log('✘ Test "shows the plan" recorded an issue at HomePlanTests.swift:14:9: Expectation failed',
+                   '✘ Test "shows the plan" failed after 0.1 seconds with 1 issue.', SUMMARY)
+        verdict = reds.classify(head, base)
+        self.assertTrue(verdict.own, verdict.reasons)
+        self.assertIn("CloudPlanTests.swift", verdict.reasons[0])
+        self.assertEqual(verdict.shared, [])
+
+    def test_the_same_display_named_test_is_still_a_base_red(self):
+        # The same test, failing at another line of its own file, or at a second expectation in it: the
+        # files overlap, so it stays the base's red. The classifier is per test, not per assertion.
+        head = log('✘ Test "shows the plan" recorded an issue at CloudPlanTests.swift:25:9: Expectation failed',
+                   '✘ Test "shows the plan" recorded an issue at CloudPlanHelper.swift:3:1: Expectation failed',
+                   SUMMARY)
+        base = log('✘ Test "shows the plan" recorded an issue at CloudPlanTests.swift:31:9: Expectation failed',
+                   SUMMARY)
+        self.assertFalse(reds.classify(head, base).own, reds.classify(head, base).reasons)
+
+    def test_a_module_relative_issue_location_records_its_file(self):
+        # A location can be module-relative (`Package/CloudPlanTests.swift:25:9`). With no `/` in the file
+        # class, neither side recorded a file, both fell back to name-only comparison, and two distinct
+        # suites with one display name read as a single base red (cmux#35961 F1).
+        head = log('✘ Test "shows the plan" recorded an issue at Pkg/Cloud/CloudPlanTests.swift:25:9: '
+                   'Expectation failed', '✘ Test "shows the plan" failed after 0.1 seconds with 1 issue.',
+                   SUMMARY)
+        base = log('✘ Test "shows the plan" recorded an issue at Pkg/Home/HomePlanTests.swift:14:9: '
+                   'Expectation failed', '✘ Test "shows the plan" failed after 0.1 seconds with 1 issue.',
+                   SUMMARY)
+        self.assertEqual(reds.read(head).sites, {'"shows the plan"': {"Pkg/Cloud/CloudPlanTests.swift"}})
+        verdict = reds.classify(head, base)
+        self.assertTrue(verdict.own, verdict.reasons)
+        self.assertIn("Pkg/Cloud/CloudPlanTests.swift", verdict.reasons[0])
+        self.assertEqual(verdict.shared, [])
+
+    def test_a_location_quoted_after_the_real_one_is_not_the_issue_site(self):
+        # The source location is not at end of line: the expectation text follows it and can quote another
+        # ` at <file>.swift:<line>:<col>`. Reading the last one recorded the wrong file, so a test that fails
+        # in the same file on both sides read as two tests and the shared base red became the head's own
+        # (cmux#35961 F2). The first location after the arguments clause is the one Swift Testing printed.
+        head = log('✘ Test "shows the plan" recorded an issue at CloudPlanTests.swift:25:9: Expectation '
+                   'failed: (trace → "raised at HomePlanTests.swift:14:2")',
+                   '✘ Test "shows the plan" failed after 0.1 seconds with 1 issue.', SUMMARY)
+        base = log('✘ Test "shows the plan" recorded an issue at CloudPlanTests.swift:25:9: Expectation failed',
+                   '✘ Test "shows the plan" failed after 0.1 seconds with 1 issue.', SUMMARY)
+        self.assertEqual(reds.read(head).sites, {'"shows the plan"': {"CloudPlanTests.swift"}})
+        verdict = reds.classify(head, base)
+        self.assertFalse(verdict.own, verdict.reasons)
+        self.assertEqual(verdict.shared, ['"shows the plan"'])
+
+    def test_an_arguments_clause_still_yields_the_location_after_it(self):
+        # A parameterized test prints `with N arguments ...` before the location, and an argument value may
+        # itself hold a `.swift:` (cmux#35902); the clause is skipped, the location after it is recorded.
+        head = log('✘ Test "shows the plan" recorded an issue with 1 argument p → "A.swift:1:1" at '
+                   'Pkg/CloudPlanTests.swift:25:9: Expectation failed', SUMMARY)
+        self.assertEqual(reds.read(head).sites, {'"shows the plan"': {"Pkg/CloudPlanTests.swift"}})
+
+    def test_a_display_name_with_no_file_on_either_side_compares_by_name(self):
+        # Only the `failed after` line, as a rerun summary prints: nothing says which suite, so the name
+        # alone decides, exactly as before this comparison existed.
+        both = log('✘ Test "shows the plan" failed after 0.1 seconds with 1 issue.', SUMMARY)
+        self.assertFalse(reds.classify(both, both).own)
+
     def test_a_crash_on_both_sides_is_still_the_heads_own(self):
         both = log(failed("a()"), ABORT, "*** Terminating app due to uncaught exception 'NSInternalInconsistencyException'")
         verdict = reds.classify(both, both)
@@ -297,6 +414,14 @@ class PerTest(unittest.TestCase):
                     "✘ Test a() failed after 0.1 seconds with 1 issue.", SUMMARY)
         self.assertEqual(reds.read(whole).truncated, [])
 
+    def test_a_suite_end_after_a_zero_width_space_is_whole(self):
+        # PR 35296's app-host shard 2: Swift Testing printed "\u200b✔ Suite ... passed" after interleaved app logs.
+        whole = log('◇ Suite "Cloud sidebar recorded interaction" started.',
+                    '\u200b✔ Suite "Cloud sidebar recorded interaction" passed after 0.001 seconds.', SUMMARY)
+        self.assertEqual(reds.read(whole).truncated, [])
+        cut = log('\u200b◇ Suite "s" started.', SUMMARY)
+        self.assertIn('1 suite(s) started and never finished: "s"', reds.read(cut).truncated)
+
     def test_a_run_cut_off_between_tests_is_the_heads_own(self):
         cut = log("◇ Test run started.", "◇ Suite S started.", "◇ Test a() started.", failed("a()"),
                   "✘ Test a() failed after 0.1 seconds with 1 issue.")
@@ -332,6 +457,25 @@ class PerTest(unittest.TestCase):
                   "━ Test a() passed after 9.5 seconds with 1 known issue.",
                   "━ Test run with 1 test in 1 suite passed after 9.5 seconds with 1 known issue.")
         self.assertEqual(reds.read(run).truncated, [])
+
+    def test_a_pass_line_another_stream_cut_into_finished(self):
+        # cmux-next swift test, run 41665450504 shard 14: the runtime's stderr cut into a pass line and the helper was
+        # killed before the rest was written. It passed; the run is still cut short (no summary), never a base red.
+        run = log("◇ Test run started.", "◇ Test aFailureNothingRetriesShowsAtOnce() started.",
+                  "✔ Test aFailureNothingRetriesShowsAtOnceswift runtime: backtrace-on-crash is not supported for "
+                  "privileged executables.")
+        self.assertFalse(any("never finished" in why for why in reds.read(run).truncated))
+        # foo() is not closed by fooBar()'s pass.
+        other = log("◇ Test run started.", "◇ Test foo() started.", "◇ Test fooBar() started.",
+                    "✔ Test fooBar() passed after 0.1 seconds.")
+        self.assertIn("1 test(s) started and never finished: foo", reds.read(other).truncated)
+        # A cut-into pass closes the longest name it fits, once: fooBar(), never foo() as well.
+        both = log("◇ Test run started.", "◇ Test foo() started.", "◇ Test fooBar() started.",
+                   "✔ Test fooBarswift runtime: backtrace-on-crash is not supported for privileged executables.")
+        self.assertIn("1 test(s) started and never finished: foo", reds.read(both).truncated)
+        # A run's own summary does not close a test named run().
+        named_run = log("◇ Test run started.", "◇ Test run() started.", "✔ Test run with 1 test in 1 suite passed after 0.1 seconds.")
+        self.assertIn("1 test(s) started and never finished: run", reds.read(named_run).truncated)
 
     def test_the_bundle_runners_exited_line_is_a_crash_after_a_shared_failure(self):
         crash = log("◇ Test run started.", failed("a()"), "✘ Test a() failed after 0.1 seconds with 1 issue.",
@@ -1118,6 +1262,135 @@ class ClassifyAny(unittest.TestCase):
         crashed = log(failed("a()"), ABORT)
         verdict = reds.classify_any(crashed, [("run 2", log(SUMMARY)), ("run 1", crashed)], "cmux-next swift test")
         self.assertTrue(verdict.own)
+
+
+# cmux#33162's `web / react-apps-base-check (3)`, job 126154996598 (run 41698414997 attempt 1, 2026-11-03), as GitHub
+# serves it: its runner lost communication mid-step, so the job failed with that annotation, its "Run base reds and
+# compare" step still in_progress, and no log stored (the logs endpoint answers BlobNotFound).
+LOST_JOB = FIXTURES / "lost-runner-job-126154996598.json"
+LOST_NOTES = FIXTURES / "lost-runner-annotations-126154996598.json"
+LOST_LOG = FIXTURES / "lost-runner-log-126154996598.txt"
+
+
+class VolatileTokens(unittest.TestCase):
+    """The same error on two runs names each run's own temp dir, checkout root and times (2026-11-04: the
+    release-notary red on #34660 and on feat-cmux-next printed /tmp/tmp.Pw5bL0wmeb and /tmp/tmp9j12s3ib-style
+    names); those tokens are masked before two errors are compared, and nothing else is."""
+
+    # Lines as the release-notary job printed them on cmux#34660's head run 41808383454 (job 126501169622).
+    HEAD = [
+        "check_bundle_notices: every Mach-O in /tmp/tmp.Pw5bL0wmeb/cmux.app has its notices",
+        "6 media DerivedData dir(s) in /tmp/tmp9j12s3ib outside this tour's and the 0 warm slots'; keeping at most 4",
+        '  File "/tmp/tmpckvlipun/workspace/scripts/ci/media_app_cache.py", line 294, in <module>',
+        "AssertionError: publish-nightly at /home/runner/work/cmux/cmux/tests/test_nightly_delivery_concurrency.py",
+    ]
+    BASE = [
+        "check_bundle_notices: every Mach-O in /tmp/tmp.Zq81xKcd0A/cmux.app has its notices",
+        "6 media DerivedData dir(s) in /tmp/tmpa_yfgwgq outside this tour's and the 0 warm slots'; keeping at most 4",
+        '  File "/tmp/tmp_n8aiuq4/workspace/scripts/ci/media_app_cache.py", line 294, in <module>',
+        "AssertionError: publish-nightly at /Users/ci/actions-runner/_work/cmux/cmux/tests/"
+        "test_nightly_delivery_concurrency.py",
+    ]
+
+    def test_each_runs_own_temp_dirs_and_checkout_root_compare_equal(self):
+        for head, base in zip(self.HEAD, self.BASE):
+            with self.subTest(head=head):
+                self.assertNotEqual(head, base)
+                self.assertTrue(reds.same_error(head, base), (reds.volatile(head), reds.volatile(base)))
+
+    def test_runner_temp_macos_temp_and_times_are_masked(self):
+        pairs = [
+            ("wrote /home/runner/work/_temp/4b1c0e2a-9f7d-4d3e-8a55-0c1f2e3d4b5a.sh", "wrote /home/runner/work/_temp/"
+             "8e2f1a3b-1c2d-4e5f-9a8b-7c6d5e4f3a2b.sh"),
+            ("no such file: /private/var/folders/x1/abc_123/T/cmux-AbC/f.json",
+             "no such file: /var/folders/q9/zz_987/T/cmux-AbC/f.json"),
+            ("stale since 2026-11-04T09:35:26.94Z", "stale since 2026-11-03T22:01:02Z"),
+        ]
+        for head, base in pairs:
+            with self.subTest(head=head):
+                self.assertTrue(reds.same_error(head, base), (reds.volatile(head), reds.volatile(base)))
+
+    def test_a_different_error_still_differs(self):
+        pairs = [
+            ("AssertionError: publish-nightly", "AssertionError: publish-nightly-next"),
+            ("no such file: /tmp/tmpab12cd34/a.json", "permission denied: /tmp/tmpzz99yy88/a.json"),
+            ("expected stable to be in Sources/App/Feature.swift", "expected stable to be in Sources/App/Other.swift"),
+            ("TypeError: undefined is not a function", "expect(received).toBe(expected)"),
+            # Only run-named temp dirs are masked: two plain files in /tmp or $RUNNER_TEMP stay two errors.
+            ("missing /tmp/release-notes.md", "missing /tmp/appcast.xml"),
+            ("missing /home/runner/work/_temp/notary-key.p8", "missing /home/runner/work/_temp/signing.keychain"),
+            ("no such file: /var/folders/x1/abc/T/a.json", "no such file: /var/folders/x1/abc/T/b.json"),
+            # A test's message keeps its numbers: a timing or count that changed is another failure.
+            ("render took 1200ms, budget 16ms", "render took 20ms, budget 16ms"),
+            ("expected 3m rows", "expected 5m rows"),
+            # Ids outside a temp dir are compared as they are.
+            ("session 0f3e2d1c-aaaa-4bbb-8ccc-1234567890ab expired", "session 9a8b7c6d-1111-4222-8333-abcdefabcdef expired"),
+            ("error: artifact deadbeef1 missing", "error: artifact abcdef12 missing"),
+        ]
+        for head, base in pairs:
+            with self.subTest(head=head):
+                self.assertFalse(reds.same_error(head, base))
+        self.assertFalse(reds.same_error("", ""))
+        self.assertFalse(reds.same_error("boom", None))
+
+    def test_a_bun_failure_with_another_temp_dir_fails_the_same_way(self):
+        head = bun_run(("test/a.test.ts", [("a > b", "ENOENT: no such file, open '/tmp/tmp.Pw5bL0wmeb/state.json'")]))
+        base = bun_run(("test/a.test.ts", [("a > b", "ENOENT: no such file, open '/tmp/tmp.Zq81xKcd0A/state.json'")]))
+        verdict = reds.classify(head, base, "react-apps-check (1)")
+        self.assertFalse(verdict.own, verdict.reasons)
+        other = bun_run(("test/a.test.ts", [("a > b", "EACCES: permission denied, open '/tmp/tmp.Zq81xKcd0A/state.json'")]))
+        verdict = reds.classify(head, other, "react-apps-check (1)")
+        self.assertTrue(verdict.own)
+        self.assertIn("fail differently", verdict.reasons[0])
+
+
+class LostRunner(unittest.TestCase):
+    """A job whose runner was lost is infra, not a verdict: never the PR's own red, it needs a re-run."""
+
+    def setUp(self):
+        self.job = json.loads(LOST_JOB.read_text())
+        self.notes = json.loads(LOST_NOTES.read_text())
+
+    def test_the_real_lost_job_is_infra_from_any_one_signal(self):
+        self.assertIn("lost communication", reds.lost_runner(self.job, self.notes))
+        self.assertIn("still in_progress", reds.lost_runner(self.job))  # its steps alone, no read
+        steps_done = dict(self.job, steps=[dict(s, status="completed") for s in self.job["steps"][:14]])
+        self.assertIn("BlobNotFound", reds.lost_runner(steps_done, (), LOST_LOG.read_text()))
+        # As cmuxterm-hq's next-autoland asks: the check run's conclusion and its annotations only.
+        self.assertTrue(reds.lost_runner({"conclusion": "failure"}, self.notes))
+        self.assertTrue(reds.lost_runner({"conclusion": "failure"}, [n["message"] for n in self.notes]))
+
+    def test_a_real_test_failure_keeps_its_verdict(self):
+        failed = dict(self.job, steps=[dict(s, status="completed", conclusion="success") for s in self.job["steps"]])
+        failed["steps"][14]["conclusion"] = "failure"
+        self.assertIsNone(reds.lost_runner(failed))
+        self.assertIsNone(reds.lost_runner(failed, [{"annotation_level": "failure",
+                                                     "message": "Process completed with exit code 1."}], "log"))
+        # A failed step decides even beside an unread log.
+        self.assertIsNone(reds.lost_runner(failed, (), LOST_LOG.read_text()))
+        # Only a failure is judged: a cancelled or passed job has no lost-runner red.
+        self.assertIsNone(reds.lost_runner(dict(self.job, conclusion="cancelled"), self.notes))
+        # A notice that quotes the words is not the runner's failure.
+        self.assertIsNone(reds.lost_runner({"conclusion": "failure"},
+                                           [{"annotation_level": "notice", "message": self.notes[0]["message"]}]))
+
+    def test_the_cli_marks_the_real_job_infra_needing_a_re_run(self):
+        script = ROOT / "scripts/ci/test_reds.py"
+        done = subprocess.run([sys.executable, str(script), "runner", "--job", str(LOST_JOB), "--annotations",
+                               str(LOST_NOTES), "--log", str(LOST_LOG)], capture_output=True, text=True)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("infra, not a verdict: 'web / react-apps-base-check (3)' (job 126154996598)", done.stdout)
+        self.assertIn("never the PR's own red; re-run it", done.stdout)
+        with tempfile.TemporaryDirectory() as tmp:
+            failed = json.loads(LOST_JOB.read_text())
+            failed["steps"] = [dict(s, status="completed", conclusion="success") for s in failed["steps"]]
+            failed["steps"][14]["conclusion"] = "failure"
+            path = Path(tmp) / "job.json"
+            path.write_text(json.dumps(failed))
+            done = subprocess.run([sys.executable, str(script), "runner", "--job", str(path)],
+                                  capture_output=True, text=True)
+        self.assertEqual(done.returncode, 1, done.stderr)
+        self.assertIn("a verdict", done.stdout)
 
 if __name__ == "__main__":
     unittest.main()

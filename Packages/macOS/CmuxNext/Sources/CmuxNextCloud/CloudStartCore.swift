@@ -10,8 +10,16 @@ public nonisolated struct CloudStartCore: Sendable {
 
     /// One JSON call of the app FFI; nil when it does not answer.
     public func call<Request: Encodable, Reply: Decodable>(_ operation: String, _ request: Request, as: Reply.Type) -> Reply? {
-        guard let data = try? JSONEncoder().encode(request) else { return nil }
-        var capacity = 4096
+        guard let data = try? JSONEncoder().encode(request), let reply = callData(operation, data) else { return nil }
+        return try? JSONDecoder().decode(Reply.self, from: reply)
+    }
+
+    /// Calls the app FFI with encoded JSON, returning nil when it cannot answer.
+    ///
+    /// - Parameter startingCapacity: Initial output bytes; larger replies retry once with the reported size.
+    public func callData(_ operation: String, _ data: Data, startingCapacity: Int = 4096) -> Data? {
+        guard startingCapacity > 0 else { return nil }
+        var capacity = startingCapacity
         for _ in 0..<2 {
             var output = [UInt8](repeating: 0, count: capacity); var outputLength = 0
             let code: Int32 = data.withUnsafeBytes { requestBytes in operation.withCString { operationCString in output.withUnsafeMutableBytes { outputBytes in cmux_layout_reducer_json(requestBytes.bindMemory(to: UInt8.self).baseAddress, data.count, operationCString, outputBytes.bindMemory(to: UInt8.self).baseAddress, outputBytes.count, &outputLength) } } }
@@ -20,7 +28,7 @@ public nonisolated struct CloudStartCore: Sendable {
                 continue
             }
             guard code == CMUX_LAYOUT_REDUCER_OK, outputLength <= capacity else { return nil }
-            return try? JSONDecoder().decode(Reply.self, from: Data(output.prefix(outputLength)))
+            return Data(output.prefix(outputLength))
         }
         return nil
     }
@@ -87,6 +95,38 @@ public nonisolated struct CloudStartCore: Sendable {
         struct Reply: Decodable { var uploads: Uploads }
         let request = Request(cwdGiven: cwdGiven, uploadRoot: uploadRoot, root: root, subpath: subpath, paths: paths, homes: homes)
         return call("cloud_start_uploads", request, as: Reply.self)?.uploads ?? .no
+    }
+
+    // MARK: Who answers an agent's Cloud ask (`ask`)
+
+    /// A CLI answer to an agent's Cloud ask, read: the card's choice it names, and whether its
+    /// caller may give it.
+    public struct AskAnswer: Sendable, Equatable {
+        public enum Choice: String, Sendable, Equatable, Decodable { case start, notNow }
+        /// Nil when the selection names neither Start nor Not now.
+        public var choice: Choice?
+        /// Whether the caller may give `choice`; false also when only the person may.
+        public var allowed: Bool
+        /// Whether the caller counts as the person (a CLI request that names no agent session).
+        public var person: Bool
+    }
+
+    /// Whether a caller with `origin` and `agentSession` (a control request's, or nil) may answer
+    /// `selection`, with the person's delegation `delegated` on or off. An FFI that does not answer
+    /// takes nothing: the person answers on the card.
+    public func askAnswer(origin: String?, agentSession: String?, delegated: Bool, selection: String) -> AskAnswer {
+        struct Request: Encodable { var origin: String?, agentSession: String?, delegated: Bool, selection: String }
+        struct Reply: Decodable { var caller: String, choice: AskAnswer.Choice?, verdict: String? }
+        let request = Request(origin: origin, agentSession: agentSession, delegated: delegated, selection: selection)
+        guard let reply = call("cloud_ask_answer", request, as: Reply.self) else { return AskAnswer(choice: nil, allowed: false, person: false) }
+        return AskAnswer(choice: reply.choice, allowed: reply.verdict == "allowed", person: reply.caller == "person")
+    }
+
+    /// Whether an agent's Cloud start asks the person first; an FFI that does not answer asks.
+    public func agentAsksFirst(delegated: Bool) -> Bool {
+        struct Request: Encodable { var delegated: Bool }
+        struct Reply: Decodable { var asks: Bool }
+        return call("cloud_ask_first", Request(delegated: delegated), as: Reply.self)?.asks ?? true
     }
 
     // MARK: The `vmKind` word (`vm_kind`)

@@ -40,7 +40,7 @@ import Testing
         #expect(abs(shown.width - column.page.bounds.width) < 1, "\(shown)")
     }
 
-    /// Live resize (Lawrence 2026-10-23, `motion.pane.holdContent` off by default): on every frame of
+    /// Live resize (Lawrence 2026-10-23; the provider holds only agent chats): on every frame of
     /// the spring the content is laid out at exactly that frame's size, the clip's bounds (the frame
     /// less the 8 pt padding on each side), never held at its starting width.
     @Test func aShrinkingPaneLaysItsContentOutAtEachFramesSize() {
@@ -91,7 +91,7 @@ import Testing
         }
     }
 
-    /// `motion.pane.holdContent` on (Leo's 2026-10-20 hold, kept as an option): a shrinking pane's content keeps
+    /// Content the provider holds (an agent chat; Leo's 2026-10-20 hold): a shrinking pane's content keeps
     /// its starting width until the spring lands, then lays out once at the landed size.
     @Test func withTheHoldOnAShrinkingPaneKeepsItsContentWidthUntilItLands() {
         let column = Screen(holdsContent: true)

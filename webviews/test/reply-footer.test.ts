@@ -180,14 +180,73 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
         expect(hover!.time!.opacity).toBe(1);
         expect(hover!.time!.left).toBeGreaterThanOrEqual(hover!.lastButtonRight - TOLERANCE);
         expect(hover!.buttons).toEqual(rest!.buttons);
-        // Earlier footers stay hidden at rest: only the last reply's row is in sight.
+        // Earlier footers with a reply show their buttons at rest too, as ChatGPT's (Leo, 2026-11-04:
+        // "the thing always showing at hte bottom"); their time still waits for the pointer.
         await page.mouse.move(1, 1);
-        const earlier = await footers(page, ".acpmux-turnSummary:not(.acpmux-row--final-footer)");
-        for (const footer of earlier) expect(footer.actionsOpacity).toBe(0);
+        const earlier = await footers(
+          page,
+          ".acpmux-turnSummary:not(.acpmux-row--final-footer):not(:has(.cv-turn-actions--empty))",
+        );
+        expect(earlier.length).toBeGreaterThan(0);
+        for (const footer of earlier) {
+          expect(footer.actionsOpacity).toBe(1);
+          expect(footer.time?.opacity ?? 0).toBe(0);
+        }
       } finally {
         await page.close();
       }
     });
+    // Leo, 2026-11-02: "this spacing would be good + the latest copy buttons auto showing when the
+    // turn is done like chatgpt". Whether the last turn ended on a reply (`finished`) or on a run of
+    // commands (`finished-work`), its row shows at rest, one --grid-gap-footer under the turn's last
+    // line, and is its 32 line alone: no blank band between the turn's last line and the buttons.
+    for (const variant of ["finished", "finished-work"]) {
+      test(`a finished chat's last turn shows its row at rest, 8 under its last line (${variant}, ${theme.name})`, async () => {
+        const page = await open(variant, theme.name);
+        try {
+          const last = ".acpmux-turnSummary.acpmux-row--final-footer";
+          await page.locator(`${last} .cv-turn-action-group .cv-iconbtn`).first().waitFor();
+          await page.mouse.move(1, 1);
+          const [rest] = await footers(page, last);
+          expect(rest, "the chat's last footer has a row").toBeDefined();
+          expect(rest!.buttons.length).toBeGreaterThan(0);
+          expect(rest!.actionsOpacity).toBe(1);
+          expect(Math.abs(rest!.glyph!)).toBeLessThanOrEqual(TOLERANCE);
+          const geometry = await page.evaluate((selector) => {
+            const length = (name: string) => {
+              const probe = document.createElement("div");
+              probe.style.height = `var(${name})`;
+              document.body.append(probe);
+              const height = probe.getBoundingClientRect().height;
+              probe.remove();
+              return height;
+            };
+            const footer = document.querySelector<HTMLElement>(selector)!;
+            const actions = footer.querySelector<HTMLElement>(".cv-turn-actions")!.getBoundingClientRect();
+            const box = footer.getBoundingClientRect();
+            const above = [...document.querySelectorAll<HTMLElement>("article.acpmux-row")]
+              .filter((row) => row !== footer && row.getBoundingClientRect().height > 0)
+              .map((row) => row.getBoundingClientRect())
+              .filter((rect) => rect.bottom <= box.top + 0.5)
+              .sort((a, b) => b.bottom - a.bottom)[0]!;
+            return {
+              gap: actions.top - above.bottom,
+              footerGap: length("--grid-gap-footer"),
+              rowHeight: box.height,
+              actionsHeight: actions.height,
+              control: length("--grid-transcript-footer-control"),
+            };
+          }, last);
+          console.log(`REPLY_FOOTER ${theme.file} ${variant} geometry ${JSON.stringify(geometry)}`);
+          expect(Math.abs(geometry.gap - geometry.footerGap)).toBeLessThanOrEqual(TOLERANCE);
+          expect(Math.abs(geometry.actionsHeight - geometry.control)).toBeLessThanOrEqual(TOLERANCE);
+          expect(Math.abs(geometry.rowHeight - geometry.control)).toBeLessThanOrEqual(TOLERANCE);
+          await still(page, `${theme.file}-${variant}`);
+        } finally {
+          await page.close();
+        }
+      });
+    }
     // A stopped turn's Continue is a labelled button: the footer's 32 squares are its icon buttons
     // only, so its word is never clipped to one (#31690's review).
     test(`a stopped turn's Continue keeps its label's width (${theme.name})`, async () => {

@@ -25,8 +25,11 @@ short). It reads only what the steps printed, never the runner's echo of a step'
 
     test_reds.py classify --head HEAD.log [--base BASE.log] [--job NAME] [--base-name feat-cmux-next] [--json]
 
-prints one line per reason and exits 0 when the job's red is the base's, 1 when it is the head's own and 2 when
-the log names no failing test, crash or cut-short run (not a test red: the caller judges it as before).
+    test_reds.py runner --job JOB.json [--annotations ANNOTATIONS.json] [--log LOG]
+
+says whether a failed job lost its runner (lost_runner: infra, no verdict, re-run it; exit 0) or has a verdict (exit 1).
+`classify` prints one line per reason and exits 0 when the job's red is the base's, 1 when it is the head's own and 2
+when the log names no failing test, crash or cut-short run (not a test red: the caller judges it as before).
 
 Gallery health (scripts/gallery-matrix/health.ts) is judged the same way, per state, from the health.json a shard
 writes: a broken state (it errors, never readies, or its play cannot reach it) or one over its ready-time budget
@@ -43,22 +46,41 @@ with the same exit codes (`--entries` and `--states` exit 1 when the head's red 
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
+import os
 import re
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.error import URLError
+from urllib.request import urlopen
 
 # Each line of `gh run view --log` or of the job-logs endpoint starts with its time.
 STAMP = re.compile(r"^(?:[^\t]*\t[^\t]*\t)?﻿?\d{4}-\d\d-\d\dT[\d:.]+Z ?")
 ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
 FAILED = (
-    re.compile(r"✘ Test (.+?\)) (?:recorded an issue|failed)"),  # Swift Testing
+    # Swift Testing: `name()`, or a display name (`@Test("A capped plan …")` prints `✘ Test "A capped plan …"`).
+    re.compile(r"✘ Test (\"[^\"\n]*\"|.+?\)) (?:recorded an issue|failed)"),
     re.compile(r"Test Case '-\[(\S+ \S+)\]' failed"),  # XCTest
     re.compile(r"^test (\S+) \.\.\. FAILED$"),  # cargo test
     re.compile(r"^(?:FAIL|ERROR): (\S+ \([^)]+\))"),  # unittest
     re.compile(r"^FAILED (\S+::\S+)"),  # pytest
 )
+# Where a display-named Swift Testing failure recorded its issue: `✘ Test "name" recorded an issue [with N
+# arguments ...] at <File>.swift:<line>:<col>: <expectation text>`. A `@Test("...")` name prints with no suite,
+# and suites run interleaved (three were open at once in
+# tests/fixtures/test_reds/26346-head-run-40620080851.log), so the enclosing suite cannot be read from the line;
+# the issue's file can, and two suites with the same display name are in different files. The source location is
+# the FIRST ` at <file>.swift:<line>:<col>` after the optional `with N arguments ...` clause, which is where
+# Swift Testing prints it: the expectation text follows on the same line and can quote another location
+# ("raised at Other.swift:14:2"), so scanning greedily to the last one records the wrong file and a shared base
+# red then reads as the head's own. The arguments clause is skipped non-greedily, since an argument value may
+# hold a `.swift:` of its own (cmux#35902). The filename class takes `/` so a module-relative location
+# (`Package/CloudPlanTests.swift`) records its file instead of nothing (cmux#35961).
+ISSUE_SITE = re.compile(r'✘ Test ("[^"\n]*") recorded an issue(?: with \d+ argument.*?)? at '
+                        r'([\w/+.-]+\.swift):\d+:\d+')
 # Swift Testing emits type suites without quotes and custom suite names in quotes.
 SUITE_FAILED = re.compile(r'✘ Suite ("[^"]+"|\S+) (?:recorded an issue|failed)\b')
 # A failed test case read from an xcresult bundle (`xcresulttool get test-results tests`, as the iOS kit job prints
@@ -179,6 +201,14 @@ STARTED = re.compile(r"◇ Test (?:case passing .+? to )?(\w+)\((.*?)\) started\
 # A test's end (Swift Testing; a case of a parameterized test ends with its test), and XCTest's start and end.
 # ━ is a test that passed with a known issue (withKnownIssue): it finished.
 FINISHED = re.compile(r"[✔✘━] Test (\w+)\(.*?\)(?: with \d+ test cases?)? (?:passed|failed)\b")
+# A pass whose line another stream cut into: Swift Testing prints ✔ only for a test that passed, so
+# "✔ Test aFailureNothingRetriesShowsAtOnceswift runtime: backtrace-on-crash ..." (run 41665450504, the helper killed
+# with the rest of the line unwritten) is that test's pass. spliced_pass matches a started name followed by anything
+# but more of a test name and its "(": foo is not taken for fooBar().
+def spliced_pass(name: str, text: str) -> bool:
+    return re.search(rf"✔ Test {re.escape(name)}(?!\w*\()", text) is not None
+
+
 XC_STARTED = re.compile(r"Test Case '-\[(\S+ \S+)\]' started")
 XC_FINISHED = re.compile(r"Test Case '-\[(\S+ \S+)\]' (?:passed|failed|skipped)")
 CARGO_RUNNING = re.compile(r"^running \d+ tests?$")
@@ -196,7 +226,11 @@ class Result:
     def __init__(self):
         self.ran = False
         self.failed: set = set()
+        self.passed: set = set()
         self.messages: dict = {}
+        # A display-named failure's issue files (ISSUE_SITE): {'"a name"': {"ATests.swift"}}. Empty for a test
+        # whose name already says its suite (`a()`, `Suite.test()`), and for a log that prints no issue line.
+        self.sites: dict = {}
         self.crashes: list = []
         self.truncated: list = []
 
@@ -240,9 +274,46 @@ def passed_steps(lines: list[str], skip: set[int] | None = None) -> set[int]:
     return found
 
 
+# Tokens that differ run to run in the same error (2026-11-04: the same release-notary red on a PR and on the base
+# named /tmp/tmp.Pw5bL0wmeb on one side and another mktemp name on the other). volatile() masks them before two
+# errors are compared; it never decides on its own that a red is the base's, only that two lines say the same thing.
+# A temp dir named for its run: mktemp's tmp.XXXXXXXXXX and Python's tmpXXXXXXXX under /tmp or $RUNNER_TEMP, a UUID
+# under $RUNNER_TEMP, macOS's /var/folders/XX/YYYY/T root; the runner's checkout root; an ISO time. Only names shaped
+# like these: /tmp/release-notes.md and /tmp/appcast.xml stay two errors. Numbers are left to the caller
+# (base_red_excuse masks every digit of an error line; a test's message keeps its numbers, so a timing or count
+# that changed is still a different failure). Hex ids and UUIDs outside a temp dir are compared as they are: a
+# missing artifact deadbeef1 is not a missing artifact abcdef12 (base_red_excuse's mask_shas masks only commit shas
+# for the same reason).
+_TEMP_ROOT = r"(?:(?<![\w.])/tmp|(?:/[^/\s'\"]+)*/_temp)"
+_TEMP_NAME = (r"(?:tmp\.[A-Za-z0-9]{6,}|tmp[a-z0-9_]{8}|"
+              r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?![\w-])")
+VOLATILE = (
+    (re.compile(r"(?:/private)?/var/folders/[^/\s'\"]+/[^/\s'\"]+/T(?=/|\b)"), "<tmp>"),
+    (re.compile(_TEMP_ROOT + "/" + _TEMP_NAME), "<tmp>"),
+    (re.compile(r"(?:/[^/\s'\"]+)*/_temp(?=/)"), "<runner-temp>"),
+    (re.compile(r"(?:/home/runner/work|(?:/[^/\s'\"]+)*/_work)/[^/\s'\"]+/[^/\s'\"]+(?=/)"), "<workspace>"),
+    (re.compile(r"\b\d{4}-\d\d-\d\d[T ]\d\d:\d\d(?::\d\d(?:[.,]\d+)?)?(?:Z|[+-]\d\d:?\d\d)?"), "<time>"),
+)
+
+
+def volatile(text: str) -> str:
+    """TEXT with its run-to-run tokens masked (VOLATILE), for comparing one error with another."""
+    for pattern, mask in VOLATILE:
+        text = pattern.sub(mask, text)
+    return text
+
+
+def same_error(head: str | None, base: str | None) -> bool:
+    """Whether two printed errors say the same thing once their run-to-run tokens are masked."""
+    return bool(head) and bool(base) and volatile(head) == volatile(base)
+
+
 def log_lines(log: str) -> list[str]:
     """Every line of a job log with its timestamp and colours removed, the runner's step echoes included."""
-    return [STAMP.sub("", ANSI.sub("", line)).rstrip() for line in log.splitlines()]
+    # Swift Testing prefixes some event lines with a zero-width space (U+200B) when another writer's output
+    # shares the stream ("\u200b✔ Suite \"x\" passed"); left in, the anchored suite patterns miss the line and
+    # a suite that passed reads as never finished (https://github.com/manaflow-ai/cmux/pull/35296).
+    return [STAMP.sub("", ANSI.sub("", line)).lstrip("\u200b").rstrip() for line in log.splitlines()]
 
 
 def lines_of(log: str) -> list[str]:
@@ -252,12 +323,38 @@ def lines_of(log: str) -> list[str]:
     return [text for n, text in enumerate(lines) if n not in skip]
 
 
+# A crash-class rule's failure line (cmux-next-crash-class.yml; crash_class_fast_gate.py lists the prefixes):
+# `objc-selectors: <file>:<line>: super.<sel> (<Class> call:<sel>/<n>): probe needed; run ...` and
+# `cef-objc-contract: <detail>`. The rule is a named failure the way a test is, so a base red there is excused.
+CRASH_RULES = ("objc-selectors", "cef-objc-contract")
+CRASH_RULE = re.compile(r"^(?:##\[error\])?(" + "|".join(CRASH_RULES) + r"): (.+?)\s*$")
+CRASH_RULE_SITE = re.compile(r"^(\S+?:\d+): (.+?)(?:: probe needed.*|; .*)?$")
+
+
+def crash_rule_failure(text: str) -> str | None:
+    """The failure key of a crash-class rule line: `rule file:line detail` (rule, site, selector) when the line
+    carries a site, else `rule detail`; the trailing advice (`probe needed; run ...`) is not part of the key."""
+    if not (match := CRASH_RULE.match(text)):
+        return None
+    rule, detail = match.groups()
+    if site := CRASH_RULE_SITE.match(detail):
+        return f"{rule} {site.group(1)} {site.group(2)}"
+    return f"{rule} {detail}"
+
+
+def is_crash_rule_failure(name: str) -> bool:
+    """Whether a failure name came from crash_rule_failure (a rule line, not a test)."""
+    return name.split(" ", 1)[0] in CRASH_RULES
+
+
 def failed_names(lines: list[str]) -> set[str]:
     """The failing tests LINES name: each FAILED pattern's, an xcresult `FAILED:` line's and the names under
     xcodebuild's `Failing tests:` (XCRESULT_FAILED). LINES are a step's output (lines_of), never its echoed script."""
     found: set[str] = set()
     listing = False
     for text in lines:
+        if text.startswith(TAP_MARKER):
+            continue  # structured diagnostics are data, never another raw failure/runtime line
         if listing:
             if match := XCODEBUILD_FAILED.match(text):
                 found.add(match.group(1))
@@ -269,10 +366,21 @@ def failed_names(lines: list[str]) -> set[str]:
         for pattern in FAILED:
             if match := pattern.search(text):
                 found.add(match.group(1))
+        if rule := crash_rule_failure(text):
+            found.add(rule)
         if match := SUITE_FAILED.search(text):
             found.add(match.group(1).strip('"'))
         if match := XCRESULT_FAILED.match(text):
             found.add(f"{match.group(1)}.{match.group(2)}")
+    return found
+
+
+def issue_sites(lines: list[str]) -> dict:
+    """The files each display-named failure in LINES recorded an issue in (ISSUE_SITE)."""
+    found: dict = {}
+    for text in lines:
+        if match := ISSUE_SITE.search(text):
+            found.setdefault(match.group(1), set()).add(match.group(2))
     return found
 
 
@@ -449,10 +557,13 @@ def read_bun(lines: list[str], result: Result) -> None:
             for name in [name for name in result.failed if name.startswith(run_file + " > ")]:
                 result.failed.discard(name)
                 diagnostics.pop(name, None)
+            result.passed = {name for name in result.passed if not name.startswith(run_file + " > ")}
         elif match := BUN_TEST.match(text):
             result.ran, open_run, last = True, True, None
             name = match.group(2)
             added = None
+            if match.group(1) == "pass" and not recap:
+                result.passed.add(f"{file} > {name}" if file else name)
             if match.group(1) == "fail" and not recap:
                 last = f"{file} > {name}" if file else name
                 added = fail(last, bun_diagnostic(said, where))
@@ -510,7 +621,7 @@ def read(log: str | None, bun: bool = True) -> Result:
     every = log_lines(log)
     skip = echoed(every)
     passed = passed_steps(every, skip)
-    kept = [n for n in range(len(every)) if n not in skip]
+    kept = [n for n in range(len(every)) if n not in skip and not every[n].startswith(TAP_MARKER)]
     lines = [every[n] for n in kept]
     started = {m.group(1) for text in lines for m in [STARTED.search(text)] if m}
     stack: list[str] = []
@@ -547,10 +658,18 @@ def read(log: str | None, bun: bool = True) -> Result:
         if TRUNCATED.search(text) or NO_RESULT.search(text):
             why = re.sub(r"^##\[error\]|^::error[^:]*::", "", text).strip()
             result.truncated.append(why[:200])
-    if names := failed_names([text for text in lines if not SWIFT_TEST_SUMMARY_FIXTURE.search(text)]):
+    real = [text for text in lines if not SWIFT_TEST_SUMMARY_FIXTURE.search(text)]
+    if names := failed_names(real):
         result.failed |= names
         result.ran = True
+    result.sites = issue_sites(real)
     unfinished = started - {m.group(1) for text in lines for m in [FINISHED.search(text)] if m}
+    # Each cut-into pass closes one start, the longest name it fits (fooBar(), not foo() too); a run's own
+    # summary ("✔ Test run with 1 test ...") is never one, so it does not close a test named run().
+    for text in lines:
+        if unfinished and "✔ Test " in text and not FINISHED.search(text) and not RUN_ENDED.search(text):
+            if fits := [name for name in unfinished if spliced_pass(name, text)]:
+                unfinished.discard(max(fits, key=len))
     unfinished |= ({m.group(1) for text in lines for m in [XC_STARTED.search(text)] if m}
                    - {m.group(1) for text in lines for m in [XC_FINISHED.search(text)] if m})
     if unfinished:
@@ -592,13 +711,240 @@ def read(log: str | None, bun: bool = True) -> Result:
     return result
 
 
+# A job the runner went away under (2026-11-03: cmux#33162's `web / react-apps-base-check (3)`, job 126154996598, on a
+# Blacksmith runner): GitHub fails it about 10 minutes later with this failure annotation, keeps no log (its logs
+# endpoint answers BlobNotFound) and leaves the step it was in "in_progress". Its red is the infrastructure's, not a
+# verdict about the change: like a cancelled job it has nothing to compare, is never the PR's own red, and needs a
+# re-run (ci-failure-attribution.yml re-runs it once; cmuxterm-hq's next-autoland rerun_infra once a head).
+LOST_RUNNER = re.compile(r"lost communication with the server|The runner has received a shutdown signal|"
+                         r"The hosted runner encountered an error")
+BLOB_NOT_FOUND = re.compile(r"\bBlobNotFound\b|The specified blob does not exist")
+
+
+def lost_runner(job, annotations=(), log=None):
+    """Why failed JOB (an Actions job or check run) is infra and no verdict, or None. ANNOTATIONS are its check run's
+    annotations (dicts with "message" and "annotation_level", or plain messages); LOG, when the caller read it, is
+    its log text or the error its read gave. Any one is enough: a failure annotation that says the runner was lost;
+    a job that completed with a step still unfinished and no step failed (the runner stopped reporting mid-step); or
+    a log GitHub never stored (BlobNotFound) with no step failed. A job with a failed step keeps its verdict."""
+    if (job or {}).get("conclusion") != "failure":
+        return None
+    for note in annotations or ():
+        if isinstance(note, dict):
+            if (note.get("annotation_level") or "failure") != "failure":
+                continue
+            message = str(note.get("message") or "")
+        else:
+            message = str(note)
+        if LOST_RUNNER.search(message):
+            return "its runner was lost: " + " ".join(message.split())[:200]
+    steps = [step for step in (job or {}).get("steps") or [] if isinstance(step, dict)]
+    if any(step.get("conclusion") == "failure" for step in steps):
+        return None
+    unfinished = [step for step in steps if step.get("status") != "completed"
+                  and (step.get("status") == "in_progress" or step.get("started_at"))]
+    if unfinished:
+        return (f"it completed with step {unfinished[0].get('name')!r} still {unfinished[0].get('status')} and no "
+                "step failed: its runner stopped reporting mid-step")
+    if isinstance(log, str) and BLOB_NOT_FOUND.search(log):
+        return "GitHub stored no log for it (BlobNotFound) and no step failed: its runner went away"
+    return None
+
+
 def is_test_red(found: Result, job: str = "") -> bool:
     """Whether this classifier owns the job's red: its log shows tests running, or the job is a test job by name.
     A compile or lint job that prints `Fatal error:` keeps the caller's own comparison."""
     return found.ran or bool(re.search(r"\btests?\b", job, re.I))
 
 
-def classify(head_log: str | None, base_log: str | None, job: str = "", base: str = "the base") -> Verdict | None:
+TAP_GROUP = "TAP final named results"
+TAP_MARKER = "tap-test/v1 "
+
+
+def exported_observations(lines: list[str]) -> list[dict] | None:
+    """The runner's last whole export group wins over displayed excerpts. Conflicting duplicate ids are discarded."""
+    complete = None
+    pending, conflicts, inside = {}, set(), False
+    for line in lines:
+        if line in {"##[group]" + TAP_GROUP, "::group::" + TAP_GROUP}:
+            pending, conflicts, inside = {}, set(), True
+        elif inside and line in {"##[endgroup]", "::endgroup::"}:
+            complete = [pending[name] for name in sorted(pending) if name not in conflicts]
+            inside = False
+        elif inside and line.startswith(TAP_MARKER):
+            try:
+                row = json.loads(line[len(TAP_MARKER):])
+            except ValueError:
+                continue
+            if (not isinstance(row, dict) or row.get("schema") != "tap-test/v1"
+                    or not all(isinstance(row.get(key), str) for key in ("file", "test", "outcome", "signature"))
+                    or not row["file"] or not row["test"].startswith(row["file"] + " > ")
+                    or row["outcome"] not in {"pass", "fail"}):
+                continue
+            observed = {key: row[key] for key in ("test", "outcome", "signature")}
+            if row["test"] in pending and pending[row["test"]] != observed:
+                conflicts.add(row["test"])
+            pending[row["test"]] = observed
+    return [] if inside else complete
+
+
+def observations(log: str | None) -> list[dict]:
+    """Positive named results from a whole run; absence, skips and infrastructure losses are never passes.
+
+    Signatures use the classifier's Bun diagnostics, Swift issue lines or pytest's failure summary. Other readers
+    can still contribute a score, but an empty diagnostic cannot excuse a future failure of that test.
+    """
+    lines = lines_of(log or "")
+    exported = exported_observations(lines)
+    if exported is not None:
+        return exported
+    found = read(log)
+    if found.crashes or found.truncated or any(LOST_RUNNER.search(line) or BLOB_NOT_FOUND.search(line) for line in lines):
+        return []
+    passed = set(found.passed)
+    patterns = (
+        re.compile(r"^✔ Test (.+?\))(?: with \d+ test cases?)? passed\b"),
+        re.compile(r"^Test Case '-\[(\S+ \S+)\]' passed\b"),
+        re.compile(r"^test (\S+) \.\.\. ok$"),
+        re.compile(r"^(\S+ \([^)]+\)) \.\.\. ok$"),
+        re.compile(r"^(\S+::\S+) PASSED(?: |$)"),
+    )
+    signatures: dict[str, list[str]] = {}
+    for line in lines:
+        if SWIFT_TEST_SUMMARY_FIXTURE.search(line):
+            continue
+        for pattern in patterns:
+            if match := pattern.search(line):
+                passed.add(match.group(1))
+        # Final Swift failure lines include durations; only issue lines are a stable diagnostic. Pytest's short
+        # summary includes the error. A bare FAILED marker from cargo/unittest is not an error signature.
+        for pattern in (FAILED[0], FAILED[4]):
+            if (match := pattern.search(line)) and ("recorded an issue" in line or line.startswith("FAILED ")):
+                signatures.setdefault(match.group(1), []).append(line)
+    suites = {m.group(1).strip('"') for line in lines for m in [SUITE_FAILED.search(line)] if m}
+    failures = {name for name in found.failed if name not in suites and not is_crash_rule_failure(name)}
+    return [{"test": name, "outcome": "fail" if name in failures else "pass",
+             "signature": (found.messages.get(name) or "\n".join(sorted(set(signatures.get(name, [])))))
+             if name in failures else ""} for name in sorted(passed | failures)]
+
+
+TAP_STATE_URL = "https://raw.githubusercontent.com/manaflow-ai/cmux/ci-test-health/tap-tests.json"
+TAP_MIN_OBSERVATIONS = 8
+TAP_MIN_FLIP_RATE = 0.2
+TAP_MAX_AGE = timedelta(hours=48)
+# Keep the consumer bound to the producer's public snapshot limits. A bounded
+# list prevents malformed state from turning into an unbounded comparison,
+# while the byte cap keeps one diagnostic cheap to inspect.
+TAP_MAX_QUARANTINE_SIGNATURES = 32
+TAP_MAX_SIGNATURE_BYTES = 4096
+
+
+def load_flake_state(path: str | Path | None = None, *, fetch: bool = False) -> dict:
+    """Read one public reconciler snapshot per invocation. TAP_TESTS_STATE=off disables the supplement.
+
+    Callers that already have HQ's state pass it to classify directly. CLI callers fetch the public mirror once,
+    with a bounded deadline and no credentials; unavailable/invalid state keeps the deterministic comparison.
+    """
+    selected = str(path) if path is not None else os.environ.get("TAP_TESTS_STATE", "")
+    if selected.lower() in {"off", "0", "false"}:
+        return {}
+    try:
+        if selected:
+            state = json.loads(Path(selected).read_text())
+        elif fetch:
+            with urlopen(TAP_STATE_URL, timeout=5) as response:
+                state = json.load(response)
+        else:
+            return {}
+    except (OSError, ValueError, TypeError, URLError):
+        return {}
+    return state if isinstance(state, dict) and state.get("schema") == "tap-tests/v1" else {}
+
+
+def canonical_job(job: str) -> str:
+    """A matrix shard shares its test history with the other shards, never with another workflow."""
+    return re.sub(r" \(\d+(?:/\d+)?\)$", "", job.rsplit(" / ", 1)[-1])
+
+
+def _tap_time(value) -> datetime | None:
+    try:
+        when = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return when.astimezone(timezone.utc) if when.tzinfo else None
+    except (AttributeError, TypeError, ValueError):
+        return None
+
+
+def _tap_quarantine_signatures(value) -> list[str] | None:
+    """Validate the producer-owned diagnostic binding for a quarantine row."""
+    if not isinstance(value, list) or not value or len(value) > TAP_MAX_QUARANTINE_SIGNATURES:
+        return None
+    for signature in value:
+        if not isinstance(signature, str) or not signature:
+            return None
+        try:
+            if len(signature.encode("utf-8")) > TAP_MAX_SIGNATURE_BYTES:
+                return None
+        except UnicodeEncodeError:
+            return None
+    return value
+
+
+def flaky_failures(head_log: str | None, job: str, workflow: str, state: dict | None,
+                   *, now: datetime | None = None) -> dict[str, str]:
+    """Matching recent quarantined base flakes, with an issue and enough measured flips; never a blanket waiver."""
+    if not isinstance(state, dict) or state.get("schema") != "tap-tests/v1" or not workflow or not job:
+        return {}
+    now = now or datetime.now(timezone.utc)
+    generated = _tap_time(state.get("generated_at"))
+    if generated is None or not timedelta(0) <= now - generated <= TAP_MAX_AGE:
+        return {}
+    tests = state.get("tests")
+    if not isinstance(tests, list):
+        return {}
+    matching: dict[str, list[dict]] = {}
+    for row in tests:
+        if (isinstance(row, dict) and row.get("workflow") == workflow and row.get("job") == canonical_job(job)
+                and isinstance(row.get("test"), str)):
+            matching.setdefault(row["test"], []).append(row)
+    known = {}
+    for observed in observations(head_log):
+        name, signature = observed["test"], observed["signature"]
+        rows = matching.get(name, [])
+        if observed["outcome"] != "fail" or not signature or len(rows) != 1:
+            continue
+        row = rows[0]
+        observed_at = _tap_time(row.get("last_observed_at"))
+        if observed_at is None or not timedelta(0) <= now - observed_at <= TAP_MAX_AGE:
+            continue
+        counts = [row.get(key) for key in ("observations", "passes", "failures", "flips")]
+        if any(type(value) is not int or value < 0 for value in counts):
+            continue
+        count, passes, failures, flips = counts
+        if (count < TAP_MIN_OBSERVATIONS or passes + failures != count or not passes or failures < 2
+                or not 2 <= flips < count):
+            continue
+        # Recompute instead of trusting a rounded, corrupt or hand-edited score in the JSON.
+        rate = flips / (count - 1)
+        quarantine = row.get("quarantine")
+        historical_signatures = row.get("failure_signatures")
+        quarantine_signatures = _tap_quarantine_signatures(
+            quarantine.get("signatures") if isinstance(quarantine, dict) else None)
+        if (rate < TAP_MIN_FLIP_RATE or not isinstance(historical_signatures, list)
+                or not all(isinstance(value, str) and value for value in historical_signatures)
+                or quarantine_signatures is None or signature not in quarantine_signatures):
+            continue
+        if not isinstance(quarantine, dict):
+            continue
+        until, issue = _tap_time(quarantine.get("until")), quarantine.get("issue", "")
+        if until is None or not now < until <= now + timedelta(days=7) or not isinstance(issue, str) or not re.fullmatch(
+                r"https://github\.com/manaflow-ai/cmux/issues/[1-9]\d*", issue):
+            continue
+        known[name] = f"base flake {flips}/{count - 1} flips, quarantine {issue} until {quarantine['until']}"
+    return known
+
+
+def classify(head_log: str | None, base_log: str | None, job: str = "", base: str = "the base",
+             *, flake_state: dict | None = None, workflow: str = "") -> Verdict | None:
     """The head job's red judged per test against the base job's log; None when the head's log names no failing
     test, crash or cut-short run (a lint or compile red: the caller judges it as before)."""
     head = read(head_log)
@@ -614,13 +960,14 @@ def classify(head_log: str | None, base_log: str | None, job: str = "", base: st
         reasons.append(f"{job or 'the job'}: per-test results are not whole ({head.truncated[0]})")
     base_result = read(base_log) if base_log is not None else Result()
     seen = base_result.failed
-    new = sorted(head.failed - seen)
+    flaky = flaky_failures(head_log, job, workflow, flake_state) if not (head.crashes or head.truncated) else {}
+    new = sorted(head.failed - seen - flaky.keys())
     # A failure whose log prints its error (bun's) fails the same way only with the same error on both sides: an
     # assertion on the base does not excuse a TypeError on the head. Names with no error printed compare by name.
     differ = [name for name in sorted(head.failed & seen)
               if (head.messages.get(name) or base_result.messages.get(name))
-              and head.messages.get(name) != base_result.messages.get(name)]
-    if base_log is None and head.failed:
+              and not same_error(head.messages.get(name), base_result.messages.get(name)) and name not in flaky]
+    if base_log is None and head.failed - flaky.keys():
         reasons.append(f"no {base} log to compare {len(head.failed)} failing test(s) with")
     elif new:
         named = [f"{name} ({head.messages[name]})" if head.messages.get(name) else name for name in new]
@@ -629,11 +976,43 @@ def classify(head_log: str | None, base_log: str | None, job: str = "", base: st
         said = [f"{name} ({head.messages.get(name) or 'no error read'} here; "
                 f"{base_result.messages.get(name) or 'no error read'} on {base})" for name in differ]
         reasons.append(f"{len(differ)} test(s) fail differently on {base}: {'; '.join(said)[:600]}")
-    return Verdict(bool(reasons), reasons, sorted(head.failed & seen - set(differ)))
+    # A display name says nothing about its suite, so the same one in two suites is two tests: compare the files
+    # their issues name, and call it the head's own when neither side's files are the other's. The same test
+    # failing at another line, or at a second expectation, still overlaps; with no file on a side, the name alone
+    # decides, as before (cmux#35902).
+    elsewhere = [name for name in sorted(head.failed & seen)
+                 if head.sites.get(name) and base_result.sites.get(name)
+                 and not (head.sites[name] & base_result.sites[name])
+                 and name not in flaky and name not in differ]
+    if elsewhere:
+        said = [f"{name} (here in {', '.join(sorted(head.sites[name]))}; "
+                f"on {base} in {', '.join(sorted(base_result.sites[name]))})" for name in elsewhere]
+        reasons.append(f"{len(elsewhere)} display-named test(s) fail in different files on {base}, so the name is "
+                       f"two tests, not one red: {'; '.join(said)[:600]}")
+    shared = sorted(head.failed & seen - set(differ) - set(elsewhere) - flaky.keys())
+    shared += [f"{name} ({why})" for name, why in sorted(flaky.items())]
+    return Verdict(bool(reasons), reasons, shared)
+
+
+def tap_flaky_names(log_dir: Path, state: dict, *, workflow: str, job: str) -> list[str]:
+    """Names safe for guards_new_reds.py --flaky, from retained final head attempts and exact base signatures."""
+    if os.environ.get("TAP_CI_ENABLED", "1") == "0" or not state:
+        return []
+    spec = importlib.util.spec_from_file_location("tap_web_results", Path(__file__).with_name("webviews_test_results.py"))
+    exporter = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(exporter)
+    try:
+        records = exporter.tap_observations(log_dir / "summary", log_dir=log_dir)
+        log = "\n".join(["::group::" + TAP_GROUP,
+                         *(TAP_MARKER + json.dumps(row, ensure_ascii=True) for row in records), "::endgroup::"])
+    except OSError:
+        return []
+    return sorted(flaky_failures(log, job, workflow, state))
 
 
 
-def classify_any(head_log: str | None, bases: list, job: str = "") -> Verdict | None:
+def classify_any(head_log: str | None, bases: list, job: str = "", *, flake_state: dict | None = None,
+                 workflow: str = "") -> Verdict | None:
     """classify against several base logs (BASES: [(label, log)], newest first): a head failing test is the base's
     when it fails the same way on any one of them (base_red_excuse.py's window). A crash or a cut-short head run is
     the head's whatever the bases show, judged as classify judges it against the newest. shared names, for each test,
@@ -642,11 +1021,16 @@ def classify_any(head_log: str | None, bases: list, job: str = "") -> Verdict | 
     first = verdicts[0][1]
     head = read(head_log)
     if first is None or len(verdicts) == 1 or head_log is None or head.crashes or head.truncated:
+        if first is not None and flake_state:
+            label, text = bases[0] if bases else ("the base", None)
+            return classify(head_log, text, job, label, flake_state=flake_state, workflow=workflow)
         return first
     on: dict = {}
     for label, verdict in verdicts:
         for name in verdict.shared:
             on.setdefault(name, label)
+    for name, why in flaky_failures(head_log, job, workflow, flake_state).items():
+        on.setdefault(name, why)
     new = sorted(head.failed - on.keys())
     labels = ", ".join(label for label, _ in verdicts)
     reasons = [f"{len(new)} failing test(s) pass, do not run or fail differently on each of {labels}: "
@@ -844,7 +1228,7 @@ def classify_web(head_logs: list, base_logs: list, job: str = "", base: str = "t
             new.append(name)
             continue
         mine, theirs = head.failed.get(name, ""), seen.failed[name]
-        if not mine or not theirs or mine != theirs:
+        if not same_error(mine, theirs):
             differ.append(f"{name} ({mine or 'no error read'} here; {theirs or 'no error read'} on {base})")
             continue
         shared.append(name)
@@ -853,6 +1237,44 @@ def classify_web(head_logs: list, base_logs: list, job: str = "", base: str = "t
     if differ:
         reasons.append(f"{len(differ)} test(s) fail differently on {base}: {'; '.join(differ)[:600]}")
     return Verdict(bool(reasons), reasons, shared)
+
+
+# A coalesced feat-cmux-next web run (cmux-next-web.yml runs its web checks at most once every 30 minutes, on the
+# newest push, routed from the last run's commit) covers several commits. When its webview tests go red, its
+# `web bisect` job (scripts/ci/web_coalesce.py bisect) re-runs only the new red files, only on those commits, and
+# prints one line a file. bisect_report reads them, so a reader of push verdicts (HQ's base-red-watch) still names the
+# first red commit and its pull request rather than the run's whole range:
+#   web bisect: first red at SHA (#N|a direct push) after GREEN_SHA: FILE[ (TESTS)]
+#   web bisect: red before the range at BASE_SHA: FILE       (red at the run before: not this range's)
+#   web bisect: flaky on the base: FILE                      (flips by itself on the base, or no input changed)
+#   web bisect: unresolved between LO_SHA and HI_SHA: FILE   (first red somewhere in (LO, HI])
+BISECT_LINE = re.compile(
+    r"web bisect: (?:first red at (?P<first>[0-9a-f]{40}) \((?:#(?P<pr>\d+)|a direct push)\) after (?P<green>[0-9a-f]{40})"
+    r"|red before the range at (?P<base>[0-9a-f]{40})|(?P<flaky>flaky on the base)"
+    r"|unresolved between (?P<lo>[0-9a-f]{40}) and (?P<hi>[0-9a-f]{40})): (?P<file>\S+?)(?: \(.*\))?$")
+
+
+def bisect_report(log: str | None) -> dict[str, dict]:
+    """{webview test file: {"kind": first|base|flaky|unresolved, "first_red", "green", "pr"}} from a `web bisect` job's
+    log (its echoed script is never read). first: FIRST_RED is the file's first red commit, GREEN the commit before
+    it, PR its pull request number or None for a direct push. unresolved: the first red is after GREEN, at or before
+    FIRST_RED. base and flaky name no commit of the range."""
+    found: dict[str, dict] = {}
+    for text in lines_of(log or ""):
+        match = BISECT_LINE.search(text)
+        if not match:
+            continue
+        if match["first"]:
+            got = {"kind": "first", "first_red": match["first"], "green": match["green"],
+                   "pr": int(match["pr"]) if match["pr"] else None}
+        elif match["base"]:
+            got = {"kind": "base", "first_red": None, "green": None, "pr": None}
+        elif match["flaky"]:
+            got = {"kind": "flaky", "first_red": None, "green": None, "pr": None}
+        else:
+            got = {"kind": "unresolved", "first_red": match["hi"], "green": match["lo"], "pr": None}
+        found.setdefault(match["file"], got)
+    return found
 
 
 # Gallery health's health.json: a shard's broken states and its states over their ready-time budget.
@@ -977,7 +1399,14 @@ def main(argv: list[str] | None = None) -> int:
     one.add_argument("--base", type=Path)
     one.add_argument("--job", default="")
     one.add_argument("--base-name", default="the base")
+    one.add_argument("--workflow", default="", help="workflow name, for the measured base-flake supplement")
+    one.add_argument("--flake-state", help="tap-tests/v1 JSON; default: public reconciler snapshot, or TAP_TESTS_STATE")
     one.add_argument("--json", action="store_true")
+    tap = sub.add_parser("tap-flaky", help="signature-matched quarantines from a retained webview head-log artifact")
+    tap.add_argument("--log-dir", required=True, type=Path)
+    tap.add_argument("--workflow", required=True)
+    tap.add_argument("--job", required=True)
+    tap.add_argument("--flake-state", help="tap-tests/v1 JSON; default: public reconciler snapshot or TAP_TESTS_STATE")
     gallery = sub.add_parser("gallery", help="a gallery health shard's health.json against the base's")
     gallery.add_argument("--head", required=True, type=Path)
     gallery.add_argument("--base", type=Path, action="append", help="a base render's health.json; repeat for several")
@@ -986,12 +1415,32 @@ def main(argv: list[str] | None = None) -> int:
     gallery.add_argument("--states", action="store_true", help="print the red states (entry#variant) to replay on the base")
     gallery.add_argument("--annotate", action="store_true", help="GitHub annotations: base reds warn, own reds fail")
     gallery.add_argument("--json", action="store_true")
+    runner = sub.add_parser("runner", help="whether a failed job's red is a lost runner (infra, no verdict)")
+    runner.add_argument("--job", required=True, type=Path, help="the job as the Actions jobs API gives it")
+    runner.add_argument("--annotations", type=Path, help="its check run's annotations (JSON list)")
+    runner.add_argument("--log", type=Path, help="its log, or what its read answered")
     args = parser.parse_args(argv)
+    if args.command == "tap-flaky":
+        for name in tap_flaky_names(args.log_dir, load_flake_state(args.flake_state, fetch=True),
+                                   workflow=args.workflow, job=args.job):
+            print(name)
+        return 0
     if args.command == "gallery":
         return gallery_main(args)
+    if args.command == "runner":
+        job = json.loads(args.job.read_text())
+        notes = json.loads(args.annotations.read_text()) if args.annotations else ()
+        why = lost_runner(job, notes, args.log.read_text(errors="replace") if args.log else None)
+        name = job.get("name") or job.get("id")
+        if why:
+            print(f"infra, not a verdict: '{name}' (job {job.get('id')}) {why}; never the PR's own red; re-run it")
+            return 0
+        print(f"a verdict: '{name}' (job {job.get('id')}) is {job.get('conclusion')}, not a lost runner")
+        return 1
     head = args.head.read_text(errors="replace")
     base = args.base.read_text(errors="replace") if args.base else None
-    verdict = classify(head, base, args.job, args.base_name)
+    verdict = classify(head, base, args.job, args.base_name, workflow=args.workflow,
+                       flake_state=load_flake_state(args.flake_state, fetch=bool(args.workflow)))
     if args.json:
         print(json.dumps(None if verdict is None else
                          {"own": verdict.own, "reasons": verdict.reasons, "shared": verdict.shared}))

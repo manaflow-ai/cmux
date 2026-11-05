@@ -857,6 +857,11 @@ fn linux_keeper_args_with_exe(
         }
         out.extend(["--api-port".into(), port.to_string(), "--api-loopback-v4".into()]);
     }
+    // A router on another host (a cloud VM's sr2 :4016): open that port as the
+    // macOS profile does; 80 and 443 are open already.
+    if let Some((port, false)) = bound.api_port.filter(|(p, _)| !matches!(p, 80 | 443)) {
+        out.extend(["--api-remote-port".into(), port.to_string()]);
+    }
     out.push("--".into());
     out.push("/usr/bin/env".into());
     for key in REFUSED_ENV {
@@ -1872,6 +1877,30 @@ mod endpoint_tests {
         assert!(text.contains("--proxy-port 8118"));
         assert!(text.contains("--api-port 41234 --api-loopback-v4"));
         assert!(text.contains("-- /usr/bin/env -u CLAUDE_CONFIG_DIR"));
+    }
+
+    /// A cloud VM's Claude reaches its router on another tailnet host and a
+    /// port other than 80/443 (sr2 :4016). macOS opens that port in Seatbelt;
+    /// the Linux keeper must open it too, or every request 403s inside the
+    /// sandbox ("destination denied by network policy").
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_wrap_opens_a_remote_api_port() {
+        let bound = bound(Some(Endpoint { url: "http://100.120.48.119:4016".into(), own: false }));
+        let (_, args) =
+            linux_wrap(&bound, &profile(&["claude"], &[]), "/bin/claude".into(), vec![]).unwrap();
+        let text = args.join(" ");
+        assert!(text.contains("--api-remote-port 4016"), "{text}");
+        assert!(!text.contains("--api-loopback-v4"), "{text}");
+        let https = bound_https();
+        let (_, args) =
+            linux_wrap(&https, &profile(&["claude"], &[]), "/bin/claude".into(), vec![]).unwrap();
+        assert!(!args.join(" ").contains("--api-remote-port"), "443 is open already");
+    }
+
+    #[cfg(target_os = "linux")]
+    fn bound_https() -> Bound {
+        bound(Some(Endpoint { url: "https://api.anthropic.com".into(), own: false }))
     }
 
     #[cfg(target_os = "linux")]

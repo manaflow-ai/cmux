@@ -82,6 +82,58 @@ import Testing
         #expect(!FileManager.default.fileExists(atPath: url.path))
     }
 
+    /// A long-running app collects live events without end: the Feed holds a window of the
+    /// newest, keeps an open ask however old, and a done event the Mac re-reports after it
+    /// left the window stays done (and is no change at all).
+    @Test func liveEventsStayInAWindowWithOpenAsksKept() {
+        let limit = FeedStore.memoryLimit
+        var ask = FeedItem(id: "ask", kind: .needsInput, workspaceID: "w1", tabID: "t", agentName: "Codex", harness: "codex",
+                           workspaceTitle: "cmux", markdown: "approve?", quote: nil, createdAt: Date(timeIntervalSince1970: 1))
+        ask.isRead = false
+        let store = FeedStore(items: [ask, Self.item("doneOld", ago: 10)])
+        store.markDone("doneOld")
+        // The Undo toast went away: the last Done is no longer kept for it.
+        store.clearDone()
+        for index in 0..<(limit * 4) {
+            store.insert(Self.item("live\(index)", ago: -Double(index)), atTop: index % 3 != 0)
+        }
+        #expect(store.items.count == limit + 1)
+        #expect(store.items.first?.id == "live\(limit * 4 - 1)")
+        #expect(store.item(id: "ask") != nil)
+        #expect(store.item(id: "doneOld") == nil)
+        #expect(store.item(id: "live0") == nil)
+        #expect(store.unseenNewIDs.allSatisfy { store.item(id: $0) != nil })
+        var writes = 0
+        store.onItemsChange = { _ in writes += 1 }
+        store.mergeHistory([Self.item("doneOld", ago: 10), Self.item("live0")])
+        #expect(writes == 0)
+        #expect(store.item(id: "doneOld") == nil)
+        store.mergeHistory([Self.item("doneOld", ago: -Double(limit * 10))])
+        #expect(store.item(id: "doneOld")?.isDone == true)
+        #expect(!store.visibleItems.contains { $0.id == "doneOld" })
+    }
+
+    /// Review findings: an old ask the window kept is not dropped by the write that answers it
+    /// (its answered summary, or a refusal, still shows), and Done on it can be undone.
+    @Test func anOldAskOutsideTheWindowSurvivesItsAnswerAndUndo() {
+        let limit = FeedStore.memoryLimit
+        func ask(_ id: String) -> FeedItem {
+            FeedItem(id: id, kind: .needsInput, workspaceID: "w1", tabID: "t", agentName: "Codex", harness: "codex",
+                     workspaceTitle: "cmux", markdown: "approve?", quote: nil, createdAt: Date(timeIntervalSince1970: 1))
+        }
+        let store = FeedStore(items: [ask("answered"), ask("swiped")])
+        for index in 0..<(limit + 50) { store.insert(Self.item("live\(index)", ago: -Double(index)), atTop: true) }
+        #expect(store.item(id: "answered") != nil && store.item(id: "swiped") != nil)
+        store.resolveElsewhere("answered", text: "Answered")
+        #expect(store.item(id: "answered")?.resolution == "Answered")
+        store.markDone("swiped")
+        store.insert(Self.item("after", ago: -Double(limit * 2)), atTop: true)
+        #expect(store.item(id: "swiped")?.isDone == true)
+        store.undoDone()
+        #expect(store.item(id: "swiped")?.isDone == false)
+        #expect(store.visibleItems.contains { $0.id == "swiped" })
+    }
+
     /// The echo set matches the definition it replaced (a terminal row within the window of an
     /// agent row on its surface), including rows just inside and just outside the window.
     @Test func echoesMatchTheOldPairwiseCheck() {

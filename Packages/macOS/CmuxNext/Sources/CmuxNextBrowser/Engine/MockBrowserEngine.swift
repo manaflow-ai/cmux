@@ -50,6 +50,9 @@ public final class MockBrowserTab: BrowserTab {
     @ObservationIgnored public private(set) var restoredSessions: [BrowserSavedSession] = []
     /// How far the page says it is scrolled (tests set it; it may never answer).
     @ObservationIgnored public var scrollPosition: @MainActor () async -> Double? = { nil }
+    /// Where the chrome said native UI covers the page, as a child-window page is told (`BrowserOcclusionHosting`).
+    @ObservationIgnored public var occlusionRects: [CGRect] = []
+    @ObservationIgnored var roundedOcclusions: [CEFClipShape.RoundedRect] = []
     public enum Command: Hashable, Sendable {
         case load(URL)
         case goBack
@@ -79,7 +82,12 @@ public final class MockBrowserTab: BrowserTab {
     public let presentation: BrowserPresentation = .inView
     public var completesNavigationsImmediately: Bool
 
-    public var state: BrowserTabState { machine.state }
+    public var state: BrowserTabState {
+        stateReads += 1
+        return machine.state
+    }
+    /// How many times `state` was read (tests count the work a path does per page).
+    @ObservationIgnored public private(set) var stateReads = 0
     public var favicon: NSImage?
     public private(set) var pendingPrompts: [BrowserPrompt] = []
     public private(set) var commands: [Command] = []
@@ -95,6 +103,8 @@ public final class MockBrowserTab: BrowserTab {
     /// What the last `setContentVisible` said (shown until then).
     @ObservationIgnored public private(set) var isContentHidden = false
 
+    /// The hovered link's text (`BrowserTab.linkStatus`); tests set it.
+    public var linkStatus: String?
     /// Page text used by `find`.
     public var pageText = ""
     /// Canned result for `evaluate`.
@@ -224,17 +234,25 @@ public final class MockBrowserTab: BrowserTab {
         return BrowserPictureRequest { [self] in try await snapshot() }
     }
 
+    /// The pixel size of the pictures `snapshot` makes (tests of picture budgets set a page's real size; a larger
+    /// picture has stripes, so it is not blank).
+    @ObservationIgnored public var snapshotPixelSize = CGSize(width: 4, height: 4)
+
     public func snapshot() async throws -> CGImage {
         guard !isClosed else { throw BrowserTabError.closed }
         snapshotCount += 1
-        let size = 4
+        let width = Int(snapshotPixelSize.width), height = Int(snapshotPixelSize.height)
         let context = CGContext(
-            data: nil, width: size, height: size, bitsPerComponent: 8, bytesPerRow: 0,
+            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
             space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         )
         context?.setFillColor(gray: 0.5, alpha: 1)
-        context?.fill(CGRect(x: 0, y: 0, width: size, height: size))
+        context?.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        if width > 4 {
+            context?.setFillColor(gray: 0.1, alpha: 1)
+            for row in stride(from: 0, to: height, by: 16) { context?.fill(CGRect(x: 0, y: row, width: width, height: 8)) }
+        }
         guard let image = context?.makeImage() else { throw BrowserTabError.snapshotUnavailable }
         return image
     }

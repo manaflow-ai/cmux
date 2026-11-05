@@ -11,11 +11,15 @@
 // "compaction and subagent/system notices" among it). Prose, a steer, a card kept in sight and the
 // live line end the run. The line is a fold of the transcript's fold set, like a background turn's
 // line (backgroundTurns.ts): its rows follow it while open and never draw while closed, so each
-// keeps its own estimate and the scroll never jumps.
+// keeps its own estimate and the scroll never jumps. A run of other agents' lines alone is no
+// message run: it is the turn's "Received N messages" row (laneNoticeBatches.ts; Leo, 2026-11-02:
+// "can't we simply just display most of these as recieved x messages").
 import { isLineRow, MESSAGE_RUN, type AcpmuxActivity, type AcpmuxMessageRun, type AcpmuxRow } from "../model";
 import type { Translate } from "../i18n";
+import { inboxCounts } from "./inboxNotice";
+import { joinsReceivedRow } from "./laneNoticeBatches";
 import { isWaitingMessage } from "./pendingMessages";
-import { awaitsPermission, isFailed, isRunning, runStretches, toolGroups, type ToolGroup } from "./toolGroups";
+import { awaitsPermission, countsFailed, isRunning, runStretches, toolGroups, type ToolGroup } from "./toolGroups";
 import { toolRunPhrases } from "./toolRunSummary";
 import type { Folds } from "./viewFolds";
 
@@ -43,9 +47,12 @@ type Member = {
 function member(row: AcpmuxRow): Member | undefined {
   if (row.kind === "compaction")
     return { lines: 1, sent: 0, received: 0, work: [], failed: 0, running: row.compaction?.state === "running" };
+  // A tool's fire stays in sight: it ends a run, never folds into its line.
+  if (isReceivedLine(row) && row.incoming?.kind === "message" && row.incoming.message.notice?.severity === "fire")
+    return undefined;
   if (isReceivedLine(row)) {
-    // An inbox notice is one line per thread (InboxNoticeCard.tsx).
-    const n = row.incoming?.kind === "inbox" ? Math.max(1, row.incoming.notice.threads.length) : 1;
+    // An inbox notice counts the messages it brought, not its threads (inboxNotice.ts `inboxCounts`).
+    const n = row.incoming?.kind === "inbox" ? Math.max(1, inboxCounts(row.incoming.notice).messages) : 1;
     return { lines: 1, sent: 0, received: n, work: [], failed: 0, running: false };
   }
   // A folded run (codexRuns, shapeTurn): its lines as ToolRows draws them (`runStretches`).
@@ -66,15 +73,23 @@ function member(row: AcpmuxRow): Member | undefined {
     return undefined;
   let lines = 0;
   for (const stretch of runStretches(row, groups)) lines += stretch.fold ? 1 : stretch.groups.length;
-  const sent = groups.filter(isSend).length;
-  const sentItems = new Set(groups.flatMap((group) => (isSend(group) && "item" in group ? [group.item] : [])));
+  // A group of sends counts each of its messages (toolGroups.ts `sendGroup`).
+  const sent = groups.reduce(
+    (sum, group) => sum + (group.type === "sendGroup" ? group.entries.length : isSend(group) ? 1 : 0),
+    0,
+  );
+  const sentItems = new Set(
+    groups.flatMap((group) =>
+      group.type === "sendGroup" ? group.items : isSend(group) && "item" in group ? [group.item] : [],
+    ),
+  );
   const work = row.items.filter((item) => item.tool && !sentItems.has(item));
   return {
     lines,
     sent,
     received: 0,
     work,
-    failed: row.items.filter((item) => item.tool && isFailed(item.tool)).length,
+    failed: row.items.filter((item) => item.tool && countsFailed(item.tool)).length,
     running: row.items.some((item) => item.tool && isRunning(item.tool)),
   };
 }
@@ -99,7 +114,11 @@ export function foldMessageRuns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRow[]
     const lines = parts.reduce((sum, part) => sum + part.lines, 0);
     const sent = parts.reduce((sum, part) => sum + part.sent, 0);
     const received = parts.reduce((sum, part) => sum + part.received, 0);
-    if (lines < 2 || sent + received === 0) {
+    // A run of received lines that all join the turn's "Received N messages" row is not a message
+    // run: they draw in that row (laneNoticeBatches.ts `projectInboxRows`). One with a lane report,
+    // a task's result or a person's message among them still folds here.
+    const onlyReceived = sent === 0 && members.every(joinsReceivedRow);
+    if (lines < 2 || sent + received === 0 || onlyReceived) {
       out?.push(...members);
       index = end;
       continue;

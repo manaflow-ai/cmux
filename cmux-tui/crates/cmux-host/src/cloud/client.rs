@@ -447,12 +447,6 @@ impl<H: Http> CloudClient<H> {
         self.cached = None;
     }
 
-    /// Drops the cached bearer (another origin refused it), so the next
-    /// [`CloudClient::token`] asks for a new one.
-    pub fn forget_token(&mut self) {
-        self.cached = None;
-    }
-
     /// One read on `/v1/read` (`{op, params}`), with the same token
     /// handling as [`CloudClient::op`].
     pub fn read(&mut self, op: &str, params: &Value, now_wall_ms: u64) -> Answer {
@@ -503,6 +497,13 @@ impl<H: Http> CloudClient<H> {
     pub fn github_repos(&mut self, ask: &super::github_repos::ReposAsk, now_wall_ms: u64) -> Value {
         let team = self.bound.team.clone();
         super::github_repos::answer(ask, &team, |path| self.github_repos_get(path, now_wall_ms))
+    }
+
+    /// The person's connected GitHub account (`GET /v1/me/github` as this
+    /// machine), checked so the reply never holds a token.
+    pub fn github_status(&mut self, now_wall_ms: u64) -> Value {
+        let answer = self.github_repos_get(super::github_status::STATUS_PATH, now_wall_ms);
+        super::github_status::reply_for(&answer)
     }
 
     /// A GitHub token for this machine (`POST /v1/integrations/github/token`

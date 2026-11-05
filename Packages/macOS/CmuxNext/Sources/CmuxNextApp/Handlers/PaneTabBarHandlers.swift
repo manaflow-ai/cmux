@@ -79,7 +79,7 @@ extension PaneController {
     var isOpenPinnedDockPane: Bool { pinnedDock?.allowsTabs == true }
 
     /// The pinned dock this pane is in, if any.
-    private var pinnedDock: DockColumn? { HomeDockOpens.pinnedDock(holding: pane, in: daemon.store) }
+    private var pinnedDock: DockColumn? { daemon.store.pinnedDock(holding: pane.handle) }
 
     /// Shows or hides this pane's tab bar now. Shown is the default, so it is no choice.
     func showTabBar(_ shown: Bool) {

@@ -108,9 +108,14 @@ fn run_app_command(
 }
 
 /// Like [`run_one_command`], for a terminal started with `command` (the
-/// caller's program) through [`shell_launch`].
+/// caller's program) through [`shell_launch`]. The scripts go under `base`, as
+/// [`run_one_command`]'s do: under the host's state directory an ancestor another
+/// user could replace (a group-writable volume without the sticky bit, as on some
+/// fleet Macs) makes the integration fail closed, the shell then reads no startup
+/// files, and the test would wait for a prompt its startup file never set.
 fn run_explicit_command(
     command: Vec<String>,
+    base: &Path,
     mut env: Vec<(String, String)>,
     incognito: bool,
     (typed, history): (&str, &Path),
@@ -118,7 +123,8 @@ fn run_explicit_command(
     if incognito {
         keep_no_history(&mut env);
     }
-    run_launch(shell_launch(Some(command), env), typed, history)
+    let root = || Some(base.join("shell-integration").join(content_digest()));
+    run_launch(shell_launch_in(Some(command), env, &root), typed, history)
 }
 
 /// The repo's Ghostty scripts and the app's layer, as the app bundles them.
@@ -344,7 +350,7 @@ fn an_incognito_zsh_started_as_an_explicit_command_keeps_no_history() {
     ];
     let command = vec![zsh.to_string_lossy().into_owned()];
     let run = |incognito| {
-        run_explicit_command(command.clone(), env.clone(), incognito, (TYPED, &history))
+        run_explicit_command(command.clone(), &base, env.clone(), incognito, (TYPED, &history))
     };
     assert_history_kept_only_when_normal("explicit zsh", run, &base);
 }
@@ -371,7 +377,7 @@ fn an_incognito_bash_keeps_no_history_under_the_integration_opt_out() {
     ];
     let command = vec![bash.to_string_lossy().into_owned()];
     let run = |incognito| {
-        run_explicit_command(command.clone(), env.clone(), incognito, (TYPED, &history))
+        run_explicit_command(command.clone(), &base, env.clone(), incognito, (TYPED, &history))
     };
     assert_history_kept_only_when_normal("opt-out bash", run, &base);
 }
@@ -482,6 +488,34 @@ fn an_incognito_shell_without_integration_reads_no_startup_files() {
     assert_eq!(args(&["fish", "-l"], Shell::Fish), ["fish", "--private", "--no-config", "-l"]);
     // A shell started for a command is left alone.
     assert_eq!(args(&["bash", "-c", "true"], Shell::Bash), ["bash", "-c", "true"]);
+}
+
+/// An incognito shell whose integration scripts cannot be written in a trusted place (an
+/// ancestor another user could replace: group- or world-writable, not a root-owned sticky
+/// directory) starts with no startup files, fail closed, instead of with its user's history.
+#[test]
+fn an_incognito_shell_whose_scripts_root_is_untrusted_reads_no_startup_files() {
+    use std::os::unix::fs::PermissionsExt;
+    let base = temp_base("untrusted-root");
+    let shared = base.join("shared");
+    fs::create_dir_all(&shared).unwrap();
+    fs::set_permissions(&shared, fs::Permissions::from_mode(0o777)).unwrap();
+    let root = shared.join("shell-integration").join(content_digest());
+    let refused = materialize(&root).expect_err("a world-writable non-sticky ancestor is refused");
+    assert_eq!(refused.kind(), io::ErrorKind::PermissionDenied, "{refused}");
+    let mut env = vec![("HOME".to_string(), base.to_string_lossy().into_owned())];
+    keep_no_history(&mut env);
+    let untrusted = || Some(root.clone());
+    for (shell, expected) in [
+        ("/bin/zsh", vec!["/bin/zsh", "-f"]),
+        ("/bin/bash", vec!["/bin/bash", "--noprofile", "--norc"]),
+    ] {
+        // (On macOS /bin/bash is Apple's bash 3.2, which fails closed the same way before
+        // the scripts root is read: `unintegrable_incognito`.)
+        let launched = integrate_in(vec![shell.to_string()], env.clone(), &|_| None, &untrusted);
+        assert_eq!(launched.command, expected, "{shell}: {:?}", launched.command);
+    }
+    let _ = fs::remove_dir_all(&base);
 }
 
 /// `zsh -il` is as interactive as `zsh -i -l`: it is integrated too.

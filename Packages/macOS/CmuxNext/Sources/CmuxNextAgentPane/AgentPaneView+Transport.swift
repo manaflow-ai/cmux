@@ -180,7 +180,7 @@ extension AgentPaneView {
         // Repeats belong to the original press, whose DOM proof may still be redeeming.
         // A new page event revokes it, even when posted input cannot grant a fresh witness.
         model.transport.gestures.recordQuestionReturn(false)
-        guard AgentPanePersonInput.isPerson(event, sources: eventSources) else { return }
+        guard AgentPanePersonInput.isPerson(event, sources: eventSources) else { return recordPosted(event) }
         model.transport.gestures.record(click: event.type != .keyDown)
         if event.type == .keyDown { model.transport.gestures.recordQuestionReturn(Self.isReturnKey(event)) }
     }
@@ -201,9 +201,19 @@ extension AgentPaneView {
             guard chromiumPageContains(eventWindow.convertPoint(toScreen: event.locationInWindow), eventWindow: eventWindow) else { return }
         }
         model.transport.gestures.recordQuestionReturn(false)
-        guard AgentPanePersonInput.isPerson(event, sources: eventSources) else { return }
+        guard AgentPanePersonInput.isPerson(event, sources: eventSources) else { return recordPosted(event) }
         model.transport.gestures.record(click: event.type != .keyDown)
         if event.type == .keyDown { model.transport.gestures.recordQuestionReturn(Self.isReturnKey(event)) }
+    }
+
+    /// A key press or click another process posted: a credit for Send, Retry and Approve only while
+    /// Computer use can act as me is on (``AgentPaneUserGestures/recordPosted(driver:)``). The driver is
+    /// named from the posting-process table, never by a system call here.
+    private func recordPosted(_ event: NSEvent) {
+        let gestures = model.transport.gestures
+        guard gestures.actAsMe != nil else { return }
+        let pid = AgentPanePersonInput.postingPID(event)
+        gestures.recordPosted(driver: AgentPaneActAsMe.Driver(pid: pid, path: pid.flatMap { eventSources.path(of: $0) }))
     }
 
     /// Return on the main keyboard is key code 36; the numeric keypad's Enter is 76.

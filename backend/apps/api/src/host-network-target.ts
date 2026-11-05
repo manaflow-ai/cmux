@@ -18,28 +18,70 @@ type Deps = Omit<NetworkIdentityDeps, "origin" | "stream" | "submitSystem" | "ke
   /** UserDO readIdentity: the client's key and install authority version under its live read grant. */
   readonly identity: (user: string, install: string, grant: string) => Promise<NetworkIdentityView | null>
 }
+/** What the caller and owner checks read: no VM API connection and no HTTP client. */
+type Checks = Omit<Deps, "connection" | "http">
+export interface NetworkTargetOwner {
+  readonly team: string
+  readonly tenant: string
+  readonly project: string
+  readonly origin: string
+}
+export type NetworkTargetOwnerResult =
+  | { readonly ok: true; readonly value: NetworkTargetOwner; readonly revision?: string }
+  | { readonly ok: false; readonly code: string; readonly message: string }
 /** The platform serves this read on its own route (no cloud catalog op); TeamDO keeps the owner checks. */
 const Params = Schema.Struct({ mesh: Schema.optionalKey(NativeMeshId) })
 const pointOf = (identity: NetworkIdentityView | null): string | null => { try { return identity ? installPublicPoint(identity.key) : null } catch { return null } }
 /** The caller's current team membership incarnation; a leave and rejoin with the same role never matches. */
-const memberAuthority = (d: Deps, p: Principal): string | null => {
+const memberAuthority = (d: Checks, p: Principal): string | null => {
   const state = d.state(), role = roleOf(state, d.rows, p.user)
   return state.team && role ? teamAuthorityVersion(d.team, p.user!, role, state.team.kind, currentPolicy(state).version, d.rows) : null
 }
 /** The caller's install incarnation under a grant and token that are live now. */
-const installAuthority = (d: Deps, p: Principal, identity: NetworkIdentityView | null): string | null => {
+const installAuthority = (d: Checks, p: Principal, identity: NetworkIdentityView | null): string | null => {
   const now = d.now()
   if (!identity || !/^[0-9a-f]{64}$/.test(identity.authority_version) || !["mac", "ios", "cli"].includes(identity.kind)
     || (identity.expires_at !== null && identity.expires_at <= now) || (p.expires_at !== undefined && p.expires_at <= now)
     || (p.install_authority !== undefined && p.install_authority !== identity.authority_version)) return null
   return identity.authority_version
 }
-const tenantMatches = (d: Deps, t: VmApiTenant | null): t is VmApiTenant => t?.team === d.team && t.project === d.project
-const clientMayRead = (d: Deps, p: Principal): boolean => {
+const tenantMatches = (d: Checks, t: VmApiTenant | null): t is VmApiTenant => t?.team === d.team && t.project === d.project
+const clientMayRead = (d: Checks, p: Principal): boolean => {
   const state = d.state()
   return p.kind === "install" && !p.agent && ["mac", "ios", "cli"].includes(p.install_kind ?? "") && p.team === d.team
     && !!p.user && !!p.install && !!p.grant && state.team?.id === d.team && state.team.deleted_at === undefined
     && !state.server_revocations?.[p.install] && can(state, d.rows, p.user, "team.resources")
+}
+
+type OwnerDeps = Checks & {
+  /** The VM API origin alone: the platform holds the creator key and reads the mesh itself. */
+  readonly origin: () => string | null
+}
+
+/** Verify the caller and owner without reading the VM mesh. The platform uses this seam so its
+ * own VM API service key (the key that created the mesh) performs the mesh read, so this needs
+ * only the configured VM API origin, never a service key of cmux-api's own. */
+export const hostNetworkTargetOwner = async (d: OwnerDeps, p: Principal, params: unknown): Promise<NetworkTargetOwnerResult> => {
+  const fail = (code: string, message: string): NetworkTargetOwnerResult => ({ ok: false, code, message })
+  const unavailable = () => fail("owner.unreachable", "network target discovery is unavailable")
+  if (!p.grant_classes?.includes("read") || (p.expires_at !== undefined && p.expires_at <= d.now())) return fail("auth.forbidden", "an active client install with the read grant is required")
+  const decoded = Schema.decodeUnknownExit(Params)(params ?? {}, { onExcessProperty: "error" })
+  if (!Exit.isSuccess(decoded)) return fail("validation.invalid", "invalid network target selector")
+  if (!clientMayRead(d, p)) return fail("auth.forbidden", "only an active client may discover its team network")
+  const origin = d.origin()
+  if (!origin) return unavailable()
+  const member = memberAuthority(d, p)
+  if (!member) return fail("auth.forbidden", "only an active client may discover its team network")
+  try {
+    const [target, own] = await Promise.all([d.tenant(), d.identity(p.user!, p.install!, p.grant!)])
+    const point = pointOf(own), authority = installAuthority(d, p, own)
+    if (!tenantMatches(d, target) || !point || !authority || memberAuthority(d, p) !== member || !clientMayRead(d, p)) return fail("auth.forbidden", "the client network owner could not be verified")
+    const currentTarget = await d.tenant()
+    const currentOwn = await d.identity(p.user!, p.install!, p.grant!)
+    if (!tenantMatches(d, currentTarget) || currentTarget.tenant !== target.tenant || pointOf(currentOwn) !== point || installAuthority(d, p, currentOwn) !== authority
+      || memberAuthority(d, p) !== member || !clientMayRead(d, p) || d.origin() !== origin) return fail("auth.forbidden", "the client network identity changed")
+    return { ok: true, value: { team: d.team, tenant: target.tenant, project: target.project, origin }, revision: d.revision() }
+  } catch { return unavailable() }
 }
 
 /** Read-only routing discovery. Native ownership and current owner authorization must both agree. */

@@ -314,6 +314,24 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
     await page.waitForFunction(
       () => getComputedStyle(document.querySelector(".cv-worked.is-below .cv-command__bg")!).opacity === "1",
     );
+    // It reads on the line as every trailing item does (Leo, 2026-11-03: "this isn't really centered
+    // with the tool call i think it should be or at least it looks weird?"): the line's size, so its
+    // words share the command's baseline and middle, never a smaller face centered beside it.
+    const marks = await line.evaluate((node) => {
+      // Where a selector's words draw: their glyph box, and the face's size.
+      const read = (selector: string) => {
+        const target = node.querySelector<HTMLElement>(selector)!;
+        const range = document.createRange();
+        range.selectNodeContents(target);
+        const box = range.getBoundingClientRect();
+        return { top: box.top, bottom: box.bottom, size: getComputedStyle(target).fontSize };
+      };
+      return { hint: read(".cv-command__bg"), line: read(".cv-shimmer__base") };
+    });
+    expect(marks.hint.size).toBe(marks.line.size);
+    // One face at one size: the same glyph box top and bottom means the same baseline.
+    expect(Math.abs(marks.hint.top - marks.line.top)).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(marks.hint.bottom - marks.line.bottom)).toBeLessThanOrEqual(0.5);
     await page.close();
   });
 
@@ -323,6 +341,38 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
     await page.getByText("⌃B to run in background").waitFor({ timeout: 5_000 });
     await composer(page).click();
     await page.keyboard.press("Control+b");
+    expect(await requested()).toEqual([{ sessionId: CLAUDE }]);
+    await page.close();
+  });
+
+  test("the hint is a button that moves the work, whichever pane has the keyboard", async () => {
+    // Leo, 2026-11-03: "this run in background sometimes i can't actually do anything to put it in
+    // the background". The hint shows on hover in a pane that may not have the keyboard, where Ctrl-B
+    // goes to another pane; a click on it always reaches this chat.
+    backgrounded.length = 0;
+    backgroundReply = "moved";
+    const page = await open(CLAUDE);
+    const line = page.locator(".cv-worked.is-below");
+    const hint = line.getByRole("button", { name: translate("tools.backgroundHintLabel") });
+    await hint.waitFor({ timeout: 5_000 });
+    expect(await hint.textContent()).toBe("⌃B to run in background");
+    // Away from the page: Ctrl-B never reaches it, the click does.
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await line.hover();
+    await hint.click();
+    expect(await requested()).toEqual([{ sessionId: CLAUDE }]);
+    await page.close();
+  });
+
+  test("the hint button takes the keyboard: focused, Return moves the work", async () => {
+    backgrounded.length = 0;
+    backgroundReply = "moved";
+    const page = await open(CLAUDE);
+    const hint = page.getByRole("button", { name: translate("tools.backgroundHintLabel") });
+    await hint.waitFor({ timeout: 5_000 });
+    await hint.focus();
+    expect(await hint.evaluate((node) => node === document.activeElement)).toBe(true);
+    await page.keyboard.press("Enter");
     expect(await requested()).toEqual([{ sessionId: CLAUDE }]);
     await page.close();
   });

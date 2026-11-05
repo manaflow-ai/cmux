@@ -140,7 +140,7 @@ await requireBrowserLane("composer-alignment-centers.test.ts", async () => {
     return out;
   };
 
-  // The running turn's "↵ steer · ⌘↵ queue" placeholder too: only the idle one was measured, so its
+  // The running turn's placeholder too: only the idle one was measured, so its
   // misalignment escaped (Leo 2026-10-29).
   for (const variant of ["claude-auto", "grid-running"])
     for (const width of [720, 420])

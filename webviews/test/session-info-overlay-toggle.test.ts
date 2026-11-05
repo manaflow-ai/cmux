@@ -90,7 +90,7 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
     const panel = page.locator("aside.acpmux-session-info");
     const toggle = page.locator("button.acpmux-session-info-toggle");
     await toggle.waitFor({ timeout: 10_000 });
-    if ((await panel.count()) === 0) await toggle.click({ force: true });
+    if ((await toggle.getAttribute("aria-pressed")) !== "true") await toggle.click({ force: true });
     await page.locator(`aside.acpmux-session-info[data-placement="${placement}"][data-presence="shown"]`).waitFor({
       timeout: 10_000,
     });
@@ -159,9 +159,10 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
     for (const { name: row, tabRow } of rows)
       test(`${name}, ${row}: Push always keeps every header tool in the native reserved strip`, async () => {
         current = browsers.get(name)!;
-        const page = await pane!.open({ width: 900, height: 640 });
+        const page = await pane!.open({ width: 1100, height: 640 });
         try {
-          // A 900px pane's gutter cannot hold it, so it pushes by default too.
+          // A 1100px pane's gutter cannot hold it, and a push keeps the column's width, so it pushes by
+          // default too.
           const { panel, toggle } = await openSessionInfo(page, tabRow, "push", "overlay");
           await toggle.click();
           await panel.waitFor({ state: "detached" });
@@ -179,10 +180,11 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
           expect(await positions()).toEqual(closed);
           // Native tabs cover everything left of this reserved strip. A real click at the old
           // position must still reach the toggle after opening, including after a pane resize.
-          await page.setViewportSize({ width: 1050, height: 640 });
+          // 1130px: Push always still keeps the column's width there (SessionInfo.tsx pushKeepsColumn).
+          await page.setViewportSize({ width: 1130, height: 640 });
           await page.waitForFunction(
             (x) => Math.abs(document.querySelector(".acpmux-session-info-toggle")!.getBoundingClientRect().x - x) < 0.5,
-            closed[0]!.x + 150,
+            closed[0]!.x + 30,
           );
           const opened = await positions();
           await page.mouse.click(opened[0]!.x + 12, opened[0]!.y + 12);
@@ -251,7 +253,7 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
       current = browsers.get(name)!;
       for (const [width, placement] of [
         [1600, "overlay"],
-        [700, "push"],
+        [1100, "push"],
       ] as const)
         for (const height of [1400, 800, 420]) {
           const page = await pane!.open({ width, height });
@@ -284,17 +286,21 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
   // last section but the body's own padding, and its body does not scroll. Folding a section shrinks
   // the card with it, so no fixed or minimum height holds it open either.
   /// The card's height, the room under its last block of sections (SessionInfo.tsx RAIL_LAYOUT; not
-  /// the `data-section` blocks inside them) and the body's bottom padding.
+  /// the `data-section` blocks inside them), or under the Show more row that follows them (#32939), the
+  /// body's bottom padding and the card's own hairline edge (sessionInfo.css, #32969: a border in every
+  /// place, so the card's box ends that far below its body).
   const fit = (panel: Locator) =>
     panel.evaluate((node) => {
       const box = node.getBoundingClientRect();
       const body = node.querySelector(".acpmux-session-info__body")!;
-      const sections = [...body.querySelectorAll(":scope > .acpmux-session-info-sections > .acpmux-session-info-slot")];
-      const last = sections[sections.length - 1]!.getBoundingClientRect();
+      const blocks = [...body.querySelectorAll(":scope > .acpmux-session-info-sections > *")];
+      const last = blocks[blocks.length - 1]!.getBoundingClientRect();
+      const under =
+        parseFloat(getComputedStyle(body).paddingBottom) + parseFloat(getComputedStyle(node).borderBottomWidth);
       return {
         top: box.top,
         card: box.height,
-        endsAtContent: Math.abs(box.bottom - last.bottom - parseFloat(getComputedStyle(body).paddingBottom)) < 0.5,
+        endsAtContent: Math.abs(box.bottom - last.bottom - under) < 0.5,
         scrolls: body.scrollHeight > body.clientHeight + 1,
       };
     });
@@ -303,7 +309,7 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
       current = browsers.get(name)!;
       for (const [width, placement] of [
         [1600, "overlay"],
-        [700, "push"],
+        [1100, "push"],
       ] as const) {
         const cards: ({ height: number } & Awaited<ReturnType<typeof fit>>)[] = [];
         let folded: { shrank: boolean; endsAtContent: boolean; scrolls: boolean } | undefined;
@@ -505,14 +511,18 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
 
   // Full length (Leo, 2026-10-26) never covers the composer: in a pane too narrow for the panel to
   // float beside the chat, it pushes the chat left (Leo, 2026-11-01), so a busy Session Info meets no
-  // part of the composer and its body scrolls.
+  // part of the composer and its body scrolls. The composer is its card (.acpmux-composer-box: the field,
+  // its pickers and Send). Its band (.acpmux-composer) is the chat's whole width with the card inset by
+  // the column's gutters, and a gradual push draws the panel over the chat's right gutter
+  // (SessionInfo.tsx pushedRoom, sessionInfo.css --acpmux-session-info-overlap), over that empty band
+  // and never over the card: at 1100px the card ends at 764px, the panel starts at 772px.
   // A new chat's dock is `display: contents` (bottomStack.css): its own box is empty, so the card
   // measures its children; the second pass forces that layout on this chat.
   for (const name of browsers.keys())
     for (const contents of [false, true])
       test(`${name}: in a narrow pane, a busy Session Info pushes the chat and never covers the composer${contents ? " (dock display: contents)" : ""}`, async () => {
         current = browsers.get(name)!;
-        const page = await pane!.open({ width: 900, height: 900 });
+        const page = await pane!.open({ width: 1100, height: 900 });
         try {
           if (contents)
             await page.addStyleTag({
@@ -525,7 +535,7 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
           const { covers, scrolls } = await panel.evaluate((node) => {
             const body = node.querySelector(".acpmux-session-info__body")!;
             const box = node.getBoundingClientRect();
-            const composer = document.querySelector(".acpmux-composer")!.getBoundingClientRect();
+            const composer = document.querySelector(".acpmux-composer-box")!.getBoundingClientRect();
             return {
               covers:
                 box.left < composer.right &&
