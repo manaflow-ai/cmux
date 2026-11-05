@@ -133,7 +133,7 @@ def collect(reports):
         docs = reports.get(count) or {}
         merged = {}
         merged.update(instant_rows(docs.get("instant"), count))
-        merged.update(sidebar_rows(docs.get("sidebar"), count))
+        merged.update(sidebar_rows(docs.get("sidebar"), docs.get("sidebar_count", count)))
         merged.update(typing_rows(docs.get("typing"), count))
         for interaction, values in merged.items():
             rows.append({"name": f"workspace_scaling.{interaction}.{count}", "interaction": interaction,
@@ -149,30 +149,51 @@ def run_probe(script, args, out):
 
 
 def run_app(opts):
-    reports = {}
+    reports, failures = {}, []
     for count in COUNTS:
         root = pathlib.Path(opts.out) / str(count)
         root.mkdir(parents=True, exist_ok=True)
         instant = root / "instant"
-        run_probe(HERE / "instant-new-surfaces-bench.py",
-                  ["--tag", opts.tag, "--app", opts.app, "--commands", "new_workspace,split_right",
-                   "--workspaces", str(count), "--empty-workspaces", "--arms", "warm", "--phases", "idle", "--runs", "6",
-                   "--out", str(instant), "--json", str(instant / "report.json")], root)
+        code = run_probe(HERE / "instant-new-surfaces-bench.py",
+                         ["--tag", opts.tag, "--app", opts.app, "--commands", "new_workspace,split_right",
+                          "--workspaces", str(count), "--empty-workspaces", "--arms", "warm", "--phases", "idle", "--runs", "6",
+                          "--out", str(instant), "--json", str(instant / "report.json")], root)
+        if code != 0 or not (instant / "report.json").exists():
+            failures.append({"workspaces": count, "probe": "instant", "exit": code,
+                             "report": str(instant / "report.json")})
         sidebar = root / "sidebar"
-        run_probe(HERE / "sidebar-stress-bench.py",
-                  ["--tag", opts.tag, "--app", opts.app, "--sizes", str(count), "--tickers", "15",
-                   "--scenarios", "scroll,scroll_ticking,switch", "--stop", "--no-trace", "--out", str(sidebar)], root)
+        # sidebar-stress-bench starts with one workspace before grow(size). Ask it to grow size-1 so
+        # its measured topology is exactly the headline count rather than count+1.
+        sidebar_count = max(0, count - 1)
+        code = run_probe(HERE / "sidebar-stress-bench.py",
+                         ["--tag", opts.tag, "--app", opts.app, "--sizes", str(sidebar_count), "--tickers", "15",
+                          "--scenarios", "scroll,scroll_ticking,switch", "--stop", "--no-trace", "--out", str(sidebar)], root)
+        if code != 0 or not (sidebar / "results.json").exists():
+            failures.append({"workspaces": count, "probe": "sidebar", "exit": code,
+                             "report": str(sidebar / "results.json")})
         typing = root / "typing"
         # Seed empty rows to reach the requested topology, while keeping only ten active terminals
         # so the 1000-workspace run never exhausts the host's PTY limit.
         agents = min(10, max(0, count - 2))
-        run_probe(HERE / "automation-typing-bench.py",
-                  ["--app", opts.app, "--agents", str(agents), "--workspace-count", str(count), "--layouts", "light", "--samples", "30",
-                   "--rounds", "1", *(["--no-browser"] if count == 1 else []), "--out", str(typing), "--json", str(typing / "report.json")], root)
+        code = run_probe(HERE / "automation-typing-bench.py",
+                         ["--app", opts.app, "--agents", str(agents), "--workspace-count", str(count), "--layouts", "light", "--samples", "30",
+                          "--rounds", "1", *(["--no-browser"] if count == 1 else []), "--out", str(typing), "--json", str(typing / "report.json")], root)
+        if code != 0 or not (typing / "report.json").exists():
+            failures.append({"workspaces": count, "probe": "typing", "exit": code,
+                             "report": str(typing / "report.json")})
         reports[count] = {"instant": json.loads((instant / "report.json").read_text()) if (instant / "report.json").exists() else {},
                           "sidebar": json.loads((sidebar / "results.json").read_text()) if (sidebar / "results.json").exists() else {},
-                          "typing": json.loads((typing / "report.json").read_text()) if (typing / "report.json").exists() else {}}
-    return reports
+                          "typing": json.loads((typing / "report.json").read_text()) if (typing / "report.json").exists() else {},
+                          "sidebar_count": sidebar_count}
+        probes = (instant_rows(reports[count]["instant"], count),
+                  sidebar_rows(reports[count]["sidebar"], sidebar_count),
+                  typing_rows(reports[count]["typing"], count))
+        expected = (("new_workspace", "open_pane"), ("sidebar_scroll", "switch"), ("type",))
+        for probe, got, names in zip(("instant", "sidebar", "typing"), probes, expected):
+            missing = [name for name in names if name not in got]
+            if missing:
+                failures.append({"workspaces": count, "probe": probe, "missing": missing})
+    return reports, failures
 
 
 def main():
@@ -185,16 +206,17 @@ def main():
     ap.add_argument("--sidebar-report", action="append", default=[])
     ap.add_argument("--typing-report", action="append", default=[])
     opts = ap.parse_args()
-    reports = {}
+    reports, failures = {}, []
     if opts.app:
-        reports = run_app(opts)
+        reports, failures = run_app(opts)
     else:
         for count, instant, sidebar, typing in zip(COUNTS, opts.instant_report, opts.sidebar_report, opts.typing_report):
             reports[count] = {"instant": json.load(open(instant)), "sidebar": json.load(open(sidebar)),
                               "typing": json.load(open(typing))}
     rows = collect(reports)
     warnings = scaling_warnings(rows)
-    result = {"workspaces": list(COUNTS), "rows": rows, "warnings": warnings, "budget": {"ratio": LIMIT, "advisory": True}}
+    result = {"workspaces": list(COUNTS), "rows": rows, "warnings": warnings, "incomplete": failures,
+              "budget": {"ratio": LIMIT, "advisory": True}}
     pathlib.Path(opts.json).write_text(json.dumps(result, indent=2) + "\n")
     print(json.dumps(result, indent=2))
     for warning in warnings:
