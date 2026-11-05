@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextBridge
+import CmuxNextDesign
 @testable import CmuxNextLayout
 import CmuxNextTestSupport
 import ObjectiveC
@@ -91,16 +92,28 @@ struct PaneMotionPointerAreasTests {
     /// The frames of one key resize (Ctrl-Shift-L on p2) with the terminals at their pane's size in every frame or held
     /// (`motion.frameOwner.terminals` on or off): AppKit invalidates no cursor rects, updates no tracking area and
     /// rebuilds no drag margins in them.
+    /// The rig's layout in the app's window (titled and resizable: a borderless one has no drag margins to rebuild).
+    static func shellWindow(_ rig: PaneGroundCoversPaneTests.Rig) -> ShellWindow {
+        let window = ShellWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.titled, .resizable],
+                                 backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = rig.root
+        rig.root.layoutSubtreeIfNeeded()
+        return window
+    }
+
     @Test(arguments: [false, true])
     func aKeyResizeSpringCostsAppKitNoPointerAreaWork(ownFrames: Bool) throws {
         let rig = PaneGroundCoversPaneTests.Rig(Self.grid, focused: "p2")
         defer { rig.close() }
         defer { PaneGroundCoversPaneTests.releaseFrames() }
         try #require(PaneGroundCoversPaneTests.ownFrames(ownFrames), "motion.frameOwner.terminals did not take \(ownFrames)")
-        rig.window.orderFrontRegardless()
-        try #require(rig.window.isVisible, "the window is not on screen: this test needs a display worker")
+        let window = Self.shellWindow(rig)
+        defer { window.closeAfterTest() }
+        window.orderFrontRegardless()
+        try #require(window.isVisible, "the window is not on screen: this test needs a display worker")
         // At rest first: every view's tracking areas and cursor rects are in place before the press.
-        rig.window.displayIfNeeded()
+        window.displayIfNeeded()
         CATransaction.flush()
         Spy.install()
         defer { Spy.uninstall() }
@@ -110,13 +123,13 @@ struct PaneMotionPointerAreasTests {
         var moving = true
         while moving, frames < 240 {
             moving = rig.frame()
-            rig.window.displayIfNeeded()
+            window.displayIfNeeded()
             CATransaction.flush()
             frames += 1
         }
         let inMotion = Spy.line
         rig.commit()
-        rig.window.displayIfNeeded()
+        window.displayIfNeeded()
         CATransaction.flush()
         print("HPA-COUNT case=pane-motion-pointer-areas own_frames=\(ownFrames) frames=\(frames) motion: \(inMotion) with landing: \(Spy.line)")
         try #require(frames > 3, "the press did not spring (\(frames) frames)")
