@@ -86,3 +86,22 @@ test("a change that re-renders everything still ranks the specific change first"
   ]);
   expect(result.ranked.at(-1)).toMatchObject({ why: "everything", file: "bun.lock" });
 });
+
+test("an asset a component loads with new URL(..., import.meta.url) touches the entries that reach it", () => {
+  // ChiefDock.tsx loads its mascots this way; the import scan used to miss them, so a changed
+  // mascot rendered no entry (review of #36741).
+  const dockFiles: Record<string, string> = {
+    "dock/ChiefDock.tsx": `const fox = new URL("./mascots/Fox.png", import.meta.url).href;`,
+    "dock/mascots/Fox.png": "png",
+    "dock/dock.gallery.ts": `import "../fixtures/acpmux";`,
+    "fixtures/acpmux.ts": "export const chat = 1;",
+  };
+  const dockRead = (file: string) => (file.startsWith(`${SRC}/`) ? dockFiles[file.slice(SRC.length + 1)] : undefined);
+  const result = touchedEntries(
+    [entry("agent-pane.dock", "dock/dock.gallery.ts", ["dock/ChiefDock.tsx"])],
+    ["webviews/src/dock/mascots/Fox.png"],
+    { ...options, read: dockRead, paneStylesheets: () => [] },
+  );
+  expect(result.entries).toEqual(["agent-pane.dock"]);
+  expect(result.ranked[0]).toMatchObject({ why: "imports", distance: 1 });
+});

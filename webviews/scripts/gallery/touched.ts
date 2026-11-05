@@ -40,7 +40,8 @@ const EVERYTHING = [
 ];
 
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".js", ".mjs", ".css"];
-const IMPORT = /(?:\bfrom\s*|\bimport\s*\(?\s*)["']([^"']+)["']/g;
+// `new URL("./x.png", import.meta.url)` loads an asset as surely as an import does (ChiefDock's mascots).
+const IMPORT = /(?:\bfrom\s*|\bimport\s*\(?\s*|\bnew\s+URL\s*\(\s*)["']([^"']+)["']/g;
 
 /** Why an entry is in the sample, closest first (the tier is the index here). */
 export const RANK_REASONS = ["own", "names", "imports", "same-folder", "host-stylesheet", "everything"] as const;
