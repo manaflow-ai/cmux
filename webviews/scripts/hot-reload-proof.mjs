@@ -127,33 +127,6 @@ try {
   await page.screenshot({ path: path.join(out, "after-edits.png") });
   const live = { results, turnFinished, reloads: loads - loadsBefore, ...(await state()) };
 
-  let auditRows = [];
-  if (audit) {
-    await restore();
-    // Every pane component module the page loaded; touching one sends Vite's update for it.
-    const loaded = [...server.moduleGraph.idToModuleMap.keys()]
-      .filter((id) => id.startsWith(path.join(webviews, pane)) && /\.tsx$/.test(id) && !/\.(test|gallery)\./.test(id))
-      .sort();
-    for (const id of loaded) {
-      const file = path.relative(webviews, id);
-      await page.evaluate(() => (window.__hotReloadProbe = "same page"));
-      const before = loads;
-      const original = await fs.readFile(id, "utf8");
-      await write(file, `${original}\n// hot-reload probe\n`);
-      // Vite answers a save within a second; wait for a reload or two quiet seconds.
-      await page.waitForEvent("load", { timeout: 2_000 }).catch(() => {});
-      await restore();
-      const reloaded = loads > before || !(await page.evaluate(() => window.__hotReloadProbe === "same page").catch(() => false));
-      auditRows.push({ file, hot: !reloaded });
-      if (reloaded) {
-        await page.locator(".ProseMirror").first().waitFor({ timeout: 60_000 });
-        await page.waitForEvent("load", { timeout: 2_000 }).catch(() => {});
-      }
-    }
-  }
-
-  const report = { port, live, audit: auditRows, pageErrors: errors, vite };
-  await fs.writeFile(path.join(out, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
   for (const row of results)
     console.log(
       `${row.probe} (${row.file}): ${row.shown ? `shown in ${row.ms} ms` : "never shown"}, ` +
@@ -161,11 +134,48 @@ try {
         (row.vite.length ? `\n    ${row.vite.join("\n    ")}` : ""),
     );
   console.log(`streaming turn finished after the edits: ${turnFinished}; page reloads: ${live.reloads}`);
+
+  const auditRows = [];
   if (audit) {
+    // Runs `fn` in the page, again after any reload that lands meanwhile.
+    const inPage = async (fn) => {
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          return await page.evaluate(fn);
+        } catch (error) {
+          if (attempt === 3) throw error;
+          await page.waitForLoadState("load");
+        }
+      }
+    };
+    // Wait for a reload or two quiet seconds: Vite answers a save within a second.
+    const settle = () => page.waitForEvent("load", { timeout: 2_000 }).catch(() => {});
+    await restore();
+    await settle();
+    // Every pane component module the page loaded; touching one sends Vite's update for it.
+    const loaded = [...server.moduleGraph.idToModuleMap.keys()]
+      .filter((id) => id.startsWith(path.join(webviews, pane)) && /\.tsx$/.test(id) && !/\.(test|gallery)\./.test(id))
+      .sort();
+    for (const id of loaded) {
+      const file = path.relative(webviews, id);
+      await page.locator(".ProseMirror").first().waitFor({ timeout: 60_000 });
+      await inPage(() => (window.__hotReloadProbe = "same page"));
+      const before = loads;
+      const original = await fs.readFile(id, "utf8");
+      await write(file, `${original}\n// hot-reload probe\n`);
+      await settle();
+      const reloaded = loads > before || (await inPage(() => window.__hotReloadProbe !== "same page"));
+      auditRows.push({ file, hot: !reloaded });
+      await restore();
+      await settle();
+    }
     const hot = auditRows.filter((row) => row.hot);
     console.log(`audit: ${hot.length} of ${auditRows.length} loaded pane components hot-swap in place`);
     for (const row of auditRows.filter((row) => !row.hot)) console.log(`  reloads the page: ${row.file}`);
   }
+
+  const report = { port, live, audit: auditRows, pageErrors: errors, vite };
+  await fs.writeFile(path.join(out, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
   console.log(out);
   const ok = results.every((row) => row.shown && row.samePage && row.draftKept && row.transcriptKept) && turnFinished;
   process.exitCode = ok ? 0 : 1;
