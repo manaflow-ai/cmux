@@ -23,6 +23,13 @@ What an agent does with `scripts/cmux-next/live-apply.py`, with no full build an
      roll back, and the first nonce must show again.
   6. The app is the same process throughout (pid and start time), and still answers.
 
+Then the same loop runs again on a second fresh launch (case `settings-first`, OUT/settings-first/):
+the base overlay is installed but switched off (web-dev.json `"enabled": false`), so Settings opens
+in Chromium on the bundled files, and the apply turns the overlay on under the open page. A
+Chromium that cannot serve the live loop must move the page to WebKit at once
+(WebDevOverrideWatcher.reloadPages, PageWebView+LiveOverride.swift). The case counts toward the pass
+once the app's tree has that file; on an older app it runs and is reported, `required: false`.
+
 The probe reads the real app: `errors.list` (a Release method) collects the page's console output
 from the app's own log, so the nonce there means the new bundle's code ran in that page. A
 screenshot read with Vision (--ocr, scripts/e2e/ocr.swift) also looks for the banner on screen;
@@ -52,6 +59,8 @@ import fresh_home_launch_smoke as smoke  # noqa: E402
 
 ENTRY = "webviews/src/pages/settings/main.tsx"
 MARK = "cmux-live-apply"
+# In an app's tree once open Chromium pages move to WebKit when the live loop turns on.
+REPICK = "Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageWebView+LiveOverride.swift"
 
 
 def rpc(sock_path, method, params=None, timeout=30.0):
@@ -123,10 +132,11 @@ def snippet(word: str) -> str:
 
 
 class Loop:
-    def __init__(self, opts):
+    def __init__(self, opts, case: str = "overlay-first"):
         self.opts = opts
+        self.case = case
         self.tree = Path(opts.tree).resolve()
-        self.result = {"schema": "cmux.agent-loop/1", "pass": False, "failures": [], "steps": []}
+        self.result = {"schema": "cmux.agent-loop/1", "case": case, "pass": False, "failures": [], "steps": []}
         self.base_overlay = {"exit": None, "seconds": None}
         self.work = None
 
@@ -149,6 +159,9 @@ class Loop:
             built = subprocess.run([str(self.tree / "scripts/cmux-next/web-overlay.sh"), "build"],
                                    env=dict(os.environ, **self.overlay_env), stdout=log, stderr=log, timeout=900)
         self.base_overlay = {"exit": built.returncode, "seconds": round(time.monotonic() - t, 2)}
+        if self.case == "settings-first":
+            # Installed but off: the first page opens on its bundled files; the apply turns it on.
+            (config.parent / "web-dev.json").write_text(json.dumps({"overlay": str(overlay), "enabled": False}) + "\n")
         smoke.log(f"agent-loop base overlay: exit {built.returncode} in {self.base_overlay['seconds']}s")
 
     def step(self, name: str, ok: bool, **detail) -> bool:
@@ -268,7 +281,32 @@ def main(argv: list[str] | None = None) -> int:
     opts = parser.parse_args(argv)
     out = Path(opts.out)
     out.mkdir(parents=True, exist_ok=True)
-    loop = Loop(opts)
+    started = time.time()
+    result, code = run_case(opts, "overlay-first", out)
+    if code == smoke.CANNOT_RUN:
+        (out / "result.json").write_text(json.dumps(result, indent=2) + "\n")
+        print("AGENT-LOOP " + json.dumps({k: result.get(k) for k in ("pass", "failures")}))
+        return 3
+    # Settings open before the overlay: required once the app's tree moves open Chromium pages.
+    later, later_code = run_case(opts, "settings-first", out / "settings-first")
+    later["required"] = (Path(opts.tree) / REPICK).exists()
+    result["settings_first"] = {k: later.get(k) for k in ("pass", "required", "seconds", "rolled_back", "failures",
+                                                          "smoke_exit")}
+    if later["required"] and not later["pass"]:
+        result["failures"].append("settings-first: " + ", ".join(later["failures"] or ["failed"]))
+    result["total_s"] = round(time.time() - started, 2)
+    result["pass"] = code == 0 and not result["failures"]
+    (out / "result.json").write_text(json.dumps(result, indent=2) + "\n")
+    print("AGENT-LOOP " + json.dumps({k: result.get(k) for k in ("pass", "rung", "applied", "probe", "seconds",
+                                                                  "rolled_back", "edit_to_probe_s", "on_screen", "failures",
+                                                                  "settings_first")}))
+    return 0 if result["pass"] else 1
+
+
+def run_case(opts, case: str, out: Path) -> tuple[dict, int]:
+    """One fresh launch running the loop as CASE, its files in OUT: (result, the launch smoke's exit)."""
+    out.mkdir(parents=True, exist_ok=True)
+    loop = Loop(argparse.Namespace(**{**vars(opts), "out": str(out)}), case)
     loop.ocr = Path(opts.ocr) if opts.ocr else None
     smoke.PREPARE_HOME = loop.prepare
     smoke.AFTER_RENDER = loop
@@ -282,12 +320,7 @@ def main(argv: list[str] | None = None) -> int:
         result["failures"].append(f"launch smoke exit {code}")
     result["pass"] = code == 0 and not result["failures"]
     (out / "result.json").write_text(json.dumps(result, indent=2) + "\n")
-    print("AGENT-LOOP " + json.dumps({k: result.get(k) for k in ("pass", "rung", "applied", "probe", "seconds",
-                                                                  "rolled_back", "edit_to_probe_s", "on_screen", "failures")}))
-    if code == smoke.CANNOT_RUN:
-        return 3
-    return 0 if result["pass"] else 1
-
+    return result, code
 
 if __name__ == "__main__":
     sys.exit(main())
