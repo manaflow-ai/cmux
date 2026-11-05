@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery fixtures (sample prompts and image names), not shipped UI.
 // The images a sent prompt carries, above its bubble (UserBubble.tsx SentImages): each a rounded
-// thumbnail cropped to fill a fixed height, its slot held while acpmux reads it, named on hover by
+// thumbnail of the whole image at most 120px tall, its slot held while acpmux reads it, named on hover by
 // its file name or, for a pasted screenshot, its size; one that cannot be drawn says so.
 import { useEffect, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
@@ -115,8 +115,14 @@ export default componentEntry<Props>({
   load: async () => GallerySentImages,
   variants: {
     pasted: {
-      note: "Three pasted screenshots (square, wide, tall): each fills a fixed-height rounded thumbnail; hover names its size.",
+      note: "Three pasted screenshots (square, wide, tall): each the whole image at most 120px tall; hover names its size.",
       props: { images: pasted },
+    },
+    "wide-strip": {
+      note: "A strip cut from a chat (1568×74, Leo's 2026-11-05 capture): the whole strip at 320px wide, never a magnified crop of its middle.",
+      props: {
+        images: [{ id: "w", mimeType: "image/png", name: "image.png", shot: { width: 1568, height: 74, hue: 250 } }],
+      },
     },
     named: {
       note: "Dropped files keep their names on hover.",

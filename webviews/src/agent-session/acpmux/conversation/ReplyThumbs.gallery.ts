@@ -53,11 +53,7 @@ const host: ChipHostFixture = {
 
 const reply = (lines: string[]) =>
   chat(
-    [
-      user("what's up with this tool call?", 6),
-      assistant(lines.join("\n"), 5),
-      summary(5, { status: "completed" }),
-    ],
+    [user("what's up with this tool call?", 6), assistant(lines.join("\n"), 5), summary(5, { status: "completed" })],
     { title: "Tool call in the transcript" },
   );
 
