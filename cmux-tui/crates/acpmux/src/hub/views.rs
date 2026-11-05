@@ -530,7 +530,8 @@ impl Hub {
                     // Another agent's message the person's Stop holds (`cancel.rs`): it waits for
                     // their next completed turn or a resume, not for the turn to end.
                     held_by_stop: q.held
-                        && q.goes_in_by_itself()
+                        && (q.run.agent.is_some()
+                            || super::inbox::is_notice(q.run.provenance.as_ref()))
                         && session.stop_hold.load(Ordering::SeqCst) != 0,
                     from_agent: q.run.agent.clone(),
                     // The sending session and its harness, as the daemon bound them.
