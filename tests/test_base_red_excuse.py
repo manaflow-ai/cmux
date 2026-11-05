@@ -2947,6 +2947,8 @@ class WsCheckGitHub:
     def __init__(self):
         self.statuses, self.runs, self.jobs, self.logs, self.routes = {}, {}, {}, {}, []
         self.base_commits = [self.TIP, self.OLDER, self.MERGE_BASE]
+        # Paths each diff changes: the PR's (main...HEAD) and the base's from the merge-base to OLDER (a fix).
+        self.pr_files, self.fix_files, self.fix_status = ["tools/guards.py"], ["tools/test_lane_place.py"], "ahead"
 
     def verdict(self, sha, run_id, red, *, state="failure", steps=77, description=None, at="2026-11-05T04:44:24Z"):
         """SHA's ws-check: STATE, run RUN_ID, its red steps RED ({step: [printed lines]})."""
@@ -2985,8 +2987,12 @@ class WsCheckGitHub:
                 return [{"jobs": copy.deepcopy(self.jobs[run_id])}]
         if route == f"repos/{self.REPO}/commits?sha=main&per_page={excuse.WS_CHECK_COMMITS}":
             return [{"sha": sha} for sha in self.base_commits]
+        if route == f"repos/{self.REPO}/compare/main...{HEAD}":
+            return {"merge_base_commit": {"sha": self.MERGE_BASE}, "files": [{"filename": f} for f in self.pr_files]}
         if route.startswith(f"repos/{self.REPO}/compare/main...{HEAD}"):
             return {"merge_base_commit": {"sha": self.MERGE_BASE}}
+        if route == f"repos/{self.REPO}/compare/{self.MERGE_BASE}...{self.OLDER}":
+            return {"status": self.fix_status, "files": [{"filename": f} for f in self.fix_files]}
         if route.startswith(f"repos/{self.REPO}/compare/{self.MERGE_BASE}..."):
             return {"status": "ahead"}
         raise AssertionError(f"unexpected route {route}")
@@ -3202,6 +3208,7 @@ class WsCheckPerTest(unittest.TestCase):
 
     def test_a_failure_the_merge_base_shares_is_excused_when_main_is_red(self):
         self.merge_base_case({self.DEPLOY: self.ws_deploy("test_lane_place")})
+        self.gh.base_commits = [self.gh.TIP]  # no pass between: the list ends before the merge-base
         audit = self.judge(checks=["ws-check"])
         self.assertIn(f"at this PR's merge-base {self.gh.MERGE_BASE[:12]}", audit[0])
         self.assertIn(f"excused 'ws-check' test '{self.DEPLOY} :: test_lane_place (__main__.FastForward.test_lane_place)'"
@@ -3228,6 +3235,22 @@ class WsCheckPerTest(unittest.TestCase):
             self.judge()
         self.merge_base_case({self.DEPLOY: self.ws_deploy("test_lane_place") + ["Segmentation fault (core dumped)"]})
         with self.assertRaisesRegex(excuse.Refused, "a crash is never a base red"):
+            self.judge()
+
+    def test_a_merge_base_red_past_a_base_pass_needs_the_pr_to_leave_the_fix_alone(self):
+        # LW#3538: main passed at 209e7eb6 (#3524's fix) after the merge-base 187b3ca3, then went red on another step.
+        self.merge_base_case({self.DEPLOY: self.ws_deploy("test_lane_place")})
+        audit = "\n".join(self.judge())
+        self.assertIn(f"(fixed on main at {self.gh.OLDER[:12]} after it; this PR changes none of that fix's paths)",
+                      audit)
+        self.gh.pr_files = ["tools/guards.py", "tools/test_lane_place.py"]
+        with self.assertRaisesRegex(excuse.Refused, "this PR changes what that fix changed: tools/test_lane_place.py"):
+            self.judge()
+        self.gh.pr_files = [f"f{n}" for n in range(excuse.COMPARE_FILES_CAP)]
+        with self.assertRaisesRegex(excuse.Refused, "too many or none"):
+            self.judge()
+        self.gh.pr_files, self.gh.fix_status = ["tools/guards.py"], "diverged"
+        with self.assertRaisesRegex(excuse.Refused, "compares them as 'diverged'"):
             self.judge()
 
     def test_main_green_still_refuses_though_the_merge_base_shares_the_failure(self):
