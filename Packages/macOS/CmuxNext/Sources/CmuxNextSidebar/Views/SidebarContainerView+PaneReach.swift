@@ -70,7 +70,11 @@ extension SidebarContainerView {
     /// `animated`: the clip's edge rides the width motion's progress (`startWidthMotion`), else it lands now.
     func setClipReach(_ reach: CGFloat, collapsed: Bool, animated: Bool) {
         let (edge, target) = clipReachEdge(reach, collapsed: collapsed)
-        if !animated { edge.constant = target }
+        guard !animated else { return }
+        edge.constant = target
+        // A slide under way rides the edge on screen now (a side or style switch moved it, or the reach changed):
+        // its next frames write this edge at this reach, never the one it started on.
+        if widthLeg != nil { widthLeg?.reach = (target, target); widthLeg?.edge = edge }
     }
 
     /// The clip constraint that reaches into the gutter on this side, and its constant for `reach`; the other edge's
