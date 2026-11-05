@@ -24,7 +24,8 @@ import { Spinner } from "../conversation/icons";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
-import { SUBAGENTS } from "../subagents/subagentFold";
+import { SUBAGENTS, type Subagent } from "../subagents/subagentFold";
+import { SubagentResultHeader } from "../subagents/SubagentResultHeader";
 
 /// Rows mounted at first, and how many more each scroll to the top adds.
 export const WINDOW = 60;
@@ -76,12 +77,15 @@ export function windowRange(rows: readonly AcpmuxRow[], anchor?: string): Range 
 export function SubagentTranscript({
   rows,
   running,
+  agent,
   anchor,
   onLoadOlder,
   notice,
 }: {
   rows: readonly AcpmuxRow[];
   running: boolean;
+  /// The subagent metadata used for the result-first head.
+  agent?: Subagent;
   /// The row of the task that was opened: the transcript opens on it.
   anchor?: string;
   /// Set while older history can be read (a workflow agent's transcript): reaching the top reads it.
@@ -216,26 +220,29 @@ export function SubagentTranscript({
   }, [first, last, rows.length, loadOlder]);
 
   return (
-    <div
-      ref={scroller}
-      className="acpmux-bg__transcript"
-      onScroll={(event) => {
-        const view = event.currentTarget;
-        atBottom.current = view.scrollHeight - view.scrollTop - view.clientHeight <= BOTTOM_SLACK;
-      }}
-    >
-      {notice && <p className="acpmux-bg__notice">{notice}</p>}
-      {(first > 0 || loadOlder) && <div ref={top} className="acpmux-bg__sentinel" aria-hidden="true" />}
-      {shown.map((row) => (
-        <TranscriptRow key={row.id} row={row} version={row.version} />
-      ))}
-      {last !== undefined && <div ref={bottom} className="acpmux-bg__sentinel" aria-hidden="true" />}
-      {running && last === undefined && (
-        <div className="acpmux-bg__working">
-          <Spinner size={14} loading />
-        </div>
-      )}
-    </div>
+    <>
+      {agent && <SubagentResultHeader agent={agent} />}
+      <div
+        ref={scroller}
+        className="acpmux-bg__transcript"
+        onScroll={(event) => {
+          const view = event.currentTarget;
+          atBottom.current = view.scrollHeight - view.scrollTop - view.clientHeight <= BOTTOM_SLACK;
+        }}
+      >
+        {notice && <p className="acpmux-bg__notice">{notice}</p>}
+        {(first > 0 || loadOlder) && <div ref={top} className="acpmux-bg__sentinel" aria-hidden="true" />}
+        {shown.map((row) => (
+          <TranscriptRow key={row.id} row={row} version={row.version} />
+        ))}
+        {last !== undefined && <div ref={bottom} className="acpmux-bg__sentinel" aria-hidden="true" />}
+        {running && last === undefined && (
+          <div className="acpmux-bg__working">
+            <Spinner size={14} loading />
+          </div>
+        )}
+      </div>
+    </>
   );
 }
 

@@ -5,7 +5,11 @@
 import { expect, test } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
-import { anyUnderHeader, runsUnderTabRow, type UnderHeaderLines } from "../src/agent-session/acpmux/header/underHeader";
+import {
+  anyUnderHeader,
+  runsUnderTabRow,
+  type UnderHeaderLines,
+} from "../src/agent-session/acpmux/header/underHeader";
 
 const none: UnderHeaderLines = {
   checkpointReview: false,
@@ -14,6 +18,7 @@ const none: UnderHeaderLines = {
   unavailable: false,
   watching: false,
   handoffError: false,
+  resultHead: false,
 };
 
 test("the transcript runs under a solo row only when no line sits under the header", () => {
@@ -27,7 +32,10 @@ test("the transcript runs under a solo row only when no line sits under the head
 });
 
 test("App.tsx gates every line under the header by the record the transcript reads", () => {
-  const app = fs.readFileSync(path.resolve(import.meta.dir, "../src/agent-session/acpmux/App.tsx"), "utf8");
+  const app = fs.readFileSync(
+    path.resolve(import.meta.dir, "../src/agent-session/acpmux/App.tsx"),
+    "utf8",
+  );
   expect(app).toContain("const soloUnder = runsUnderTabRow(soloTab, underHeader);");
   expect(app).toContain("checkpointReview: checkpoints.review != null,");
   // The stage's lines between the header and the chat body.
@@ -42,7 +50,9 @@ test("App.tsx gates every line under the header by the record the transcript rea
     "!quick && !showNewTab && snapshot.sessionId && <PaneFeatureTips",
     "!sessionInfo.on && !summaryCard.column && summaryPanel",
   ];
-  const conditionals = [...between.matchAll(/^ {16}\{(?!\/\*)([^\n]*)/gm)].map((match) => match[1]!);
+  const conditionals = [...between.matchAll(/^ {16}\{(?!\/\*)([^\n]*)/gm)].map(
+    (match) => match[1]!,
+  );
   expect(conditionals.length).toBeGreaterThan(5);
   for (const line of conditionals) {
     if (floating.some((prefix) => line.startsWith(prefix))) continue;
