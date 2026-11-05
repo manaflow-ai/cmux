@@ -876,12 +876,13 @@ final class CmuxTuiSurfaceProviderRegistry {
     ) {
         // Reading again cannot help until the user signs in.
         let canReconnect = reason != .signedOut && reason != .signInRevoked
+        let reconnect: @MainActor () -> Void = { [weak self] in
+            Task { @MainActor [weak self] in _ = await self?.refresh(force: true) }
+        }
         catalog?.showRestoredMachineUnavailable(
             .cloud(machineID),
             detail: reason.endedPresentation?.detail ?? "",
-            retry: canReconnect ? { [weak self] in
-                Task { @MainActor [weak self] in _ = await self?.refresh(force: true) }
-            } : nil
+            retry: canReconnect ? reconnect : nil
         )
     }
 
