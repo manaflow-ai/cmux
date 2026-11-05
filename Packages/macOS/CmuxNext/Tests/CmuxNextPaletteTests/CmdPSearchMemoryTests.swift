@@ -85,7 +85,7 @@ struct CmdPSearchMemoryTests {
 
         #expect(await Self.search(palette, registry, "api").first == "workspace:client")
         #expect(await Self.search(palette, registry, "ap").first == "workspace:client")
-        // Another query start has no pick: the sidebar order stands, with the used row lifted by frecency.
+        // A query the pick does not start finds its own rows.
         #expect(await Self.search(palette, registry, "worker") == ["workspace:worker"])
     }
 
