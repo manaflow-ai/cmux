@@ -555,7 +555,8 @@ pub(super) fn run_action(
                 // with an optional `true`/`false` after it; the run's own focus follows it.
                 let mut value = true;
                 if super::action_hint::action_takes_argument(action, "focus") {
-                    if let Some(word @ ("true" | "false")) = args.get(index + 1).map(String::as_str) {
+                    if let Some(word @ ("true" | "false")) = args.get(index + 1).map(String::as_str)
+                    {
                         value = word == "true";
                         index += 1;
                     }
