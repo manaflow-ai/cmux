@@ -188,7 +188,11 @@ def run_app(opts):
         probes = (instant_rows(reports[count]["instant"], count),
                   sidebar_rows(reports[count]["sidebar"], sidebar_count),
                   typing_rows(reports[count]["typing"], count))
-        expected = (("new_workspace", "open_pane"), ("sidebar_scroll", "switch"), ("type",))
+        # A one-workspace sidebar has only the startup row, so a workspace-to-workspace switch is
+        # undefined there. Keep the scroll baseline at 1 and begin switch scaling at 100, where the
+        # same probe has two or more visible workspace rows.
+        sidebar_expected = ("sidebar_scroll", "switch") if count > 1 else ("sidebar_scroll",)
+        expected = (("new_workspace", "open_pane"), sidebar_expected, ("type",))
         for probe, got, names in zip(("instant", "sidebar", "typing"), probes, expected):
             missing = [name for name in names if name not in got]
             if missing:
