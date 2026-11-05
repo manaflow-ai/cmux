@@ -59,7 +59,8 @@ class Proxy:
     """A TCP proxy on 127.0.0.1:port to the dev server, logging each HTTP request line with its monotonic time.
     Raw bytes pass both ways, so Vite's HMR WebSocket works through it."""
 
-    LINE = re.compile(rb"(?:^|\r\n)(GET|HEAD|POST) (\S+) HTTP/1\.[01]\r\n")
+    # A request line, at the end of a CRLF-terminated line: body bytes of an earlier request may come before it.
+    LINE = re.compile(rb"(GET|HEAD|POST) (\S+) HTTP/1\.[01]$")
 
     def __init__(self, port: int, upstream: int):
         self.port, self.upstream = port, upstream
@@ -88,12 +89,16 @@ class Proxy:
             return
 
         async def pipe(src, dst, record):
+            pending = b""  # the unfinished last line, carried to the next read
             try:
                 while data := await src.read(65536):
                     if record:
-                        for match in self.LINE.finditer(data):
-                            with self.lock:
-                                self.requests.append((time.monotonic(), match.group(2).decode("latin-1")))
+                        *lines, pending = (pending + data).split(b"\r\n")
+                        pending = pending[-8192:]  # bounded, so a body or WebSocket frames never grow it
+                        for line in lines:
+                            if match := self.LINE.search(line):
+                                with self.lock:
+                                    self.requests.append((time.monotonic(), match.group(2).decode("latin-1")))
                     dst.write(data)
                     await dst.drain()
             except (ConnectionError, OSError):

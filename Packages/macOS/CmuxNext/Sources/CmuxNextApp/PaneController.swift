@@ -460,11 +460,11 @@ final class PaneController: SurfacePresenter, PresentablePane {
         DebugTabSwitch.mark(self, "stripSync")
         BenchSpans.measure("switch.view") { _ = view.show(content?.view) }
         DebugTabSwitch.mark(self, "view")
-        // Terminals come in on their first frame (`LaunchSettle`), or at once with their frame from the last
-        // quit or kill (`TerminalLaunchFrames`, which takes over one shown ahead and keeps it on disk); other content is ready once shown.
+        // Terminals come in on their first frame (`LaunchSettle`), or at once with their frame from the last quit or kill (`TerminalLaunchFrames`, which takes over one
+        // shown ahead and keeps it on disk); other content is ready once shown, and so is a pane with nothing selected: nothing is coming to it (#36274).
         if case .terminal(let terminal) = content, let key { launchFrames.show(key, on: terminal.session, in: view.contentHost); launchFrames.keep(key, session: terminal.session, work: services.work) } else { launchFrames.withdrawAhead(in: view.contentHost) }
-        if let content, !content.isTerminal {
-            LaunchReveal.shared.markReady(.pane)
+        if key == nil { services.launchReveal.markReady(.pane) } else if let content, !content.isTerminal {
+            services.launchReveal.markReady(.pane)
             // The page may have attached while the pane was alpha-held for launch. AppKit's
             // alpha transition does not reach Chromium's separate child window.
             view.refreshChromiumVisibility()

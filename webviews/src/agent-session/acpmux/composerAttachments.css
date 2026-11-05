@@ -570,7 +570,7 @@
 /* A text attachment (a huge paste, pastedText.ts, or a text file) as a small page of its text, as
    Claude and ChatGPT draw a long paste (composer/TextAttachmentCard.tsx): its first lines in 11 px
    monospace, left-aligned from the top, fading out over the bottom, with one quiet label under them
-   ("Pasted text · 25 lines"). The strip's card is the thumbnails' 64 px tall; the prompt's inline
+   ("Pasted text · 25 lines · 1.2K characters"). The strip's card is the thumbnails' 64 px tall; the prompt's inline
    one (markdownField.css) is 48. A pasted card is a button that puts the text back in the prompt;
    × removes it. Leo, 2026-11-01: "bro this is a TERRIBLE text preview we need to do better for
    these text type attachments' previews". Gallery: agent-pane.text-attachment-card. */
@@ -580,6 +580,10 @@
   max-width: 70vw;
   height: var(--acpmux-attach-height);
   overflow: hidden;
+}
+/* A paste's card is wider than a file's: its lines wrap, and its label carries its size. */
+.acpmux-attachment-pasted:not([data-text-kind="file"]) {
+  width: 256px;
 }
 .acpmux-attachment-pasted-open {
   flex: 1;
@@ -628,6 +632,15 @@ button.acpmux-attachment-pasted-open:hover {
      overlay, so the chip's own fill and hover show through. */
   -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 13px), transparent);
   mask-image: linear-gradient(to bottom, #000 calc(100% - 13px), transparent);
+}
+/* A paste's card wraps in the composer's own font (TextAttachmentCard `wrap`): one long paragraph
+   fills its lines instead of its first five words cut at the edge (Leo, 2026-11-05: "you're
+   previewing one, two, three, four, five words out of a multi-hundred-word pasted text bit"). A
+   file's card keeps its lines unwrapped in monospace, as code reads. */
+.acpmux-text-card__lines[data-wrap] {
+  font-family: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .acpmux-text-card__label {
   flex: none;
