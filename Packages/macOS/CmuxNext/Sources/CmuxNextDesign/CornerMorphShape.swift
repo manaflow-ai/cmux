@@ -63,12 +63,14 @@ public extension CornerMorph {
         let path = CGMutablePath()
         path.addPath(CGPath(roundedRect: body, cornerWidth: r, cornerHeight: r, transform: nil))
         let f = min(fillet, abs(edgeX - farX) - r)
-        if f >= 0.5 {
-            // An end strictly inside the card's straight edge (clear of its corners) gets a fillet; one level
-            // with the card's top or bottom merges with that edge instead.
-            if minY - f >= card.minY + corner - 0.5, minY > card.minY + 0.5 { Self.addFillet(to: path, edgeX: edgeX, y: minY, towardCard: leading, away: -1, f: f) }
-            if maxY + f <= card.maxY - corner + 0.5, maxY < card.maxY - 0.5 { Self.addFillet(to: path, edgeX: edgeX, y: maxY, towardCard: leading, away: 1, f: f) }
-        }
+        // An end level with the card's top or bottom merges with that edge; any other end needs room on the card's
+        // straight edge for its fillet, or the join is left out (the card's own corner would show a notch).
+        let lowLevel = minY <= card.minY + 0.5, highLevel = maxY >= card.maxY - 0.5
+        let lowFits = f >= 0.5 && minY - f >= card.minY + corner - 0.5
+        let highFits = f >= 0.5 && maxY + f <= card.maxY - corner + 0.5
+        guard lowLevel || lowFits, highLevel || highFits else { return nil }
+        if !lowLevel { Self.addFillet(to: path, edgeX: edgeX, y: minY, towardCard: leading, away: -1, f: f) }
+        if !highLevel { Self.addFillet(to: path, edgeX: edgeX, y: maxY, towardCard: leading, away: 1, f: f) }
         return path
     }
 
@@ -123,8 +125,11 @@ public nonisolated enum CornerMorphVariant: String, Sendable, CaseIterable, Hash
 
     /// What the window's main pane observation follows for the morph: the variant and the sidebar density that gates it.
     @MainActor public static var observedInputs: [CGFloat] {
-        [CGFloat(allCases.firstIndex(of: tunable.value) ?? 0),
-         CGFloat(SidebarDensity.allCases.firstIndex(of: DesignSettings.shared.sidebarSections.density) ?? 0)]
+        // Off reads nothing more than the variant, so the plain card's observation is as before.
+        let variant = tunable.value
+        guard variant != .off else { return [0] }
+        return [CGFloat(allCases.firstIndex(of: variant) ?? 0),
+                CGFloat(SidebarDensity.allCases.firstIndex(of: DesignSettings.shared.sidebarSections.density) ?? 0)]
     }
 
     /// The shade under a morph: the shared surface's (0 by default, one color for sidebar and card) would leave

@@ -42,4 +42,11 @@ struct CornerMorphShapeTests {
         let path = CornerMorph(row: row, rowRadius: 9, fillet: 9).surface(card: card, radius: 10)
         #expect(!path.contains(CGPoint(x: 100, y: 530)))
     }
+
+    @Test func rowTooNearTheCardCornerJoinsNothing() {
+        // Its top end lands 8 pt under the card's top: no room for a fillet beside the 10 pt corner.
+        let row = CGRect(x: 8, y: 470, width: 184, height: 28)
+        let path = CornerMorph(row: row, rowRadius: 9, fillet: 9).surface(card: card, radius: 10)
+        #expect(!path.contains(CGPoint(x: 100, y: 484)))
+    }
 }
