@@ -51,4 +51,6 @@ EOF
 codesign --force --sign - --identifier ai.manaflow.cmux-screen-eval-launcher "$work/$name.app"
 mkdir -p "$home/Applications"
 mv "$work/$name.app" "$app"
+# LaunchServices may still hold the record of a refused copy at this path: register this one.
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$app" >/dev/null 2>&1 || true
 echo "$app"
